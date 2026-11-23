@@ -16,9 +16,19 @@ Port of package 033h-k. `docs/privacy.md` is the contract.
   rolled-back block; executing needs `ERASE <id>`; a customer hold or a
   093 recording hold blocks it. Cases and all filed to them, the case
   group, consent and audit are retained (owner's decision); the contact
-  row is anonymised, opt-out kept. Calls inline 093's match
+  row is anonymised; its opt-out stays on that row only (a re-imported
+  number starts with none). Calls inline 093's match
   (`pbx_erase_contact_calls` needs `auth.uid()`): change both. Files are
   deleted by the route after the commit (`erase-objects.ts`).
+- **Files (262).** `privacy_objects_unreferenced` runs after the erase's
+  deletes and before every retry: only `account-<id>/` paths, nothing a
+  remaining row points at. A new table or JSON column holding a
+  chat-media URL or path joins its `urls` / `texts` list. The list is in
+  `privacy_requests.detail.objects_list`; `retryErasedObjects` (daily,
+  `runRetentionSweeps`) finishes it. 262 restates 222's erase, 223's
+  problem and sweep, and 225's claim: apply in order, once.
+- **Holds (262).** Sweep matching mirrors 222's call match; `contacts`
+  DELETE is refused (HINT `LEGAL_HOLD`) only under an active hold.
 - **Retention** (`privacy_retention_sweep`, daily from the automations
   cron): allow-list `privacy_retention_rules()` = `RETENTION_RULES`
   (`retention.test.ts` compares); no retained table may join it. Dry

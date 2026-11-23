@@ -6,6 +6,8 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+import { retryErasedObjects } from './erase-objects';
+
 export type RetentionAction = 'delete' | 'anonymise';
 
 export const RETENTION_RULES: Readonly<
@@ -73,6 +75,7 @@ export function retentionProblem(policy: unknown): string | null {
  * Never throws; logs counts only (no customer data).
  */
 export async function runRetentionSweeps(db: SupabaseClient): Promise<void> {
+  await retryErasedObjects(db);
   const { data, error } = await db.rpc('privacy_retention_accounts');
   if (error) {
     console.error(

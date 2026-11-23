@@ -14,17 +14,34 @@ export interface RemoveStorage {
   };
 }
 
-/** The (bucket, path) of a stored object, or null for a URL that is not ours. */
+const CASE_FILE_PATH = /^(cases|intake)\/[0-9a-f-]{36}\/[^/]+$/;
+
+/**
+ * The (bucket, path) of a stored object, or null for one that is not this
+ * account's: a gateway link, or a path outside `account-<id>/` (262). The
+ * SQL confines the list too; this is checked on its own because the remove
+ * runs on the service role. Outside chat-media `<id>/` is accepted as well,
+ * and case-files paths carry no account (`cases/<case id>/…`,
+ * `intake/<item id>/…`): the SQL refuses another workspace's.
+ */
 export function objectPath(
+  accountId: string,
   o: StoredObject
 ): { bucket: string; path: string } | null {
-  if ('path' in o) return o.path ? { bucket: o.bucket, path: o.path } : null;
-  const path = chatMediaObjectPath(o.url);
-  return path ? { bucket: 'chat-media', path } : null;
+  const path = 'path' in o ? o.path : chatMediaObjectPath(o.url);
+  if (!path || !accountId) return null;
+  if (path.split('/').some((s) => s === '' || s === '.' || s === '..'))
+    return null;
+  const ours =
+    path.startsWith(`account-${accountId}/`) ||
+    (o.bucket !== 'chat-media' && path.startsWith(`${accountId}/`)) ||
+    (o.bucket === 'case-files' && CASE_FILE_PATH.test(path));
+  return ours ? { bucket: o.bucket, path } : null;
 }
 
 export async function deleteErasedObjects(
   storage: RemoveStorage,
+  accountId: string,
   objects: readonly StoredObject[]
 ): Promise<{ deleted: number; remaining: StoredObject[]; skipped: number }> {
   const byBucket = new Map<
@@ -33,9 +50,10 @@ export async function deleteErasedObjects(
   >();
   let skipped = 0;
   for (const o of objects) {
-    const p = objectPath(o);
+    const p = objectPath(accountId, o);
     if (!p) {
-      // A URL outside our chat-media bucket (a gateway link): nothing of ours to delete.
+      // Nothing of this account's to delete: never `remaining`, or it would
+      // be retried for ever.
       skipped++;
       continue;
     }
@@ -61,4 +79,59 @@ export async function deleteErasedObjects(
     }
   }
   return { deleted, remaining, skipped };
+}
+
+/**
+ * The daily job's retry (262): erasures whose files are not recorded as
+ * deleted, e.g. because the process died after the commit. The SQL leaves
+ * out a file used again since. Never throws.
+ */
+export async function retryErasedObjects(db: RetryDb): Promise<void> {
+  try {
+    const { data, error } = await db.rpc('privacy_erase_objects_pending');
+    if (error) {
+      console.error(
+        `[privacy] erase files: list failed (${(error as { code?: string }).code ?? '-'})`
+      );
+      return;
+    }
+    for (const row of (data as PendingErase[] | null) ?? []) {
+      const out = await deleteErasedObjects(
+        db.storage,
+        row.account_id,
+        row.objects
+      );
+      const { error: e } = await db.rpc('privacy_erase_objects_settle', {
+        p_request: row.request_id,
+        p_remaining: out.remaining,
+      });
+      console.log(
+        JSON.stringify({
+          msg: 'privacy_erase_files',
+          account: row.account_id,
+          request: row.request_id,
+          deleted: out.deleted,
+          skipped: out.skipped,
+          remaining: out.remaining.length,
+          recorded: !e,
+        })
+      );
+    }
+  } catch {
+    console.error('[privacy] erase files: retry failed');
+  }
+}
+
+interface PendingErase {
+  account_id: string;
+  request_id: number;
+  objects: StoredObject[];
+}
+
+export interface RetryDb {
+  storage: RemoveStorage;
+  rpc(
+    fn: string,
+    args?: Record<string, unknown>
+  ): PromiseLike<{ data: unknown; error: unknown }>;
 }

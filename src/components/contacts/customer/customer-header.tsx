@@ -132,7 +132,10 @@ export function CustomerHeader({
       .delete()
       .eq('id', contact.id);
     setDeleting(false);
-    if (error) return void toast.error(tp('toastFailedDelete'));
+    if (error)
+      return void toast.error(
+        tp(error.hint === 'LEGAL_HOLD' ? 'toastLegalHold' : 'toastFailedDelete')
+      );
     toast.success(tp('toastDeleted'));
     setConfirm(false);
     onDeleted?.();

@@ -52,6 +52,24 @@ superuser or BYPASSRLS role.
   digits of the phone.
 - An SMS backlog no longer holds back WhatsApp automated messages.
 - The reminder template must be approved in the chosen language.
+### Privacy: erase and retention fixes
+
+**Migration required:** apply `262_privacy_fixes.sql` after 261, as a
+superuser or BYPASSRLS role, before the build. It restates functions of
+222, 223 and 225: apply in order, once.
+- Erasing a customer no longer deletes a file something else still uses
+  (a library voice note, a forwarded file, a template or broadcast
+  header, a case document, another customer's message), and never one of
+  another workspace.
+- The list of files to delete is stored with the request, and the daily
+  job finishes a deletion that failed or was interrupted.
+- The retention sweep honours a legal hold fully: calls matched by
+  number, deal rooms, and WhatsApp groups with the held customer in them.
+- A contact whose legal hold was released can be deleted again; one under
+  an active hold is refused with a clear message.
+- A retention policy without `days` or `action` is refused.
+- A case review that kills its run stops after 5 attempts.
+- Docs: an opt-out does not follow an erased customer's number.
 
 ### Before going live: menu speed, sign-in links, AI check
 

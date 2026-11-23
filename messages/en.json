@@ -924,6 +924,7 @@
       "toastFailedLoad": "Failed to load contacts",
       "toastFailedDelete": "Failed to delete contact",
       "toastDeleted": "Contact deleted",
+      "toastLegalHold": "A customer under a legal hold cannot be deleted. Release the hold in Settings, Privacy first.",
       "toastBulkFailedDelete": "Failed to delete contacts",
       "toastBulkDeleted": "{count} contacts deleted"
     },

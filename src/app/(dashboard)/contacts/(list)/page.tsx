@@ -839,7 +839,9 @@ export function ContactsPageInner({
       .eq('id', deleteTarget.id);
 
     if (error) {
-      toast.error(t('toastFailedDelete'));
+      toast.error(
+        t(error.hint === 'LEGAL_HOLD' ? 'toastLegalHold' : 'toastFailedDelete')
+      );
     } else {
       toast.success(t('toastDeleted'));
       refreshContacts();
@@ -938,7 +940,13 @@ export function ContactsPageInner({
     const { error } = await supabase.from('contacts').delete().in('id', ids);
 
     if (error) {
-      toast.error(t('toastBulkFailedDelete'));
+      toast.error(
+        t(
+          error.hint === 'LEGAL_HOLD'
+            ? 'toastLegalHold'
+            : 'toastBulkFailedDelete'
+        )
+      );
     } else {
       toast.success(t('toastBulkDeleted', { count: ids.length }));
       setSelected(new Set());
