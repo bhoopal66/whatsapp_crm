@@ -1,0 +1,30 @@
+name: Uptime
+
+# Asks the site from outside every 15 minutes; GitHub e-mails the person who
+# last edited this schedule when a run fails. Off until the repository
+# variable UPTIME_URL holds the site's address (Settings → Secrets and
+# variables → Actions → Variables).
+on:
+  schedule:
+    - cron: '7,22,37,52 * * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  check:
+    if: vars.UPTIME_URL != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ask the app and its database
+        env:
+          URL: ${{ vars.UPTIME_URL }}
+        run: |
+          for try in 1 2 3; do
+            code=$(curl -s -o /dev/null -m 20 -w '%{http_code}' "${URL%/}/api/readyz" || true)
+            [ "$code" = 200 ] && exit 0
+            echo "try $try answered $code"
+            sleep 30
+          done
+          exit 1

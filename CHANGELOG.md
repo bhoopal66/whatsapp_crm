@@ -12,6 +12,12 @@ and polish.
 
 ## [Unreleased]
 
+### An alert when the site is down
+
+No migration. `.github/workflows/uptime.yml` checks the site from outside
+every 15 minutes once the repository variable `UPTIME_URL` is set
+(docs/monitoring.md).
+
 ### Settings: a failed load is never saved over the real settings
 
 No migration.

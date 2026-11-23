@@ -14,6 +14,15 @@ Uptime Kuma, Prometheus. Port of the outside package's 033c (health) and
 Both answer `Cache-Control: no-store` and carry no data about the
 workspace, so they are safe to leave open.
 
+## An alert when the site is down
+
+`.github/workflows/uptime.yml` asks `/api/readyz` from outside every 15
+minutes (three tries) and fails when it does not answer 200; GitHub then
+e-mails whoever last edited the schedule. It is off until the repository
+variable `UPTIME_URL` is set to the site's address (Settings → Secrets and
+variables → Actions → Variables). GitHub may start a scheduled run some
+minutes late, so this is a safety net, not a pager.
+
 ## Metrics
 
 `GET /api/metrics` serves the Prometheus text format (0.0.4).
