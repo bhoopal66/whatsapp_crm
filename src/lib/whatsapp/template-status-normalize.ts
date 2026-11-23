@@ -12,17 +12,28 @@ const ALLOWED: ReadonlyArray<MessageTemplateStatus> = [
 ]
 
 /**
- * Normalize an upstream status string (from the sync poll, submit
- * response, or webhook) into our `MessageTemplateStatus` enum.
- *
- * Meta sometimes returns `PENDING_REVIEW` where the docs say `PENDING`;
- * map it through. Anything we don't recognise falls back to `PENDING`
- * so the row is still visible to the user instead of silently dropped.
+ * Meta's events that mean one of our statuses without sharing its name.
+ * A FLAGGED template (low quality, may be paused later) still sends, and
+ * a REINSTATED one sends again; a DELETED one never will.
  */
-export function normalizeStatus(raw: string): MessageTemplateStatus {
+const ALIASES: Readonly<Record<string, MessageTemplateStatus>> = {
+  PENDING_REVIEW: 'PENDING',
+  REINSTATED: 'APPROVED',
+  FLAGGED: 'APPROVED',
+  DELETED: 'DISABLED',
+}
+
+/**
+ * Normalize an upstream status string (the status webhook's event) into
+ * our `MessageTemplateStatus` enum, or `null` when it is not a status we
+ * know. A guess would do harm: `PENDING` is refused by every sender, so
+ * an unknown event used to take a usable template out of service until
+ * somebody pressed Sync.
+ */
+export function normalizeStatus(raw: string): MessageTemplateStatus | null {
   const upper = (raw ?? '').toUpperCase()
-  if (upper === 'PENDING_REVIEW') return 'PENDING'
-  return (ALLOWED as readonly string[]).includes(upper)
-    ? (upper as MessageTemplateStatus)
-    : 'PENDING'
+  if ((ALLOWED as readonly string[]).includes(upper)) {
+    return upper as MessageTemplateStatus
+  }
+  return Object.hasOwn(ALIASES, upper) ? ALIASES[upper] : null
 }

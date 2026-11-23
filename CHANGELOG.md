@@ -22,6 +22,10 @@ No migration.
 - **Send** and **Discard** act on the draft on your screen. When the AI has
   held a newer one meanwhile, nothing is sent or discarded and the banner
   shows the newer draft. A tab opened before the update asks for a reload.
+- A template Meta flags or reinstates stays usable, and an event that is
+  not a status changes nothing. Both used to set the template to pending,
+  so every sender refused it until somebody pressed Sync. A template
+  deleted at Meta becomes disabled.
 
 ### Voice notes: one tap to record, one tap to send
 
