@@ -58,7 +58,8 @@ const PAGE_SIZE = 50;
 export function fetchTimelineFirstPage(
   sb: SupabaseClient,
   key: SessionKey,
-  channelId: string
+  channelId: string,
+  opts: { keepOlder?: boolean } = {}
 ): Promise<CachedTimeline> {
   return prefetchSession(key, async () => {
     const mark = timelineMark();
@@ -81,7 +82,7 @@ export function fetchTimelineFirstPage(
     // an empty, not-loaded placeholder entry comes back. Harmless: it
     // shows the skeleton and the next show revalidates.
     if (!prev) return placeholderTimeline(channelId);
-    return revalidateTimeline(prev, channelId, page, Date.now(), mark);
+    return revalidateTimeline(prev, channelId, page, Date.now(), mark, opts);
   });
 }
 
@@ -228,6 +229,20 @@ export function useChannelTimeline(ws: ChatWorkspace, channelId: string) {
           record({ kind: 'reaction', event: e.event });
           return;
         }
+        if (e.kind === 'resync') {
+          // Events were missed: the newest page again, without dropping
+          // the older pages someone may be reading. A failure is silent;
+          // what is on screen stays.
+          if (!key) return;
+          fetchTimelineFirstPage(sb, key, channelId, { keepOlder: true })
+            .then((fresh) =>
+              loadDetails(
+                fresh.timeline.messages.slice(-PAGE_SIZE).map((m) => m.id)
+              )
+            )
+            .catch(() => {});
+          return;
+        }
         if (e.kind !== 'message') return;
         const ev = e.event;
         const targets = timelineEventTargets(
@@ -253,7 +268,7 @@ export function useChannelTimeline(ws: ChatWorkspace, channelId: string) {
           loadDetails([ev.message.id]).catch(() => {});
         }
       }),
-    [listen, channelId, accountId, userId, record, loadDetails]
+    [listen, sb, key, channelId, accountId, userId, record, loadDetails]
   );
 
   /** Optimistic; the realtime echo is a no-op in the reducer. */

@@ -28,6 +28,7 @@ import { droppedChannelIds, timelineCacheKey } from '@/lib/chat/timeline-cache';
 import { chatErrorKey, inboxHasAssigneeFilter } from '@/lib/chat/view';
 import { INBOX_FILTER } from '@/lib/inbox/campaign-inbox';
 import { assigneeGroup, combineOrGroups } from '@/lib/inbox/pagination';
+import { startCatchUp } from '@/lib/realtime/catch-up';
 import { createClient } from '@/lib/supabase/client';
 import { sessionCache, sessionKey } from '@/lib/session-cache';
 import { useSessionQuery } from '@/hooks/use-session-query';
@@ -57,7 +58,9 @@ export type ChatEvent =
   /** A chat_channel_restrictions row was set or lifted: a posting timeout (160). */
   | { kind: 'restriction'; restriction: ChannelRestriction }
   /** A chat_typing row changed: someone typing, or stopped (156). */
-  | { kind: 'typing'; change: TypingChange };
+  | { kind: 'typing'; change: TypingChange }
+  /** Events were missed (sleep, a dropped connection): read again. */
+  | { kind: 'resync' };
 
 const DEBOUNCE_MS = 600;
 const PEOPLE_REFRESH_MS = 60_000;
@@ -158,6 +161,12 @@ export function useChatWorkspace() {
       timers[key] = setTimeout(() => void handlers.current[key](), DEBOUNCE_MS);
     };
     const emit = (e: ChatEvent) => listeners.current.forEach((fn) => fn(e));
+    // Nothing sent while the channel was down is replayed.
+    const live = startCatchUp(() => {
+      emit({ kind: 'resync' });
+      void handlers.current.loadChannels();
+      void handlers.current.refreshUnread();
+    });
     const off = subscribeChat(sb, {
       accountId,
       userId,
@@ -189,8 +198,10 @@ export function useChatWorkspace() {
       onRestriction: (restriction) =>
         emit({ kind: 'restriction', restriction }),
       onTyping: (change) => emit({ kind: 'typing', change }),
+      onStatus: live.onStatus,
     });
     return () => {
+      live.stop();
       Object.values(timers).forEach(clearTimeout);
       off();
     };

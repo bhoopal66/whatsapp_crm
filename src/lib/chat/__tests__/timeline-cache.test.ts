@@ -459,3 +459,57 @@ describe('optimisticActiveId', () => {
     expect(isNavSettled(fromSaved, CH)).toBe(true);
   });
 });
+
+describe('revalidateTimeline keepOlder (a re-read after a gap)', () => {
+  const ids = (e: CachedTimeline) => e.timeline.messages.map((m) => m.id);
+  const resync = (
+    held: ChatMessage[],
+    page: ChatMessage[],
+    keepOlder: boolean,
+    during?: TimelineEvent
+  ) => {
+    const mark = timelineMark();
+    let e = beginTimelineFetch(cached(held), mark);
+    if (during) e = recordTimelineEvent(e, during);
+    return revalidateTimeline(
+      e,
+      CH,
+      { messages: page, hasMore: true },
+      1,
+      mark,
+      { keepOlder }
+    );
+  };
+
+  it('adds what was missed and keeps the older rows being read', () => {
+    const held = [msg('a', 1), msg('b', 2), msg('c', 3)];
+    const page = [msg('b', 2, { body: 'edited' }), msg('c', 3), msg('d', 4)];
+    const e = resync(held, page, true);
+    expect(ids(e)).toEqual(['a', 'b', 'c', 'd']);
+    expect(e.timeline.messages[1]!.body).toBe('edited');
+    // Without it (opening the channel) the window starts over.
+    expect(ids(resync(held, page, false))).toEqual(['b', 'c', 'd']);
+  });
+
+  it('starts over when rows between the page and the held ones were missed', () => {
+    // 'live' arrived after the rejoin; b..x in between never did.
+    const held = [msg('a', 1), msg('live', 9)];
+    const e = resync(held, [msg('x', 8), msg('live', 9)], true);
+    expect(ids(e)).toEqual(['x', 'live']);
+    expect(e.timeline.hasMoreOlder).toBe(true);
+  });
+
+  it('an empty page is the whole answer', () => {
+    expect(ids(resync([msg('a', 1)], [], true))).toEqual([]);
+  });
+
+  it('drops a newer held row the page lacks, keeps one that came meanwhile', () => {
+    const e = resync(
+      [msg('a', 1), msg('b', 2), msg('deleted', 3)],
+      [msg('b', 2)],
+      true,
+      { kind: 'message', event: { type: 'insert', message: msg('new', 4) } }
+    );
+    expect(ids(e)).toEqual(['a', 'b', 'new']);
+  });
+});
