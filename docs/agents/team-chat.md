@@ -18,11 +18,15 @@ only). `docs/internal-chat.md` is the contract.
   `verify-chat-dm-rules.sql`.
 - **DM membership (273).** A DM whose `dm_key` names two people cannot be
   left (`leaveBlock` hides the button), and `chat_open_dm` re-inserts every
-  named member of an existing DM. `verify-team-chat-fixes.sql`.
+  named member of an existing DM. Re-apply 273 after 087, 143 or 157.
+  `verify-team-chat-fixes.sql`.
 - **Posts once (276).** `chat_post_message(p_client_id)` answers a repeat
   with the first message, before any rule, file or bell; the client id is
   one per draft and renewed when its content changes (`post-id.ts`), else
-  an edit is lost. Re-apply 276 after 156 or 157.
+  an edit is lost. A first message that is deleted or erased gives its id
+  up and the repeat is posted. What a send or a take carries is decided in
+  `post-payload.ts` (a take quoting another message is a new post). Re-apply
+  276 after 087, 156 or 157 (after 157, 158-160 come first, in order).
   `verify-chat-post-once.sql`.
 - **People who left (277).** `chat_people` lists deactivated people with
   `deactivated`, so their names stay; anything that offers people leaves
@@ -31,7 +35,8 @@ only). `docs/internal-chat.md` is the contract.
 - **An edit's mentions (277).** `chat_edit_message` makes
   `message_mentions` those of the new text and rings only a mention it
   added, never who the message already rang; broadcasts are not
-  recalculated. Re-apply 277 after 157.
+  recalculated. Re-apply 277 after 157, and after 087 (drop
+  `chat_people(uuid)` before that one).
 - **Writes are RPCs.** The tables are RLS-forced and grant SELECT only, even
   to the service role; every write is a SECURITY DEFINER `chat_*` function the
   browser calls directly (`lib/chat/api.ts`). The exceptions: a file upload is

@@ -3,7 +3,9 @@
 --
 -- A repeat with the same client id answers the same message: one row, one
 -- set of bells, the attachments kept and not refused. The id is the
--- author's own, belongs to one channel, and is optional. The concurrent
+-- author's own, belongs to one channel, and is optional. A repeat of a
+-- message deleted or erased meanwhile is a new post, judged by the rules,
+-- and the new message is what the next repeat answers. The concurrent
 -- repeat (the look-up saw nothing, the insert collides) is played by a
 -- trigger that writes the first attempt's row in between.
 --
@@ -20,6 +22,9 @@ DECLARE
   c1      UUID := '00000000-0000-4000-8000-0000002760c1';
   c2      UUID := '00000000-0000-4000-8000-0000002760c2';
   c3      UUID := '00000000-0000-4000-8000-0000002760c3';
+  c4      UUID := '00000000-0000-4000-8000-0000002760c4';
+  kind    TEXT;
+  cid     UUID;
   sig     TEXT := 'public.chat_post_message(uuid,text,uuid,uuid,jsonb,uuid,uuid)';
   uuid_re TEXT := '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
   a_acct  UUID;
@@ -134,6 +139,38 @@ BEGIN
     ' p_share_conversation => NULL, p_attachments => %L::jsonb, p_reply_to => %L::uuid)::text', team, 'quoted', '[]', r));
   n := n + 1; failed := failed || pg_temp.po_ok(r ~ uuid_re, 'the previous build''s named call failed: ' || r);
 
+  -- ---------- the first message is gone by the time Send is pressed again ----------
+  FOREACH kind IN ARRAY ARRAY['deleted by the author', 'moderated', 'erased'] LOOP
+    cid := gen_random_uuid();
+    r := pg_temp.po_try('authenticated', u_one, format(post, team, 'gone <@' || u_two || '>', cid));
+    r2 := CASE kind
+      WHEN 'deleted by the author' THEN pg_temp.po_try('authenticated', u_one,
+        format('SELECT public.chat_delete_message(%L)::text', r))
+      WHEN 'moderated' THEN pg_temp.po_try('authenticated', u_owner,
+        format('SELECT public.chat_delete_message(%L, %L)::text', r, 'not for this channel'))
+      ELSE pg_temp.po_try('authenticated', u_owner,
+        format('SELECT public.chat_erase_person(%L, %L, %L)::text', a_acct, u_one, 'asked to be erased')) END;
+    n := n + 1; failed := failed || pg_temp.po_ok(
+      (SELECT (CASE kind WHEN 'erased' THEN erased_at ELSE deleted_at END) IS NOT NULL AND client_id = cid
+         FROM internal_messages WHERE id::text = r), kind || ': the fixture message is not gone: ' || r2);
+    -- the rules are judged again, and a refusal leaves the id where it was
+    UPDATE chat_channels SET archived_at = now() WHERE id = team;
+    r2 := pg_temp.po_try('authenticated', u_one, format(post, team, 'again', cid));
+    n := n + 1; failed := failed || pg_temp.po_ok(r2 LIKE 'ERROR%'
+      AND (SELECT client_id FROM internal_messages WHERE id::text = r) = cid,
+      kind || ': a repeat was not judged by the rules: ' || r2);
+    UPDATE chat_channels SET archived_at = NULL WHERE id = team;
+    r2 := pg_temp.po_try('authenticated', u_one, format(post, team, 'again <@' || u_two || '>', cid));
+    n := n + 1; failed := failed || pg_temp.po_ok(r2 ~ uuid_re AND r2 <> r
+      AND (SELECT body LIKE 'again%' AND client_id = cid FROM internal_messages WHERE id::text = r2)
+      AND (SELECT client_id IS NULL FROM internal_messages WHERE id::text = r)
+      AND (SELECT count(*) FROM chat_notifications WHERE message_id::text = r2 AND user_id = u_two) = 1,
+      kind || ': a repeat was answered with the message that is gone: ' || r2);
+    n := n + 1; failed := failed || pg_temp.po_ok(
+      pg_temp.po_try('authenticated', u_one, format(post, team, 'again', cid)) = r2,
+      kind || ': the next repeat did not answer the new message');
+  END LOOP;
+
   -- ---------- a concurrent repeat ----------
   EXECUTE $fn$
     CREATE FUNCTION pg_temp.po_first_attempt() RETURNS trigger LANGUAGE plpgsql AS $body$
@@ -141,6 +178,11 @@ BEGIN
       IF NEW.body = 'race' THEN
         INSERT INTO public.internal_messages (channel_id, account_id, author_kind, author_id, body, client_id)
         VALUES (TG_ARGV[0]::uuid, NEW.account_id, 'user', NEW.author_id, 'race (first)', NEW.client_id);
+      END IF;
+      -- posted, and deleted, between the look-up and the insert
+      IF NEW.body = 'race gone' AND NOT EXISTS (SELECT 1 FROM public.internal_messages m WHERE m.body = 'race (gone)') THEN
+        INSERT INTO public.internal_messages (channel_id, account_id, author_kind, author_id, body, client_id, deleted_at)
+        VALUES (NEW.channel_id, NEW.account_id, 'user', NEW.author_id, 'race (gone)', NEW.client_id, now());
       END IF;
       RETURN NEW;
     END $body$
@@ -163,6 +205,13 @@ BEGIN
   -- the first attempt is in the DM; this one names the team channel
   r := pg_temp.po_try('authenticated', u_one, format(post, team, 'race', c3));
   n := n + 1; failed := failed || pg_temp.po_ok(r LIKE 'ERROR 22023%', 'a concurrent repeat in another channel was not refused: ' || r);
+
+  r := pg_temp.po_try('authenticated', u_one, format(post, dm, 'race gone', c4));
+  n := n + 1; failed := failed || pg_temp.po_ok(
+    (SELECT body = 'race gone' AND client_id = c4 FROM internal_messages WHERE id::text = r)
+    AND (SELECT client_id IS NULL FROM internal_messages WHERE body = 'race (gone)')
+    AND (SELECT count(*) FROM chat_notifications WHERE message_id::text = r) = 1,
+    'a concurrent repeat was answered with a message that is gone: ' || r);
 
   -- ---------- one function, its grants ----------
   n := n + 1; failed := failed || pg_temp.po_ok(

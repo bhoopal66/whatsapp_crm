@@ -4,6 +4,9 @@
 --    an existing DM brings back every named member, never a deactivated
 --    person and never a pair 143 blocks; a person brought back gets the
 --    other side's next message and its bell.
+--    Not asserted here: the migration's one-time INSERT of the member rows
+--    missing on the day it ran (none for a pair 143 blocks). It is a
+--    statement, not an object, and leaves nothing to look at afterwards.
 --
 -- ONE statement on purpose: `supabase db query --file` sends the file
 -- as a single prepared statement and rejects several. Failing checks

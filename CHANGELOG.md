@@ -80,7 +80,8 @@ No migration.
 - A thread left open while the laptop slept or the connection dropped now
   reads itself again: replies sent meanwhile appear, edits show their new
   text, and deleted or removed replies show as such. Before, they stayed
-  missing until the thread was closed and opened again. A reply that
+  missing until the thread was closed and opened again. If that read
+  fails it is tried once more after a few seconds. A reply that
   arrives while a thread is opening is no longer lost either.
 - A thread with more than 200 replies has a **Load older replies** button.
 - The thread follows new replies when scrolled to the bottom, and keeps
@@ -95,14 +96,19 @@ No migration.
   posted while its author saw an error. Pressing **Send** again posted it
   a second time and notified everyone twice, or, with files or a voice
   note, failed although the message was there. Sending it again now shows
-  the message already posted. A changed message is sent as a new one.
+  the message already posted. A changed message is sent as a new one, and
+  so is one whose first copy was deleted meanwhile, or a voice note sent
+  again as a reply to another message.
+- A message still being sent when its author switches channel and comes
+  back no longer stays in the box as if unsent.
 
 ### Team chat: nobody falls out of a direct message
 
 **Migration required:** `273_team_chat_fixes.sql`
 - A direct message between two people can no longer be left. The other
   side kept writing as normal and the one who had left heard nothing.
-  People who had left one are back in it, with what they missed unread. A
+  People who had left one are back in it, with what they missed unread
+  (not where the direct message rules block the two). A
   direct message of three or more people can still be left; opening it
   again with the same people brings everyone back.
 

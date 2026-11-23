@@ -10,7 +10,9 @@
 --
 -- A DM of three or more people can still be left. Nothing here refuses
 -- itself on existing data, so there is no scan before the DDL. Safe to
--- run twice. Apply after 157.
+-- run twice. Apply after 157. Re-applying 087 brings back its
+-- chat_leave_channel and chat_open_dm, and re-applying 143 or 157 its
+-- chat_open_dm: re-apply this file after them.
 -- ============================================================
 
 -- ---------- 1. DMs nobody falls out of ----------
@@ -116,10 +118,11 @@ BEGIN
 END $$;
 
 -- After the refusal above, so nobody leaves between the two. A removed or
--- deactivated person, or one who is a bank guest now, is left out. 143's
--- rules still decide at read time. Nobody stored when a person left, so
--- what came after their own last message counts as unread: that is where
--- the messages they were never told about are.
+-- deactivated person, or one who is a bank guest now, is left out, and so
+-- is a pair 143's rules block: the row would hide the DM from the person
+-- who stayed (chat_dm_user_allowed judges every member). Nobody stored
+-- when a person left, so what came after their own last message counts as
+-- unread: that is where the messages they were never told about are.
 INSERT INTO public.chat_channel_members (channel_id, user_id, role, joined_at)
 SELECT c.id, m.uid, 'member',
        greatest(c.created_at, (SELECT max(im.created_at) FROM public.internal_messages im
@@ -128,6 +131,8 @@ SELECT c.id, m.uid, 'member',
  CROSS JOIN LATERAL (SELECT x::uuid AS uid FROM unnest(string_to_array(c.dm_key, ',')) x) m
  WHERE c.kind = 'dm' AND cardinality(string_to_array(c.dm_key, ',')) = 2
    AND coalesce(public.chat_user_role(c.account_id, m.uid), 'bank_guest') <> 'bank_guest'
+   AND public.chat_dm_pair_allowed(c.account_id, (string_to_array(c.dm_key, ','))[1]::uuid,
+                                   (string_to_array(c.dm_key, ','))[2]::uuid)
 ON CONFLICT DO NOTHING;
 
 -- CREATE OR REPLACE keeps 087's grants; stated again so this file says
