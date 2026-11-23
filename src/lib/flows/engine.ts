@@ -36,6 +36,7 @@
  *     INSERT raises 23505 and the runner catches & exits.
  */
 
+import { STAFF_ROLES, type AccountRole } from '@/lib/auth/roles';
 import { supabaseAdmin } from './admin-client';
 import {
   engineSendInteractiveButtons,
@@ -47,6 +48,7 @@ import { sendsMenusAsText } from '@/lib/whatsapp/channels';
 import { decideFallback, resolveFallbackPolicy } from './fallback';
 import {
   dispatchInboundToAiReply,
+  notifyHandoff,
   type AiFlowContext,
 } from '@/lib/ai/auto-reply';
 import { dispatchChatTagSet } from '@/lib/automations/chat-tag-dispatch';
@@ -611,26 +613,78 @@ async function sendListAndSuspend(
   }
 }
 
+/**
+ * Give the run's chat to people: pending, and assigned to `assignTo` when
+ * that person can take it and nobody holds the chat already. Returns who
+ * it was assigned to, if anyone. Never throws; a write that failed is
+ * logged and rings the admins, because the run ends either way and the
+ * customer would otherwise wait for nobody.
+ */
+async function handOverChat(
+  db: AdminClient,
+  run: FlowRunRow,
+  assignTo?: string
+): Promise<string | null> {
+  const conversationId = run.conversation_id;
+  if (!conversationId) return null;
+  const failed = async (what: string, detail: string) => {
+    console.error(`[flows] hand-off ${what} failed:`, run.id, detail);
+    await notifyHandoff(db, {
+      accountId: run.account_id,
+      conversationId,
+      contactId: run.contact_id ?? '',
+      recipientId: null,
+      reasonClause: 'A flow handed this chat over but could not update it.',
+    });
+  };
+  const now = new Date().toISOString();
+  const { error } = await db
+    .from('conversations')
+    .update({ status: 'pending', updated_at: now })
+    .eq('id', conversationId);
+  if (error) await failed('status', error.message);
+  if (!assignTo) return null;
+
+  const { data: people, error: personErr } = await db
+    .from('profiles')
+    .select('account_role')
+    .eq('user_id', assignTo)
+    .eq('account_id', run.account_id)
+    .is('deactivated_at', null)
+    .limit(1);
+  if (personErr) {
+    await failed('assignee check', personErr.message);
+    return null;
+  }
+  const role = (people as { account_role: AccountRole }[] | null)?.[0]
+    ?.account_role;
+  if (!role || !(STAFF_ROLES as readonly AccountRole[]).includes(role)) {
+    console.warn('[flows] hand-off assignee is not active staff:', run.id);
+    return null;
+  }
+  const { data: taken, error: assignErr } = await db
+    .from('conversations')
+    .update({ assigned_agent_id: assignTo, updated_at: now })
+    .eq('id', conversationId)
+    .is('assigned_agent_id', null)
+    .select('id');
+  if (assignErr) {
+    await failed('assignment', assignErr.message);
+    return null;
+  }
+  return taken?.length ? assignTo : null;
+}
+
 async function executeHandoff(
   db: AdminClient,
   run: FlowRunRow,
   node: FlowNodeRow
 ): Promise<void> {
   const cfg = node.config as { assign_to?: string; note?: string };
-  const convUpdate: Record<string, unknown> = {
-    status: 'pending',
-    updated_at: new Date().toISOString(),
-  };
-  if (cfg.assign_to) convUpdate.assigned_agent_id = cfg.assign_to;
-  if (run.conversation_id) {
-    await db
-      .from('conversations')
-      .update(convUpdate)
-      .eq('id', run.conversation_id);
-  }
+  const assignedTo = await handOverChat(db, run, cfg.assign_to);
   await logEvent(db, run.id, 'handoff', node.node_key, {
     note: cfg.note ?? null,
-    assigned_to: cfg.assign_to ?? null,
+    assigned_to: assignedTo,
   });
   await endRun(db, run.id, 'handed_off', 'handoff_node');
 }
@@ -1436,12 +1490,7 @@ async function handleReplyForActiveRun(
         };
       }
       if (aiOutcome === 'handed_off') {
-        if (run.conversation_id) {
-          await db
-            .from('conversations')
-            .update({ status: 'pending', updated_at: new Date().toISOString() })
-            .eq('id', run.conversation_id);
-        }
+        await handOverChat(db, run);
         await logEvent(db, run.id, 'handoff', run.current_node_key, {
           reason: 'ai_handoff',
         });
@@ -1519,12 +1568,7 @@ async function handleReplyForActiveRun(
     return { consumed: true, flow_run_id: run.id, outcome: 'fallback_fired' };
   }
   if (action.type === 'handoff') {
-    if (run.conversation_id) {
-      await db
-        .from('conversations')
-        .update({ status: 'pending', updated_at: new Date().toISOString() })
-        .eq('id', run.conversation_id);
-    }
+    await handOverChat(db, run);
     await logEvent(db, run.id, 'handoff', run.current_node_key, {
       reason: 'fallback_exhausted',
     });
