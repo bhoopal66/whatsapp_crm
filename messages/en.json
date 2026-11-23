@@ -4520,7 +4520,8 @@
           "workspace_archived": "Archived the workspace",
           "workspace_restored": "Restored the workspace",
           "password_changed": "Changed a password",
-          "details_changed": "Edited a member's details"
+          "details_changed": "Edited a member's details",
+          "work_handed_over": "Handed over a person's work"
         },
         "team_chat": {
           "admin_read_private": "Read a private channel",
@@ -8068,6 +8069,7 @@
       "chat_message": "Team chat messages",
       "conversation_assigned": "A chat is assigned to me",
       "conversation_shared": "A chat is shared with me",
+      "work_handed_over": "Work is handed over to me",
       "insight_attention": "A chat needs my attention",
       "chat_note_mention": "Someone mentions me in a chat note",
       "response_target_missed": "A customer waits past the response target",

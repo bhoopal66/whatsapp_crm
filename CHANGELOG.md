@@ -12,6 +12,16 @@ and polish.
 
 ## [Unreleased]
 
+### Hand over the work of a person who leaves
+
+**Migration required: 266.** Apply `supabase/migrations/266_member_handover.sql`
+before the build. Additive for the previous build.
+- An owner or admin can move a person's company chats, open tasks, open deals
+  and customers to a colleague in one go, and see what each deactivated member
+  still holds (API only for now; the screens follow).
+- The colleague gets one notification with the counts, not one per item, and
+  the audit log records the handover. Personal WhatsApp chats never move.
+
 ### Guards on roles, ownership, erased files and late messages
 
 **Migration required:** apply `supabase/migrations/265_guards.sql` before

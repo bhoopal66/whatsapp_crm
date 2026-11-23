@@ -1361,3 +1361,8 @@ jobs:
       # message is unread but not the chat's preview.
       - name: Verify guards
         run: supabase db query --local --file supabase/ci/verify-guards.sql
+
+      # 266: each kind of work moves and only it, never a personal chat or
+      # another workspace's row; one bell and one audit row per handover.
+      - name: Verify member handover
+        run: supabase db query --local --file supabase/ci/verify-member-handover.sql

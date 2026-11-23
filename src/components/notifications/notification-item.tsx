@@ -6,6 +6,7 @@ import {
   AtSign,
   Bell,
   AlarmClock,
+  ArrowRightLeft,
   MailWarning,
   BellRing,
   Bot,
@@ -55,6 +56,7 @@ import { useNotifications } from './notifications-provider';
 const TYPE_ICON: Record<Notification['type'], typeof Bell> = {
   conversation_assigned: UserPlus,
   conversation_shared: Share2,
+  work_handed_over: ArrowRightLeft,
   insight_attention: Siren,
   response_target_missed: Hourglass,
   response_escalated: TimerOff,
@@ -106,6 +108,7 @@ const FULL_BODY: ReadonlySet<Notification['type']> = new Set([
   'channel_disconnected',
   'channel_reconnected',
   'inbound_message_failed',
+  'work_handed_over',
   'meta_number_alert',
   'team_activity_alert',
   'pbx_connection_silent',
