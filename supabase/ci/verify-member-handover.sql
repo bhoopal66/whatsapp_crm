@@ -137,6 +137,8 @@ BEGIN
     (u_adm, u_lv, u_hr, '{chats}', '22023', 'chats to a restricted department'),
     (u_adm, u_lv, u_hr, '{tasks,deals}', '22023', 'deals to a restricted department'),
     (u_adm, u_lv, u_hr, '{contacts}', '22023', 'contacts to a restricted department'),
+    (u_adm, u_hr, u_to, '{chats}', '22023', 'chats out of a department with its own inbox'),
+    (u_adm, u_hr, u_to, '{contacts,tasks}', '22023', 'customers out of a department with its own inbox'),
     (u_adm, u_lv, u_b, '{tasks}', '42501', 'another workspace''s person'),
     (u_adm, u_b, u_to, '{tasks}', '42501', 'from another workspace''s person'),
     (u_b, u_to, u_lv, '{tasks}', '42501', 'B''s owner over A''s person'),
@@ -242,13 +244,23 @@ BEGIN
   t := pg_temp.mh(u_adm, format('SELECT public.member_handover(%L, %L, ''{tasks}'')', u_adm, u_hr));
   failed := array_append(failed, pg_temp.mh_ok(t LIKE '%"tasks": 2%', 'tasks to HR: ' || t)); n := n + 1;
 
+  -- 8. Within a department with its own inbox, and from it to an admin.
+  UPDATE public.profiles SET department = 'hr' WHERE user_id = u_oth AND account_id = a;
+  UPDATE public.conversations SET assigned_agent_id = u_hr
+   WHERE id = (SELECT c.id FROM public.conversations c
+                WHERE c.account_id = a AND c.personal_owner_id IS NULL ORDER BY c.id LIMIT 1);
+  t := pg_temp.mh(u_adm, format('SELECT public.member_handover(%L, %L, ''{chats}'')', u_hr, u_oth));
+  failed := array_append(failed, pg_temp.mh_ok(t LIKE '%"chats": 1%', 'HR to HR: ' || t)); n := n + 1;
+  t := pg_temp.mh(u_own, format('SELECT public.member_handover(%L, %L, ''{chats}'')', u_oth, u_adm));
+  failed := array_append(failed, pg_temp.mh_ok(t ~ '"chats": [1-9]', 'HR to an admin: ' || t)); n := n + 1;
+
   RAISE EXCEPTION 'MH_ROLLBACK';
   EXCEPTION WHEN raise_exception THEN
     IF SQLERRM <> 'MH_ROLLBACK' THEN RAISE; END IF;
   END;
 
   failed := array_remove(failed, NULL);
-  IF n < 48 THEN RAISE EXCEPTION 'verify-member-handover: only % checks ran', n; END IF;
+  IF n < 52 THEN RAISE EXCEPTION 'verify-member-handover: only % checks ran', n; END IF;
   IF cardinality(failed) > 0 THEN
     RAISE EXCEPTION 'verify-member-handover: % of % failed: %', cardinality(failed), n, array_to_string(failed, '; ');
   END IF;

@@ -268,6 +268,7 @@ DECLARE
   v_acct      uuid := public.current_account_id();
   v_from_role text;
   v_from_name text;
+  v_from_dept text;
   v_to        record;
   v_ids       uuid[];
   n_chats     integer := 0;
@@ -291,7 +292,8 @@ BEGIN
     pg_catalog.hashtextextended('member_handover:' || v_acct::text, 0));
   PERFORM pg_catalog.pg_advisory_xact_lock_shared(public.inbox_department_lock_key(v_acct));
 
-  SELECT p.account_role::text, nullif(btrim(p.full_name), '') INTO v_from_role, v_from_name
+  SELECT p.account_role::text, nullif(btrim(p.full_name), ''), p.department
+    INTO v_from_role, v_from_name, v_from_dept
     FROM public.profiles p WHERE p.user_id = p_from AND p.account_id = v_acct;
   IF NOT FOUND THEN
     PERFORM public.raise_not_a_member(p_from);
@@ -310,13 +312,20 @@ BEGIN
   IF v_to.role NOT IN ('owner', 'admin', 'team_leader', 'agent') THEN
     RAISE EXCEPTION 'Work can only be handed to an agent, team leader, admin or owner' USING ERRCODE = '22023';
   END IF;
-  -- Restricted departments (192) have no sales areas; owners and admins
-  -- are never restricted.
+  -- Between departments (192), tasks aside: a restricted one has no sales
+  -- areas, and one with its own inbox (HR) keeps its chats. Colleagues of
+  -- the same department take everything over, owners and admins always.
   IF p_what && ARRAY['chats', 'deals', 'contacts']
      AND v_to.role NOT IN ('owner', 'admin')
-     AND public.department_restricted(v_acct, v_to.department) THEN
-    RAISE EXCEPTION 'This person''s department has no access to sales: they can only take over tasks'
-      USING ERRCODE = '22023';
+     AND v_to.department IS DISTINCT FROM v_from_dept THEN
+    IF public.department_restricted(v_acct, v_to.department) THEN
+      RAISE EXCEPTION 'This person''s department has no access to sales: they can only take over tasks'
+        USING ERRCODE = '22023';
+    END IF;
+    IF public.department_own_inbox(v_acct, v_from_dept) THEN
+      RAISE EXCEPTION 'This person''s department has its own inbox: hand their work to a colleague there, an admin or the owner'
+        USING ERRCODE = '22023';
+    END IF;
   END IF;
 
   PERFORM pg_catalog.set_config('app.member_handover', 'on', true);
