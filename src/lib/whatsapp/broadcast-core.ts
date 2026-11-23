@@ -43,6 +43,10 @@ import {
   SEND_UNCONFIRMED_REASON,
   SENT_NOT_RECORDED_REASON,
 } from '@/lib/broadcasts/unconfirmed-send';
+import {
+  consentRefusal,
+  type ConsentRefusal,
+} from '@/lib/whatsapp/send-origin';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
 import type { MessageTemplate } from '@/types';
 import { findOrCreateContact } from '@/lib/api/v1/contacts';
@@ -147,8 +151,9 @@ export interface BroadcastPlan {
   /** Phones rejected up front by validateContactPhone; no row is created. */
   rejected: number;
   /**
-   * Recipients left out because the customer asked not to be messaged
-   * (`contacts.opted_out_at`, migration 076). At plan time no row is
+   * Recipients left out because the customer opted out
+   * (`contacts.opted_out_at`, migration 076) or is marked do-not-contact
+   * (`do_not_contact_at`, 086). At plan time no row is
    * created for them; a resume pass stamps their pending rows failed.
    */
   skippedOptedOut: number;
@@ -158,6 +163,12 @@ const MAX_RECIPIENTS = 1000;
 
 /** The failure reason stamped on a recipient who opted out. */
 export const OPTED_OUT_REASON = 'Customer opted out of messages';
+
+/** The failure reason for each answer of the consent register. */
+export const CONSENT_FAILURE_REASONS: Record<ConsentRefusal, string> = {
+  opted_out: OPTED_OUT_REASON,
+  do_not_contact: 'Customer is marked do-not-contact',
+};
 
 /**
  * Why a pass stopped, or a Resume was refused, for quiet hours. The
@@ -176,30 +187,32 @@ export function quietHoursMessage(quiet: QuietHours): string {
 const OPT_OUT_LOOKUP_CHUNK = 100;
 
 /**
- * Which of these contacts asked not to be messaged (migration 076).
- * Throws on a failed read: a broadcast must not go out to people who
+ * Which of these contacts must not be messaged, and why: opted out
+ * (migration 076) or do-not-contact (086). Throws on a failed read: a broadcast must not go out to people who
  * opted out because the check could not run.
  */
-async function optedOutContactIds(
+async function consentRefusals(
   db: SupabaseClient,
   accountId: string,
   contactIds: string[]
-): Promise<Set<string>> {
-  const optedOut = new Set<string>();
+): Promise<Map<string, ConsentRefusal>> {
+  const refusals = new Map<string, ConsentRefusal>();
   for (let i = 0; i < contactIds.length; i += OPT_OUT_LOOKUP_CHUNK) {
     const { data, error } = await db
       .from('contacts')
-      .select('id')
+      .select('id, opted_out_at, do_not_contact_at')
       .eq('account_id', accountId)
-      .in('id', contactIds.slice(i, i + OPT_OUT_LOOKUP_CHUNK))
-      .not('opted_out_at', 'is', null);
+      .in('id', contactIds.slice(i, i + OPT_OUT_LOOKUP_CHUNK));
     if (error) {
       console.error('[broadcast-core] opted-out lookup error:', error);
       throw new BroadcastError('internal', 'Failed to check opt-outs', 500);
     }
-    for (const row of (data ?? []) as { id: string }[]) optedOut.add(row.id);
+    for (const row of data ?? []) {
+      const refusal = consentRefusal(row);
+      if (refusal) refusals.set(row.id, refusal);
+    }
   }
-  return optedOut;
+  return refusals;
 }
 
 /**
@@ -364,18 +377,18 @@ export async function createBroadcast(
 
   // A customer who asked not to be messaged (migration 076) gets no
   // recipient row at all, so no later pass can send to them either.
-  const optedOut = await optedOutContactIds(
+  const refusals = await consentRefusals(
     db,
     accountId,
     unique.map((r) => r.contactId)
   );
-  const deduped = unique.filter((r) => !optedOut.has(r.contactId));
+  const deduped = unique.filter((r) => !refusals.has(r.contactId));
   const skippedOptedOut = unique.length - deduped.length;
 
   if (deduped.length === 0 && skippedOptedOut > 0) {
     throw new BroadcastError(
       'bad_request',
-      'Every recipient with a valid phone number has opted out of messages.',
+      'Every recipient with a valid phone number has opted out of messages or is marked do-not-contact.',
       400
     );
   }
@@ -542,19 +555,24 @@ export async function deliverBroadcast(
       break;
     }
     if (recipient.contactId && plan.channel.accountId) {
-      let optedOut: Set<string>;
+      let refusal: ConsentRefusal | undefined;
       try {
-        optedOut = await optedOutContactIds(db, plan.channel.accountId, [
-          recipient.contactId,
-        ]);
+        refusal = (
+          await consentRefusals(db, plan.channel.accountId, [
+            recipient.contactId,
+          ])
+        ).get(recipient.contactId);
       } catch {
         stopped = 'the opt-out check failed';
         break;
       }
-      if (optedOut.has(recipient.contactId)) {
+      if (refusal) {
         await db
           .from('broadcast_recipients')
-          .update({ status: 'failed', error_message: OPTED_OUT_REASON })
+          .update({
+            status: 'failed',
+            error_message: CONSENT_FAILURE_REASONS[refusal],
+          })
           .eq('id', recipient.recipientRowId);
         continue;
       }

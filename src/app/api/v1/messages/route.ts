@@ -29,17 +29,40 @@
 // Response (201):
 //   { "data": { "message_id", "whatsapp_message_id", "conversation_id",
 //               "contact_id", "contact_created" } }
+//
+// A customer who opted out or is marked do-not-contact is never
+// messaged: 422 `customer_opted_out`.
 // ============================================================
 
 import { requireApiKey } from '@/lib/auth/api-context';
-import { ok, fail, toApiErrorResponse } from '@/lib/api/v1/respond';
-import { resolveConversationByPhone } from '@/lib/whatsapp/resolve-conversation';
+import {
+  ok,
+  fail,
+  toApiErrorResponse,
+  unavailable,
+} from '@/lib/api/v1/respond';
+import {
+  ContactLookupError,
+  findMatchingContacts,
+} from '@/lib/contacts/dedupe';
+import {
+  contactLookupNumber,
+  resolveConversationByPhone,
+} from '@/lib/whatsapp/resolve-conversation';
 import {
   sendMessageToConversation,
   validateSendMessageParams,
   SendMessageError,
 } from '@/lib/whatsapp/send-message';
+import { consentRefusal } from '@/lib/whatsapp/send-origin';
 import type { InteractiveMessagePayload } from '@/lib/whatsapp/interactive';
+
+const customerOptedOut = () =>
+  fail(
+    'customer_opted_out',
+    'The customer has opted out of WhatsApp messages. Nothing was sent.',
+    422
+  );
 
 export async function POST(request: Request) {
   try {
@@ -95,6 +118,16 @@ export async function POST(request: Request) {
       interactivePayload,
     });
 
+    // The opt-out may sit on an older twin of the contact this number
+    // resolves to, so every contact it matches is asked, as Compass does.
+    // Before the find-or-create: a refused send leaves nothing behind.
+    const twins = await findMatchingContacts(
+      ctx.supabase,
+      ctx.accountId,
+      contactLookupNumber(to).number
+    );
+    if (twins.some((c) => consentRefusal(c))) return customerOptedOut();
+
     // Find-or-create the conversation for this phone, then send. Both
     // steps share `SendMessageError`, so one catch maps the whole
     // pipeline to the envelope.
@@ -128,6 +161,8 @@ export async function POST(request: Request) {
         // A start on a company phone number at its daily new-chat limit
         // is refused 429 `number_daily_limit` (migration 204).
         enforceNumberDailyLimit: true,
+        // Asked again on the contact itself, right before the gateway.
+        respectConsent: true,
         replyToMessageId:
           typeof body.reply_to_message_id === 'string'
             ? body.reply_to_message_id
@@ -147,7 +182,14 @@ export async function POST(request: Request) {
     );
   } catch (err) {
     if (err instanceof SendMessageError) {
+      if (err.code === 'opted_out' || err.code === 'do_not_contact') {
+        return customerOptedOut();
+      }
       return fail(err.code, err.message, err.status);
+    }
+    // Only ever before the send: whether the customer opted out is unknown.
+    if (err instanceof ContactLookupError) {
+      return toApiErrorResponse(unavailable());
     }
     return toApiErrorResponse(err);
   }

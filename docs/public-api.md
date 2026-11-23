@@ -198,7 +198,10 @@ Response (201):
 
 Domain error codes beyond the table above: `whatsapp_not_configured`
 (400), `whatsapp_error` (502 — the request reached the WhatsApp gateway and it rejected the
-send), `template_malformed` (500).
+send), `template_malformed` (500), `customer_opted_out` (422 — the
+customer opted out of messages or is marked do-not-contact, on this
+contact or another one with the same number; nothing was sent. Don't
+retry).
 
 ### `GET /api/v1/contacts`
 

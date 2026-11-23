@@ -99,6 +99,8 @@ function makeDb(
     template?: Record<string, unknown>;
     /** Contact ids whose `opted_out_at` is set (migration 076). */
     optedOut?: string[];
+    /** Contact ids whose `do_not_contact_at` is set (migration 086). */
+    doNotContact?: string[];
   } = {}
 ) {
   const calls = {
@@ -177,10 +179,8 @@ function makeDb(
         return chain;
       }
       if (table === 'contacts') {
-        // The opted-out lookup: honours the id list and the
-        // `opted_out_at IS NOT NULL` filter it is given.
+        // The consent lookup: honours the id list it is given.
         let ids: string[] = [];
-        let notNull = false;
         const chain: Record<string, unknown> = {
           select: () => chain,
           eq: () => chain,
@@ -188,15 +188,15 @@ function makeDb(
             ids = vals;
             return chain;
           },
-          not: (col: string, op: string, val: unknown) => {
-            notNull = col === 'opted_out_at' && op === 'is' && val === null;
-            return chain;
-          },
           then: (resolve: (r: { data: unknown[]; error: null }) => unknown) =>
             resolve({
-              data: ids
-                .filter((id) => !notNull || (opts.optedOut ?? []).includes(id))
-                .map((id) => ({ id })),
+              data: ids.map((id) => ({
+                id,
+                opted_out_at: opts.optedOut?.includes(id) ? '2026' : null,
+                do_not_contact_at: opts.doNotContact?.includes(id)
+                  ? '2026'
+                  : null,
+              })),
               error: null,
             }),
         };
@@ -395,6 +395,24 @@ describe('createBroadcast opted-out customers', () => {
     ]);
     expect(plan.skippedOptedOut).toBe(1);
     expect(plan.rejected).toBe(0);
+  });
+
+  it('plans no row for a do-not-contact customer', async () => {
+    vi.mocked(findOrCreateContact).mockImplementation(async () => ({
+      id: 'c-dnc',
+      created: false,
+    }));
+    const { db, calls } = makeDb(
+      { data: [], error: null },
+      { doNotContact: ['c-dnc'] }
+    );
+    await expect(
+      createBroadcast(db, 'acc', 'user', {
+        templateName: 'promo',
+        recipients: [{ to: '+14155550124' }],
+      })
+    ).rejects.toThrow(/do-not-contact/);
+    expect(calls.rpc).toHaveLength(0);
   });
 
   it('refuses, persisting nothing, when every recipient opted out', async () => {

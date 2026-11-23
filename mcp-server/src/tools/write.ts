@@ -29,7 +29,7 @@ export function registerWriteTools(server: McpServer, client: TaamulClient): voi
     {
       title: 'Send WhatsApp message',
       description:
-        'Send a WhatsApp message to a phone number (E.164, e.g. +14155550123). The contact and conversation are found-or-created automatically. Use type "text" for a free-form message (only valid inside the 24-hour customer-service window), or "template" to send an approved template (required to open a new conversation). Media types (image/video/document/audio) require a media_url. This sends a real message to a real person — confirm the recipient and content with the user before calling.',
+        'Send a WhatsApp message to a phone number (E.164, e.g. +14155550123). The contact and conversation are found-or-created automatically. Use type "text" for a free-form message (only valid inside the 24-hour customer-service window), or "template" to send an approved template (required to open a new conversation). Media types (image/video/document/audio) require a media_url. This sends a real message to a real person — confirm the recipient and content with the user before calling. A customer who opted out or is marked do-not-contact is refused (customer_opted_out): tell the user, do not retry.',
       inputSchema: {
         to: z.string().describe('Recipient phone number in E.164 format, e.g. +14155550123.'),
         type: z
