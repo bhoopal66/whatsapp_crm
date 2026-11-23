@@ -19,6 +19,8 @@ and polish.
   invite when the candidate left that stage, a "we haven't heard from
   you" nudge when the candidate replied or somebody wrote again. Before,
   one held for quiet hours went out the next morning all the same.
+- "STOP" written in a closed HR chat, or in the department inbox, is now
+  recorded; a stamp that fails is tried again and reported in the log.
 
 ### Voice notes: one tap to record, one tap to send
 

@@ -128,3 +128,6 @@ contract.
   `last_error` (never a hold: it would go out when the chat moves back).
   Restates 215's row_state, claim and mark: apply in order, once.
   `verify-hr-automsg-still-true.sql`.
+- **Opt-out (2026-11-23).** `agents/inbound.ts` checks `isOptOut` before
+  the closed / department gates; a failed stamp is re-read, retried once,
+  then logged `OPT-OUT NOT RECORDED`.

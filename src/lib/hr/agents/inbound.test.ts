@@ -9,6 +9,7 @@ const h = vi.hoisted(() => ({
   run: vi.fn(),
   optOut: vi.fn(),
   throwFrom: false,
+  stamp: null as string | null,
 }));
 
 vi.mock('@/lib/ai/admin-client', () => ({
@@ -20,7 +21,12 @@ vi.mock('@/lib/ai/admin-client', () => ({
       q.select = () => q;
       q.eq = () => q;
       q.maybeSingle = async () => ({
-        data: table === 'hr_conversations' ? h.hrRow : h.orchestrator,
+        data:
+          table === 'hr_conversations'
+            ? h.hrRow
+            : table === 'contacts'
+              ? { opted_out_at: h.stamp }
+              : h.orchestrator,
         error: null,
       });
       return q;
@@ -56,6 +62,7 @@ beforeEach(() => {
   h.rpcs = [];
   h.froms = [];
   h.throwFrom = false;
+  h.stamp = null;
   h.run.mockReset().mockResolvedValue({ outcome: 'drafted' });
   h.optOut.mockReset().mockResolvedValue(true);
 });
@@ -63,8 +70,6 @@ beforeEach(() => {
 describe('handleHrInboundMessage', () => {
   it.each([
     ['untracked', null],
-    ['dept inbox', { account_id: 'acct-1', inbox: 'dept', closed_at: null }],
-    ['closed', { account_id: 'acct-1', inbox: 'recruiter', closed_at: 'x' }],
     [
       'other account',
       { account_id: 'acct-2', inbox: 'recruiter', closed_at: null },
@@ -76,6 +81,72 @@ describe('handleHrInboundMessage', () => {
     expect(h.rpcs).toHaveLength(0);
     expect(h.run).not.toHaveBeenCalled();
     expect(h.optOut).not.toHaveBeenCalled();
+  });
+
+  const GATED = [
+    ['dept inbox', { account_id: 'acct-1', inbox: 'dept', closed_at: null }],
+    ['closed', { account_id: 'acct-1', inbox: 'recruiter', closed_at: 'x' }],
+  ] as const;
+
+  it.each(GATED)(
+    '%s: other text stops after the first read',
+    async (_n, row) => {
+      h.hrRow = row;
+      await handleHrInboundMessage(args('I sent my CV'));
+      expect(h.froms).toEqual(['hr_conversations']);
+      expect(h.run).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(GATED)(
+    '%s: STOP is honoured with automated messages on',
+    async (_n, row) => {
+      h.hrRow = row;
+      h.orchestrator = null;
+      h.automsg = true;
+      await handleHrInboundMessage(args('STOP'));
+      expect(h.optOut).toHaveBeenCalledTimes(1);
+      expect(h.run).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(GATED)(
+    '%s: STOP with everything off changes nothing',
+    async (_n, row) => {
+      h.hrRow = row;
+      h.orchestrator = null;
+      await handleHrInboundMessage(args('STOP'));
+      expect(h.optOut).not.toHaveBeenCalled();
+    }
+  );
+
+  it('STOP of a contact already stamped is not retried', async () => {
+    h.stamp = '2026-11-01T00:00:00Z';
+    h.optOut.mockResolvedValue(false);
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await handleHrInboundMessage(args('STOP'));
+    expect(h.optOut).toHaveBeenCalledTimes(1);
+    expect(err).not.toHaveBeenCalled();
+    err.mockRestore();
+  });
+
+  it('STOP whose stamp failed is retried once', async () => {
+    h.optOut.mockResolvedValueOnce(false);
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await handleHrInboundMessage(args('STOP'));
+    expect(h.optOut).toHaveBeenCalledTimes(2);
+    expect(err).not.toHaveBeenCalled();
+    err.mockRestore();
+  });
+
+  it('STOP that could not be stamped twice is logged loudly', async () => {
+    h.optOut.mockResolvedValue(false);
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await handleHrInboundMessage(args('STOP'));
+    expect(h.optOut).toHaveBeenCalledTimes(2);
+    expect(String(err.mock.calls[0]?.[0])).toContain('OPT-OUT NOT RECORDED');
+    expect(rpcNames()).toEqual(['hr_agent_supersede']);
+    err.mockRestore();
   });
 
   it('STOP with the orchestrator on: opted out + supersede, no run', async () => {
