@@ -16,8 +16,9 @@ Port of package 033h-k. `docs/privacy.md` is the contract.
   rolled-back block; executing needs `ERASE <id>`; a customer hold or a
   093 recording hold blocks it. Cases and all filed to them, the case
   group, consent and audit are retained (owner's decision); the contact
-  row is anonymised; its opt-out stays on that row only (a re-imported
-  number starts with none). Calls inline 093's match
+  row is anonymised; its opt-out stays on that row and, from 280, by
+  keyed hash of the number (`contact_suppressions`), so a re-imported
+  number is opted out again. Calls inline 093's match
   (`pbx_erase_contact_calls` needs `auth.uid()`): change both. Files are
   deleted by the route after the commit (`erase-objects.ts`).
 - **Files (262).** `privacy_objects_unreferenced` runs after the erase's
@@ -41,3 +42,11 @@ Port of package 033h-k. `docs/privacy.md` is the contract.
   when the check cannot run. A new AI call path calls it too.
 - `privacy_requests` and `ai_transfer_log` are append-only and hold
   hashes and counts, never contact ids or text. `verify-privacy.sql`.
+- **Deleting a customer (280).** A stamped number that leaves a contact
+  (delete, number change, erase) is kept in `contact_suppressions`; insert
+  or a change to that number restores the stamps with one `restored`
+  consent event; lifting a stamp clears the kept one. `contact_open_work`
+  refuses a signed-in person's delete (ZC280, HINT `HAS_OPEN_WORK`, DETAIL
+  the counts); the service role, no-user statements and an account deletion
+  pass. 280 restates 086's `contacts_consent_log`: re-run 280 after 086.
+  `verify-contact-delete.sql`.

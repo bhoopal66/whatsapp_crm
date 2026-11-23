@@ -6851,6 +6851,7 @@
         "marketing_opt_in_withdrawn": "Opt-in withdrawn",
         "opted_out": "Opted out",
         "resubscribed": "Re-subscribed",
+        "restored": "Restored from before the customer was deleted",
         "do_not_contact_set": "Do not contact set",
         "do_not_contact_cleared": "Do not contact cleared"
       },

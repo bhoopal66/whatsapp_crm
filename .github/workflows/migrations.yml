@@ -1448,3 +1448,8 @@ jobs:
       # nobody, and an owner or admin deletes (never edits) a leaver's event.
       - name: Verify calendar and meeting bells
         run: supabase db query --local --file supabase/ci/verify-calendar-meeting-bells.sql
+
+      # Migration 280: an opt-out outlives its contact and comes back with
+      # the number until it is lifted; open work refuses a delete.
+      - name: Verify deleting a contact
+        run: supabase db query --local --file supabase/ci/verify-contact-delete.sql

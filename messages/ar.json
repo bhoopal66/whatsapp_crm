@@ -6851,6 +6851,7 @@
         "marketing_opt_in_withdrawn": "تم سحب الاشتراك",
         "opted_out": "ألغى الاشتراك",
         "resubscribed": "أعاد الاشتراك",
+        "restored": "استُعيد كما كان قبل حذف العميل",
         "do_not_contact_set": "تم تحديد عدم التواصل",
         "do_not_contact_cleared": "تم مسح عدم التواصل"
       },

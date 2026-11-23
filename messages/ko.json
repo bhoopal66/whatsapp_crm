@@ -6851,6 +6851,7 @@
         "marketing_opt_in_withdrawn": "수신 동의 철회됨",
         "opted_out": "수신 거부함",
         "resubscribed": "다시 구독함",
+        "restored": "고객 삭제 이전 상태로 복원됨",
         "do_not_contact_set": "연락 금지 설정됨",
         "do_not_contact_cleared": "연락 금지 해제됨"
       },

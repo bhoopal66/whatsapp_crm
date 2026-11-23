@@ -90,6 +90,14 @@ export const PERSONAL: Readonly<Record<string, PersonalTable>> = {
     reason: CONSENT,
     exported: true,
   },
+  contact_suppressions: {
+    link: 'phone',
+    class: 'identifier',
+    erase: 'anonymise',
+    reason:
+      'opt-outs of numbers whose contact is gone, by keyed hash: the erase drops the reason and keeps the hash and dates',
+    exported: true,
+  },
   conversations: {
     link: 'contact',
     class: 'content',
@@ -907,6 +915,7 @@ export const NOT_PERSONAL: Readonly<Record<string, string>> =
             'desk_digest_settings',
             'desk_number_seq',
             'desk_settings',
+            'contact_suppression_keys',
             'privacy_extensions',
             'flow_nodes',
             'flows',
