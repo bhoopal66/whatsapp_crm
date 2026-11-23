@@ -8069,6 +8069,7 @@
       "deal_room_update": "تحديثات غرفة الصفقة",
       "channel_disconnected": "انقطاع اتصال رقم WhatsApp",
       "channel_reconnected": "عودة اتصال رقم WhatsApp",
+      "inbound_message_failed": "تعذّر حفظ رسالة WhatsApp",
       "meta_number_alert": "تدهور حالة رقم Meta",
       "pbx_connection_silent": "صمت نظام الهاتف",
       "pbx_connection_restored": "عودة نظام الهاتف",

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { FakeInbox } from '@/lib/whatsapp/webhook-inbox.fake';
 import crypto from 'node:crypto';
 
 /**
@@ -21,6 +22,9 @@ const h = vi.hoisted(() => ({
   handleTemplateWebhookChange: vi.fn(),
   screenWebhook: vi.fn(),
   confirmAccepted: vi.fn(),
+  releaseAccepted: vi.fn(),
+  /** Migration 264's functions; a fresh one per test. */
+  inbox: null as unknown as FakeInbox,
   clientIp: vi.fn(),
   recordMetaMessageCosts: vi.fn(),
   recordGroupMessageCosts: vi.fn(),
@@ -66,6 +70,7 @@ vi.mock('@/lib/edge', () => ({
   clientIp: h.clientIp,
   screenWebhook: h.screenWebhook,
   confirmAccepted: h.confirmAccepted,
+  releaseAccepted: h.releaseAccepted,
   ReplayGuard: class {},
   RateLimiter: class {},
   RpcSeenStore: class {},
@@ -99,7 +104,8 @@ vi.mock('@/lib/whatsapp/encryption', () => ({
 
 vi.mock('@supabase/supabase-js', () => ({
   createClient: () => ({
-    rpc: h.rpc,
+    rpc: (fn: string, args: Record<string, unknown>) =>
+      fn.startsWith('webhook_inbox_') ? h.inbox.rpc(fn, args) : h.rpc(fn, args),
     from: (table: string) => {
       if (table === 'meta_number_state') {
         const s: Record<string, unknown> = {
@@ -217,6 +223,10 @@ type ScreenInputArg = {
   events: { key: string; senderKey?: string; kind: string }[];
 };
 
+/** Keys of every claim handed to the mock, in order. */
+const keysOf = (fn: typeof h.confirmAccepted) =>
+  fn.mock.calls.flatMap((c) => (c[1] as { key: string }[]).map((d) => d.key));
+
 /** A screenWebhook stand-in deciding each event by its key. */
 function screenAs(outcomeOf: (key: string) => Outcome) {
   return async (_ctx: unknown, input: ScreenInputArg) => ({
@@ -251,6 +261,8 @@ beforeEach(() => {
   h.screenWebhook.mockImplementation(screenAs(() => 'accept'));
   h.confirmAccepted.mockResolvedValue({ unconfirmed: [] });
   h.clientIp.mockReturnValue('203.0.113.7');
+  h.inbox = new FakeInbox();
+  h.handleStatusUpdate.mockResolvedValue({ matched: true, failed: false });
   h.recordMetaMessageCosts.mockResolvedValue([]);
   h.recordGroupMessageCosts.mockResolvedValue([]);
   process.env.META_APP_SECRET = APP_SECRET;
@@ -1046,7 +1058,10 @@ describe('POST — edge screening', () => {
     expect(h.processMessage.mock.calls[0][0]).toMatchObject({
       id: 'wamid.ABC',
     });
-    expect(h.processMessage.mock.calls[0][5]).toEqual({ fanOut: false });
+    expect(h.processMessage.mock.calls[0][5]).toEqual({
+      onPersistFailure: 'throw',
+      fanOut: false,
+    });
   });
 
   it('processes an accepted message with the default options', async () => {
@@ -1064,7 +1079,7 @@ describe('POST — edge screening', () => {
     expect(h.processMessage).toHaveBeenCalledTimes(2);
     const accepted = h.processMessage.mock.calls[1];
     expect(accepted[0]).toMatchObject({ id: 'wamid.NEW' });
-    expect(accepted[5]).toBeUndefined();
+    expect(accepted[5]).toEqual({ onPersistFailure: 'throw' });
     expect(h.handleStatusUpdate).toHaveBeenCalledTimes(1);
   });
 
@@ -1076,20 +1091,72 @@ describe('POST — edge screening', () => {
     expect(h.confirmAccepted).not.toHaveBeenCalled();
     await runAfterCallbacks();
 
-    expect(h.confirmAccepted).toHaveBeenCalledTimes(1);
-    const [, decisions] = h.confirmAccepted.mock.calls[0];
+    // One claim per event; the last call is the deal rooms', none here.
+    const decisions = h.confirmAccepted.mock.calls.flatMap((c) => c[1]);
     const STATUS_KEY = 'status:109876543210:wamid.OUT:delivered';
     expect(decisions).toEqual([
       { key: STATUS_KEY, outcome: 'accept', claimToken: `tok:${STATUS_KEY}` },
       { key: MSG_KEY, outcome: 'accept', claimToken: `tok:${MSG_KEY}` },
     ]);
-    const confirmedAt = h.confirmAccepted.mock.invocationCallOrder[0];
+    const confirmedAt = h.confirmAccepted.mock.invocationCallOrder[1];
     expect(h.processMessage.mock.invocationCallOrder[0]).toBeLessThan(
       confirmedAt
     );
     expect(h.handleStatusUpdate.mock.invocationCallOrder[0]).toBeLessThan(
       confirmedAt
     );
+  });
+
+  it('answers 503, gives the claims back and processes nothing when recording fails', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    h.inbox.errors.record = { code: '57014' };
+    const payload = deliveryPayload([textMessage('wamid.ABC')]);
+    const { POST } = await import('./route');
+    const res = await POST(post(payload, sign(JSON.stringify(payload))));
+    await runAfterCallbacks();
+
+    expect(res.status).toBe(503);
+    expect(keysOf(h.releaseAccepted)).toHaveLength(2);
+    expect(h.processMessage).not.toHaveBeenCalled();
+    expect(h.handleStatusUpdate).not.toHaveBeenCalled();
+    expect(h.recordMetaMessageCosts).not.toHaveBeenCalled();
+  });
+
+  it('processes as before while migration 264 is missing', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    h.inbox.missing();
+    const payload = deliveryPayload([textMessage('wamid.ABC')]);
+    const { POST } = await import('./route');
+    const res = await POST(post(payload, sign(JSON.stringify(payload))));
+    await runAfterCallbacks();
+
+    expect(res.status).toBe(200);
+    expect(h.processMessage.mock.calls[0][5]).toBeUndefined();
+    expect(h.handleStatusUpdate).toHaveBeenCalledTimes(1);
+    expect(h.confirmAccepted).toHaveBeenCalledTimes(1);
+    expect(keysOf(h.confirmAccepted)).toHaveLength(2);
+  });
+
+  it('settles a failing message failed and still processes the next', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    h.processMessage.mockRejectedValueOnce(new Error('boom'));
+    const payload = deliveryPayload([
+      textMessage('wamid.ABC'),
+      textMessage('wamid.NEXT'),
+    ]);
+    const { POST } = await import('./route');
+    await POST(post(payload, sign(JSON.stringify(payload))));
+    // One record call for the whole POST.
+    expect(h.inbox.calls.map((c) => c.name)).toEqual(['record']);
+    await runAfterCallbacks();
+
+    expect(h.processMessage).toHaveBeenCalledTimes(2);
+    expect(keysOf(h.releaseAccepted)).toEqual([MSG_KEY]);
+    expect(h.inbox.rows.map((r) => r.state)).toEqual([
+      'done',
+      'waiting',
+      'done',
+    ]);
   });
 
   it('leaves the claims of a number whose processing threw unconfirmed', async () => {
@@ -1305,12 +1372,11 @@ describe('POST — deal-room group traffic', () => {
     ]);
     expect(groupCalls()[1].value.groups).toEqual(lifecycleChange.value.groups);
 
-    const [, decisions] = h.confirmAccepted.mock.calls[0];
-    expect(decisions.map((d: { key: string }) => d.key)).toEqual([
+    expect(keysOf(h.confirmAccepted)).toEqual([
       `msg:${NUMBER}:wamid.ABC`,
       `msg:${NUMBER}:wamid.G1`,
     ]);
-    const confirmedAt = h.confirmAccepted.mock.invocationCallOrder[0];
+    const confirmedAt = h.confirmAccepted.mock.invocationCallOrder[1];
     expect(h.handleGroupWebhook.mock.invocationCallOrder[1]).toBeLessThan(
       confirmedAt
     );

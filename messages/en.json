@@ -8069,6 +8069,7 @@
       "deal_room_update": "Deal room updates",
       "channel_disconnected": "A WhatsApp number disconnects",
       "channel_reconnected": "A WhatsApp number reconnects",
+      "inbound_message_failed": "A WhatsApp message could not be saved",
       "meta_number_alert": "The Meta number's health gets worse",
       "pbx_connection_silent": "The phone system goes quiet",
       "pbx_connection_restored": "The phone system is back",

@@ -39,6 +39,10 @@ not_configured` (a shorter one is logged once, without its value).
 | `wacrm_outbox_held_rows{reason,channel}` | gauge   | held messages by reason, e.g. `channel_not_connected` on `sms`                                |
 | `wacrm_outbox_oldest_queued_age_seconds` | gauge   | age of the oldest queued message (0 when none)                                                |
 | `wacrm_outbox_terminal_failed`           | gauge   | messages failed for good                                                                      |
+| `wacrm_inbound_queue_stats_up`           | gauge   | 1 when the inbound WhatsApp queue could be read for this scrape, else 0                       |
+| `wacrm_inbound_queue_pending`            | gauge   | inbound WhatsApp events recorded and not processed yet                                        |
+| `wacrm_inbound_queue_dead`               | gauge   | inbound WhatsApp events given up on after every retry (kept 14 days)                          |
+| `wacrm_inbound_queue_oldest_pending_age_seconds` | gauge   | age of the oldest unprocessed inbound event (0 when none)                                     |
 | `wacrm_integration_configured{name}`     | gauge   | 1 when an optional integration is configured                                                  |
 | `wacrm_integration_unverified{name}`     | gauge   | 1 when a configured integration runs on an untested wire format (RCS, SMS)                    |
 
@@ -58,6 +62,10 @@ service role only): counts across every workspace, never a customer, an
 id or a message text. If the database does not answer within 2 seconds,
 only `wacrm_outbox_stats_up 0` is shown for the queue and the rest of the
 page still answers.
+
+The inbound queue figures come from `webhook_inbox_stats()` (migration 264)
+under the same rules; `wacrm_inbound_queue_stats_up 0` also means 264 is not
+applied, so inbound messages are not durable.
 
 ### Prometheus
 
@@ -80,6 +88,9 @@ Suggested alerts (starting points; tune to your traffic):
 | Queue unreadable          | `wacrm_outbox_stats_up == 0` for 10m                                  |
 | Messages stuck            | `wacrm_outbox_oldest_queued_age_seconds > 3600`                       |
 | Failures piling up        | `increase(wacrm_outbox_terminal_failed[1h]) > 0`                      |
+| Inbound not durable       | `wacrm_inbound_queue_stats_up == 0` for 10m                           |
+| Inbound stuck             | `wacrm_inbound_queue_oldest_pending_age_seconds > 900`                |
+| Inbound lost              | `wacrm_inbound_queue_dead > 0`                                        |
 | Sign-in attack            | `increase(wacrm_edge_refusals_total{kind="signin_locked"}[15m]) > 10` |
 | Untested integration live | `wacrm_integration_unverified == 1`                                   |
 | Event loop stalls         | `nodejs_eventloop_lag_p99_seconds > 0.5` for 5m                       |

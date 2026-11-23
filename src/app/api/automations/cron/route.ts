@@ -30,6 +30,7 @@ import { runCaseRulesSweep } from '@/lib/cases/rules'
 import { memoryStore } from '@/lib/memory/server'
 import { runKbGapRecomputePass } from '@/lib/kb/gap-recompute'
 import { drainWebhookOutbox, purgeWebhookOutbox } from '@/lib/webhooks/outbox'
+import { runInboundQueueTick } from '@/lib/whatsapp/inbound-drain'
 import { runPbxCron } from '@/lib/pbx/housekeeping'
 import { runChatFileSweep } from '@/lib/chat/file-cleanup'
 import { runPersonalHistoryImportTick } from '@/lib/whatsapp/personal-history-import'
@@ -568,6 +569,35 @@ function scheduleKbGapRecompute() {
 }
 
 /**
+ * Inbound WhatsApp queue (migration 264): the events a webhook recorded
+ * and did not finish are retried, the dead ones ring their admins, and
+ * done rows are purged, at most once a minute per process inside after().
+ * A failure is only logged.
+ */
+const webhookInboxDue = everyInterval(60_000)
+
+function scheduleWebhookInbox() {
+  try {
+    if (!webhookInboxDue()) return
+    after(async () => {
+      try {
+        await runInboundQueueTick()
+      } catch (err) {
+        console.error(
+          '[automations-cron] inbound queue failed:',
+          err instanceof Error ? err.message : err,
+        )
+      }
+    })
+  } catch (err) {
+    console.error(
+      '[automations-cron] could not schedule the inbound queue:',
+      err instanceof Error ? err.message : err,
+    )
+  }
+}
+
+/**
  * Outbound webhook outbox (migration 134): the events SQL enqueued
  * (case.stage_changed, submission_group.*, …) are claimed and sent at
  * most once a minute per process, and delivered rows older than 7 days
@@ -998,6 +1028,7 @@ export async function GET(request: Request) {
     scheduleCaseGroupEnds()
     scheduleMemoryExpiry()
     scheduleKbGapRecompute()
+    scheduleWebhookInbox()
     scheduleWebhookOutbox()
     schedulePbxCron()
     schedulePushDispatch()

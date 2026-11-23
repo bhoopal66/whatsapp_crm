@@ -14,8 +14,22 @@ import {
   handleStatusUpdate,
   processMessage,
 } from '@/lib/whatsapp/inbound-pipeline'
-import type { WhatsAppChannel } from '@/lib/whatsapp/channels'
 import type { NormalizedInboundMessage } from '@/lib/whatsapp/inbound'
+import {
+  awaitLater,
+  runDeliveredEvents,
+  type DeliveredEvent,
+} from '@/lib/whatsapp/inbound-delivery'
+import {
+  groupMessagePayload,
+  inboundChannel,
+  messagePayload,
+  statusPayload,
+} from '@/lib/whatsapp/inbound-events'
+import {
+  recordInboundEvents,
+  type InboundEventKind,
+} from '@/lib/whatsapp/webhook-inbox'
 import { serverSupabaseUrl } from '@/lib/supabase/urls'
 import {
   applyGroupEvents,
@@ -44,6 +58,7 @@ import { SubmissionGroupStore } from '@/lib/submission-groups/store'
 import {
   clientIp,
   confirmAccepted,
+  releaseAccepted,
   RateLimiter,
   ReplayGuard,
   RpcRateStore,
@@ -167,9 +182,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
 
-  // Normalised before the response only because screening keys on the
-  // message list. Channel adoption and the channel_id cross-check still
-  // run in after(), with everything else.
+  // Normalised before the response because screening keys on the
+  // message list and the queue stores it.
   let event: NormalizedWhapiWebhook
   // Group traffic (migration 114) is read from the same body on its own:
   // the normaliser keeps dropping group chats, so none of it can reach
@@ -201,6 +215,22 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Retry later' }, { status: 503 })
   }
 
+  const screened = applyScreen(event, groupMessages, screen.decisions, config)
+
+  // Checked before anything is queued: a delivery of another channel is
+  // dropped whole, never stored under this number.
+  const matches = await channelMatches(event, config)
+
+  // Durable before the 200 (migration 264): each event is a row, and the
+  // automations cron retries what this process does not finish.
+  const record = await recordInboundEvents(matches ? screened.queued : [])
+  if (record.status === 'failed') {
+    // Not stored, so not acked: Whapi delivers again, and must not find
+    // its own claims in the way.
+    await releaseAccepted(edgeCtx(), screen.decisions)
+    return NextResponse.json({ error: 'Retry later' }, { status: 503 })
+  }
+
   // Process AFTER the response so Whapi gets a prompt ack (a slow ack
   // triggers redelivery and duplicate work), while still guaranteeing
   // the work runs to completion.
@@ -211,65 +241,105 @@ export async function POST(request: Request) {
   // inbound messages (issue #301). `after()` hands the callback to the
   // runtime, which keeps the function alive until it resolves.
   after(async () => {
-    const screened = applyScreen(event, groupMessages, screen.decisions)
-    let groupsOk = true
-    // A customer's document or photo in a submission group is filed in
-    // their documents folder (178). The group loop only collects it; the
-    // copy (gateway download + storage upload) runs in the finally below,
-    // after the 1:1 messages, so a slow gateway never holds them past
-    // this callback's budget, and it still runs when processing threw.
-    const filer = groupDocumentFiler({
-      admin: supabaseAdmin(),
-      channel: () => whapiChannel(config),
-    })
-    // Tap-to-classify (183): collected in the group loop like the filer,
-    // run after it, since a document's customer_documents row exists only
-    // once it has been filed. Off by default: the switch writes nothing.
-    const intake = caseIntakeQueueFor(supabaseAdmin())
-    try {
-      if (screened.duplicates + screened.ipLimited > 0) {
-        console.warn(
-          `[whapi-webhook] skipped ${screened.duplicates} duplicate and ${screened.ipLimited} IP-limited event(s)`,
-        )
-      }
-      if (await channelMatches(screened.event, config)) {
-        // Groups first and isolated: a failure there is logged and never
-        // stops the inbox work below. Group events carry no id to screen,
-        // so an IP-limited delivery skips them along with everything else.
-        groupsOk = await processWhapiGroups(
-          config,
-          screened.groupMessages,
-          screened.ipLimited > 0 ? [] : groupEvents,
-          screened.event.statuses,
-          filer,
-          intake,
-        )
-        await processWhapiWebhook(screened.event, config, screened.overLimit)
-      }
-    } catch (error) {
-      // A claim is confirmed only once its event is persisted. These
-      // lapse with their lease instead, so a redelivery is processed
-      // rather than skipped as a duplicate.
-      console.error('[whapi-webhook] processing failed:', error)
-      return
-    } finally {
-      // Never throws. Runs after the return above too: the documents'
-      // group messages are already stored, and a redelivery would not
-      // file them again (only a newly recorded message is collected).
-      await filer.run()
-      await intake.run()
+    if (screened.duplicates + screened.ipLimited > 0) {
+      console.warn(
+        `[whapi-webhook] skipped ${screened.duplicates} duplicate and ${screened.ipLimited} IP-limited event(s)`,
+      )
     }
-    // Group messages whose write failed keep their claims unconfirmed,
-    // so a redelivery stores them (the insert is idempotent anyway).
-    await confirmAccepted(
-      edgeCtx(),
-      groupsOk
-        ? screen.decisions
-        : screen.decisions.filter((d) => !d.key.startsWith(GROUP_KEY_PREFIX)),
+    if (!matches) {
+      // Dropped on purpose: a redelivery would be dropped again.
+      await confirmAccepted(edgeCtx(), screen.decisions)
+      return
+    }
+    // Group events carry no id to screen, so an IP-limited delivery skips
+    // them along with everything else.
+    const liveGroupEvents = screened.ipLimited > 0 ? [] : groupEvents
+    if (record.status === 'unavailable') {
+      await processWithoutQueue(
+        screened,
+        liveGroupEvents,
+        screen.decisions,
+        config,
+      )
+      return
+    }
+    // Group messages last: each one files its document inside its event
+    // (gateway download + storage upload), and a slow gateway must not
+    // hold the 1:1 messages past this callback's budget.
+    const later: Promise<unknown>[] = []
+    const inGroup = record.events.filter(
+      (r) => r.event.kind === 'group_message',
     )
+    const oneToOne = record.events.filter(
+      (r) => r.event.kind !== 'group_message',
+    )
+    await runDeliveredEvents(edgeCtx(), oneToOne, later)
+    await applyWhapiGroupEvents(config, liveGroupEvents)
+    await runDeliveredEvents(edgeCtx(), inGroup, later)
+    await awaitLater(later)
   })
 
   return NextResponse.json({ status: 'received' }, { status: 200 })
+}
+
+/**
+ * Migration 264 is not applied: process the delivery in this callback, as
+ * before the queue existed. To be deleted one release after 264.
+ */
+async function processWithoutQueue(
+  screened: ReturnType<typeof applyScreen>,
+  groupEvents: WhapiGroupEvent[],
+  decisions: readonly ScreenDecision[],
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  config: any,
+): Promise<void> {
+  let groupsOk = true
+  // A customer's document or photo in a submission group is filed in
+  // their documents folder (178). The group loop only collects it; the
+  // copy (gateway download + storage upload) runs in the finally below,
+  // after the 1:1 messages, so a slow gateway never holds them past
+  // this callback's budget, and it still runs when processing threw.
+  const filer = groupDocumentFiler({
+    admin: supabaseAdmin(),
+    channel: () => inboundChannel('whapi', config),
+  })
+  // Tap-to-classify (183): collected in the group loop like the filer,
+  // run after it, since a document's customer_documents row exists only
+  // once it has been filed. Off by default: the switch writes nothing.
+  const intake = caseIntakeQueueFor(supabaseAdmin())
+  try {
+    // Groups first and isolated: a failure there is logged and never
+    // stops the inbox work below.
+    groupsOk = await processWhapiGroups(
+      config,
+      screened.groupMessages,
+      groupEvents,
+      screened.event.statuses,
+      filer,
+      intake,
+    )
+    await processWhapiWebhook(screened.event, config, screened.overLimit)
+  } catch (error) {
+    // A claim is confirmed only once its event is persisted. These
+    // lapse with their lease instead, so a redelivery is processed
+    // rather than skipped as a duplicate.
+    console.error('[whapi-webhook] processing failed:', error)
+    return
+  } finally {
+    // Never throws. Runs after the return above too: the documents'
+    // group messages are already stored, and a redelivery would not
+    // file them again (only a newly recorded message is collected).
+    await filer.run()
+    await intake.run()
+  }
+  // Group messages whose write failed keep their claims unconfirmed,
+  // so a redelivery stores them (the insert is idempotent anyway).
+  await confirmAccepted(
+    edgeCtx(),
+    groupsOk
+      ? decisions
+      : decisions.filter((d) => !d.key.startsWith(GROUP_KEY_PREFIX)),
+  )
 }
 
 /**
@@ -326,7 +396,25 @@ function applyScreen(
   event: NormalizedWhapiWebhook,
   groupMessages: readonly GroupInboundMessage[],
   decisions: readonly ScreenDecision[],
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  config: any,
 ) {
+  const queued: DeliveredEvent[] = []
+  const queue = (
+    decision: ScreenDecision,
+    kind: InboundEventKind,
+    payload: unknown,
+  ) =>
+    queued.push({
+      accountId: config.account_id,
+      channel: config.id,
+      provider: 'whapi',
+      eventKey: decision.key,
+      kind,
+      payload,
+      config,
+      decision,
+    })
   let next = 0
   let duplicates = 0
   let ipLimited = 0
@@ -337,35 +425,44 @@ function applyScreen(
 
   const statuses: NormalizedWhapiWebhook['statuses'] = []
   for (const status of event.statuses) {
-    const { outcome } = decisions[next++]
+    const decision = decisions[next++]
     // Statuses are never sender-limited: accepted, or skipped.
-    if (outcome === 'accept') statuses.push(status)
-    else skip(outcome)
+    if (decision.outcome === 'accept') {
+      statuses.push(status)
+      queue(decision, 'status', statusPayload(status))
+    } else skip(decision.outcome)
   }
 
   const messages: NormalizedInboundMessage[] = []
   const overLimit = new Set<NormalizedInboundMessage>()
   for (const message of event.messages) {
-    const { outcome } = decisions[next++]
-    if (outcome === 'accept') messages.push(message)
-    else if (outcome === 'rate_limited') {
+    const decision = decisions[next++]
+    if (decision.outcome === 'accept') {
+      messages.push(message)
+      queue(decision, 'message', messagePayload(message))
+    } else if (decision.outcome === 'rate_limited') {
       // Never lost, never answered: into the inbox without fan-out.
       messages.push(message)
       overLimit.add(message)
-    } else skip(outcome)
+      queue(decision, 'message', messagePayload(message, true))
+    } else skip(decision.outcome)
   }
 
   const groups: GroupInboundMessage[] = []
   for (const message of groupMessages) {
-    const { outcome } = decisions[next++]
-    if (outcome === 'accept') groups.push(message)
-    else skip(outcome)
+    const decision = decisions[next++]
+    if (decision.outcome === 'accept') {
+      groups.push(message)
+      queue(decision, 'group_message', groupMessagePayload(message))
+    } else skip(decision.outcome)
   }
 
   return {
     event: { ...event, statuses, messages },
     groupMessages: groups,
     overLimit,
+    /** What the queue records, in delivery order. */
+    queued,
     duplicates,
     ipLimited,
   }
@@ -567,6 +664,25 @@ async function processWhapiGroups(
   } catch (error) {
     console.error('[whapi-webhook] group statuses failed:', error)
   }
+  await applyWhapiGroupEvents(config, events)
+  return ok
+}
+
+/**
+ * The `groups` events of one callback. Not queued: they carry no id to
+ * record them by. Never throws.
+ */
+async function applyWhapiGroupEvents(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  config: any,
+  events: WhapiGroupEvent[],
+): Promise<void> {
+  const channel: GroupChannel = {
+    id: config.id,
+    accountId: config.account_id,
+    wabaId: config.waba_id ?? null,
+  }
+  const admin = supabaseAdmin()
   try {
     await applyGroupEvents(admin, channel, events)
   } catch (error) {
@@ -582,7 +698,6 @@ async function processWhapiGroups(
   } catch (error) {
     console.error('[whapi-webhook] submission group membership failed:', error)
   }
-  return ok
 }
 
 /**
@@ -602,7 +717,7 @@ async function processWhapiWebhook(
 
   if (event.messages.length === 0) return
 
-  const channel = whapiChannel(config)
+  const channel = inboundChannel('whapi', config)
 
   // Background work of each message (TypeSafe's watch), awaited once
   // the whole delivery is processed — still inside after().
@@ -623,32 +738,4 @@ async function processWhapiWebhook(
     )
   }
   await Promise.all(later)
-}
-
-/**
- * The pipeline is provider-agnostic and takes a resolved channel, so
- * shape the matched config row into one. Built by hand rather than via
- * `loadChannels` because this route runs on the service role with the
- * row already in hand — one fewer query on the hot inbound path. Also
- * the submission-group document filer's channel. Decrypts the token, so
- * it can throw.
- */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function whapiChannel(config: any): WhatsAppChannel {
-  return {
-    id: config.id,
-    accountId: config.account_id,
-    provider: 'whapi',
-    label: config.label ?? null,
-    phoneNumberId: config.phone_number_id,
-    wabaId: config.waba_id ?? null,
-    accessToken: decrypt(config.access_token),
-    appSecret: null,
-    isPrimary: config.is_primary !== false,
-    // Per-channel opt-out for the inbound-media mirror (migration 039).
-    mirrorInboundMedia: config.mirror_inbound_media !== false,
-    status: config.status ?? 'connected',
-    isPersonal: false,
-    personalUserId: null,
-  }
 }

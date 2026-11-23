@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { FakeInbox } from '@/lib/whatsapp/webhook-inbox.fake';
 
 /**
  * Group traffic through the Whapi webhook (migration 114), against an
@@ -16,6 +17,9 @@ const h = vi.hoisted(() => ({
   afterCallbacks: [] as (() => Promise<void> | void)[],
   screenWebhook: vi.fn(),
   confirmAccepted: vi.fn(),
+  releaseAccepted: vi.fn(),
+  /** Migration 264's functions; a fresh one per test. */
+  inbox: null as unknown as FakeInbox,
   processMessage: vi.fn(),
   handleStatusUpdate: vi.fn(),
   dispatchInboundToFlows: vi.fn(),
@@ -23,6 +27,10 @@ const h = vi.hoisted(() => ({
   rpc: vi.fn(),
   mirror: vi.fn(),
 }));
+
+/** Keys of every claim handed to the mock, in order. */
+const keysOf = (fn: typeof h.confirmAccepted) =>
+  fn.mock.calls.flatMap((c) => (c[1] as { key: string }[]).map((d) => d.key));
 
 let seq = 0;
 function query(table: string) {
@@ -101,7 +109,8 @@ vi.mock('@supabase/supabase-js', () => ({
       h.tablesTouched.push(table);
       return query(table);
     },
-    rpc: (fn: string, args: Row) => h.rpc(fn, args),
+    rpc: (fn: string, args: Row) =>
+      fn.startsWith('webhook_inbox_') ? h.inbox.rpc(fn, args) : h.rpc(fn, args),
   }),
 }));
 vi.mock('@/lib/whatsapp/encryption', () => ({
@@ -113,6 +122,7 @@ vi.mock('@/lib/edge', () => ({
   clientIp: () => '203.0.113.7',
   screenWebhook: h.screenWebhook,
   confirmAccepted: h.confirmAccepted,
+  releaseAccepted: h.releaseAccepted,
   ReplayGuard: class {},
   RateLimiter: class {},
   RpcSeenStore: class {},
@@ -250,7 +260,8 @@ beforeEach(() => {
   h.rpc.mockResolvedValue({ data: null, error: null });
   h.confirmAccepted.mockResolvedValue({ unconfirmed: [] });
   h.processMessage.mockResolvedValue(undefined);
-  h.handleStatusUpdate.mockResolvedValue(undefined);
+  h.handleStatusUpdate.mockResolvedValue({ matched: true, failed: false });
+  h.inbox = new FakeInbox();
   h.persistGroupSnapshot.mockResolvedValue({
     id: 'grp-new',
     our_role: 'admin',
@@ -336,8 +347,32 @@ describe('Whapi webhook: group messages', () => {
   it('leaves the group claims unconfirmed when the write fails, without throwing', async () => {
     h.failUpsertOn = 'whatsapp_group_messages';
     await post(messages(groupText('g-6')));
-    const confirmed = h.confirmAccepted.mock.calls[0][1] as { key: string }[];
-    expect(confirmed.map((d) => d.key)).toEqual([]);
+    expect(h.confirmAccepted).not.toHaveBeenCalled();
+    // Settled failed, its claim given back: a redelivery retakes it.
+    expect(h.inbox.rows).toMatchObject([
+      { event_key: 'whapi:group:cfg-1:g-6', state: 'waiting' },
+    ]);
+    expect(keysOf(h.releaseAccepted)).toEqual(['whapi:group:cfg-1:g-6']);
+  });
+
+  it('runs group messages after the 1:1 messages', async () => {
+    const order: string[] = [];
+    h.processMessage.mockImplementation(async () => {
+      order.push(`1:1 (${groupMessages().length} stored)`);
+    });
+    await post(
+      messages(groupText('g-7'), {
+        id: 'one',
+        from_me: false,
+        from: '971500000009',
+        chat_id: '971500000009@s.whatsapp.net',
+        timestamp: 1767225600,
+        type: 'text',
+        text: { body: 'hi' },
+      })
+    );
+    expect(order).toEqual(['1:1 (0 stored)']);
+    expect(groupMessages().map((r) => r.wa_message_id)).toEqual(['g-7']);
   });
 });
 
@@ -498,8 +533,12 @@ describe('Whapi webhook: submission groups (018a)', () => {
 
       expect(h.mirror).toHaveBeenCalledTimes(1);
       expect(filed()).toHaveLength(1);
-      // The catch still returns before confirming any claim.
-      expect(h.confirmAccepted).not.toHaveBeenCalled();
+      // The failed message keeps its claim unconfirmed; the group's is its
+      // own event.
+      expect(keysOf(h.confirmAccepted).map((k) => k.split(':')[1])).toEqual([
+        'group',
+      ]);
+      expect(keysOf(h.releaseAccepted)).toHaveLength(1);
     });
 
     describe('tap-to-classify intake (183) with files_intake_prompts off', () => {

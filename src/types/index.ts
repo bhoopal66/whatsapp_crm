@@ -399,6 +399,9 @@ export type NotificationType =
   // WhatsApp / came back. Sent to owners and admins, no conversation.
   | 'channel_disconnected'
   | 'channel_reconnected'
+  // Durable inbound queue (migration 264): WhatsApp events given up on
+  // after every retry. Sent to owners and admins, no conversation.
+  | 'inbound_message_failed'
   // Team activity (migration 068): a person went past their daily
   // new-chat limit, or a Whapi number reached its own. Sent to owners,
   // admins and the person concerned, no conversation.
