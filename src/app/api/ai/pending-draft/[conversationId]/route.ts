@@ -116,7 +116,7 @@ export async function POST(request: Request, { params }: Params) {
 
     const { data: conv, error: convErr } = await supabase
       .from('conversations')
-      .select('id, ai_pending_draft, ai_pending_draft_at')
+      .select('id, ai_pending_draft, ai_pending_draft_at, ai_attention_at')
       .eq('id', conversationId)
       .eq('account_id', accountId)
       .maybeSingle();
@@ -236,11 +236,16 @@ export async function POST(request: Request, { params }: Params) {
             { status: err instanceof SendMessageError ? err.status : 500 }
           );
         }
-        // Put the draft back so the agent can retry, but only if the bot
-        // has not held a newer one in the meantime.
+        // Put the draft back so the agent can retry, with the pin the
+        // claim took, but only if the bot has not held a newer one in
+        // the meantime.
         const { error: restoreErr } = await supabase
           .from('conversations')
-          .update({ ai_pending_draft: draft, ai_pending_draft_at: draftAt })
+          .update({
+            ai_pending_draft: draft,
+            ai_pending_draft_at: draftAt,
+            ai_attention_at: conv.ai_attention_at,
+          })
           .eq('id', conversationId)
           .eq('account_id', accountId)
           .is('ai_pending_draft', null)

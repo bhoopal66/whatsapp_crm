@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { draftFailure, sameDraftTime } from './pending-draft';
+import {
+  NO_DRAFT_MEMORY,
+  draftFailure,
+  draftMemoryReducer,
+  sameDraftTime,
+} from './pending-draft';
 
 describe('sameDraftTime', () => {
   it.each([
@@ -59,5 +64,32 @@ describe('draftFailure', () => {
       error: 'No',
     });
     expect(draftFailure(500, null)).toEqual({ kind: 'failed', error: null });
+  });
+});
+
+describe('what the thread remembers about a draft', () => {
+  const run = (...actions: Parameters<typeof draftMemoryReducer>[1][]) =>
+    actions.reduce(draftMemoryReducer, NO_DRAFT_MEMORY);
+
+  it('keeps an edit until it is done with', () => {
+    const typed = run({ type: 'edit', key: 'c1:t', text: 'Hello' });
+    expect(typed.editing).toEqual({ key: 'c1:t', text: 'Hello' });
+    expect(draftMemoryReducer(typed, { type: 'editDone' }).editing).toBeNull();
+  });
+
+  it('keeps the text of a send nobody can vouch for, by chat', () => {
+    const m = run(
+      { type: 'unconfirmed', conv: 'c1', text: 'One' },
+      { type: 'unconfirmed', conv: 'c2', text: 'Two' },
+      { type: 'confirmed', conv: 'c1' }
+    );
+    expect(m.unconfirmed).toEqual({ c2: 'Two' });
+  });
+
+  it('has nothing to keep of a discard', () => {
+    expect(run({ type: 'unconfirmed', conv: 'c1', text: '' })).toBe(
+      NO_DRAFT_MEMORY
+    );
+    expect(run({ type: 'confirmed', conv: 'c1' })).toBe(NO_DRAFT_MEMORY);
   });
 });

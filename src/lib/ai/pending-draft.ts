@@ -72,3 +72,50 @@ export function draftFailure(status: number, body: unknown): DraftFailure {
   }
   return { kind: 'failed', error: text(b.error) };
 }
+
+/**
+ * What a person typed into a held draft, and the text a send of unknown
+ * outcome carried. The thread holds it, not the banner: the banner moves
+ * between two slots (and is mounted anew) whenever the chat's attention
+ * changes, which the send itself does.
+ */
+export interface DraftMemory {
+  /** The edit in progress, for one draft (`key`). */
+  editing: { key: string; text: string } | null;
+  /** By conversation. */
+  unconfirmed: Readonly<Record<string, string>>;
+}
+
+export const NO_DRAFT_MEMORY: DraftMemory = { editing: null, unconfirmed: {} };
+
+export type DraftMemoryAction =
+  | { type: 'edit'; key: string; text: string }
+  | { type: 'editDone' }
+  | { type: 'unconfirmed'; conv: string; text: string }
+  | { type: 'confirmed'; conv: string };
+
+export function draftMemoryReducer(
+  m: DraftMemory,
+  a: DraftMemoryAction
+): DraftMemory {
+  switch (a.type) {
+    case 'edit':
+      return { ...m, editing: { key: a.key, text: a.text } };
+    case 'editDone':
+      return m.editing ? { ...m, editing: null } : m;
+    case 'unconfirmed':
+      return a.text
+        ? { ...m, unconfirmed: { ...m.unconfirmed, [a.conv]: a.text } }
+        : m;
+    case 'confirmed': {
+      if (!(a.conv in m.unconfirmed)) return m;
+      const unconfirmed = { ...m.unconfirmed };
+      delete unconfirmed[a.conv];
+      return { ...m, unconfirmed };
+    }
+    default: {
+      const never: never = a;
+      return never;
+    }
+  }
+}

@@ -251,16 +251,19 @@ export function decodeDraft(raw: string | null | undefined): ComposerDraft {
  * The draft left once a send of `sent` succeeded, given the draft as it
  * is NOW (the input stays live while the post is in flight). Unchanged:
  * empty. Typed on after the sent text: only the addition, its leading
- * newline/space trimmed. Anything else (edited, replaced): untouched,
- * since what is there was never sent.
+ * newline/space trimmed. Anything else (edited, replaced, or a longer
+ * word that only begins like it): untouched, since what is there was
+ * never sent.
  */
 export function draftAfterSend(
   current: ComposerDraft,
   sent: ComposerDraft
 ): ComposerDraft {
   if (!current.text.startsWith(sent.text)) return current;
-  const rest = current.text.slice(sent.text.length).replace(/^\s+/, '');
-  return rest.trim()
+  const tail = current.text.slice(sent.text.length);
+  if (/^\S/.test(tail) && /\S$/.test(sent.text)) return current;
+  const rest = tail.replace(/^\s+/, '');
+  return rest
     ? { text: rest, picked: current.picked }
     : { text: '', picked: [] };
 }

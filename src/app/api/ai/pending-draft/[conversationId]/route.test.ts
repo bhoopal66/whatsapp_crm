@@ -68,6 +68,7 @@ const HELD = {
   id: CONV,
   ai_pending_draft: 'Your card ships tomorrow.',
   ai_pending_draft_at: DRAFT_AT,
+  ai_attention_at: '2026-10-09T05:59:00.000Z',
 };
 
 let scoped: ReturnType<typeof fakeClient>;
@@ -268,6 +269,8 @@ describe('POST /api/ai/pending-draft/[conversationId]', () => {
           {
             ai_pending_draft: HELD.ai_pending_draft,
             ai_pending_draft_at: DRAFT_AT,
+            // The claim took the pin with it.
+            ai_attention_at: HELD.ai_attention_at,
           },
         ],
       },
@@ -337,6 +340,7 @@ describe('POST /api/ai/pending-draft/[conversationId]', () => {
     expect(updates()[1].args[0]).toEqual({
       ai_pending_draft: HELD.ai_pending_draft,
       ai_pending_draft_at: DRAFT_AT,
+      ai_attention_at: HELD.ai_attention_at,
     });
   });
 

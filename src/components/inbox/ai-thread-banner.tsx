@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, type Dispatch } from 'react';
 import {
   Sparkles,
   Hand,
@@ -24,7 +24,11 @@ import {
   withOverride,
   type BannerOverride,
 } from '@/lib/ai/banner-state';
-import { draftFailure } from '@/lib/ai/pending-draft';
+import {
+  draftFailure,
+  type DraftMemory,
+  type DraftMemoryAction,
+} from '@/lib/ai/pending-draft';
 import type { Conversation } from '@/types';
 import {
   fetchAiAccountStatus,
@@ -85,6 +89,11 @@ const DRAFT_CLEARED: AiBannerPatch = {
   ai_pending_draft_at: null,
   ai_attention_at: null,
 };
+// Nobody knows whether it was sent: the route pins the chat again.
+const draftUnconfirmed = (): AiBannerPatch => ({
+  ...DRAFT_CLEARED,
+  ai_attention_at: new Date().toISOString(),
+});
 
 type Action = 'toggle' | 'send' | 'sendEdited' | 'discard';
 
@@ -106,6 +115,9 @@ interface AiThreadBannerProps {
    * Only the border side differs; the thread chooses the slot.
    */
   placement?: 'top' | 'bottom';
+  /** Held by the thread, so it survives the move between the two slots. */
+  memory: DraftMemory;
+  remember: Dispatch<DraftMemoryAction>;
 }
 
 /**
@@ -126,6 +138,8 @@ export function AiThreadBanner({
   currentUserId,
   onChange,
   placement = 'bottom',
+  memory,
+  remember,
 }: AiThreadBannerProps) {
   const t = useTranslations('Inbox.aiBanner');
   const { accountId, salesRestricted } = useAuth();
@@ -139,16 +153,8 @@ export function AiThreadBanner({
   );
   const [override, setOverride] =
     useState<BannerOverride<AiBannerPatch> | null>(null);
-  const [editing, setEditing] = useState<{ key: string; text: string } | null>(
-    null
-  );
+  const { editing } = memory;
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
-  // The text Send was pressed on when the answer was "may have been
-  // sent": kept readable and copyable once the draft is gone.
-  const [unconfirmed, setUnconfirmed] = useState<{
-    conv: string;
-    text: string;
-  } | null>(null);
 
   useEffect(() => {
     // GET /api/ai/config refuses a restricted department; status stays null.
@@ -227,8 +233,15 @@ export function AiThreadBanner({
         conv: conversationId,
         action: action === 'discard' ? 'discard' : text ? 'sendEdited' : 'send',
       });
+      // The text Send was pressed on, readable and copyable while nobody
+      // knows whether it was sent.
+      const keepText = () =>
+        remember({
+          type: 'unconfirmed',
+          conv: conversationId,
+          text: action === 'send' ? (text ?? serverDraft ?? '') : '',
+        });
       try {
-        const sentText = text ?? serverDraft ?? '';
         const res = await fetch(`/api/ai/pending-draft/${conversationId}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -249,13 +262,13 @@ export function AiThreadBanner({
               toast.info(t('draftReplaced'));
               return;
             case 'maybeSent':
-              setUnconfirmed({ conv: conversationId, text: sentText });
-              applied(DRAFT_CLEARED);
+              keepText();
+              applied(draftUnconfirmed());
               toast.warning(t('draftMaybeSent'));
               return;
             case 'sentUnsaved':
-              setUnconfirmed({ conv: conversationId, text: sentText });
-              applied(DRAFT_CLEARED);
+              keepText();
+              applied(draftUnconfirmed());
               toast.warning(t('draftSentUnsaved'));
               return;
             case 'gone':
@@ -271,16 +284,19 @@ export function AiThreadBanner({
             }
           }
         }
-        setEditing(null);
+        remember({ type: 'editDone' });
+        remember({ type: 'confirmed', conv: conversationId });
         applied(DRAFT_CLEARED);
         toast.success(action === 'send' ? t('draftSent') : t('draftDiscarded'));
       } catch {
+        // The answer was lost, not necessarily the send.
+        keepText();
         toast.error(t('networkError'));
       } finally {
         setBusy(null);
       }
     },
-    [conversationId, draftAt, serverDraft, applied, t]
+    [conversationId, draftAt, serverDraft, applied, remember, t]
   );
 
   // Account has no auto-reply → nothing to show. (Still loading → nothing.)
@@ -308,8 +324,7 @@ export function AiThreadBanner({
     </BannerButton>
   );
 
-  const unconfirmedText =
-    unconfirmed?.conv === conversationId ? unconfirmed.text : null;
+  const unconfirmedText = memory.unconfirmed[conversationId] ?? null;
   const banner = renderState();
   if (unconfirmedText === null || state.kind === 'hidden') return banner;
   return (
@@ -340,7 +355,7 @@ export function AiThreadBanner({
         <button
           type="button"
           aria-label={t('cancelEdit')}
-          onClick={() => setUnconfirmed(null)}
+          onClick={() => remember({ type: 'confirmed', conv: conversationId })}
           className="text-wa-text-secondary flex-shrink-0 p-1"
         >
           <X className="h-3 w-3" />
@@ -386,7 +401,11 @@ export function AiThreadBanner({
                 aria-label={t('editLabel')}
                 value={editText}
                 onChange={(e) =>
-                  setEditing({ key: textKey, text: e.target.value })
+                  remember({
+                    type: 'edit',
+                    key: textKey,
+                    text: e.target.value,
+                  })
                 }
                 disabled={disabled}
                 rows={4}
@@ -407,7 +426,11 @@ export function AiThreadBanner({
                   </BannerButton>
                   <BannerButton
                     onClick={() =>
-                      setEditing({ key: textKey, text: state.draft })
+                      remember({
+                        type: 'edit',
+                        key: textKey,
+                        text: state.draft,
+                      })
                     }
                     busy={false}
                     disabled={disabled}
@@ -427,7 +450,7 @@ export function AiThreadBanner({
               ) : (
                 <>
                   <BannerButton
-                    onClick={() => setEditing(null)}
+                    onClick={() => remember({ type: 'editDone' })}
                     busy={false}
                     disabled={disabled}
                     icon={X}
