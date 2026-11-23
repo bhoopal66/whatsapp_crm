@@ -27,6 +27,10 @@ No migration.
   its chats could not be counted. They showed 0.
 - Disconnecting a number whose row could not be read now says so (an error)
   instead of answering that it was removed.
+- Connecting a Whapi number no longer skips the duplicate-number checks when
+  one of their reads fails (it answers an error), and when the save itself
+  fails the channel is pointed back at the callback it had, instead of staying
+  on one the CRM no longer knows.
 
 ### Calendar
 

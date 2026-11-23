@@ -291,3 +291,80 @@ describe('DELETE /api/whatsapp/config — a failed read', () => {
     expect(await res.json()).toHaveProperty('error');
   });
 });
+
+describe('POST /api/whatsapp/config — failed reads and a failed save', () => {
+  const save = (extra: Record<string, unknown> = {}) =>
+    POST(
+      post({
+        token: 'tok',
+        channel_id: 'NIGHTW-JJC9J',
+        config_id: 'cfg-1',
+        ...extra,
+      })
+    );
+
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    h.getChannelInfo.mockResolvedValue(channelInfo('AUTH', '971500001234'));
+  });
+
+  it.each([
+    ['the duplicate-channel read', 'id, label, waba_id'],
+    ['the same-phone read', 'id, account_id, label'],
+    ['the row read', 'id, verify_token, waba_id, status'],
+  ])('answers 500 and writes nothing when %s fails', async (_n, columns) => {
+    h.fail[columns] = { message: 'connection reset' };
+    const res = await save();
+    expect(res.status).toBe(500);
+    expect(h.updates).toHaveLength(0);
+    expect(h.registerWebhook).not.toHaveBeenCalled();
+  });
+
+  it('points the channel back at the old secret when the row write fails', async () => {
+    h.fail.update = { message: 'write failed' };
+    const res = await save({ rotate_secret: true });
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({
+      error: 'Failed to update configuration',
+    });
+    expect(h.registerWebhook).toHaveBeenCalledTimes(2);
+    const first = h.registerWebhook.mock.calls[0][0].webhookUrl as string;
+    const second = h.registerWebhook.mock.calls[1][0].webhookUrl as string;
+    expect(first).not.toContain('secret=secret');
+    expect(second).toContain('secret=secret');
+  });
+
+  it('does not restore when the secret was kept', async () => {
+    h.fail.update = { message: 'write failed' };
+    await save();
+    expect(h.registerWebhook).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not restore onto a channel of another phone', async () => {
+    h.fail.update = { message: 'write failed' };
+    h.getChannelInfo.mockResolvedValue(channelInfo('AUTH', '971599999999'));
+    await save({ rotate_secret: true });
+    expect(h.registerWebhook).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the row-write error when the restore fails too', async () => {
+    h.fail.update = { message: 'write failed' };
+    h.registerWebhook
+      .mockResolvedValueOnce({ success: true })
+      .mockRejectedValueOnce(new Error('gateway down'));
+    const res = await save({ rotate_secret: true });
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({
+      error: 'Failed to update configuration',
+    });
+  });
+
+  it('has nothing to restore when a new number fails to insert', async () => {
+    h.fail.insert = { message: 'insert failed' };
+    const res = await POST(
+      post({ token: 'tok', channel_id: 'NEW-CHANNEL', create: true })
+    );
+    expect(res.status).toBe(500);
+    expect(h.registerWebhook).toHaveBeenCalledTimes(1);
+  });
+});
