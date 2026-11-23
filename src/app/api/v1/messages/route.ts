@@ -126,11 +126,11 @@ export async function POST(request: Request) {
     // The opt-out may sit on an older twin of the contact this number
     // resolves to, so every contact it matches is asked, as Compass does.
     // Before the find-or-create: a refused send leaves nothing behind.
-    const twins: ConsentRegister[] = await findMatchingContacts(
+    const twins = (await findMatchingContacts(
       ctx.supabase,
       ctx.accountId,
       contactLookupNumber(to).number
-    );
+    )) as ConsentRegister[];
     if (twins.some((c) => consentRefusal(c))) return customerOptedOut();
 
     // Find-or-create the conversation for this phone, then send. Both
