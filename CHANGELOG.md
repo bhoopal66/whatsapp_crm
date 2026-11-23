@@ -32,6 +32,9 @@ No migration.
 - Adding more people to a WhatsApp group than the hour still allows adds
   the ones who fit and offers the invite link for the rest. It added
   nobody, and used up the hour.
+- **Sync templates** disables a template that was deleted at Meta (when
+  all the account's Cloud API numbers share one WhatsApp Business
+  Account). It stayed approved, and every send of it failed.
 
 ### Voice notes: one tap to record, one tap to send
 
