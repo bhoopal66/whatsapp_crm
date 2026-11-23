@@ -45,9 +45,11 @@ async function open(Panel: () => ReactNode, settings: object, extra = {}) {
       string,
       RequestInit,
     ];
-    return call[1].method === 'PUT'
-      ? JSON.parse(String(call[1].body))
-      : undefined;
+    if (call[1].method !== 'PUT') return undefined;
+    // Every save says it is partial (the route refuses a body without).
+    const { partial, ...changed } = JSON.parse(String(call[1].body));
+    expect(partial).toBe(true);
+    return changed;
   };
 }
 
