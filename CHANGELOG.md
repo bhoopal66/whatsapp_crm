@@ -21,6 +21,9 @@ and polish.
   one held for quiet hours went out the next morning all the same.
 - "STOP" written in a closed HR chat, or in the department inbox, is now
   recorded; a stamp that fails is tried again and reported in the log.
+- A second message sent through the web form within ten minutes is added
+  to the open "New web lead" task. Before, the visitor saw "ok" and it was
+  stored nowhere.
 
 ### Voice notes: one tap to record, one tap to send
 

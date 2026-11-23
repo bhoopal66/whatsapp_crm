@@ -279,6 +279,23 @@ BEGIN
      OR (SELECT email FROM contacts WHERE id = c_new) <> 'lead@example.com' THEN
     failed := array_append(failed, 'a repeat submission opened a task or overwrote a field'::text);
   END IF;
+  -- 275: what the second submission said is kept, once per text, and the
+  -- note never outgrows its limit.
+  PERFORM web_form_submit(v_tok, 'Someone Else', '971500249020', 'other@example.com', 'again', '{}');
+  PERFORM web_form_submit(v_tok, 'Web Lead', '971500249020', 'lead@example.com', 'Please call me', '{}');
+  n := n + 1;
+  IF (SELECT note FROM tasks WHERE contact_id = c_new) IS DISTINCT FROM
+     E'Please call me\n\nagain\nSubmitted name: Someone Else\nSubmitted email: other@example.com' THEN
+    failed := array_append(failed, ('a repeat submission left the note: '
+      || coalesce((SELECT note FROM tasks WHERE contact_id = c_new), '<null>'))::text);
+  END IF;
+  FOR v_n IN 1..4 LOOP
+    v_j := web_form_submit(v_tok, NULL, '971500249020', NULL, v_n || repeat('x', 1500), '{}');
+  END LOOP;
+  n := n + 1;
+  IF (SELECT char_length(note) FROM tasks WHERE contact_id = c_new) <> 4000 OR (v_j ->> 'status') <> 'ok' THEN
+    failed := array_append(failed, 'the joined note is not cut at 4000 characters'::text);
+  END IF;
   -- Ten minutes later it opens one again.
   UPDATE tasks SET created_at = now() - interval '11 minutes' WHERE contact_id = c_new;
   v_j := web_form_submit(v_tok, NULL, '971500249020', NULL, 'later', '{}');

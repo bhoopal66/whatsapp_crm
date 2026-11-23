@@ -245,4 +245,162 @@ GRANT EXECUTE ON FUNCTION
   public.hr_automsg_mark(uuid, text, text, text, uuid, text, text)
   TO service_role;
 
+-- ---------- 2. A second web-form message is kept (RESTATES 256) ----------
+
+CREATE OR REPLACE FUNCTION public.web_form_submit(
+  p_token text, p_name text, p_phone text, p_email text, p_message text,
+  p_meta jsonb)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  v_acct    uuid;
+  v_owner   uuid;
+  v_name    text := nullif(left(regexp_replace(coalesce(p_name, ''), '^[[:space:]]+|[[:space:]]+$', '', 'g'), 120), '');
+  v_email   text := lower(nullif(left(btrim(coalesce(p_email, '')), 254), ''));
+  v_message text := nullif(left(regexp_replace(coalesce(p_message, ''), '^[[:space:]]+|[[:space:]]+$', '', 'g'), 2000), '');
+  v_page    text;
+  v_contact uuid;
+  v_created boolean := false;
+  v_task    boolean := false;
+  v_detail  jsonb;
+  v_note    text := v_message;
+  v_meta    jsonb := '{}'::jsonb;
+  v_open    uuid;
+  v_old     text;
+  v_add     text;
+BEGIN
+  SELECT w.account_id, a.owner_user_id INTO v_acct, v_owner
+    FROM public.web_lead_forms w
+    JOIN public.accounts a ON a.id = w.account_id
+   WHERE p_token ~ '^[0-9a-f]{64}$'
+     AND w.token = p_token
+     AND w.enabled
+     AND a.archived_at IS NULL;
+  IF v_acct IS NULL THEN
+    RETURN jsonb_build_object('status', 'not_found');
+  END IF;
+
+  IF p_phone IS NULL OR p_phone !~ '^[1-9][0-9]{9,14}$' THEN
+    RAISE EXCEPTION 'The phone number must be international digits'
+      USING ERRCODE = '22023', HINT = 'bad_phone';
+  END IF;
+  IF v_email IS NOT NULL AND v_email !~ '^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$' THEN
+    v_email := NULL;
+  END IF;
+  IF p_meta IS NOT NULL AND jsonb_typeof(p_meta) = 'object'
+     AND jsonb_typeof(p_meta -> 'page_url') = 'string' THEN
+    v_page := nullif(left(p_meta ->> 'page_url', 500), '');
+  END IF;
+  v_detail := jsonb_build_object('form', 'web', 'submitted_at', now())
+    || CASE WHEN v_page IS NULL THEN '{}'::jsonb
+            ELSE jsonb_build_object('page_url', v_page) END;
+
+  -- One submission per (workspace, number) at a time: the dedupe
+  -- window below and the find-or-create are decided under this lock.
+  PERFORM pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtext('web_form_submit'),
+    pg_catalog.hashtext(v_acct::text || ':' || p_phone));
+
+  SELECT c.id INTO v_contact
+    FROM public.contacts c
+   WHERE c.account_id = v_acct AND c.phone_normalized = p_phone
+   LIMIT 1;
+
+  IF v_contact IS NULL THEN
+    INSERT INTO public.contacts (account_id, user_id, phone, name, email)
+    VALUES (v_acct, v_owner, p_phone, v_name, v_email)
+    ON CONFLICT (account_id, phone_normalized) WHERE phone_normalized <> ''
+    DO NOTHING
+    RETURNING id INTO v_contact;
+    IF v_contact IS NOT NULL THEN
+      v_created := true;
+    ELSE
+      -- An inbound message created it meanwhile.
+      SELECT c.id INTO v_contact
+        FROM public.contacts c
+       WHERE c.account_id = v_acct AND c.phone_normalized = p_phone
+       LIMIT 1;
+    END IF;
+  END IF;
+
+  IF NOT v_created THEN
+    -- An existing contact is never renamed by a public form (256): what
+    -- was submitted goes in the task below for a person to judge.
+    v_note := concat_ws(E'\n', v_message,
+                        'Submitted name: ' || v_name,
+                        'Submitted email: ' || v_email);
+    v_meta := jsonb_strip_nulls(jsonb_build_object('submitted_name', v_name,
+                                                   'submitted_email', v_email));
+  END IF;
+
+  PERFORM public.contact_set_lead_source_if_empty(v_acct, v_contact, 'web_form', v_detail);
+
+  -- At most one "New web lead" task per contact per 10 minutes: a
+  -- double click, a refresh or a bot repeating itself opens nothing new.
+  IF NOT EXISTS (
+    SELECT 1 FROM public.tasks t
+     WHERE t.contact_id = v_contact
+       AND t.account_id = v_acct
+       AND t.source = 'automation'
+       AND t.source_ref LIKE 'web_form:%'
+       AND t.created_at > now() - interval '10 minutes') THEN
+    INSERT INTO public.tasks
+           (account_id, kind, title, note, contact_id, source, source_ref, meta)
+    VALUES (v_acct, 'follow_up', 'New web lead', v_note, v_contact,
+            'automation',
+            'web_form:' || v_contact::text || ':'
+              || floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint::text,
+            jsonb_build_object('web_form', true)
+              || CASE WHEN v_page IS NULL THEN '{}'::jsonb
+                      ELSE jsonb_build_object('page_url', v_page) END
+              || v_meta)
+    ON CONFLICT (account_id, source, source_ref) DO NOTHING;
+    v_task := FOUND;
+  ELSIF v_note IS NOT NULL THEN
+    -- 275: the visitor is told "ok", so what they wrote must be kept: a
+    -- text the newest open task of the window does not hold yet joins its
+    -- note (4000 characters in all, 085's limit). A name or email is
+    -- repeated only where it is not the contact's own, so a double click
+    -- of a brand new lead adds nothing.
+    SELECT t.id, coalesce(t.note, '') INTO v_open, v_old
+      FROM public.tasks t
+     WHERE t.contact_id = v_contact
+       AND t.account_id = v_acct
+       AND t.source = 'automation'
+       AND t.source_ref LIKE 'web_form:%'
+       AND t.status = 'open'
+       AND t.created_at > now() - interval '10 minutes'
+     ORDER BY t.created_at DESC, t.id DESC
+     LIMIT 1
+       FOR UPDATE;
+    IF FOUND THEN
+      SELECT nullif(concat_ws(E'\n', v_message,
+               'Submitted name: ' || CASE WHEN v_name IS DISTINCT FROM c.name THEN v_name END,
+               'Submitted email: ' || CASE WHEN v_email IS DISTINCT FROM c.email THEN v_email END), '')
+        INTO v_add
+        FROM public.contacts c WHERE c.id = v_contact;
+      IF v_add IS NOT NULL
+         AND strpos(E'\n\n' || v_old || E'\n\n', E'\n\n' || v_add || E'\n\n') = 0
+         AND strpos(E'\n\n' || v_old || E'\n\n', E'\n\n' || v_note || E'\n\n') = 0 THEN
+        UPDATE public.tasks t
+           SET note = left(CASE WHEN v_old = '' THEN v_add
+                                ELSE v_old || E'\n\n' || v_add END, 4000)
+         WHERE t.id = v_open;
+      END IF;
+    END IF;
+  END IF;
+
+  RETURN jsonb_build_object('status', 'ok', 'contact_id', v_contact,
+    'contact_created', v_created, 'task_created', v_task);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.web_form_submit(text, text, text, text, text, jsonb)
+  FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.web_form_submit(text, text, text, text, text, jsonb)
+  TO service_role;
+
 NOTIFY pgrst, 'reload schema';
