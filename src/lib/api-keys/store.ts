@@ -41,13 +41,17 @@ export async function findActiveKeyByHash(
 /**
  * findActiveKeyByHash, also saying whether a null `key` is a live key
  * of an archived workspace: a real key held back until the workspace is
- * restored, which requireApiKey does not count as a bad key.
+ * restored, which requireApiKey does not count as a bad key. Or whether
+ * the database did not answer, which says nothing about the key: it
+ * answers 503, for a 401 tells an integration to throw its key away.
  */
 export async function lookupKeyByHash(hash: string): Promise<{
   key: ApiKeyRow | null;
   archived: boolean;
   /** The archived workspace's key id, for its per-key rate limit. */
   archivedKeyId?: string;
+  /** The database did not answer: nothing is known about the key. */
+  unavailable?: boolean;
 }> {
   const none = { key: null, archived: false };
   const { data, error } = await supabaseAdmin()
@@ -58,7 +62,7 @@ export async function lookupKeyByHash(hash: string): Promise<{
 
   if (error) {
     console.error('[api-keys/store] lookup error:', error.message);
-    return none;
+    return { ...none, unavailable: true };
   }
   if (!data) return none;
 
@@ -81,7 +85,7 @@ export async function lookupKeyByHash(hash: string): Promise<{
     .maybeSingle();
   if (accountErr) {
     console.error('[api-keys/store] account lookup error:', accountErr.message);
-    return none;
+    return { ...none, unavailable: true };
   }
   if (!account) return none;
   if (account.archived_at)

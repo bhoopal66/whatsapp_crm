@@ -24,6 +24,7 @@ export type ApiErrorCode =
   | 'rate_limited' // per-key budget exhausted
   | 'bad_request' // malformed input
   | 'not_found'
+  | 'unavailable' // the database did not answer; try again
   | 'internal';
 
 /**
@@ -64,6 +65,16 @@ export function forbidden(message: string): ApiError {
 /** 400 — bad input. */
 export function badRequest(message: string): ApiError {
   return new ApiError('bad_request', message, 400);
+}
+
+/** 503 — nothing is known about the request yet; the same one may be retried. */
+export function unavailable(retryAfterSeconds = 5): ApiError {
+  return new ApiError(
+    'unavailable',
+    'The service is temporarily unavailable. Please try again.',
+    503,
+    { 'Retry-After': String(retryAfterSeconds) }
+  );
 }
 
 /** 429 — built from a `checkRateLimit` miss, with the standard headers. */

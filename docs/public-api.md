@@ -87,6 +87,7 @@ may be reworded.
 | 400    | `bad_request`  | Malformed input                                                                     |
 | 404    | `not_found`    | No such resource                                                                    |
 | 500    | `internal`     | Server error                                                                        |
+| 503    | `unavailable`  | The key could not be checked (the database did not answer). Says nothing about the key and is not counted as a bad one; nothing was done. Retry after `Retry-After` seconds |
 
 ## Rate limits
 

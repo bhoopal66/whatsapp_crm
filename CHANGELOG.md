@@ -12,6 +12,13 @@ and polish.
 
 ## [Unreleased]
 
+### Public API
+
+No migration.
+- A valid key is answered `503 unavailable` with `Retry-After` while the
+  database does not answer. It was `401`, and five in a row locked the
+  integration's IP out for 15 minutes.
+
 ### Calendar
 
 **Migration required: 278** (`278_calendar_meeting_bells.sql`). Apply it
