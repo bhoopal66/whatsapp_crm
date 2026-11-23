@@ -138,6 +138,8 @@ import {
   admitPullRejoin,
   afterPullStrike,
   needsPullRollback,
+  REFUSALS_BEFORE_REJOIN,
+  sfuRefusal,
 } from '@/lib/meetings/room/recovery';
 import {
   classifyRoomFailure,
@@ -181,6 +183,16 @@ import { createClient } from '@/lib/supabase/client';
 
 /** Signalling cannot be put right by a retry: only a rejoin helps. */
 class NegotiationBroken extends Error {}
+
+/** An SFU call that failed, and what it says about our session. */
+class SfuCallError extends Error {
+  constructor(
+    message: string,
+    readonly refusal: ReturnType<typeof sfuRefusal>
+  ) {
+    super(message);
+  }
+}
 
 /** A local track being published. */
 interface Added {
@@ -310,6 +322,8 @@ export class MeetingCallEngine {
   private attempts = 0;
   /** Consecutive pulls that failed after touching signalling. */
   private pullStrikes = 0;
+  /** Publishes and pulls refused in a row (recovery.ts). */
+  private refusals = 0;
   /** When pull strikes last rejoined; survives the rejoin's teardown. */
   private pullRejoins: number[] = [];
   private attached = false;
@@ -1042,6 +1056,7 @@ export class MeetingCallEngine {
     this.screenGeneration = 0;
     this.spares.clear();
     this.pullStrikes = 0;
+    this.refusals = 0;
     if (this.layerTimer) clearTimeout(this.layerTimer);
     this.layerTimer = null;
     this.speaker = INITIAL_SPEAKER_STATE;
@@ -1507,6 +1522,7 @@ export class MeetingCallEngine {
         });
       });
       if (pc !== this.pc) return;
+      this.refusals = 0;
       for (const a of added) {
         this.spares.delete(a.kind);
         if (a.kind === 'audio') this.audioSender = a.transceiver.sender;
@@ -1569,12 +1585,21 @@ export class MeetingCallEngine {
    */
   private async rejoinIfBroken(pc: RTCPeerConnection, err: unknown) {
     if (pc !== this.pc) return true;
-    if (!(err instanceof NegotiationBroken)) return false;
+    const refusal = err instanceof SfuCallError ? err.refusal : null;
+    if (refusal === 'refused') {
+      this.refusals += 1;
+      if (this.refusals < REFUSALS_BEFORE_REJOIN) return false;
+      this.refusals = 0;
+    } else if (!(err instanceof NegotiationBroken) && refusal !== 'gone') {
+      return false;
+    }
     // Our own seat first: closed by the host, or by joining from another
     // tab, this ends the call here instead of taking the seat back.
     await this.heartbeat();
     if (pc !== this.pc) return true;
     if (this.rejoinWithinBudget()) return true;
+    // Refused requests alone never end a call that may still be playing.
+    if (refusal === 'refused') return false;
     this.connectionFailed();
     return true;
   }
@@ -1655,10 +1680,18 @@ export class MeetingCallEngine {
         });
       }
       this.pullStrikes = 0;
+      this.refusals = 0;
       // A tile resized while this pull was in flight: move it now.
       if (resync) this.scheduleLayers();
-    } catch {
-      if (pc && before && pc === this.pc) await this.recoverPull(pc, before);
+    } catch (err) {
+      if (
+        pc &&
+        pc === this.pc &&
+        !(await this.rejoinIfBroken(pc, err)) &&
+        before
+      ) {
+        await this.recoverPull(pc, before);
+      }
     } finally {
       // Anything not pulled is retried on the next plan.
       for (const r of refs) this.pending.delete(r.trackName);
@@ -2203,7 +2236,10 @@ export class MeetingCallEngine {
     const res = await this.api(path, method, body);
     const parsed = parseTracksResult(res.body);
     if (!res.ok || parsed.errorCode) {
-      throw new Error(parsed.errorCode ?? `http_${res.status}`);
+      throw new SfuCallError(
+        parsed.errorCode ?? `http_${res.status}`,
+        sfuRefusal(res.status, res.body)
+      );
     }
     return parsed;
   }

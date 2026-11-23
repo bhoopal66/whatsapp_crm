@@ -103,7 +103,16 @@ export function sfuErrorResponse(err: unknown): NextResponse | null {
   }
   return err.isTimeout
     ? jsonError('The video service did not respond', 504)
-    : jsonError('The video service refused the request', 502);
+    : NextResponse.json(
+        {
+          error: 'The video service refused the request',
+          // The room tells a refusal of its session from an outage by it.
+          ...(err.status >= 400 && err.status < 500
+            ? { sfuStatus: err.status }
+            : {}),
+        },
+        { status: 502 }
+      );
 }
 
 export function meetingDbErrorResponse(
