@@ -9,6 +9,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+import { idChunks } from './chunks';
 import { contactNames } from './contact-names';
 import {
   INBOX_DEFAULT_LIMIT,
@@ -21,7 +22,6 @@ import {
 import { caseMatchesQuery } from './search';
 
 export const SEARCH_MAX_PAGES = 15;
-const NUMBER_CHUNK = 100;
 
 export type SearchedRow = CaseInboxRow & {
   caseNumber: string | null;
@@ -39,12 +39,12 @@ async function caseNumbers(
   ids: string[]
 ): Promise<Map<string, string>> {
   const out = new Map<string, string>();
-  for (let i = 0; i < ids.length; i += NUMBER_CHUNK) {
+  for (const chunk of idChunks(ids)) {
     const { data, error } = await db
       .from('cases')
       .select('id, case_number')
       .eq('account_id', accountId)
-      .in('id', ids.slice(i, i + NUMBER_CHUNK));
+      .in('id', chunk);
     if (error) throw error;
     for (const r of (data ?? []) as {
       id: string;

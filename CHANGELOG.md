@@ -12,6 +12,23 @@ and polish.
 
 ## [Unreleased]
 
+### Cases: search, next step and tray fixes
+
+No migration.
+- **Cases search.** Text typed quickly is no longer lost when an earlier
+  search arrives, and choosing a bank or other filter keeps the search (and
+  the other way round). The box is always visible on phones, a replaced
+  search is cancelled, and "Load more" is offered when nothing has matched
+  yet but more cases are left to search.
+- **Case overview.** "Next step" waits for the documents, says so when they
+  cannot be loaded, and never advises a stage move on a case Compass manages
+  or to someone who cannot change it.
+- **My team** (Cases and My worklist) says when the team could not be loaded,
+  with Retry, instead of showing only your own cases.
+- **Case desk tray.** File and Dismiss stay disabled until the list has been
+  read again.
+- **Case reviewer.** One pass starts no new case after 40 seconds.
+
 ### Menu, HR and worklist fixes
 
 No migration.

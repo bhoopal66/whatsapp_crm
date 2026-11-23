@@ -10,6 +10,7 @@ import {
 
 const STAGES = ['Interested', 'Docs', 'Submitted', 'Approved', 'Closed'];
 const open = { stage: 'Docs', groupId: 'g', closedAt: null };
+const may = { canWrite: true, stageLocked: false };
 const docs = (over: Partial<DocsSummary> = {}): DocsSummary => ({
   required: 2,
   received: 2,
@@ -45,29 +46,47 @@ describe('summariseDocs', () => {
 
 describe('nextStep', () => {
   it('is closed for a closed case', () => {
-    expect(nextStep({ ...open, closedAt: 'x' }, STAGES, null)).toEqual({
+    expect(
+      nextStep({ ...open, closedAt: 'x' }, STAGES, 'loading', may)
+    ).toEqual({
       kind: 'closed',
     });
   });
   it('puts missing documents first', () => {
     expect(
-      nextStep(open, STAGES, docs({ missing: ['A'], rejected: 1 }))
+      nextStep(open, STAGES, docs({ missing: ['A'], rejected: 1 }), may)
     ).toEqual({ kind: 'documents', missing: 1, rejected: 1 });
   });
   it('otherwise names the next stage', () => {
-    expect(nextStep(open, STAGES, docs())).toEqual({
-      kind: 'move',
-      stage: 'Submitted',
-    });
-    expect(nextStep(open, STAGES, null)).toEqual({
+    expect(nextStep(open, STAGES, docs(), may)).toEqual({
       kind: 'move',
       stage: 'Submitted',
     });
   });
+  it('advises nothing until the documents are known', () => {
+    expect(nextStep(open, STAGES, 'loading', may)).toEqual({ kind: 'loading' });
+    expect(nextStep(open, STAGES, 'failed', may)).toEqual({
+      kind: 'docsFailed',
+    });
+  });
+  it('never advises a move on a locked case or to someone who cannot write', () => {
+    expect(
+      nextStep(open, STAGES, docs(), { canWrite: true, stageLocked: true })
+    ).toEqual({ kind: 'locked' });
+    expect(
+      nextStep(open, STAGES, docs(), { canWrite: false, stageLocked: false })
+    ).toEqual({ kind: 'readOnly' });
+    expect(
+      nextStep(open, STAGES, docs({ missing: ['A'] }), {
+        canWrite: false,
+        stageLocked: true,
+      }).kind
+    ).toBe('documents');
+  });
   it('has nothing to suggest at the end of the list', () => {
-    expect(nextStep({ ...open, stage: 'Closed' }, STAGES, null).kind).toBe(
-      'closed'
-    );
+    expect(
+      nextStep({ ...open, stage: 'Closed' }, STAGES, docs(), may).kind
+    ).toBe('closed');
   });
 });
 

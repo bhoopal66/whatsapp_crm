@@ -9097,6 +9097,7 @@
     },
     "team": {
       "myTeam": "My team",
+      "loadFailed": "Your team could not be loaded.",
       "noTeam": "You don't lead a team yet, so My team shows only your own cases.",
       "truncated": "Showing each person's first 200 cases. Narrow the filters to see the rest."
     },
@@ -9134,6 +9135,8 @@
     "emptyTitle": "No cases yet",
     "emptyBody": "Cases you are the agent or coordinator on, or that your team works, show up here once a submission is opened as a case.",
     "noMatchesTitle": "No cases match these filters",
+    "noMatchesYetTitle": "No matches yet",
+    "noMatchesYetBody": "Only part of the list has been searched. Load more to keep looking.",
     "noMatchesBody": "Try fewer filters, or include closed cases.",
     "leadChip": "Lead",
     "search": {
@@ -9412,6 +9415,9 @@
       "nextRejected": "{count, plural, one {# document was} other {# documents were}} rejected and needs replacing.",
       "nextMove": "Move the case to {stage} when it is ready",
       "nextMoveHint": "Use Move stage above once the bank has what it needs.",
+      "nextDocsFailed": "The document checklist could not be loaded, so no next step is suggested.",
+      "nextLocked": "Compass manages this case's stage. Nothing to move here.",
+      "nextReadOnly": "You can view this case but not move it.",
       "nextNone": "No further move is available from this stage.",
       "lastTitle": "Customer's last message",
       "lastFailed": "The last message could not be loaded.",
@@ -12833,6 +12839,7 @@
     "loading": "Loading waiting customers...",
     "empty": "No customers are waiting for a reply",
     "emptyHint": "A chat appears here as soon as a customer writes and nobody has replied yet.",
+    "teamFailed": "Your team could not be loaded.",
     "emptyOthers": "Nothing else needs action right now.",
     "count": "{count, plural, one {# waiting} other {# waiting}}",
     "unassigned": "Unassigned",

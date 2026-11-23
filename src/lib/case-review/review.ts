@@ -298,28 +298,39 @@ export async function reviewCase(
   }
 }
 
+/** No new case is started this long into a pass (the cron has 60 s). */
+export const REVIEW_TICK_BUDGET_MS = 40_000;
+
 /**
  * One worker pass from the automations cron: up to 20 due cases, each
- * reviewed and settled. Never throws; logs counts only.
+ * reviewed and settled. Claimed one at a time, so a pass that runs out of
+ * time leaves the rest queued rather than claimed for 15 minutes. Never
+ * throws; logs counts only.
  */
 export async function runCaseReviewTick(
   deps: ReviewDeps,
   limit = 20
 ): Promise<{ claimed: number; drafted: number; failed: number }> {
-  const { data, error } = await deps.db.rpc('case_review_claim', {
-    p_limit: limit,
-  });
-  if (error) {
-    console.error(
-      `[case-review] claim failed (${(error as { code?: string }).code ?? '-'})`
-    );
-    return { claimed: 0, drafted: 0, failed: 0 };
-  }
-  const rows =
-    (data as Array<{ case_id: string; account_id: string }> | null) ?? [];
+  const clock = () => (deps.now ?? (() => new Date()))().getTime();
+  const startedAt = clock();
+  let claimed = 0;
   let drafted = 0;
   let failed = 0;
-  for (const row of rows) {
+  while (claimed < limit && clock() - startedAt < REVIEW_TICK_BUDGET_MS) {
+    const { data, error } = await deps.db.rpc('case_review_claim', {
+      p_limit: 1,
+    });
+    if (error) {
+      console.error(
+        `[case-review] claim failed (${(error as { code?: string }).code ?? '-'})`
+      );
+      break;
+    }
+    const row = (
+      data as Array<{ case_id: string; account_id: string }> | null
+    )?.[0];
+    if (!row) break;
+    claimed++;
     const r = await reviewCase(deps, row.case_id, row.account_id);
     const ok = r.ok || r.reason === 'off';
     if (r.ok) drafted++;
@@ -334,5 +345,5 @@ export async function runCaseReviewTick(
         `[case-review] finish failed (${(e as { code?: string }).code ?? '-'})`
       );
   }
-  return { claimed: rows.length, drafted, failed };
+  return { claimed, drafted, failed };
 }

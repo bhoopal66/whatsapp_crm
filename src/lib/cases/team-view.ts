@@ -30,6 +30,18 @@ export const CASES_TEAM_PARAM = 'team';
 /** 125 caps a page at 200 (INBOX_MAX_LIMIT in lib/cases/inbox.ts). */
 export const TEAM_PAGE_LIMIT = 200;
 
+/**
+ * The people of "My team": the leader first, then who they lead. A failed
+ * roster read is null, never `[leader]`: that list reads as a team of one
+ * and would hide everyone's cases without a word.
+ */
+export function ledTeamIds(
+  leaderId: string,
+  roster: ReadonlySet<string> | null
+): string[] | null {
+  return roster && [leaderId, ...[...roster].filter((id) => id !== leaderId)];
+}
+
 /** One GET /api/cases per person, the other filters kept. */
 export function teamInboxUrls(
   filters: InboxFilters,
