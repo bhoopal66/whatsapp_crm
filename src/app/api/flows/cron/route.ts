@@ -1,7 +1,8 @@
-import { timingSafeEqual } from 'node:crypto'
-import { NextResponse } from 'next/server'
-import { supabaseAdmin } from '@/lib/flows/admin-client'
-import { resolveFallbackPolicy } from '@/lib/flows/fallback'
+import { timingSafeEqual } from 'node:crypto';
+import { NextResponse } from 'next/server';
+import { supabaseAdmin } from '@/lib/flows/admin-client';
+import { resolveFallbackPolicy } from '@/lib/flows/fallback';
+import { readAllPages } from '@/lib/contacts/chat-tag-column';
 import { serverErrorResponse } from '@/lib/api/server-error';
 
 /**
@@ -28,63 +29,70 @@ import { serverErrorResponse } from '@/lib/api/server-error';
  * tenants.
  */
 export async function GET(request: Request) {
-  const expected = process.env.AUTOMATION_CRON_SECRET
+  const expected = process.env.AUTOMATION_CRON_SECRET;
   if (!expected) {
-    return NextResponse.json({ error: 'cron not configured' }, { status: 503 })
+    return NextResponse.json({ error: 'cron not configured' }, { status: 503 });
   }
   // Constant-time compare so an attacker who can hit the endpoint
   // can't recover the secret byte-by-byte from response-time deltas.
   // Length pre-check is required by timingSafeEqual (throws otherwise)
   // and leaks only the length itself, which isn't sensitive.
-  const supplied = request.headers.get('x-cron-secret') ?? ''
-  const suppliedBuf = Buffer.from(supplied)
-  const expectedBuf = Buffer.from(expected)
+  const supplied = request.headers.get('x-cron-secret') ?? '';
+  const suppliedBuf = Buffer.from(supplied);
+  const expectedBuf = Buffer.from(expected);
   if (
     suppliedBuf.length !== expectedBuf.length ||
     !timingSafeEqual(suppliedBuf, expectedBuf)
   ) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const admin = supabaseAdmin()
-  const now = new Date()
-
-  // Pull all currently-active runs along with their parent flow's
-  // fallback_policy. Joined in one query — the small set of active
-  // runs per tenant keeps this cheap.
-  const { data: runs, error } = await admin
-    .from('flow_runs')
-    .select(
-      'id, flow_id, user_id, contact_id, last_advanced_at, flows ( fallback_policy )',
-    )
-    .eq('status', 'active')
-
-  if (error) {
-    console.error('[flows-cron] active-run scan failed:', error.message)
-    return serverErrorResponse('GET /api/flows/cron', error)
-  }
-  if (!runs?.length) return NextResponse.json({ swept: 0 })
+  const admin = supabaseAdmin();
+  const now = new Date();
 
   type Row = {
-    id: string
-    flow_id: string
-    user_id: string
-    contact_id: string | null
-    last_advanced_at: string
-    flows: { fallback_policy: unknown } | { fallback_policy: unknown }[] | null
+    id: string;
+    flow_id: string;
+    user_id: string;
+    contact_id: string | null;
+    last_advanced_at: string;
+    flows: { fallback_policy: unknown } | { fallback_policy: unknown }[] | null;
+  };
+
+  // Every active run with its flow's policy, oldest first, read in pages
+  // (PostgREST caps one answer). All of it is read before any is closed,
+  // so closing rows never shifts a later page.
+  const { data: runs, error } = await readAllPages<Row>(
+    (from, to) =>
+      admin
+        .from('flow_runs')
+        .select(
+          'id, flow_id, user_id, contact_id, last_advanced_at, flows ( fallback_policy )'
+        )
+        .eq('status', 'active')
+        .order('last_advanced_at', { ascending: true })
+        .order('id', { ascending: true })
+        .range(from, to),
+    1000
+  );
+
+  if (error) {
+    console.error('[flows-cron] active-run scan failed:', error.message);
+    return serverErrorResponse('GET /api/flows/cron', error);
   }
+  if (!runs.length) return NextResponse.json({ swept: 0 });
 
-  let swept = 0
-  for (const r of runs as Row[]) {
-    const flowsField = Array.isArray(r.flows) ? r.flows[0] : r.flows
-    const policy = resolveFallbackPolicy(flowsField?.fallback_policy ?? null)
-    const lastAdvanced = new Date(r.last_advanced_at)
-    const ageHours = (now.getTime() - lastAdvanced.getTime()) / (1000 * 60 * 60)
-    if (ageHours < policy.on_timeout_hours) continue
+  let swept = 0;
+  for (const r of runs) {
+    const flowsField = Array.isArray(r.flows) ? r.flows[0] : r.flows;
+    const policy = resolveFallbackPolicy(flowsField?.fallback_policy ?? null);
+    const lastAdvanced = new Date(r.last_advanced_at);
+    const ageHours =
+      (now.getTime() - lastAdvanced.getTime()) / (1000 * 60 * 60);
+    if (ageHours < policy.on_timeout_hours) continue;
 
-    // Mark timed_out — guarded by the precondition `status='active'`
-    // so concurrent advance from a late inbound doesn't overwrite a
-    // legitimate update.
+    // Conditional on the age just judged: a customer who answers during
+    // the sweep keeps their run.
     const { data: updated } = await admin
       .from('flow_runs')
       .update({
@@ -94,7 +102,8 @@ export async function GET(request: Request) {
       })
       .eq('id', r.id)
       .eq('status', 'active')
-      .select('id')
+      .eq('last_advanced_at', r.last_advanced_at)
+      .select('id');
 
     if (Array.isArray(updated) && updated.length > 0) {
       await admin.from('flow_run_events').insert({
@@ -104,10 +113,10 @@ export async function GET(request: Request) {
           age_hours: Math.round(ageHours * 10) / 10,
           policy_hours: policy.on_timeout_hours,
         },
-      })
-      swept += 1
+      });
+      swept += 1;
     }
   }
 
-  return NextResponse.json({ swept })
+  return NextResponse.json({ swept });
 }
