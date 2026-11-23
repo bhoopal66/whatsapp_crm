@@ -5520,6 +5520,8 @@
     "unassigned": "Unassigned",
     "assignedToMe": "Assigned to me",
     "noChannels": "No channels yet.",
+    "channelsLoadFailed": "Couldn't load the channels.",
+    "retry": "Try again",
     "mentions": "{count, plural, =1 {# mention} other {# mentions}}",
     "pickTitle": "Pick a channel",
     "pickBody": "Choose a channel or a direct message on the left.",
@@ -5583,6 +5585,7 @@
       "jumpFailed": "That message couldn’t be found in this channel."
     },
     "timeline": {
+      "loadFailed": "Couldn't load the messages.",
       "today": "Today",
       "yesterday": "Yesterday",
       "edited": "(edited)",

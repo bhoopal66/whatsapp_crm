@@ -5520,6 +5520,8 @@
     "unassigned": "غير مُسنَدة",
     "assignedToMe": "المُسنَدة إليّ",
     "noChannels": "لا توجد قنوات بعد.",
+    "channelsLoadFailed": "تعذّر تحميل القنوات.",
+    "retry": "إعادة المحاولة",
     "mentions": "{count, plural, =1 {# إشارة} other {# إشارات}}",
     "pickTitle": "اختر قناة",
     "pickBody": "اختر قناة أو رسالة مباشرة من القائمة.",
@@ -5583,6 +5585,7 @@
       "jumpFailed": "تعذّر العثور على تلك الرسالة في هذه القناة."
     },
     "timeline": {
+      "loadFailed": "تعذّر تحميل الرسائل.",
       "today": "اليوم",
       "yesterday": "أمس",
       "edited": "(معدّلة)",

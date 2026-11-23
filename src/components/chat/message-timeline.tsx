@@ -19,6 +19,7 @@ import {
 } from '@/lib/chat';
 import { focusStep } from '@/lib/chat/compose';
 
+import { LoadFailed } from './load-failed';
 import type { RowActionContext } from './message-actions';
 import { MessageRow } from './message-row';
 
@@ -28,6 +29,9 @@ export interface MessageTimelineProps {
   callCards: Record<string, SharedCallCard>;
   hasMoreOlder: boolean;
   loading: boolean;
+  /** The first read failed: nothing to show, and a Retry. */
+  failed: boolean;
+  onRetry: () => void;
   loadingOlder: boolean;
   onLoadOlder: () => void;
   onToggleReaction: (messageId: string, emoji: string) => void;
@@ -176,6 +180,11 @@ export function MessageTimeline(p: MessageTimelineProps) {
             month: 'long',
             timeZone: 'UTC',
           }).format(new Date(`${dayKey}T12:00:00Z`));
+
+  if (p.failed)
+    return (
+      <LoadFailed message={t('timeline.loadFailed')} onRetry={p.onRetry} />
+    );
 
   if (p.loading)
     return (

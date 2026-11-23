@@ -55,6 +55,7 @@ import { cn } from '@/lib/utils';
 
 import { CallsSection } from './calls-section';
 import { useChatWorkspaceContext } from './chat-context';
+import { LoadFailed } from './load-failed';
 import { PresenceDot } from './presence-dot';
 import { useSavedCount } from './saved-items';
 
@@ -475,6 +476,11 @@ export function ChatSidebar({
               <div key={i} className="bg-muted h-4 animate-pulse rounded" />
             ))}
           </div>
+        ) : ws.channelsFailed ? (
+          <LoadFailed
+            message={t('channelsLoadFailed')}
+            onRetry={() => void ws.reloadChannels()}
+          />
         ) : (
           ws.channels.length === 0 && (
             <p className="text-muted-foreground px-3 pt-4 text-sm">
