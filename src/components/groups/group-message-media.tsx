@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl';
 import { Download, FileText, MapPin } from 'lucide-react';
 
 import { MediaUnavailable } from '@/components/inbox/message-media';
+import { VoiceNotePlayer } from '@/components/inbox/voice-note-player';
 import {
   groupDownloadUrl,
   type GroupMediaView,
@@ -20,7 +21,17 @@ import { cn } from '@/lib/utils';
  * about 30 days: a photo, video or audio whose link fails to load turns
  * into the same "unavailable" line the inbox shows, never a broken image.
  */
-export function GroupMessageMedia({ view }: { view: GroupMediaView }) {
+export function GroupMessageMedia({
+  view,
+  messageId,
+  outbound,
+}: {
+  view: GroupMediaView;
+  /** Keeps a voice note's stand-in waveform stable. */
+  messageId: string;
+  /** Which side's bubble it sits in. */
+  outbound: boolean;
+}) {
   const t = useTranslations('Inbox.bubble');
   const [broken, setBroken] = useState(false);
   const url = broken ? null : view.url;
@@ -65,12 +76,11 @@ export function GroupMessageMedia({ view }: { view: GroupMediaView }) {
       break;
     case 'audio':
       content = url ? (
-        <audio
+        <VoiceNotePlayer
           src={url}
-          controls
-          preload="none"
-          onError={onError}
-          className="w-60 max-w-full"
+          seed={messageId}
+          tone={outbound ? 'out' : 'in'}
+          onLoadError={onError}
         />
       ) : (
         <MediaUnavailable label={t('audio')} t={t} />

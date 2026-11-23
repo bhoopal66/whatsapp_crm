@@ -26,6 +26,8 @@ No migration.
   **Saved voice notes** (it was called "Voice notes"): the ready-made ones
   everyone can send. Its window says so, and leads back to recording one
   for this customer only.
+- Voice notes in groups and on the case page play like those in the
+  inbox, with the waveform and the speed, not in the browser's own player.
 - A voice note goes only to the chat it was recorded in. Leaving a
   customer's chat while recording stops it and keeps it there (in a group
   or in team chat it is discarded); leaving after Send does not stop it.
