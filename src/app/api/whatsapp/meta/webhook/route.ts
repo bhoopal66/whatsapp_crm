@@ -30,7 +30,6 @@ import {
   handleStatusUpdate,
   processMessage,
 } from '@/lib/whatsapp/inbound-pipeline';
-import type { WhatsAppChannel } from '@/lib/whatsapp/channels';
 import {
   groupMessages,
   groupStatuses,
@@ -55,10 +54,25 @@ import {
 } from '@/lib/whatsapp/meta-health/state';
 import { ringMetaNumberAlert } from '@/lib/whatsapp/meta-health/alert';
 import type { NormalizedInboundMessage } from '@/lib/whatsapp/inbound';
+import {
+  awaitLater,
+  runDeliveredEvents,
+  type DeliveredEvent,
+} from '@/lib/whatsapp/inbound-delivery';
+import {
+  inboundChannel,
+  messagePayload,
+  statusPayload,
+} from '@/lib/whatsapp/inbound-events';
+import {
+  recordInboundEvents,
+  type InboundEventKind,
+} from '@/lib/whatsapp/webhook-inbox';
 import { serverSupabaseUrl } from '@/lib/supabase/urls';
 import {
   clientIp,
   confirmAccepted,
+  releaseAccepted,
   RateLimiter,
   ReplayGuard,
   RpcRateStore,
@@ -486,26 +500,49 @@ async function phoneNumberHalf(
     if (outcome === 'duplicate') duplicates++;
     else ipLimited++;
   };
+  // What the queue records (migration 264), every number's in one call.
+  // Deal-room messages are not queued.
+  const queued: DeliveredEvent[] = [];
   const screened = verified.map(({ event, config, rawStatuses, groups }) => {
     const own: ScreenDecision[] = [];
+    const queue = (
+      decision: ScreenDecision,
+      kind: InboundEventKind,
+      payload: unknown
+    ) =>
+      queued.push({
+        accountId: config.account_id,
+        channel: config.id,
+        provider: 'meta',
+        eventKey: decision.key,
+        kind,
+        payload,
+        config,
+        decision,
+      });
     const statuses: typeof event.statuses = [];
     for (const status of event.statuses) {
       const decision = decisions[next++];
       own.push(decision);
       // Statuses are never sender-limited: accepted, or skipped.
-      if (decision.outcome === 'accept') statuses.push(status);
-      else skip(decision.outcome);
+      if (decision.outcome === 'accept') {
+        statuses.push(status);
+        queue(decision, 'status', statusPayload(status));
+      } else skip(decision.outcome);
     }
     const messages: NormalizedInboundMessage[] = [];
     const overLimit = new Set<NormalizedInboundMessage>();
     for (const message of event.messages) {
       const decision = decisions[next++];
       own.push(decision);
-      if (decision.outcome === 'accept') messages.push(message);
-      else if (decision.outcome === 'rate_limited') {
+      if (decision.outcome === 'accept') {
+        messages.push(message);
+        queue(decision, 'message', messagePayload(message));
+      } else if (decision.outcome === 'rate_limited') {
         // Never lost, never answered: into the inbox without fan-out.
         messages.push(message);
         overLimit.add(message);
+        queue(decision, 'message', messagePayload(message, true));
       } else skip(decision.outcome);
     }
     // The handler has no fan-out to hold back, so a message over its
@@ -536,6 +573,16 @@ async function phoneNumberHalf(
     };
   });
 
+  // Durable before the 200: the automations cron retries what this
+  // process does not finish.
+  const record = await recordInboundEvents(queued);
+  if (record.status === 'failed') {
+    // Not stored, so not acked: Meta delivers again, and must not find its
+    // own claims in the way.
+    await releaseAccepted(edgeCtx(), decisions);
+    return { ...NOTHING_TO_DO, inFlight: true };
+  }
+
   return {
     ...NOTHING_TO_DO,
     work: async () => {
@@ -544,16 +591,23 @@ async function phoneNumberHalf(
           `[meta-webhook] skipped ${duplicates} duplicate and ${ipLimited} IP-limited event(s)`
         );
       }
-      // Claims of a number whose processing threw are left to lapse with
-      // their lease rather than confirmed: a claim is confirmed only once
-      // its event is persisted, so a later redelivery is still processed.
+      const later: Promise<unknown>[] = [];
+      // Every number's 1:1 events before any deal room or costing.
+      if (record.status === 'recorded') {
+        await runDeliveredEvents(edgeCtx(), record.events, later);
+      }
+      // Claims of work that threw are left to lapse with their lease
+      // rather than confirmed: a claim is confirmed only once its event is
+      // persisted, so a later redelivery is still processed.
       const persisted: ScreenDecision[] = [];
       for (const n of screened) {
-        try {
-          await processMetaEvent(n.event, n.config, n.overLimit);
-          persisted.push(...n.decisions);
-        } catch (error) {
-          console.error('[meta-webhook] processing failed:', error);
+        if (record.status === 'unavailable') {
+          try {
+            await processWithoutQueue(n.event, n.config, n.overLimit);
+            persisted.push(...n.decisions);
+          } catch (error) {
+            console.error('[meta-webhook] processing failed:', error);
+          }
         }
         // Deal rooms, apart from the 1:1 work so neither can cost the
         // other its events. A request over the IP limit processes
@@ -601,6 +655,7 @@ async function phoneNumberHalf(
         }
       }
       await confirmAccepted(edgeCtx(), persisted);
+      await awaitLater(later);
     },
   };
 }
@@ -1022,13 +1077,15 @@ async function findMetaConfigByPhoneNumberId(
 }
 
 /**
- * Hand a verified event to the shared pipeline.
+ * Migration 264 is not applied: hand a verified event to the shared
+ * pipeline in this callback, as before the queue existed. To be deleted
+ * one release after 264.
  *
  * Everything past this point is identical to the Whapi path — contact
  * dedup, the idempotency boundary, the status ladder, Flows →
  * automations → AI auto-reply → outbound webhooks.
  */
-async function processMetaEvent(
+async function processWithoutQueue(
   event: ReturnType<typeof normalizeMetaWebhook>,
   config: MetaConfigRow,
   // Messages over their sender's webhook rate limit.
@@ -1040,23 +1097,7 @@ async function processMetaEvent(
 
   if (event.messages.length === 0) return;
 
-  const channel: WhatsAppChannel = {
-    id: config.id,
-    accountId: config.account_id,
-    provider: 'meta',
-    label: config.label ?? null,
-    phoneNumberId: config.phone_number_id,
-    wabaId: config.waba_id ?? null,
-    accessToken: decrypt(config.access_token),
-    appSecret: null,
-    isPrimary: config.is_primary === true,
-    // Meta media URLs expire even faster than Whapi's (minutes, not
-    // days) once resolved, so mirroring matters more here, not less.
-    mirrorInboundMedia: config.mirror_inbound_media !== false,
-    status: config.status ?? 'connected',
-    isPersonal: false,
-    personalUserId: null,
-  };
+  const channel = inboundChannel('meta', config);
 
   // Background work of each message (TypeSafe's watch), awaited once
   // the whole delivery is processed — still inside after().

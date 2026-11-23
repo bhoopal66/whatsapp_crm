@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { FakeInbox } from '@/lib/whatsapp/webhook-inbox.fake';
 
 /**
  * Shared secret the fixture channel is registered with.
@@ -19,6 +20,9 @@ const h = vi.hoisted(() => ({
   dispatchWebhookEvent: vi.fn(),
   screenWebhook: vi.fn(),
   confirmAccepted: vi.fn(),
+  releaseAccepted: vi.fn(),
+  /** Migration 264's functions; a fresh one per test. */
+  inbox: null as unknown as FakeInbox,
   clientIp: vi.fn(),
   state: {
     // Result the message upsert's .select() resolves to. A genuine insert
@@ -69,6 +73,13 @@ vi.mock('@supabase/supabase-js', () => ({
   createClient: () => ({
     from(table: string) {
       switch (table) {
+        case 'whatsapp_group_messages': {
+          // Every receipt is tried on the group sends too; none here.
+          const g: Record<string, unknown> = {};
+          for (const m of ['update', 'eq', 'in']) g[m] = () => g;
+          g.select = () => Promise.resolve({ data: [], error: null });
+          return g;
+        }
         case 'whatsapp_config':
           // The Whapi route resolves tenancy from the webhook SECRET,
           // not from a payload field, so it loads the Whapi rows and
@@ -255,6 +266,7 @@ vi.mock('@supabase/supabase-js', () => ({
       }
     },
     rpc: (name: string, args: Record<string, unknown>) => {
+      if (name.startsWith('webhook_inbox_')) return h.inbox.rpc(name, args);
       h.state.rpcCalls.push({ name, args });
       return Promise.resolve({ data: null, error: null });
     },
@@ -326,6 +338,7 @@ vi.mock('@/lib/edge', () => ({
   clientIp: h.clientIp,
   screenWebhook: h.screenWebhook,
   confirmAccepted: h.confirmAccepted,
+  releaseAccepted: h.releaseAccepted,
   ReplayGuard: class {},
   RateLimiter: class {},
   RpcSeenStore: class {},
@@ -376,6 +389,12 @@ const TEXT_MESSAGE = {
   type: 'text',
   text: { body: 'hello' },
 };
+
+/** Keys of every claim handed to the mock, in order. */
+const keysOf = (fn: typeof h.confirmAccepted) =>
+  fn.mock.calls.flatMap((c) => (c[1] as { key: string }[]).map((d) => d.key));
+
+type Res = { init: { status: number } };
 
 function inboundRequest(
   message: Record<string, unknown> = TEXT_MESSAGE,
@@ -428,6 +447,7 @@ beforeEach(() => {
   h.state.conversation = { id: 'conv-1', unread_count: 0, account_id: 'acc-1' };
   h.state.upsertCalls = [];
   h.state.rpcCalls = [];
+  h.inbox = new FakeInbox();
   h.state.afterCallbacks = [];
   h.state.automationStarted = 0;
   h.state.automationCompleted = 0;
@@ -1160,7 +1180,10 @@ describe('inbound webhook: edge screening (module 017a)', () => {
     await deliver(deliveryRequest());
 
     expect(mockProcessMessage).toHaveBeenCalledTimes(1);
-    expect(mockProcessMessage.mock.calls[0][5]).toEqual({ fanOut: false });
+    expect(mockProcessMessage.mock.calls[0][5]).toEqual({
+      onPersistFailure: 'throw',
+      fanOut: false,
+    });
     // Kept in the inbox…
     expect(h.state.upsertCalls).toHaveLength(1);
     // …but nothing answers it.
@@ -1179,7 +1202,7 @@ describe('inbound webhook: edge screening (module 017a)', () => {
     expect(mockProcessMessage).toHaveBeenCalledTimes(2);
     const accepted = mockProcessMessage.mock.calls[1];
     expect(accepted[0]).toMatchObject({ id: OTHER_MESSAGE.id });
-    expect(accepted[5]).toBeUndefined();
+    expect(accepted[5]).toEqual({ onPersistFailure: 'throw' });
     expect(h.dispatchInboundToFlows).toHaveBeenCalledTimes(1);
     expect(h.state.messageStatusUpdates).toContainEqual({
       messageId: STATUS.id,
@@ -1193,26 +1216,105 @@ describe('inbound webhook: edge screening (module 017a)', () => {
     expect(h.confirmAccepted).not.toHaveBeenCalled();
     for (const cb of h.state.afterCallbacks) await cb();
 
-    expect(h.confirmAccepted).toHaveBeenCalledTimes(1);
-    expect(h.confirmAccepted.mock.calls[0][1]).toEqual([
-      { key: STATUS_KEY, outcome: 'accept', claimToken: `tok:${STATUS_KEY}` },
-      { key: MSG_KEY, outcome: 'accept', claimToken: `tok:${MSG_KEY}` },
+    // One claim per event, each once its own event is done.
+    expect(h.confirmAccepted.mock.calls.map((c) => c[1])).toEqual([
+      [{ key: STATUS_KEY, outcome: 'accept', claimToken: `tok:${STATUS_KEY}` }],
+      [{ key: MSG_KEY, outcome: 'accept', claimToken: `tok:${MSG_KEY}` }],
     ]);
     expect(mockProcessMessage.mock.invocationCallOrder[0]).toBeLessThan(
-      h.confirmAccepted.mock.invocationCallOrder[0]
+      h.confirmAccepted.mock.invocationCallOrder[1]
     );
   });
 
-  it('leaves the claims unconfirmed when processing threw', async () => {
+  it('settles a failing message failed and still processes the next', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     mockProcessMessage.mockRejectedValueOnce(new Error('boom'));
 
+    await deliver(deliveryRequest([TEXT_MESSAGE, OTHER_MESSAGE]));
+
+    // Unconfirmed and given back, so a redelivery is processed rather
+    // than skipped as a duplicate; the cron retries it meanwhile.
+    expect(mockProcessMessage).toHaveBeenCalledTimes(2);
+    expect(keysOf(h.confirmAccepted)).toEqual([
+      STATUS_KEY,
+      `whapi:cfg-1:${OTHER_MESSAGE.id}`,
+    ]);
+    expect(keysOf(h.releaseAccepted)).toEqual([MSG_KEY]);
+    expect(
+      h.inbox.rows.map((r) => [r.event_key, r.state, r.last_error])
+    ).toEqual([
+      [STATUS_KEY, 'done', null],
+      [MSG_KEY, 'waiting', 'message failed: Error'],
+      [`whapi:cfg-1:${OTHER_MESSAGE.id}`, 'done', null],
+    ]);
+  });
+
+  it('records every accepted event before the 200', async () => {
+    const res = await POST(deliveryRequest());
+    expect((res as unknown as Res).init.status).toBe(200);
+    expect(
+      h.inbox.rows.map((r) => [r.event_key, r.kind, r.account_id, r.channel])
+    ).toEqual([
+      [STATUS_KEY, 'status', 'acc-1', 'cfg-1'],
+      [MSG_KEY, 'message', 'acc-1', 'cfg-1'],
+    ]);
+    expect(mockProcessMessage).not.toHaveBeenCalled();
+  });
+
+  it('answers 503, gives the claims back and processes nothing when recording fails', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    h.inbox.errors.record = { code: '57014' };
+
+    const res = await deliver(deliveryRequest());
+
+    expect(res.init.status).toBe(503);
+    expect(keysOf(h.releaseAccepted)).toEqual([STATUS_KEY, MSG_KEY]);
+    expect(h.state.afterCallbacks).toHaveLength(0);
+    expect(mockProcessMessage).not.toHaveBeenCalled();
+  });
+
+  it('processes as before while migration 264 is missing', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    h.inbox.missing();
+
+    const res = await deliver(deliveryRequest());
+
+    expect(res.init.status).toBe(200);
+    expect(mockProcessMessage.mock.calls[0][5]).toBeUndefined();
+    expect(h.state.messageStatusUpdates).toHaveLength(1);
+    // One confirmation, after everything, as before the queue.
+    expect(h.confirmAccepted).toHaveBeenCalledTimes(1);
+    expect(keysOf(h.confirmAccepted)).toEqual([STATUS_KEY, MSG_KEY]);
+    expect(h.inbox.calls.map((c) => c.name)).toEqual(['record']);
+  });
+
+  it('skips a busy event with its claim left alone, and confirms a done one', async () => {
+    h.inbox.add({ event_key: STATUS_KEY, kind: 'status', state: 'leased' });
+    h.inbox.add({ event_key: MSG_KEY, state: 'done' });
+
     await deliver(deliveryRequest());
 
-    // Unconfirmed claims lapse with their lease, so a redelivery is
-    // processed rather than skipped as a duplicate.
+    expect(mockProcessMessage).not.toHaveBeenCalled();
+    expect(h.state.messageStatusUpdates).toHaveLength(0);
+    expect(keysOf(h.confirmAccepted)).toEqual([MSG_KEY]);
+    expect(h.releaseAccepted).not.toHaveBeenCalled();
+    expect(h.inbox.calls.map((c) => c.name)).toEqual(['record']);
+  });
+
+  it('takes over an event waiting for its retry', async () => {
+    h.inbox.add({ event_key: MSG_KEY, state: 'waiting' });
+    await deliver(deliveryRequest());
     expect(mockProcessMessage).toHaveBeenCalledTimes(1);
-    expect(h.confirmAccepted).not.toHaveBeenCalled();
+    expect(keysOf(h.confirmAccepted)).toEqual([STATUS_KEY, MSG_KEY]);
+  });
+
+  it('records a message over the limit without fan-out', async () => {
+    h.screenWebhook.mockImplementation(
+      screenAs((key) => (key === MSG_KEY ? 'rate_limited' : 'accept'))
+    );
+    await POST(deliveryRequest());
+    const row = h.inbox.rows.find((r) => r.event_key === MSG_KEY);
+    expect(row?.payload).toMatchObject({ fanOut: false });
   });
 
   it('answers 200 and processes nothing over the IP limit', async () => {

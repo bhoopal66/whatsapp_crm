@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { FakeInbox } from '@/lib/whatsapp/webhook-inbox.fake';
 import crypto from 'node:crypto';
 
 /**
@@ -16,6 +17,9 @@ const h = vi.hoisted(() => ({
   handleStatusUpdate: vi.fn(),
   screenWebhook: vi.fn(),
   confirmAccepted: vi.fn(),
+  releaseAccepted: vi.fn(),
+  /** Migration 264's functions; a fresh one per test. */
+  inbox: null as unknown as FakeInbox,
   clientIp: vi.fn(),
   persistGroupMessages: vi.fn(),
   applyGroupStatuses: vi.fn(),
@@ -59,6 +63,7 @@ vi.mock('@/lib/edge', () => ({
   clientIp: h.clientIp,
   screenWebhook: h.screenWebhook,
   confirmAccepted: h.confirmAccepted,
+  releaseAccepted: h.releaseAccepted,
   ReplayGuard: class {},
   RateLimiter: class {},
   RpcSeenStore: class {},
@@ -77,6 +82,7 @@ vi.mock('@/lib/whatsapp/encryption', () => ({
 
 vi.mock('@supabase/supabase-js', () => ({
   createClient: () => ({
+    rpc: (fn: string, args: Record<string, unknown>) => h.inbox.rpc(fn, args),
     from: (table: string) => {
       const filters: Record<string, unknown> = { table };
       let rows = [...h.state.configs];
@@ -182,6 +188,8 @@ beforeEach(() => {
   h.state.configs = [CONFIG];
   h.state.failLookup = false;
   h.clientIp.mockReturnValue('203.0.113.9');
+  h.inbox = new FakeInbox();
+  h.handleStatusUpdate.mockResolvedValue({ matched: true, failed: false });
   h.screenWebhook.mockImplementation(
     async (_ctx: unknown, input: { events: { key: string }[] }) => ({
       status: 200,
@@ -324,7 +332,7 @@ describe('OpenWA webhook: processing', () => {
         accessToken: 'api-key-1',
       }),
       expect.any(Array),
-      undefined
+      { onPersistFailure: 'throw' }
     );
     expect(h.confirmAccepted).toHaveBeenCalledTimes(1);
   });
@@ -360,7 +368,10 @@ describe('OpenWA webhook: processing', () => {
     });
     await post(messageEvent());
     await runAfter();
-    expect(h.processMessage.mock.calls[0][5]).toEqual({ fanOut: false });
+    expect(h.processMessage.mock.calls[0][5]).toEqual({
+      onPersistFailure: 'throw',
+      fanOut: false,
+    });
   });
 
   it('skips a duplicate', async () => {
@@ -385,6 +396,27 @@ describe('OpenWA webhook: processing', () => {
     await post(messageEvent());
     await runAfter();
     expect(h.confirmAccepted).not.toHaveBeenCalled();
+    expect(h.releaseAccepted).toHaveBeenCalledTimes(1);
+    expect(h.inbox.rows).toMatchObject([{ state: 'waiting' }]);
+  });
+
+  it('answers 503, gives the claims back and processes nothing when recording fails', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    h.inbox.errors.record = { code: '57014' };
+    const res = await post(messageEvent());
+    expect(res.status).toBe(503);
+    expect(h.releaseAccepted).toHaveBeenCalledTimes(1);
+    expect(h.afterCallbacks).toHaveLength(0);
+  });
+
+  it('processes as before while migration 264 is missing', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    h.inbox.missing();
+    const res = await post(messageEvent());
+    expect(res.status).toBe(200);
+    await runAfter();
+    expect(h.processMessage.mock.calls[0][5]).toBeUndefined();
+    expect(h.confirmAccepted).toHaveBeenCalledTimes(1);
   });
 
   it('logs dropped unmapped-lid senders as a count only', async () => {

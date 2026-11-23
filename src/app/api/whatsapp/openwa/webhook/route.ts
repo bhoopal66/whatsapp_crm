@@ -12,9 +12,24 @@ import {
   handleStatusUpdate,
   processMessage,
 } from '@/lib/whatsapp/inbound-pipeline';
-import type { WhatsAppChannel } from '@/lib/whatsapp/channels';
 import { persistOwnSend, resolveOpenWALidPhone } from '@/lib/whatsapp/own-send';
 import type { NormalizedInboundMessage } from '@/lib/whatsapp/inbound';
+import {
+  awaitLater,
+  runDeliveredEvents,
+  type DeliveredEvent,
+} from '@/lib/whatsapp/inbound-delivery';
+import {
+  groupMessagePayload,
+  inboundChannel,
+  messagePayload,
+  ownSendPayload,
+  statusPayload,
+} from '@/lib/whatsapp/inbound-events';
+import {
+  recordInboundEvents,
+  type InboundEventKind,
+} from '@/lib/whatsapp/webhook-inbox';
 import { serverSupabaseUrl } from '@/lib/supabase/urls';
 import {
   applyGroupEvents,
@@ -26,6 +41,7 @@ import {
 import {
   clientIp,
   confirmAccepted,
+  releaseAccepted,
   RateLimiter,
   ReplayGuard,
   RpcRateStore,
@@ -164,43 +180,83 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Retry later' }, { status: 503 });
   }
 
+  const screened = applyScreen(event, screen.decisions, config);
+
+  // Durable before the 200 (migration 264): each event is a row, and the
+  // automations cron retries what this process does not finish.
+  const record = await recordInboundEvents(screened.queued);
+  if (record.status === 'failed') {
+    // Not stored, so not acked: OpenWA delivers again, and must not find
+    // its own claims in the way.
+    await releaseAccepted(edgeCtx(), screen.decisions);
+    return NextResponse.json({ error: 'Retry later' }, { status: 503 });
+  }
+
   // Process AFTER the response so OpenWA gets a prompt ack, while still
   // guaranteeing the work runs to completion. Everything is awaited
   // INSIDE after(): a detached promise is dropped when the runtime
   // freezes the function after the response (issues #301, #409).
   after(async () => {
-    const screened = applyScreen(event, screen.decisions);
-    let groupsOk = true;
-    try {
-      if (screened.duplicates + screened.ipLimited > 0) {
-        console.warn(
-          `[openwa-webhook] skipped ${screened.duplicates} duplicate and ${screened.ipLimited} IP-limited event(s)`
-        );
-      }
-      // Groups first and isolated: a failure there never stops the inbox
-      // work. Group events are screened by their envelope key, so a
-      // redelivery or an IP-limited delivery applies nothing twice.
-      groupsOk = await processOpenWAGroups(
-        config,
-        screened.event.groupMessages,
-        screened.event.groupEvents,
-        screened.event.statuses
+    if (screened.duplicates + screened.ipLimited > 0) {
+      console.warn(
+        `[openwa-webhook] skipped ${screened.duplicates} duplicate and ${screened.ipLimited} IP-limited event(s)`
       );
-      await processOpenWAWebhook(screened.event, config, screened.overLimit);
-    } catch (error) {
-      // A claim is confirmed only once its event is persisted. These
-      // lapse with their lease instead, so a redelivery is processed
-      // rather than skipped as a duplicate.
-      console.error('[openwa-webhook] processing failed:', error);
+    }
+    if (record.status === 'unavailable') {
+      await processWithoutQueue(screened, screen.decisions, config);
       return;
     }
-    // Group messages whose write failed keep their claims unconfirmed,
-    // so a redelivery stores them (the write is idempotent).
-    if (!groupsOk) return;
-    await confirmAccepted(edgeCtx(), screen.decisions);
+    const later: Promise<unknown>[] = [];
+    const ofKind = (...kinds: InboundEventKind[]) =>
+      record.events.filter((r) => kinds.includes(r.event.kind));
+    // Own sends before receipts, which then find their row.
+    await runDeliveredEvents(edgeCtx(), ofKind('own_send'), later);
+    await runDeliveredEvents(edgeCtx(), ofKind('status', 'message'), later);
+    // Not queued: group events, screened by their envelope key, so a
+    // redelivery or an IP-limited delivery applies nothing twice.
+    await applyOpenWAGroupEvents(config, screened.event.groupEvents);
+    if (screened.unqueued.length > 0) {
+      await confirmAccepted(edgeCtx(), screened.unqueued);
+    }
+    await runDeliveredEvents(edgeCtx(), ofKind('group_message'), later);
+    await awaitLater(later);
   });
 
   return NextResponse.json({ status: 'received' }, { status: 200 });
+}
+
+/**
+ * Migration 264 is not applied: process the delivery in this callback, as
+ * before the queue existed. To be deleted one release after 264.
+ */
+async function processWithoutQueue(
+  screened: ReturnType<typeof applyScreen>,
+  decisions: readonly ScreenDecision[],
+  config: OpenWAConfigRow
+): Promise<void> {
+  let groupsOk = true;
+  try {
+    // Groups first and isolated: a failure there never stops the inbox
+    // work. Group events are screened by their envelope key, so a
+    // redelivery or an IP-limited delivery applies nothing twice.
+    groupsOk = await processOpenWAGroups(
+      config,
+      screened.event.groupMessages,
+      screened.event.groupEvents,
+      screened.event.statuses
+    );
+    await processOpenWAWebhook(screened.event, config, screened.overLimit);
+  } catch (error) {
+    // A claim is confirmed only once its event is persisted. These
+    // lapse with their lease instead, so a redelivery is processed
+    // rather than skipped as a duplicate.
+    console.error('[openwa-webhook] processing failed:', error);
+    return;
+  }
+  // Group messages whose write failed keep their claims unconfirmed,
+  // so a redelivery stores them (the write is idempotent).
+  if (!groupsOk) return;
+  await confirmAccepted(edgeCtx(), decisions);
 }
 
 type OpenWAPayload = RawOpenWAWebhookPayload & { sessionId: string };
@@ -315,8 +371,26 @@ function groupEventKey(
  */
 function applyScreen(
   event: NormalizedOpenWAWebhook,
-  decisions: readonly ScreenDecision[]
+  decisions: readonly ScreenDecision[],
+  config: OpenWAConfigRow
 ) {
+  const queued: DeliveredEvent[] = [];
+  const unqueued: ScreenDecision[] = [];
+  const queue = (
+    decision: ScreenDecision,
+    kind: InboundEventKind,
+    payload: unknown
+  ) =>
+    queued.push({
+      accountId: config.account_id,
+      channel: config.id,
+      provider: 'openwa',
+      eventKey: decision.key,
+      kind,
+      payload,
+      config,
+      decision,
+    });
   let next = 0;
   let duplicates = 0;
   let ipLimited = 0;
@@ -327,42 +401,57 @@ function applyScreen(
 
   const statuses: NormalizedOpenWAWebhook['statuses'] = [];
   for (const status of event.statuses) {
-    const { outcome } = decisions[next++];
-    if (outcome === 'accept') statuses.push(status);
-    else skip(outcome);
+    const decision = decisions[next++];
+    if (decision.outcome === 'accept') {
+      statuses.push(status);
+      queue(decision, 'status', statusPayload(status));
+    } else skip(decision.outcome);
   }
 
   const messages: NormalizedInboundMessage[] = [];
   const overLimit = new Set<NormalizedInboundMessage>();
   for (const message of event.messages) {
-    const { outcome } = decisions[next++];
-    if (outcome === 'accept') messages.push(message);
-    else if (outcome === 'rate_limited') {
+    const decision = decisions[next++];
+    if (decision.outcome === 'accept') {
+      messages.push(message);
+      queue(decision, 'message', messagePayload(message));
+    } else if (decision.outcome === 'rate_limited') {
       // Never lost, never answered: into the inbox without fan-out.
       messages.push(message);
       overLimit.add(message);
-    } else skip(outcome);
+      queue(decision, 'message', messagePayload(message, true));
+    } else skip(decision.outcome);
   }
 
   const ownSends: NormalizedOpenWAWebhook['ownSends'] = [];
   for (const own of event.ownSends) {
-    const { outcome } = decisions[next++];
-    if (outcome === 'accept') ownSends.push(own);
-    else skip(outcome);
+    const decision = decisions[next++];
+    if (decision.outcome === 'accept') {
+      ownSends.push(own);
+      // Filed only on a personal number; a company number's CRM sends are
+      // already rows.
+      if (config.is_personal === true) {
+        queue(decision, 'own_send', ownSendPayload(own));
+      } else unqueued.push(decision);
+    } else skip(decision.outcome);
   }
 
   const groupMessages: GroupInboundMessage[] = [];
   for (const message of event.groupMessages) {
-    const { outcome } = decisions[next++];
-    if (outcome === 'accept') groupMessages.push(message);
-    else skip(outcome);
+    const decision = decisions[next++];
+    if (decision.outcome === 'accept') {
+      groupMessages.push(message);
+      queue(decision, 'group_message', groupMessagePayload(message));
+    } else skip(decision.outcome);
   }
 
   const groupEvents: NormalizedOpenWAWebhook['groupEvents'] = [];
   for (const groupEvent of event.groupEvents) {
-    const { outcome } = decisions[next++];
-    if (outcome === 'accept') groupEvents.push(groupEvent);
-    else skip(outcome);
+    const decision = decisions[next++];
+    if (decision.outcome === 'accept') {
+      groupEvents.push(groupEvent);
+      unqueued.push(decision);
+    } else skip(decision.outcome);
   }
 
   return {
@@ -375,6 +464,10 @@ function applyScreen(
       groupEvents,
     },
     overLimit,
+    /** What the queue records, in delivery order. */
+    queued,
+    /** Accepted but not recorded: confirmed once the route handled them. */
+    unqueued,
     duplicates,
     ipLimited,
   };
@@ -419,12 +512,30 @@ async function processOpenWAGroups(
   } catch (error) {
     console.error('[openwa-webhook] group statuses failed:', error);
   }
+  await applyOpenWAGroupEvents(config, events);
+  return ok;
+}
+
+/**
+ * The `group.*` events of one callback. Not queued: they carry no id to
+ * record them by. Never throws.
+ */
+async function applyOpenWAGroupEvents(
+  config: OpenWAConfigRow,
+  events: NormalizedOpenWAWebhook['groupEvents']
+): Promise<void> {
+  if (events.length === 0) return;
+  const admin = supabaseAdmin();
+  const channel: GroupChannel = {
+    id: config.id,
+    accountId: config.account_id,
+    wabaId: config.waba_id ?? null,
+  };
   try {
     await applyGroupEvents(admin, channel, events);
   } catch (error) {
     console.error('[openwa-webhook] group events failed:', error);
   }
-  return ok;
 }
 
 /**
@@ -447,29 +558,7 @@ async function processOpenWAWebhook(
   const ownSends = config.is_personal === true ? event.ownSends : [];
   if (event.messages.length === 0 && ownSends.length === 0) return;
 
-  // Shaped by hand like the Whapi route's: this runs on the service role
-  // with the row already in hand, one fewer query on the hot path.
-  const channel: WhatsAppChannel = {
-    id: config.id,
-    accountId: config.account_id,
-    provider: 'openwa',
-    label: config.label ?? null,
-    // The session id, which is what the OpenWA client addresses.
-    phoneNumberId: config.phone_number_id,
-    wabaId: config.waba_id ?? null,
-    accessToken: decrypt(config.access_token),
-    appSecret: null,
-    isPrimary: config.is_primary !== false,
-    // Advisory for OpenWA: the pipeline mirrors its media regardless,
-    // because the gateway's own link is not browser-loadable.
-    mirrorInboundMedia: config.mirror_inbound_media !== false,
-    status: config.status ?? 'connected',
-    // A person's own number (migration 190): the pipeline files and
-    // records its messages but runs no bot on it.
-    isPersonal: config.is_personal === true,
-    personalUserId:
-      config.is_personal === true ? (config.user_id ?? null) : null,
-  };
+  const channel = inboundChannel('openwa', config);
 
   // Background work of each message (TypeSafe's watch), awaited once
   // the whole delivery is processed — still inside after().
