@@ -12,8 +12,12 @@ import { decideQuietHours, type QuietPrefs } from './quiet-hours';
  * (push_claim), send each to every device of its person with web-push,
  * settle it (push_settle).
  *
- * - A device the push service calls gone (404/410) is deleted; any other
- *   failure counts against it, and it is deleted at 10 in a row.
+ * - A device the push service calls gone (404/410) is deleted. An answer
+ *   that blames the device (any other 4xx but 401, 403 and 429) counts
+ *   once per pass, and the device is deleted at 10 passes in a row. No
+ *   connection, our own keys refused, rate limiting and 5xx say nothing
+ *   about the device and never count: ten rows queued in a few minutes
+ *   offline used to delete every device of the person for good.
  * - A row reaches the person if any device took it. If none did and
  *   some failure was not "gone", it is settled failed and push_claim
  *   retries it after its 2-minute lease (5 tries in all).
@@ -83,6 +87,21 @@ export const PASS_BUDGET_MS = 60_000;
 /** Per-send timeout handed to web-push. */
 export const SEND_TIMEOUT_MS = 10_000;
 
+/**
+ * What a failed send says about the device: 'gone' deletes it now,
+ * 'device' counts towards MAX_DEVICE_FAILURES, 'transient' (the network,
+ * our VAPID keys, rate limits, the push service itself) says nothing.
+ */
+export function deviceFailure(
+  status: number | undefined
+): 'gone' | 'device' | 'transient' {
+  if (status === 404 || status === 410) return 'gone';
+  if (status === undefined || status < 400 || status >= 500) return 'transient';
+  return status === 401 || status === 403 || status === 429
+    ? 'transient'
+    : 'device';
+}
+
 export async function dispatchPush(
   admin: SupabaseClient,
   {
@@ -136,6 +155,8 @@ export async function dispatchPush(
     );
     // Devices dropped in this pass, so a later row skips them.
     const gone = new Set<string>();
+    // Devices already counted a failure in this pass.
+    const counted = new Set<string>();
 
     for (const [i, row] of rows.entries()) {
       if (clock() >= deadline) {
@@ -153,7 +174,8 @@ export async function dispatchPush(
           row,
           subs.filter((s) => s.user_id === row.user_id && !gone.has(s.id)),
           prefsByUser.get(row.user_id) ?? null,
-          gone
+          gone,
+          counted
         );
         summary[outcome] += 1;
       } catch (err) {
@@ -181,7 +203,8 @@ async function deliverRow(
   row: OutboxRow,
   devices: Subscription[],
   prefs: Prefs | null,
-  gone: Set<string>
+  gone: Set<string>,
+  counted: Set<string>
 ): Promise<'sent' | 'held' | 'skipped' | 'failed'> {
   if (prefs && (!prefs.enabled || prefs.kinds?.[row.kind] === false)) {
     await skip(admin, row, 'push switched off');
@@ -260,12 +283,15 @@ async function deliverRow(
       device.failure_count = 0;
     } catch (err) {
       const status = (err as { statusCode?: number }).statusCode;
-      if (status === 404 || status === 410) {
+      const verdict = deviceFailure(status);
+      if (verdict === 'gone') {
         gone.add(device.id);
         await admin.from('push_subscriptions').delete().eq('id', device.id);
         continue;
       }
       lastError = `${status ?? 'error'}: ${err instanceof Error ? err.message : String(err)}`;
+      if (verdict === 'transient' || counted.has(device.id)) continue;
+      counted.add(device.id);
       device.failure_count += 1;
       if (device.failure_count >= MAX_DEVICE_FAILURES) {
         gone.add(device.id);

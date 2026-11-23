@@ -4,7 +4,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 const h = vi.hoisted(() => ({ send: vi.fn() }));
 vi.mock('web-push', () => ({ default: { sendNotification: h.send } }));
 
-import { dispatchPush } from './dispatch';
+import { deviceFailure, dispatchPush } from './dispatch';
 
 interface Op {
   table: string;
@@ -158,8 +158,38 @@ describe('dispatchPush', () => {
     expect(s.sent).toBe(1);
   });
 
-  it('counts other failures against the device, drops it at 10, and settles failed for a retry', async () => {
-    h.send.mockRejectedValue(gone(500));
+  it('tells a dead device from a network, key, rate or server failure', () => {
+    for (const s of [404, 410]) expect(deviceFailure(s)).toBe('gone');
+    for (const s of [undefined, 401, 403, 429, 500, 502, 503, 301])
+      expect(deviceFailure(s)).toBe('transient');
+    for (const s of [400, 413]) expect(deviceFailure(s)).toBe('device');
+  });
+
+  it('a pass of 10 rows with no connection deletes nothing and counts nothing', async () => {
+    h.send.mockRejectedValue(
+      Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' })
+    );
+    const rows = Array.from({ length: 10 }, (_, i) => row({ id: i + 1 }));
+    const f = fakeDb({ rows, subs: [sub('s1', 9)] });
+    const s = await dispatchPush(f.db);
+    expect(f.ops.filter((o) => o.op !== 'select')).toEqual([]);
+    expect(h.send).toHaveBeenCalledTimes(10);
+    expect(settled(f.rpcs).every((a) => a.p_ok === false)).toBe(true);
+    expect(s.failed).toBe(10);
+  });
+
+  it('counts a device refusal once per pass, not once per row', async () => {
+    h.send.mockRejectedValue(gone(400));
+    const rows = Array.from({ length: 10 }, (_, i) => row({ id: i + 1 }));
+    const f = fakeDb({ rows, subs: [sub('s1')] });
+    await dispatchPush(f.db);
+    expect(
+      f.ops.filter((o) => o.op !== 'select').map((o) => o.payload)
+    ).toEqual([{ failure_count: 1 }]);
+  });
+
+  it('counts a device refusal, drops the device at 10, and settles failed for a retry', async () => {
+    h.send.mockRejectedValue(gone(400));
     const f = fakeDb({ rows: [row()], subs: [sub('s1', 3), sub('s2', 9)] });
     const s = await dispatchPush(f.db);
     expect(
