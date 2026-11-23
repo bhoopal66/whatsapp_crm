@@ -79,7 +79,8 @@ No migration.
   other local number is marked failed and never sent to.
 - MCP server: a request that gets no answer in 30 seconds, or an unreadable
   one, is reported as "may have gone through" instead of hanging or
-  returning nothing. `Retry-After` is passed on for 503 as well as 429.
+  returning nothing. So is a write whose connection drops, or that a proxy
+  answers with an error page of its own (502, 504). `Retry-After` is passed on for 503 as well as 429.
 
 ### Importing
 
