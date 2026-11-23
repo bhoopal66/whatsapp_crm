@@ -146,13 +146,17 @@ const WRITE_ATTEMPTS = 3;
  * Writes a still-pending call, its meta built on the row as it is now: a
  * download takes seconds, and a call end may add a leg to meta meanwhile.
  * Compare-and-set on updated_at (calls_guard stamps it on every write); a
- * lost race reads again. A call no longer pending is left alone.
+ * lost race reads again. A call no longer pending is left alone, and so
+ * is one given a longer leg's recording meanwhile (writeCallEnd): what
+ * this run did was about another file, and the next run fetches the new
+ * one. False: left alone.
  */
 async function writePending(
   db: SupabaseClient,
   call: Row,
   patch: (meta: Row) => Row
-): Promise<void> {
+): Promise<boolean> {
+  const file = call.recording_file ?? null;
   let seen: Row | null = call;
   for (let attempt = 0; attempt < WRITE_ATTEMPTS && seen; attempt++) {
     const upd = await db
@@ -163,17 +167,19 @@ async function writePending(
       .eq('updated_at', seen.updated_at)
       .select('id');
     if (upd.error) throw new Error(`calls update: ${upd.error.message}`);
-    if (((upd.data ?? []) as unknown[]).length) return;
+    if (((upd.data ?? []) as unknown[]).length) return true;
     const again = await db
       .from('calls')
-      .select('meta, updated_at')
+      .select('meta, updated_at, recording_file')
       .eq('id', String(call.id))
       .eq('recording_state', 'pending')
       .maybeSingle();
     if (again.error) throw new Error(`calls read: ${again.error.message}`);
     seen = again.data as Row | null;
+    if (seen && (seen.recording_file ?? null) !== file) return false;
   }
   if (seen) throw new Error(`calls write lost ${WRITE_ATTEMPTS} races`);
+  return false;
 }
 
 export async function fetchPendingRecordings(
@@ -321,12 +327,12 @@ export async function fetchPendingRecordings(
         { onConflict: 'call_id' }
       );
       if (rec.error) throw new Error(`call_recordings: ${rec.error.message}`);
-      await writePending(db, call, (meta) => ({
+      const stored = await writePending(db, call, (meta) => ({
         recording_state: 'fetched',
         announcement_played: announced,
         meta: { ...meta, announcement_basis: basis },
       }));
-      summary.fetched++;
+      if (stored) summary.fetched++;
     } catch (err) {
       if (err instanceof YeastarError && err.isRecordingDownloadBusy) {
         summary.busy = true;

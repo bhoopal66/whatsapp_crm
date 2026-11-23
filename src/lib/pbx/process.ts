@@ -9,6 +9,7 @@ import {
   internalPeerExtension,
   legOf,
   legsOf,
+  longestAnsweredRecording,
   mergeCallLegs,
   withLeg,
   type MergedCall,
@@ -75,7 +76,7 @@ const TASK_HOLDERS = ['owner', 'admin', 'team_leader', 'agent'];
  */
 const FOLD_ATTEMPTS = 3;
 const CALL_COLUMNS =
-  'id, account_id, direction, status, extension, user_id, peer_user_id, contact_id, conversation_id, remote_number, did_number, started_at, answered_at, recording_state, meta, updated_at';
+  'id, account_id, direction, status, extension, user_id, peer_user_id, contact_id, conversation_id, remote_number, did_number, started_at, answered_at, recording_state, recording_file, meta, updated_at';
 
 export interface IngestInput {
   db: SupabaseClient;
@@ -761,6 +762,13 @@ async function onCallState(ctx: Ctx, ev: CallStateEvent): Promise<void> {
     .from('call_live')
     .upsert(live, { onConflict: 'connection_id,pbx_call_id' });
   if (liveWrite.error) fail('call_live upsert', liveWrite.error);
+  // The end may have landed since the read above, its own delete before
+  // this upsert: the row just written would be a ghost nothing removes.
+  // An end landing after this read deletes the row itself.
+  const now = await readCall(ctx, ev.callId);
+  if (now && !LIVE.includes(now.status as CallStatus)) {
+    return deleteLive(ctx, ev.callId);
+  }
 
   const status: CallStatus =
     answered.length || existing?.status === 'in_progress'
@@ -1002,10 +1010,23 @@ async function writeCallEnd(
   }
 
   let recording: Row = {};
+  // The longest answered leg's recording, else the one at hand (a
+  // voicemail's). Until it is fetched a longer leg's replaces the
+  // reference, under the state the row has (held stays held); one
+  // fetched, failed, not stored or erased is never touched.
+  const longest = longestAnsweredRecording(legs);
+  const recordingFile = longest ?? ev.recordingFile;
+  const state = str(existing?.recording_state) ?? 'none';
+  let newReference = false;
   if (
-    ev.recordingFile &&
-    (!existing || (existing.recording_state ?? 'none') === 'none')
+    longest &&
+    (state === 'pending' || state === 'held') &&
+    longest !== str(existing?.recording_file)
   ) {
+    recording = { recording_file: longest };
+    newReference = true;
+  }
+  if (recordingFile && state === 'none') {
     let held = false;
     const numbers = settings.exclude_bank_numbers
       ? bankCandidates(remote, remoteRaw)
@@ -1028,8 +1049,18 @@ async function writeCallEnd(
         : settings.store_recordings
           ? 'pending'
           : 'not_stored',
-      recording_file: ev.recordingFile,
+      recording_file: recordingFile,
     };
+  }
+  const meta: Row = {
+    // A real end supersedes the stale step's guess and retry state.
+    ...withoutStaleMarkers(withRang(callMeta(existing, ws, match), rang)),
+    cdr_legs: legs,
+  };
+  if (newReference) {
+    // The other file's failures are not this one's.
+    delete meta.recording_attempts;
+    delete meta.recording_error;
   }
 
   const fields: Row = {
@@ -1060,11 +1091,7 @@ async function writeCallEnd(
     ended_at: merged.endedAt ?? ctx.receivedAt,
     ring_seconds: merged.ringSeconds,
     talk_seconds: merged.talkSeconds,
-    meta: {
-      // A real end supersedes the stale step's guess and retry state.
-      ...withoutStaleMarkers(withRang(callMeta(existing, ws, match), rang)),
-      cdr_legs: legs,
-    },
+    meta,
     ...recording,
   };
   let callRowId: string;
