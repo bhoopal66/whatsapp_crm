@@ -1509,6 +1509,7 @@ export class MeetingCallEngine {
         }
         added.push({ ...e, transceiver, name });
       }
+      const refused = new Set<string | null>();
       await this.offer(pc, async (sdp) => {
         const tracks = added.map((a) => {
           const mid = a.transceiver.mid;
@@ -1516,14 +1517,18 @@ export class MeetingCallEngine {
           if (!mid) throw new NegotiationBroken('no_mid');
           return { location: 'local', mid, trackName: a.name };
         });
-        return this.sfu('sfu/tracks', 'POST', {
+        const res = await this.sfu('sfu/tracks', 'POST', {
           participantId: me,
           request: { sessionDescription: { type: 'offer', sdp }, tracks },
         });
+        for (const t of res.tracks) if (t.errorCode) refused.add(t.trackName);
+        return res;
       });
       if (pc !== this.pc) return;
       this.refusals = 0;
+      // A refusal is per track: the answer stands and the others are live.
       for (const a of added) {
+        if (refused.has(a.name)) continue;
         this.spares.delete(a.kind);
         if (a.kind === 'audio') this.audioSender = a.transceiver.sender;
         if (a.kind === 'video') {
@@ -1536,6 +1541,11 @@ export class MeetingCallEngine {
         if (a.kind === 'screen') {
           this.screenPub = { transceiver: a.transceiver, name: a.name };
         }
+      }
+      const failed = added.filter((a) => refused.has(a.name));
+      if (failed.length) {
+        added.splice(0, added.length, ...failed);
+        throw new Error('track_refused');
       }
     } catch (err) {
       // Not on a connection already torn down: a rejoin re-publishes
