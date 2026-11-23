@@ -20,7 +20,8 @@ import { TASK_COLUMNS } from '@/lib/tasks/types';
 
 /**
  * GET /api/tasks?scope=&contactId=&conversationId=&status=&limit=&hr=
- * (viewer+) → `{ tasks }`. `hr=1` narrows to the tasks HR workflow
+ * &kind=&updatedSince= (viewer+) → `{ tasks, truncated }`; `truncated`
+ * says more tasks match than `limit`. `hr=1` narrows to the tasks HR workflow
  * rules opened (migration 200: source automation, ref `hr:…`); left
  * out, nothing changes. Open tasks first (status DESC puts open
  * before done and cancelled), then soonest due, undated last, then
@@ -52,6 +53,10 @@ export async function GET(request: Request) {
       tasks = tasks.eq('conversation_id', query.conversationId);
     }
     if (query.status !== 'all') tasks = tasks.eq('status', query.status);
+    if (query.kind) tasks = tasks.eq('kind', query.kind);
+    if (query.updatedSince) {
+      tasks = tasks.gte('updated_at', query.updatedSince);
+    }
     if (hr === '1') {
       tasks = tasks.eq('source', 'automation').like('source_ref', 'hr:%');
     }
@@ -60,7 +65,7 @@ export async function GET(request: Request) {
       .order('status', { ascending: false })
       .order('due_at', { ascending: true, nullsFirst: false })
       .order('created_at', { ascending: false })
-      .limit(query.limit);
+      .limit(query.limit + 1);
     if (error) {
       console.error('[tasks GET] error:', error);
       return NextResponse.json(
@@ -68,7 +73,11 @@ export async function GET(request: Request) {
         { status: 500 }
       );
     }
-    return NextResponse.json({ tasks: data ?? [] });
+    const rows = data ?? [];
+    return NextResponse.json({
+      tasks: rows.slice(0, query.limit),
+      truncated: rows.length > query.limit,
+    });
   } catch (err) {
     return toErrorResponse(err);
   }
