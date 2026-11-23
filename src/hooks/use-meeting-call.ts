@@ -1647,6 +1647,13 @@ export class MeetingCallEngine {
       if (res.requiresImmediateRenegotiation && res.sessionDescription) {
         before = new Set(pc.getTransceivers());
         await pc.setRemoteDescription(res.sessionDescription);
+        // The SFU may reuse an m-line a forced close left inactive.
+        const mids = new Set(res.tracks.map((t) => t.mid));
+        for (const t of pc.getTransceivers()) {
+          if (t.mid && mids.has(t.mid) && t.direction === 'inactive') {
+            t.direction = 'recvonly';
+          }
+        }
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
         await this.sfu('sfu/renegotiate', 'PUT', {
@@ -1749,19 +1756,41 @@ export class MeetingCallEngine {
     const me = this.participantId;
     if (!pc || !me) return;
     const mids = transceivers.map((t) => t.mid).filter((m): m is string => !!m);
-    for (const t of transceivers) t.stop();
-    if (!mids.length) return;
-    await this.offer(pc, (sdp) =>
+    const close = (request: Record<string, unknown>) =>
       this.sfu('sfu/tracks/close', 'PUT', {
         participantId: me,
-        request: {
-          tracks: mids.map((mid) => ({ mid })),
-          force: false,
-          sessionDescription: { type: 'offer', sdp },
-        },
+        request: { tracks: mids.map((mid) => ({ mid })), ...request },
         ...(closedLocalTrackNames.length ? { closedLocalTrackNames } : {}),
-      })
-    );
+      });
+    try {
+      // With every m-line stopped Chrome's offer has no BUNDLE group, which
+      // max-bundle refuses, and so it refuses every later description. The
+      // last ones go inactive instead, with nothing to negotiate (force).
+      const remains = pc
+        .getTransceivers()
+        .some(
+          (t) =>
+            !transceivers.includes(t) &&
+            t.mid !== null &&
+            t.direction !== 'stopped' &&
+            t.currentDirection !== 'stopped'
+        );
+      if (!remains && mids.length) {
+        for (const t of transceivers) t.direction = 'inactive';
+        await close({ force: true });
+        return;
+      }
+      for (const t of transceivers) t.stop();
+      if (!mids.length) return;
+      await this.offer(pc, (sdp) =>
+        close({ force: false, sessionDescription: { type: 'offer', sdp } })
+      );
+    } catch (err) {
+      const gone = err instanceof SfuCallError && err.refusal === 'gone';
+      if (gone || err instanceof NegotiationBroken) {
+        await this.rejoinIfBroken(pc, err);
+      }
+    }
   }
 
   /** createOffer → setLocalDescription → send → apply the answer, rolling back on failure. */
@@ -1769,8 +1798,14 @@ export class MeetingCallEngine {
     pc: RTCPeerConnection,
     send: (sdp: string) => Promise<TracksResult>
   ) {
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
+    let offer: RTCSessionDescriptionInit;
+    try {
+      offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+    } catch {
+      // Chrome refuses every description after one it could not apply.
+      throw new NegotiationBroken('local_description');
+    }
     try {
       const res = await send(pc.localDescription?.sdp ?? offer.sdp ?? '');
       if (pc !== this.pc) return;
@@ -1780,7 +1815,9 @@ export class MeetingCallEngine {
       await pc.setRemoteDescription(res.sessionDescription);
     } catch (err) {
       if (pc.signalingState === 'have-local-offer') {
-        await pc.setLocalDescription({ type: 'rollback' }).catch(() => {});
+        await pc.setLocalDescription({ type: 'rollback' }).catch(() => {
+          throw new NegotiationBroken('rollback');
+        });
       }
       throw err;
     }
