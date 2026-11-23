@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   __resetRateLimitForTests,
   checkRateLimit,
+  rateLimitRemaining,
   rateLimitResponse,
 } from "./rate-limit";
 
@@ -58,6 +59,36 @@ describe("checkRateLimit", () => {
       const refreshed = checkRateLimit("user:1", OPTS);
       expect(refreshed.success).toBe(true);
       expect(refreshed.remaining).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("rateLimitRemaining", () => {
+  beforeEach(() => {
+    __resetRateLimitForTests();
+  });
+
+  it("reads without consuming", () => {
+    expect(rateLimitRemaining("user:1", OPTS)).toBe(3);
+    expect(rateLimitRemaining("user:1", OPTS)).toBe(3);
+    checkRateLimit("user:1", OPTS);
+    expect(rateLimitRemaining("user:1", OPTS)).toBe(2);
+    expect(rateLimitRemaining("user:1", OPTS)).toBe(2);
+    expect(checkRateLimit("user:1", OPTS).remaining).toBe(1);
+  });
+
+  it("is 0 at the cap, and full again after the window", () => {
+    vi.useFakeTimers();
+    try {
+      const t0 = new Date("2026-05-01T00:00:00Z").getTime();
+      vi.setSystemTime(t0);
+      for (let i = 0; i < 5; i++) checkRateLimit("user:1", OPTS);
+      expect(rateLimitRemaining("user:1", OPTS)).toBe(0);
+      expect(rateLimitRemaining("user:2", OPTS)).toBe(3);
+      vi.setSystemTime(t0 + OPTS.windowMs);
+      expect(rateLimitRemaining("user:1", OPTS)).toBe(3);
     } finally {
       vi.useRealTimers();
     }

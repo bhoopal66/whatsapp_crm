@@ -29,6 +29,9 @@ No migration.
 - A WhatsApp group whose gateway answers without its people keeps the
   people it had. They were all removed and put back by the next good
   answer, which made staff an admin had removed managers again.
+- Adding more people to a WhatsApp group than the hour still allows adds
+  the ones who fit and offers the invite link for the rest. It added
+  nobody, and used up the hour.
 
 ### Voice notes: one tap to record, one tap to send
 
