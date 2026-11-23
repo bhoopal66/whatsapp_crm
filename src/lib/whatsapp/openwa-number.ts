@@ -9,6 +9,7 @@
 // is the same, so it lives here once.
 // ============================================================
 
+import { withChannelSecrets } from '@/lib/whatsapp/channel-secrets';
 import { randomBytes } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -244,7 +245,7 @@ function explainConnectFailure(err: unknown, clean: boolean): string {
 }
 
 const ROW_COLUMNS =
-  'id, phone_number_id, access_token, waba_id, status, connected_at, is_personal';
+  'id, phone_number_id, waba_id, status, connected_at, is_personal';
 
 export interface OpenWARow {
   id: string;
@@ -277,7 +278,12 @@ export async function loadOpenWARow(
   const { data, error } = await query.maybeSingle();
   // A failed read is not "absent": callers answer 404 / success on null.
   if (error) throw new Error(`loadOpenWARow: ${error.message}`);
-  return (data as OpenWARow | null) ?? null;
+  if (!data) return null;
+  const [row] = await withChannelSecrets(
+    [data as Omit<OpenWARow, 'access_token'>],
+    ['access_token']
+  );
+  return row;
 }
 
 /**

@@ -311,7 +311,7 @@ describe('POST /api/whatsapp/config — failed reads and a failed save', () => {
   it.each([
     ['the duplicate-channel read', 'id, label, waba_id'],
     ['the same-phone read', 'id, account_id, label'],
-    ['the row read', 'id, verify_token, waba_id, status'],
+    ['the row read', 'id, waba_id, status'],
   ])('answers 500 and writes nothing when %s fails', async (_n, columns) => {
     h.fail[columns] = { message: 'connection reset' };
     const res = await save();

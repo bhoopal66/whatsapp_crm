@@ -380,3 +380,9 @@ own tables and RPCs. The customer page takes the company chat as its
 conversation and links personal chats apart (`splitConversations`).
 `verify-personal-numbers.sql`, `verify-personal-chats.sql`,
 `verify-departments.sql`.
+
+**Credentials (migration 285).** No session reads `access_token`,
+`verify_token` or `app_secret`: the columns are not granted. Never
+`select('*')` from `whatsapp_config` through a session. Read the visible
+columns with the caller's client (RLS decides the rows), then
+`withChannelSecrets()`; `loadChannels` and `loadOpenWARow` already do.

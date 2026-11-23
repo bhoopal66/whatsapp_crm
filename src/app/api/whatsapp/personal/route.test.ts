@@ -66,6 +66,11 @@ function fakeDb(table: 'profiles' | 'service') {
   };
 }
 
+// The secrets come through the service role (migration 285).
+vi.mock('@/lib/whatsapp/channel-secrets', () => ({
+  withChannelSecrets: async (rows: Array<{ id: string }>) =>
+    rows.map((r) => ({ access_token: 'enc:scoped', app_secret: null, ...r })),
+}));
 vi.mock('@/lib/auth/account', () => ({
   getCurrentAccount: async () => ({
     supabase: fakeDb('profiles'),

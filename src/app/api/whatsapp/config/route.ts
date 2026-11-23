@@ -20,6 +20,7 @@ import {
   generateWebhookSecret,
   redactWebhookUrl,
 } from '@/lib/whatsapp/whapi-webhook-auth'
+import { withChannelSecrets } from '@/lib/whatsapp/channel-secrets'
 import { encrypt, decrypt } from '@/lib/whatsapp/encryption'
 import { nextHealth, syncPairedNumber } from '@/lib/whatsapp/channel-health'
 import { serverSupabaseUrl } from '@/lib/supabase/urls'
@@ -87,6 +88,7 @@ async function findWhapiRow<T>(
   accountId: string,
   columns: string,
   configId: string | null,
+  secret?: 'access_token' | 'verify_token',
 ): Promise<{ data: T | null; error: { message: string } | null }> {
   let query = supabase
     .from('whatsapp_config')
@@ -100,7 +102,21 @@ async function findWhapiRow<T>(
         .order('is_primary', { ascending: false })
         .order('created_at', { ascending: true })
   const { data, error } = await query.limit(1).maybeSingle()
-  return { data: (data as T | null) ?? null, error }
+  if (error || !data || !secret) {
+    return { data: (data as T | null) ?? null, error }
+  }
+  try {
+    const [row] = await withChannelSecrets(
+      [data as unknown as { id: string }],
+      [secret],
+    )
+    return { data: row as unknown as T, error: null }
+  } catch (err) {
+    return {
+      data: null,
+      error: { message: err instanceof Error ? err.message : String(err) },
+    }
+  }
 }
 
 /**
@@ -245,8 +261,9 @@ export async function GET(request: Request) {
     }>(
       supabase,
       accountId,
-      'id, phone_number_id, waba_id, label, access_token, status, registered_at',
+      'id, phone_number_id, waba_id, label, status, registered_at',
       configId,
+      'access_token',
     )
 
     if (configError) {
@@ -528,8 +545,9 @@ export async function POST(request: Request) {
       }>(
         supabase,
         accountId,
-        'id, verify_token, waba_id, status',
+        'id, waba_id, status',
         configId,
+        'verify_token',
       )
       if (found.error) {
         console.error('Error reading whatsapp_config row:', found.error)

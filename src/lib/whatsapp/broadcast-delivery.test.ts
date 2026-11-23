@@ -7,6 +7,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakeDb, type Row } from './broadcast.fake';
 
 const sendTemplate = vi.fn();
+// The secrets come through the service role (migration 285).
+vi.mock('@/lib/whatsapp/channel-secrets', () => ({
+  withChannelSecrets: async (rows: Array<{ id: string }>) =>
+    rows.map((r) => ({ access_token: 'tok', app_secret: null, ...r })),
+}));
 vi.mock('./provider', async (orig) => ({
   ...(await orig<typeof import('./provider')>()),
   sendTemplate: (...args: unknown[]) => sendTemplate(...args),

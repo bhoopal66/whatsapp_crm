@@ -9,6 +9,7 @@ import {
   verifyPhoneNumber,
   subscribeWabaToApp,
 } from '@/lib/whatsapp/meta-api';
+import { withChannelSecrets } from '@/lib/whatsapp/channel-secrets';
 import { encrypt, decrypt } from '@/lib/whatsapp/encryption';
 import { promoteOldestToPrimary } from '@/lib/whatsapp/personal-numbers';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -124,14 +125,17 @@ export async function GET() {
       );
     }
 
-    const { data: config } = await supabase
+    const { data: visible } = await supabase
       .from('whatsapp_config')
       .select(
-        'phone_number_id, waba_id, access_token, status, subscribed_apps_at, label, is_primary'
+        'id, phone_number_id, waba_id, status, subscribed_apps_at, label, is_primary'
       )
       .eq('account_id', accountId)
       .eq('provider', 'meta')
       .maybeSingle();
+    const [config] = visible
+      ? await withChannelSecrets([visible], ['access_token'])
+      : [null];
 
     if (!config) {
       return NextResponse.json({
@@ -146,7 +150,7 @@ export async function GET() {
     try {
       live = await verifyPhoneNumber({
         phoneNumberId: config.phone_number_id,
-        accessToken: decrypt(config.access_token),
+        accessToken: decrypt(config.access_token as string),
       });
     } catch {
       // Token revoked, expired, or Graph unreachable. Fall back to the
@@ -224,12 +228,15 @@ export async function POST(request: Request) {
     // Look the existing row up first: the settings panel shows a masked
     // placeholder rather than the real token, so a re-save sends no
     // token at all and must reuse the stored one instead of erroring.
-    const { data: existing } = await supabase
+    const { data: existingRow } = await supabase
       .from('whatsapp_config')
-      .select('id, access_token, phone_number_id, waba_id')
+      .select('id, phone_number_id, waba_id')
       .eq('account_id', accountId)
       .eq('provider', 'meta')
       .maybeSingle();
+    const [existing] = existingRow
+      ? await withChannelSecrets([existingRow], ['access_token'])
+      : [null];
 
     // One Meta number per account (migration 060's partial unique
     // index). A save naming a DIFFERENT number used to UPDATE the

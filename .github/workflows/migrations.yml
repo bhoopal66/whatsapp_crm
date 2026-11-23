@@ -1474,3 +1474,8 @@ jobs:
       # what they uploaded, and uploads only into the browser's folders.
       - name: Verify chat media owner
         run: supabase db query --local --file supabase/ci/verify-chat-media-owner.sql
+
+      # Migration 285: automation runs, steps and flow nodes are admins'; no
+      # session reads a WhatsApp number's secrets; a note is the writer's own.
+      - name: Verify read rules
+        run: supabase db query --local --file supabase/ci/verify-read-rules.sql
