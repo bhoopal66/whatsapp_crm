@@ -3874,7 +3874,9 @@
       "updated": "Quick reply updated.",
       "created": "Quick reply created.",
       "deleteConfirm": "Delete this quick reply?",
-      "deleteFailed": "Couldn’t delete the quick reply."
+      "deleteFailed": "Couldn’t delete the quick reply.",
+      "loadFailed": "Couldn't load the quick replies.",
+      "removed": "Someone removed this quick reply. Your text is kept; Save adds it as a new one."
     },
     "teamChat": {
       "title": "Team chat",
