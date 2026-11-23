@@ -35,6 +35,7 @@ vi.mock('./admin-client', () => {
     const b: Record<string, unknown> = {
       select: () => b,
       eq: () => b,
+      is: () => b,
       in: () => b,
       filter: () => b,
       order: () => b,

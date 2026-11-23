@@ -24,14 +24,19 @@
  *   - Idempotency on `meta_message_id`: the runner refuses to advance
  *     an active run twice for the same Meta message — protects against
  *     Meta's retries.
- *   - Optimistic UPDATE with `current_node_key` precondition: two
- *     simultaneous taps for the same run collide at the DB layer; the
- *     second is a no-op.
+ *   - Claim before sending: an UPDATE conditional on `current_node_key`
+ *     and `last_advanced_at` parks the run (`current_node_key` null, "in
+ *     transit") before the first send; the walk puts the pointer on the
+ *     node it suspends on once that prompt is out. Of two quick messages
+ *     one claims; the other, and any that arrives while the run is in
+ *     transit, sends nothing. A run whose send fails is ended, never
+ *     re-sent.
  *   - Partial unique index `idx_one_active_run_per_contact`: two
  *     simultaneous starts for the same contact collide; the second
  *     INSERT raises 23505 and the runner catches & exits.
  */
 
+import { STAFF_ROLES, type AccountRole } from '@/lib/auth/roles';
 import { supabaseAdmin } from './admin-client';
 import {
   engineSendInteractiveButtons,
@@ -39,10 +44,12 @@ import {
   engineSendMedia,
   engineSendText,
 } from './channel-send';
+import { consentRefusal } from '@/lib/whatsapp/send-origin';
 import { sendsMenusAsText } from '@/lib/whatsapp/channels';
 import { decideFallback, resolveFallbackPolicy } from './fallback';
 import {
   dispatchInboundToAiReply,
+  notifyHandoff,
   type AiFlowContext,
 } from '@/lib/ai/auto-reply';
 import { dispatchChatTagSet } from '@/lib/automations/chat-tag-dispatch';
@@ -327,6 +334,29 @@ async function loadAllNodes(
   return map;
 }
 
+/**
+ * Whether a flow may message this contact: 'ok', 'refused' (opted out or
+ * do-not-contact), or 'unknown' when the flags could not be read, which
+ * sends nothing. A contact that is not there is the sender's to report.
+ */
+async function flowConsent(
+  db: AdminClient,
+  accountId: string,
+  contactId: string
+): Promise<'ok' | 'refused' | 'unknown'> {
+  const { data, error } = await db
+    .from('contacts')
+    .select('opted_out_at, do_not_contact_at')
+    .eq('id', contactId)
+    .eq('account_id', accountId)
+    .maybeSingle();
+  if (error) {
+    console.error('[flows] opt-out read failed, not sending:', error.message);
+    return 'unknown';
+  }
+  return consentRefusal(data) ? 'refused' : 'ok';
+}
+
 async function logEvent(
   db: AdminClient,
   flowRunId: string,
@@ -501,82 +531,172 @@ export function pickIntentFlow(
 // thread can quote the prompt the customer is replying to.
 // ============================================================
 
+/**
+ * A menu that could not be sent ends its run, as a failed `send_message`
+ * does: an active run whose menu never went out would swallow the
+ * customer's next messages. Returns false for the caller to pass on.
+ */
+async function failInteractiveSend(
+  db: AdminClient,
+  run: FlowRunRow,
+  node: FlowNodeRow,
+  err: unknown
+): Promise<false> {
+  await logEvent(db, run.id, 'error', node.node_key, {
+    reason: 'send_interactive_failed',
+    node_type: node.node_type,
+    detail: err instanceof Error ? err.message : String(err),
+  });
+  await endRun(db, run.id, 'failed', 'send_interactive_failed');
+  return false;
+}
+
 async function sendButtonsAndSuspend(
   db: AdminClient,
   run: FlowRunRow,
   node: FlowNodeRow
-): Promise<{ outcome: 'advanced'; node_key: string }> {
+): Promise<boolean> {
   const cfg = node.config as unknown as SendButtonsNodeConfig;
-  const { whatsapp_message_id } = await engineSendInteractiveButtons({
-    accountId: run.account_id,
-    userId: run.user_id,
-    conversationId: run.conversation_id!,
-    contactId: run.contact_id!,
-    bodyText: cfg.text,
-    headerText: cfg.header_text,
-    footerText: cfg.footer_text,
-    buttons: cfg.buttons.map((b) => ({ id: b.reply_id, title: b.title })),
-  });
-  await logEvent(db, run.id, 'message_sent', node.node_key, {
-    node_type: 'send_buttons',
-    whatsapp_message_id,
-  });
-  // Look up our internal message id so we can stash it on the run.
-  // Cheap — indexed on `messages.message_id`.
-  const { data: msg } = await db
-    .from('messages')
-    .select('id')
-    .eq('message_id', whatsapp_message_id)
-    .maybeSingle();
-  await db
-    .from('flow_runs')
-    .update({
-      last_prompt_message_id: (msg as { id: string } | null)?.id ?? null,
-    })
-    .eq('id', run.id);
-  return { outcome: 'advanced', node_key: node.node_key };
+  try {
+    const { whatsapp_message_id } = await engineSendInteractiveButtons({
+      accountId: run.account_id,
+      userId: run.user_id,
+      conversationId: run.conversation_id!,
+      contactId: run.contact_id!,
+      bodyText: cfg.text,
+      headerText: cfg.header_text,
+      footerText: cfg.footer_text,
+      buttons: cfg.buttons.map((b) => ({ id: b.reply_id, title: b.title })),
+    });
+    await logEvent(db, run.id, 'message_sent', node.node_key, {
+      node_type: 'send_buttons',
+      whatsapp_message_id,
+    });
+    // Look up our internal message id so we can stash it on the run.
+    // Cheap — indexed on `messages.message_id`.
+    const { data: msg } = await db
+      .from('messages')
+      .select('id')
+      .eq('message_id', whatsapp_message_id)
+      .maybeSingle();
+    await db
+      .from('flow_runs')
+      .update({
+        last_prompt_message_id: (msg as { id: string } | null)?.id ?? null,
+      })
+      .eq('id', run.id);
+    return true;
+  } catch (err) {
+    return failInteractiveSend(db, run, node, err);
+  }
 }
 
 async function sendListAndSuspend(
   db: AdminClient,
   run: FlowRunRow,
   node: FlowNodeRow
-): Promise<{ outcome: 'advanced'; node_key: string }> {
+): Promise<boolean> {
   const cfg = node.config as unknown as SendListNodeConfig;
-  const { whatsapp_message_id } = await engineSendInteractiveList({
-    accountId: run.account_id,
-    userId: run.user_id,
-    conversationId: run.conversation_id!,
-    contactId: run.contact_id!,
-    bodyText: cfg.text,
-    buttonLabel: cfg.button_label,
-    headerText: cfg.header_text,
-    footerText: cfg.footer_text,
-    sections: cfg.sections.map((s) => ({
-      title: s.title,
-      rows: s.rows.map((r) => ({
-        id: r.reply_id,
-        title: r.title,
-        description: r.description,
+  try {
+    const { whatsapp_message_id } = await engineSendInteractiveList({
+      accountId: run.account_id,
+      userId: run.user_id,
+      conversationId: run.conversation_id!,
+      contactId: run.contact_id!,
+      bodyText: cfg.text,
+      buttonLabel: cfg.button_label,
+      headerText: cfg.header_text,
+      footerText: cfg.footer_text,
+      sections: cfg.sections.map((s) => ({
+        title: s.title,
+        rows: s.rows.map((r) => ({
+          id: r.reply_id,
+          title: r.title,
+          description: r.description,
+        })),
       })),
-    })),
-  });
-  await logEvent(db, run.id, 'message_sent', node.node_key, {
-    node_type: 'send_list',
-    whatsapp_message_id,
-  });
-  const { data: msg } = await db
-    .from('messages')
-    .select('id')
-    .eq('message_id', whatsapp_message_id)
-    .maybeSingle();
-  await db
-    .from('flow_runs')
-    .update({
-      last_prompt_message_id: (msg as { id: string } | null)?.id ?? null,
-    })
-    .eq('id', run.id);
-  return { outcome: 'advanced', node_key: node.node_key };
+    });
+    await logEvent(db, run.id, 'message_sent', node.node_key, {
+      node_type: 'send_list',
+      whatsapp_message_id,
+    });
+    const { data: msg } = await db
+      .from('messages')
+      .select('id')
+      .eq('message_id', whatsapp_message_id)
+      .maybeSingle();
+    await db
+      .from('flow_runs')
+      .update({
+        last_prompt_message_id: (msg as { id: string } | null)?.id ?? null,
+      })
+      .eq('id', run.id);
+    return true;
+  } catch (err) {
+    return failInteractiveSend(db, run, node, err);
+  }
+}
+
+/**
+ * Give the run's chat to people: pending, and assigned to `assignTo` when
+ * that person can take it and nobody holds the chat already. Returns who
+ * it was assigned to, if anyone. Never throws; a write that failed is
+ * logged and rings the admins, because the run ends either way and the
+ * customer would otherwise wait for nobody.
+ */
+async function handOverChat(
+  db: AdminClient,
+  run: FlowRunRow,
+  assignTo?: string
+): Promise<string | null> {
+  const conversationId = run.conversation_id;
+  if (!conversationId) return null;
+  const failed = async (what: string, detail: string) => {
+    console.error(`[flows] hand-off ${what} failed:`, run.id, detail);
+    await notifyHandoff(db, {
+      accountId: run.account_id,
+      conversationId,
+      contactId: run.contact_id ?? '',
+      recipientId: null,
+      reasonClause: 'A flow handed this chat over but could not update it.',
+    });
+  };
+  const now = new Date().toISOString();
+  const { error } = await db
+    .from('conversations')
+    .update({ status: 'pending', updated_at: now })
+    .eq('id', conversationId);
+  if (error) await failed('status', error.message);
+  if (!assignTo) return null;
+
+  const { data: people, error: personErr } = await db
+    .from('profiles')
+    .select('account_role')
+    .eq('user_id', assignTo)
+    .eq('account_id', run.account_id)
+    .is('deactivated_at', null)
+    .limit(1);
+  if (personErr) {
+    await failed('assignee check', personErr.message);
+    return null;
+  }
+  const role = (people as { account_role: AccountRole }[] | null)?.[0]
+    ?.account_role;
+  if (!role || !(STAFF_ROLES as readonly AccountRole[]).includes(role)) {
+    console.warn('[flows] hand-off assignee is not active staff:', run.id);
+    return null;
+  }
+  const { data: taken, error: assignErr } = await db
+    .from('conversations')
+    .update({ assigned_agent_id: assignTo, updated_at: now })
+    .eq('id', conversationId)
+    .is('assigned_agent_id', null)
+    .select('id');
+  if (assignErr) {
+    await failed('assignment', assignErr.message);
+    return null;
+  }
+  return taken?.length ? assignTo : null;
 }
 
 async function executeHandoff(
@@ -585,20 +705,10 @@ async function executeHandoff(
   node: FlowNodeRow
 ): Promise<void> {
   const cfg = node.config as { assign_to?: string; note?: string };
-  const convUpdate: Record<string, unknown> = {
-    status: 'pending',
-    updated_at: new Date().toISOString(),
-  };
-  if (cfg.assign_to) convUpdate.assigned_agent_id = cfg.assign_to;
-  if (run.conversation_id) {
-    await db
-      .from('conversations')
-      .update(convUpdate)
-      .eq('id', run.conversation_id);
-  }
+  const assignedTo = await handOverChat(db, run, cfg.assign_to);
   await logEvent(db, run.id, 'handoff', node.node_key, {
     note: cfg.note ?? null,
-    assigned_to: cfg.assign_to ?? null,
+    assigned_to: assignedTo,
   });
   await endRun(db, run.id, 'handed_off', 'handoff_node');
 }
@@ -778,7 +888,41 @@ async function endRun(
       ended_at: new Date().toISOString(),
       end_reason: reason,
     })
-    .eq('id', runId);
+    .eq('id', runId)
+    .eq('status', 'active');
+}
+
+/** How long a walk may hold a run in transit before it counts as dead. */
+const IN_TRANSIT_MS = 2 * 60 * 1000;
+
+/**
+ * Take the run for one walk (see "Concurrency model"). True when this
+ * call won it; `run` then mirrors the row. Throws when the database
+ * could not answer, so nothing is sent on a claim that may not be ours.
+ */
+async function claimRun(
+  db: AdminClient,
+  run: FlowRunRow,
+  vars?: Record<string, unknown>
+): Promise<boolean> {
+  const patch = {
+    current_node_key: null,
+    last_advanced_at: new Date().toISOString(),
+    reprompt_count: 0,
+    ...(vars ? { vars } : {}),
+  };
+  const { data, error } = await db
+    .from('flow_runs')
+    .update(patch)
+    .eq('id', run.id)
+    .eq('status', 'active')
+    .eq('current_node_key', run.current_node_key!)
+    .eq('last_advanced_at', run.last_advanced_at)
+    .select('id');
+  if (error) throw new Error(`flow run claim failed: ${error.message}`);
+  if (!data?.length) return false;
+  Object.assign(run, patch);
+  return true;
 }
 
 // ============================================================
@@ -916,12 +1060,7 @@ async function advanceFromNodeKey(
         await endRun(db, run.id, 'failed', 'collect_input_prompt_failed');
         return { outcome: 'failed' };
       }
-      const advanced = await advanceCurrentNodeKey(
-        db,
-        run.id,
-        run.current_node_key,
-        node.node_key
-      );
+      const advanced = await advanceCurrentNodeKey(db, run, node.node_key);
       if (!advanced) {
         await logEvent(db, run.id, 'error', node.node_key, {
           reason: 'lost_race_during_advance',
@@ -958,14 +1097,11 @@ async function advanceFromNodeKey(
       continue;
     }
     if (node.node_type === 'send_buttons') {
-      await sendButtonsAndSuspend(db, run, node);
+      if (!(await sendButtonsAndSuspend(db, run, node))) {
+        return { outcome: 'failed' };
+      }
       // Persist the new current_node_key via optimistic UPDATE.
-      const advanced = await advanceCurrentNodeKey(
-        db,
-        run.id,
-        run.current_node_key,
-        node.node_key
-      );
+      const advanced = await advanceCurrentNodeKey(db, run, node.node_key);
       if (!advanced) {
         await logEvent(db, run.id, 'error', node.node_key, {
           reason: 'lost_race_during_advance',
@@ -974,13 +1110,10 @@ async function advanceFromNodeKey(
       return { outcome: 'advanced', lostRace: !advanced };
     }
     if (node.node_type === 'send_list') {
-      await sendListAndSuspend(db, run, node);
-      const advanced = await advanceCurrentNodeKey(
-        db,
-        run.id,
-        run.current_node_key,
-        node.node_key
-      );
+      if (!(await sendListAndSuspend(db, run, node))) {
+        return { outcome: 'failed' };
+      }
+      const advanced = await advanceCurrentNodeKey(db, run, node.node_key);
       if (!advanced) {
         await logEvent(db, run.id, 'error', node.node_key, {
           reason: 'lost_race_during_advance',
@@ -1013,35 +1146,32 @@ async function advanceFromNodeKey(
 }
 
 /**
- * Optimistic UPDATE — only advance current_node_key when it matches
- * the value we read at the top of dispatch. If another webhook beat
- * us, the row's pointer has already moved and our UPDATE returns
- * zero rows; we treat that as a no-op and let the other run continue.
+ * Put the run on the node whose prompt was just sent. Conditional on it
+ * still being this walk's: active, in transit, and carrying the claim's
+ * timestamp (a run ended meanwhile stays ended).
  */
 async function advanceCurrentNodeKey(
   db: AdminClient,
-  runId: string,
-  expectedOldKey: string | null,
+  run: FlowRunRow,
   newKey: string
 ): Promise<boolean> {
-  // PostgREST: when expectedOldKey is null we can't `.eq` (would match
-  // any row); use `.is('current_node_key', null)` instead.
-  let q = db
+  // PostgREST: `.eq` never matches a null; use `.is` instead.
+  const { data, error } = await db
     .from('flow_runs')
     .update({
       current_node_key: newKey,
       last_advanced_at: new Date().toISOString(),
     })
-    .eq('id', runId)
-    .eq('status', 'active');
-  if (expectedOldKey === null) {
-    q = q.is('current_node_key', null);
-  } else {
-    q = q.eq('current_node_key', expectedOldKey);
-  }
-  const { data, error } = await q.select('id');
+    .eq('id', run.id)
+    .eq('status', 'active')
+    .is('current_node_key', null)
+    .eq('last_advanced_at', run.last_advanced_at)
+    .select('id');
   if (error) {
     console.error('[flows] advanceCurrentNodeKey error:', error.message);
+    // The prompt is out but the run could not be put on it. Left in
+    // transit it would swallow the answer, so it ends instead.
+    await endRun(db, run.id, 'failed', 'advance_write_failed');
     return false;
   }
   return Array.isArray(data) && data.length > 0;
@@ -1079,10 +1209,28 @@ export async function dispatchInboundToFlows(
           outcome: 'duplicate_inbound_ignored',
         };
       }
-      // One SELECT for the whole flow's nodes — advance loop is now
-      // in-memory. See loadAllNodes.
-      const nodes = await loadAllNodes(db, activeRun.flow_id);
-      return handleReplyForActiveRun(db, activeRun, input, nodes);
+      // Switched off (draft or archived) since the run started: the run
+      // stops here and the message is dispatched as if there were none.
+      // A flow that could not be read is not a flow switched off.
+      const runFlow = await loadFlow(db, activeRun.flow_id);
+      if (!runFlow || runFlow.status === 'active') {
+        // One SELECT for the whole flow's nodes — advance loop is now
+        // in-memory. See loadAllNodes.
+        const consent = await flowConsent(db, input.accountId, input.contactId);
+        if (consent !== 'ok') {
+          if (consent === 'refused') {
+            await endRun(db, activeRun.id, 'failed', 'customer_opted_out');
+          }
+          return {
+            consumed: false,
+            flow_run_id: activeRun.id,
+            outcome: 'no_match',
+          };
+        }
+        const nodes = await loadAllNodes(db, activeRun.flow_id);
+        return await handleReplyForActiveRun(db, activeRun, input, nodes);
+      }
+      await endRun(db, activeRun.id, 'failed', 'flow_switched_off');
     }
 
     // No active run. A first reply to a campaign that names a follow-up
@@ -1176,6 +1324,19 @@ async function handleReplyForActiveRun(
   nodes: Map<string, FlowNodeRow>
 ): Promise<DispatchInboundResult> {
   const { message } = input;
+  // A run belongs to the chat it runs in: what the customer writes to
+  // another of our numbers is not an answer to this one's menu, unless
+  // it is a tap on that very menu.
+  if (run.conversation_id && run.conversation_id !== input.conversationId) {
+    const node = run.current_node_key ? nodes.get(run.current_node_key) : null;
+    if (
+      !node ||
+      message.kind !== 'interactive_reply' ||
+      !matchReplyId(node, message.reply_id)
+    ) {
+      return { consumed: false, flow_run_id: run.id, outcome: 'no_match' };
+    }
+  }
   // Note: we intentionally do NOT persist the raw customer text. A
   // `collect_input` prompt that asks "what's your card number?" would
   // otherwise leave the PAN sitting in flow_run_events.payload forever,
@@ -1191,6 +1352,15 @@ async function handleReplyForActiveRun(
   });
 
   if (!run.current_node_key) {
+    // Another message's walk is still sending: that walk speaks for the
+    // run, and this message must not make it speak twice.
+    if (Date.now() - Date.parse(run.last_advanced_at) < IN_TRANSIT_MS) {
+      return {
+        consumed: true,
+        flow_run_id: run.id,
+        outcome: 'duplicate_inbound_ignored',
+      };
+    }
     // Defensive — a run with status='active' but no current node is
     // malformed. Fail the run rather than spin.
     await endRun(db, run.id, 'failed', 'active_run_missing_current_node');
@@ -1206,6 +1376,13 @@ async function handleReplyForActiveRun(
     return { consumed: false, flow_run_id: run.id, outcome: 'failed' };
   }
 
+  if (!isSuspending(currentNode.node_type)) {
+    // The run never asked anything here, so nothing this message says
+    // can move it: hand the message back rather than swallow it.
+    await endRun(db, run.id, 'failed', 'current_node_not_waiting');
+    return { consumed: false, flow_run_id: run.id, outcome: 'failed' };
+  }
+
   // Three ways a reply can advance:
   //   1. Interactive button/list tap on a send_buttons/send_list node.
   //   2. Typed text on such a node that names an option (typed-reply.ts).
@@ -1217,6 +1394,7 @@ async function handleReplyForActiveRun(
   // gone through: a concurrent tap that won the optimistic update must
   // not leave an event saying this text moved the run.
   let typedMatch: TypedReplyResolution | null = null;
+  let capture: { key: string; value: string } | null = null;
   if (
     message.kind === 'interactive_reply' &&
     (currentNode.node_type === 'send_buttons' ||
@@ -1255,44 +1433,30 @@ async function handleReplyForActiveRun(
     const cfg = currentNode.config as unknown as CollectInputNodeConfig;
     const captured = message.text.trim();
     if (captured.length > 0 && cfg.var_key) {
-      // Persist captured value + reset reprompt count atomically.
-      const newVars = { ...run.vars, [cfg.var_key]: captured };
-      const { error: capErr } = await db
-        .from('flow_runs')
-        .update({
-          vars: newVars,
-          reprompt_count: 0,
-        })
-        .eq('id', run.id);
-      if (!capErr) {
-        // Mirror the UPDATE in-memory so downstream interpolation in
-        // the advance loop sees the captured var without us having to
-        // re-SELECT the whole row.
-        run.vars = newVars;
-        run.reprompt_count = 0;
-        await logEvent(db, run.id, 'node_entered', currentNode.node_key, {
-          captured_key: cfg.var_key,
-          captured_length: captured.length,
-        });
-        matched = cfg.next_node_key;
-      }
+      // Stored by the claim itself, so a lost claim stores nothing.
+      capture = { key: cfg.var_key, value: captured };
+      matched = cfg.next_node_key;
     }
   }
 
   if (matched) {
-    // Reset reprompt count on a successful match. Skip the write when
-    // already 0 — the collect_input capture branch above already
-    // zeroed it, and interactive-reply matches against a fresh run
-    // (post-prior-reset) are also already 0. The previous re-read of
-    // the whole row was needed only because we weren't mirroring the
-    // capture UPDATE into the in-memory `run`; now that we do, the
-    // local copy is the source of truth.
-    if (run.reprompt_count !== 0) {
-      const { error } = await db
-        .from('flow_runs')
-        .update({ reprompt_count: 0 })
-        .eq('id', run.id);
-      if (!error) run.reprompt_count = 0;
+    const won = await claimRun(
+      db,
+      run,
+      capture ? { ...run.vars, [capture.key]: capture.value } : undefined
+    );
+    if (!won) {
+      return {
+        consumed: true,
+        flow_run_id: run.id,
+        outcome: 'duplicate_inbound_ignored',
+      };
+    }
+    if (capture) {
+      await logEvent(db, run.id, 'node_entered', currentNode.node_key, {
+        captured_key: capture.key,
+        captured_length: capture.value.length,
+      });
     }
     const outcome = await advanceFromNodeKey(db, run, matched, nodes);
     if (typedMatch && outcome.outcome !== 'failed' && !outcome.lostRace) {
@@ -1361,12 +1525,7 @@ async function handleReplyForActiveRun(
         };
       }
       if (aiOutcome === 'handed_off') {
-        if (run.conversation_id) {
-          await db
-            .from('conversations')
-            .update({ status: 'pending', updated_at: new Date().toISOString() })
-            .eq('id', run.conversation_id);
-        }
+        await handOverChat(db, run);
         await logEvent(db, run.id, 'handoff', run.current_node_key, {
           reason: 'ai_handoff',
         });
@@ -1378,10 +1537,26 @@ async function handleReplyForActiveRun(
   }
 
   const newReprompts = run.reprompt_count + 1;
-  await db
+  // Claimed like an advance: of two off-script messages sent together
+  // one re-sends the prompt, and none does once another message moved
+  // the run.
+  const { data: counted, error: countErr } = await db
     .from('flow_runs')
     .update({ reprompt_count: newReprompts })
-    .eq('id', run.id);
+    .eq('id', run.id)
+    .eq('status', 'active')
+    .eq('current_node_key', run.current_node_key)
+    .eq('last_advanced_at', run.last_advanced_at)
+    .eq('reprompt_count', run.reprompt_count)
+    .select('id');
+  if (countErr) throw new Error(`reprompt claim failed: ${countErr.message}`);
+  if (!counted?.length && policy.on_unknown_reply !== 'ignore') {
+    return {
+      consumed: true,
+      flow_run_id: run.id,
+      outcome: 'duplicate_inbound_ignored',
+    };
+  }
 
   const action = decideFallback({
     policy,
@@ -1399,9 +1574,13 @@ async function handleReplyForActiveRun(
   if (action.type === 'reprompt') {
     // Re-send the same prompt. Same node, no current_node_key change.
     if (currentNode.node_type === 'send_buttons') {
-      await sendButtonsAndSuspend(db, run, currentNode);
+      if (!(await sendButtonsAndSuspend(db, run, currentNode))) {
+        return { consumed: false, flow_run_id: run.id, outcome: 'failed' };
+      }
     } else if (currentNode.node_type === 'send_list') {
-      await sendListAndSuspend(db, run, currentNode);
+      if (!(await sendListAndSuspend(db, run, currentNode))) {
+        return { consumed: false, flow_run_id: run.id, outcome: 'failed' };
+      }
     } else if (currentNode.node_type === 'collect_input') {
       // Customer typed something we couldn't accept (empty after trim,
       // or var_key missing — rare). Re-send the prompt so they try again.
@@ -1424,12 +1603,7 @@ async function handleReplyForActiveRun(
     return { consumed: true, flow_run_id: run.id, outcome: 'fallback_fired' };
   }
   if (action.type === 'handoff') {
-    if (run.conversation_id) {
-      await db
-        .from('conversations')
-        .update({ status: 'pending', updated_at: new Date().toISOString() })
-        .eq('id', run.conversation_id);
-    }
+    await handOverChat(db, run);
     await logEvent(db, run.id, 'handoff', run.current_node_key, {
       reason: 'fallback_exhausted',
     });
@@ -1449,6 +1623,9 @@ async function startNewRun(
   /** Campaign-started runs only (migration 054). */
   seed?: { broadcastId: string; vars: Record<string, string> }
 ): Promise<DispatchInboundResult> {
+  if ((await flowConsent(db, input.accountId, input.contactId)) !== 'ok') {
+    return { consumed: false, outcome: 'no_match' };
+  }
   // INSERT — partial unique index `idx_one_active_run_per_contact`
   // catches concurrent inserts with 23505. We catch and return as
   // consumed:true (the parallel webhook handles it).
@@ -1467,7 +1644,8 @@ async function startNewRun(
       contact_id: input.contactId,
       conversation_id: input.conversationId,
       status: 'active',
-      current_node_key: flow.entry_node_id,
+      // In transit until the first prompt is out (see claimRun).
+      current_node_key: null,
       ...(seed ? { broadcast_id: seed.broadcastId, vars: seed.vars } : {}),
     })
     .select('*')
