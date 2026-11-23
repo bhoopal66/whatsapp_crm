@@ -1,6 +1,8 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { PUSH_ENABLED_BY_KEY } from './repair';
 import {
+  releasePushOnSessionChange,
   releasePushOnSignOut,
   signOutReleasingPush,
   type PushSignOutDeps,
@@ -74,5 +76,42 @@ describe('signOutReleasingPush', () => {
       error: null,
     });
     expect(f.order).toEqual(['server:{"all":true}', 'browser', 'signOut']);
+  });
+});
+
+describe('who turned push on here', () => {
+  afterEach(() => vi.unstubAllGlobals());
+  const store = (by: string) => {
+    const m = new Map([[PUSH_ENABLED_BY_KEY, by]]);
+    vi.stubGlobal('window', {
+      localStorage: {
+        getItem: (k: string) => m.get(k) ?? null,
+        removeItem: (k: string) => void m.delete(k),
+      },
+    });
+    return m;
+  };
+
+  it('a sign-out forgets it', async () => {
+    const m = store('u1');
+    await releasePushOnSignOut({}, deps().d);
+    expect(m.size).toBe(0);
+  });
+
+  it('a lost session releases the browser but keeps it', async () => {
+    const m = store('u1');
+    const f = deps();
+    await releasePushOnSessionChange(null, f.d);
+    expect(f.unsubscribe).toHaveBeenCalledTimes(1);
+    expect(m.get(PUSH_ENABLED_BY_KEY)).toBe('u1');
+  });
+
+  it('another person releases it; its own person does not', async () => {
+    store('u1');
+    const f = deps();
+    await releasePushOnSessionChange('u1', f.d);
+    expect(f.unsubscribe).not.toHaveBeenCalled();
+    await releasePushOnSessionChange('u2', f.d);
+    expect(f.unsubscribe).toHaveBeenCalledTimes(1);
   });
 });

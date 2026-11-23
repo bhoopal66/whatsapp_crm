@@ -12,6 +12,26 @@ and polish.
 
 ## [Unreleased]
 
+### Push notifications that stay with the right person
+
+No migration.
+- A few minutes without a connection to the push services no longer
+  removes every staff device for good.
+- On a shared computer, the next person to sign in no longer sees the
+  previous person's notifications, also when that session simply ended.
+- A device the server lost is registered again on the next page load, so
+  the switch says "on" only for a device that is.
+- Notification settings that could not be loaded show an error with
+  Retry; they used to open as "everything on, no quiet hours" and the
+  next change saved that.
+- A change made just before leaving the settings is saved, and quick
+  changes save in order.
+- "Send test" answers for your own notification, and says so when quiet
+  hours hold it.
+- Meeting, calendar and task alarms are not delivered more than 30
+  minutes late.
+- The pipeline chart shows its error when the stages could not be loaded.
+
 ### Forwarding and reactions that match WhatsApp
 
 No migration.

@@ -91,6 +91,14 @@ export function preferencesToSave(
   };
 }
 
+/** The GET response, or null when it is not one (never the defaults). */
+export function loadedPushPreferences(value: unknown): PushPreferences | null {
+  if (!value || typeof value !== 'object') return null;
+  if (typeof (value as { enabled?: unknown }).enabled !== 'boolean')
+    return null;
+  return parsePushPreferences(value);
+}
+
 /** Defensive parse of the GET response. */
 export function parsePushPreferences(value: unknown): PushPreferences {
   if (!value || typeof value !== 'object') return DEFAULT_PUSH_PREFERENCES;

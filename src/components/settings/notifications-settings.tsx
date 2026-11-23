@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { BellRing, Moon, Send, Smartphone } from 'lucide-react';
 import { toast } from 'sonner';
@@ -19,13 +19,16 @@ import {
 import { usePushSubscription } from '@/hooks/use-push-subscription';
 import type { PushKind } from '@/lib/push/kinds';
 import {
-  DEFAULT_PUSH_PREFERENCES,
   groupedPushKinds,
   isKindOn,
-  parsePushPreferences,
+  loadedPushPreferences,
   preferencesToSave,
   type PushPreferences,
 } from '@/lib/push/settings';
+import {
+  createPreferenceSaver,
+  type PreferenceSaver,
+} from '@/lib/push/preference-saver';
 import { SettingsPanelHead } from './settings-panel-head';
 import { MessageSoundSetting } from './message-sound-setting';
 
@@ -61,7 +64,8 @@ export function NotificationsSettings() {
   const t = useTranslations('PushNotifications');
   const push = usePushSubscription();
   const [prefs, setPrefs] = useState<PushPreferences | null>(null);
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const zones = useMemo(
     () => timeZones(prefs?.timeZone ?? null),
     [prefs?.timeZone]
@@ -73,46 +77,61 @@ export function NotificationsSettings() {
       .then((res) => (res.ok ? res.json() : Promise.reject(res.status)))
       .then((body: unknown) => {
         if (cancelled) return;
-        const p = parsePushPreferences(body);
+        // Never an editable form from defaults: the next toggle would
+        // save "everything on, no quiet hours" over the person's choices.
+        const p = loadedPushPreferences(body);
+        if (!p) throw new Error('unexpected answer');
         setPrefs({ ...p, timeZone: p.timeZone ?? browserTimeZone() });
       })
       .catch(() => {
         if (cancelled) return;
-        toast.error(t('loadFailed'));
-        setPrefs({ ...DEFAULT_PUSH_PREFERENCES, timeZone: browserTimeZone() });
+        setLoadFailed(true);
       });
     return () => {
       cancelled = true;
     };
-  }, [t]);
+  }, [attempt]);
 
-  useEffect(
-    () => () => {
-      if (saveTimer.current) clearTimeout(saveTimer.current);
-    },
-    []
+  const retry = () => {
+    setLoadFailed(false);
+    setAttempt((n) => n + 1);
+  };
+
+  const saver = useMemo<PreferenceSaver<PushPreferences>>(
+    () =>
+      createPreferenceSaver({
+        delayMs: SAVE_DELAY_MS,
+        send: async (body, { keepalive }) => {
+          const res = await fetch('/api/push/preferences', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+            keepalive,
+          }).catch(() => null);
+          if (res?.ok) toast.success(t('saved'), { id: 'push-prefs' });
+          else toast.error(t('saveFailed'), { id: 'push-prefs' });
+        },
+      }),
+    [t]
   );
+
+  // Leaving within the pause must not lose the last change.
+  useEffect(() => {
+    window.addEventListener('pagehide', saver.flushNow);
+    return () => {
+      window.removeEventListener('pagehide', saver.flushNow);
+      saver.flush();
+    };
+  }, [saver]);
 
   const update = useCallback(
     (next: PushPreferences) => {
       setPrefs(next);
-      if (saveTimer.current) clearTimeout(saveTimer.current);
+      // Half-filled quiet hours are not sent; an earlier change still is.
       const body = preferencesToSave(next);
-      if (!body) return;
-      saveTimer.current = setTimeout(() => {
-        fetch('/api/push/preferences', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        })
-          .then((res) => {
-            if (res.ok) toast.success(t('saved'), { id: 'push-prefs' });
-            else toast.error(t('saveFailed'), { id: 'push-prefs' });
-          })
-          .catch(() => toast.error(t('saveFailed'), { id: 'push-prefs' }));
-      }, SAVE_DELAY_MS);
+      if (body) saver.schedule(body);
     },
-    [t]
+    [saver]
   );
 
   const toggleDevice = async (on: boolean) => {
@@ -132,7 +151,9 @@ export function NotificationsSettings() {
   const sendTest = async () => {
     const result = await push.sendTest();
     if (result === 'sent') toast.success(t('testSent'));
-    else if (result === 'none') toast.error(t('testNone'));
+    else if (result === 'queued') toast.success(t('testQueued'));
+    else if (result === 'held') toast.info(t('testHeld'));
+    else if (result === 'no_device') toast.error(t('testNone'));
     else if (result === 'not_configured') toast.error(t('testNotConfigured'));
     else toast.error(t('testFailed'));
   };
@@ -180,6 +201,18 @@ export function NotificationsSettings() {
       </div>
 
       <MessageSoundSetting />
+
+      {!prefs && loadFailed ? (
+        <div
+          role="alert"
+          className="border-border bg-card mt-6 flex items-center justify-between gap-4 rounded-xl border p-4"
+        >
+          <p className="text-destructive text-sm">{t('loadFailed')}</p>
+          <Button variant="outline" size="sm" onClick={retry}>
+            {t('retry')}
+          </Button>
+        </div>
+      ) : null}
 
       {prefs ? (
         <>

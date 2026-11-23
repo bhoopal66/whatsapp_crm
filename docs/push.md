@@ -100,7 +100,26 @@ not dropped, and delivered when the window ends if it is then less than
   loop is not running. The outbox claim is a lease, so the two never
   send the same row twice.
 - A device the push service reports gone (HTTP 404 or 410) is removed
-  at once; a device that fails 10 times in a row is removed too.
+  at once. A device the service refuses for another reason of its own
+  (a 4xx other than 401, 403 and 429) is removed after 10 passes in a
+  row. No connection, our own keys, rate limiting and 5xx never count:
+  an outage costs nobody their device.
+- `task_due`, `meeting_reminder` and `event_reminder` are kept by the
+  push service for 30 minutes, team chat and WhatsApp for a day, the
+  rest for three days.
+
+## Whose device it is
+
+A subscription belongs to the browser, not to the login. The browser
+keeps the id of the person who turned push on there (localStorage
+`taamul.push-enabled-by`, nothing else; removed on switching off and on
+sign-out). Once per page load and person the dashboard settles it
+(`lib/push/repair.ts`): that person's device is registered again, which
+restores a device the server lost (or subscribes again one released when
+their session ended); anyone else's is unsubscribed in the browser. A
+device turned on before this existed is recognised by its own row. An
+error changes nothing. A session that ends or changes person in an open
+tab also releases the browser (`releasePushOnSessionChange`).
 
 ## Deleted and edited team-chat messages (migration 112)
 
