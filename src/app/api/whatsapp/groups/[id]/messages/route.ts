@@ -37,6 +37,7 @@ import {
   type GroupOutboundMedia,
 } from '@/lib/groups/outbound-media';
 import { SEND_UNCONFIRMED } from '@/lib/groups/unconfirmed-sends';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { publicSupabaseUrl } from '@/lib/supabase/urls';
 import {
   GroupsUnsupportedError,
@@ -140,7 +141,12 @@ export async function POST(request: Request, { params }: Params) {
       console.error('[groups] send count failed', countError);
       throw new GroupHttpError(503, 'unavailable', 'Could not check the limit');
     }
-    if ((count ?? 0) >= GROUP_SEND_LIMIT.perWindow) {
+    // A failed send leaves no row but reached the gateway all the same.
+    const attempts = checkRateLimit(`group-send:${group.id}`, {
+      limit: GROUP_SEND_LIMIT.perWindow,
+      windowMs: GROUP_SEND_LIMIT.windowMs,
+    });
+    if ((count ?? 0) >= GROUP_SEND_LIMIT.perWindow || !attempts.success) {
       throw new GroupHttpError(
         429,
         'rate_limited',

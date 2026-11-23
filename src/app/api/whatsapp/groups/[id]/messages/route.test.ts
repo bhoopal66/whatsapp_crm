@@ -32,6 +32,8 @@ vi.mock('@/lib/groups/server', async (importOriginal) => ({
 import { OpenWAError } from '@/lib/whatsapp/openwa-api';
 import { WhapiError } from '@/lib/whatsapp/whapi-api';
 
+import { __resetRateLimitForTests } from '@/lib/rate-limit';
+
 import { GET, POST } from './route';
 
 const G = '22222222-2222-4222-8222-222222222222';
@@ -59,6 +61,7 @@ const msg = (i: number, extra: Record<string, unknown> = {}) => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  __resetRateLimitForTests();
   vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'http://supabase.test');
   vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'service-key');
   vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -178,6 +181,16 @@ describe('POST', () => {
       sender_name: 'Aya',
       status: 'sent',
     });
+  });
+
+  it('counts sends that failed, which leave no row', async () => {
+    mocks.sendGroupText.mockRejectedValue(new WhapiError('no', 400));
+    for (let i = 0; i < 20; i++) await post({ text: 'hi' });
+    mocks.sendGroupText.mockResolvedValue({ messageId: 'wa-new' });
+    const res = await post({ text: 'hi' });
+    expect(res.status).toBe(429);
+    expect(mocks.sendGroupText).toHaveBeenCalledTimes(20);
+    expect(stored()).toHaveLength(0);
   });
 
   it('answers 429 at 20 sends a minute and never calls Whapi', async () => {
