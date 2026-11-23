@@ -29,6 +29,11 @@ and polish.
   were missed, the list has no hole in it.
 - Messages that could not be loaded say so, with Try again, instead of
   showing an empty group.
+- A message to a deal room whose outcome WhatsApp did not confirm (a
+  timeout, a dropped connection) says it may have been sent and to check
+  the group first. It said it could not be sent, so the group got it twice.
+- A message WhatsApp accepted but the CRM failed to record is recorded on a
+  second try, or the sender is told it will not show here.
 
 ### Voice notes: one tap to record, one tap to send
 

@@ -65,6 +65,7 @@ import {
   ROOM_MEDIA_CAPTION_MAX,
   checkRoomMedia,
 } from '@/lib/deal-rooms/room-media';
+import { roomSendOutcome } from '@/lib/deal-rooms/send-outcome';
 import { rightColumn, withRightColumn } from '@/lib/chat/panels';
 import { renderTemplateBody } from '@/lib/whatsapp/template-body';
 import { cn } from '@/lib/utils';
@@ -81,20 +82,6 @@ export interface DealRoomViewProps {
   /** Beside the tabs: room actions (invite link, close…; a later job). */
   headerActions?: (ctx: RoomContext) => React.ReactNode;
 }
-
-const SEND_ERRORS = new Set([
-  'window_closed',
-  'room_not_open',
-  'group_not_ready',
-  'group_suspended',
-  'template_rejected',
-  'forbidden',
-  'media_type',
-  'media_size',
-  'media_name',
-  'media_content',
-  'media_upload',
-]);
 
 /** Re-renders every 30 s, for the window countdown and composer mode. */
 function useNow() {
@@ -575,6 +562,8 @@ function GroupComposer({
   const { accountId } = useAuth();
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
+  // The last send may be in the group: said until the next one starts.
+  const [unconfirmed, setUnconfirmed] = useState(false);
   const [templates, setTemplates] = useState<TemplateRow[] | null>(null);
   const [picked, setPicked] = useState('');
   const [values, setValues] = useState<string[]>([]);
@@ -608,38 +597,39 @@ function GroupComposer({
   const ready =
     !!template && filled.length === count && filled.every((v) => v.trim());
 
-  // A file goes as multipart form data, its caption the typed text.
+  // A file goes as multipart form data, its caption the typed text. True
+  // when it went out: what was typed is kept otherwise.
   const send = async (body: Record<string, unknown> | FormData) => {
     setBusy(true);
-    try {
-      const res = await fetch(
-        `/api/deal-rooms/${roomId}/messages`,
-        body instanceof FormData
-          ? { method: 'POST', body }
-          : {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(body),
-            }
-      );
-      if (!res.ok) {
-        const { code } = (await res.json().catch(() => ({}))) as {
-          code?: string;
-        };
-        toast.error(
-          t(
-            `composer.errors.${code && SEND_ERRORS.has(code) ? code : 'generic'}`
-          )
-        );
-        return false;
-      }
-      return true;
-    } catch {
-      toast.error(t('composer.errors.generic'));
-      return false;
-    } finally {
-      setBusy(false);
+    setUnconfirmed(false);
+    const answer = await fetch(
+      `/api/deal-rooms/${roomId}/messages`,
+      body instanceof FormData
+        ? { method: 'POST', body }
+        : {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          }
+    ).then(
+      async (res) => ({
+        status: res.status,
+        body: (await res.json().catch(() => null)) as unknown,
+      }),
+      () => null
+    );
+    setBusy(false);
+    const outcome = roomSendOutcome(answer);
+    setUnconfirmed(outcome.kind === 'unconfirmed');
+    // Not left open on a Confirm that would send it twice.
+    if (outcome.kind === 'unconfirmed') setConfirming(false);
+    if (outcome.kind === 'refused') {
+      toast.error(t(`composer.errors.${outcome.error}`));
     }
+    if (outcome.kind === 'notRecorded') {
+      toast.warning(t('composer.notRecorded'), { duration: 15_000 });
+    }
+    return outcome.kind === 'sent' || outcome.kind === 'notRecorded';
   };
 
   const pick = (picked: File | undefined) => {
@@ -672,6 +662,14 @@ function GroupComposer({
       <p className="text-warning text-sm font-bold">
         {t('composer.label', { count: audience })}
       </p>
+      {unconfirmed && (text.trim() || file || template) && (
+        <p
+          role="alert"
+          className="bg-destructive-soft text-destructive mt-2 rounded-md px-2.5 py-1.5 text-sm"
+        >
+          {t('composer.errors.unconfirmed')}
+        </p>
+      )}
       {mode.mode === 'text' ? (
         <form
           className="mt-2 flex items-end gap-2"
