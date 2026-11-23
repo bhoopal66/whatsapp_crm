@@ -34,6 +34,11 @@ No migration.
   it kept only the first, often the few seconds before the transfer.
 - A ringing report that arrives as the call ends no longer leaves a call
   on screen that never goes away.
+### Submission groups: the whole chat
+
+No migration.
+- A submission group's chat has "Load older messages": only its newest 200
+  could be reached. Older messages already loaded stay through live updates.
 
 ### Push notifications that stay with the right person
 

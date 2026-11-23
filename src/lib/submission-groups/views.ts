@@ -18,7 +18,7 @@ import type { GroupMessage, SubmissionGroup } from './store';
 export const LIST_LIMIT_DEFAULT = 25;
 export const LIST_LIMIT_MAX = 50;
 export const SEARCH_MAX = 64;
-/** The detail route answers at most this many of the latest live messages. */
+/** The detail route answers at most this many live messages a page, the latest first. */
 export const DETAIL_MESSAGE_LIMIT = 200;
 
 export type ListStatus = 'ACTIVE' | 'ENDED';
@@ -50,14 +50,26 @@ export function encodeCursor(c: ListCursor): string {
   return Buffer.from(`${c.at}|${c.id}`, 'utf8').toString('base64url');
 }
 
+/** A message id: a bigint identity, well inside its range. */
+const MESSAGE_ID_RE = /^\d{1,18}$/;
+
 /** Parses an opaque cursor; anything malformed is a 400. */
 export function decodeCursor(raw: string): ListCursor {
-  const bad = () => new SgHttpError(400, 'cursor is not valid');
+  return decode(raw, 'cursor', UUID_RE);
+}
+
+/** The chat's `?before=`: the same cursor, at a message. */
+export function decodeMessageCursor(raw: string): ListCursor {
+  return decode(raw, 'before', MESSAGE_ID_RE);
+}
+
+function decode(raw: string, param: string, idRe: RegExp): ListCursor {
+  const bad = () => new SgHttpError(400, `${param} is not valid`);
   if (!/^[A-Za-z0-9_-]+$/.test(raw)) throw bad();
   const [at, id, ...extra] = Buffer.from(raw, 'base64url')
     .toString('utf8')
     .split('|');
-  if (extra.length || !at || !id || !UUID_RE.test(id)) throw bad();
+  if (extra.length || !at || !id || !idRe.test(id)) throw bad();
   if (!TIMESTAMP_RE.test(at) || Number.isNaN(Date.parse(at))) throw bad();
   return { at, id: id.toLowerCase() };
 }
@@ -66,7 +78,8 @@ export function decodeCursor(raw: string): ListCursor {
  * The keyset `or()` filter for the page after a cursor, matching the
  * (column desc, id desc) order: strictly older, or the same instant with a
  * smaller id. The timestamp passed `TIMESTAMP_RE` (digits, `-`, `:`, `.`,
- * `T`, `Z`, `+`) and the id is a validated UUID, so neither needs quoting.
+ * `T`, `Z`, `+`) and the id is a validated UUID or digits, so neither needs
+ * quoting.
  */
 export function cursorFilter(column: string, c: ListCursor): string {
   return `${column}.lt.${c.at},and(${column}.eq.${c.at},id.lt.${c.id})`;
@@ -450,6 +463,23 @@ export function toAccessView(
     name: names.get(entry.userId) ?? null,
     label: entry.label,
     added_at: entry.addedAt.toISOString(),
+  };
+}
+
+/**
+ * One page of a live chat out of rows read newest first, one more than the
+ * page: oldest first, whether older ones remain, and where those start.
+ */
+export function messagePage(
+  rows: readonly Row[],
+  limit = DETAIL_MESSAGE_LIMIT
+): { rows: Row[]; hasMore: boolean; olderCursor: string | null } {
+  const page = rows.slice(0, limit).reverse();
+  const at = rows.length > limit ? cursorAt(page[0], 'created_at') : null;
+  return {
+    rows: page,
+    hasMore: at !== null,
+    olderCursor: at && encodeCursor(at),
   };
 }
 
