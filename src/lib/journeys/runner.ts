@@ -42,6 +42,16 @@ export interface DrainResult {
 
 const OPTIN_WELCOME = 'taamul_optin_welcome';
 
+/** A SEND this long overdue is not sent any more: the bot was switched off, or could not deliver. */
+export const STALE_AFTER_MS = 24 * 60 * 60_000;
+
+function staleSend(item: OutboxItem, now: string): boolean {
+  const a = item.action;
+  if (a.type !== 'SEND') return false;
+  const due = a.notBefore ?? item.committedAt;
+  return !!due && toMs(now) - toMs(due) > STALE_AFTER_MS;
+}
+
 /**
  * Why a SEND held for quiet hours has lost its reason, or null. Only a held send (`notBefore`) is judged: the engine holds
  * what nobody asked for (quietHours.appliesTo: timers and cold starts), so a reply to the customer's own tap or message,
@@ -62,10 +72,12 @@ function heldSendOver(file: JourneyFile, item: OutboxItem): string | null {
 async function blockedSend(
   ports: { store: JourneyStore; consent: ConsentPort },
   file: JourneyFile,
-  item: OutboxItem
+  item: OutboxItem,
+  now: string
 ): Promise<string | null> {
   const a = item.action;
   if (a.type !== 'SEND') return null;
+  if (staleSend(item, now)) return 'STALE';
   const contactId = file.contactId;
   if (a.category === 'MARKETING') {
     const optedOut =
@@ -93,8 +105,8 @@ async function blockedSend(
  * after `now` (and its LOG_COST) is skipped and stays pending — later items still go, so a night-time STOP is
  * confirmed and recorded at once; `deferredUntil` is the earliest such notBefore. Every SEND is re-checked against consent first: a MARKETING send to a contact now opted out
  * (register or a still-pending SET_OPT_OUT on any file), marked do-not-contact or without marketing opt-in, a held send
- * whose reason is gone (`heldSendOver`), or an opt-in welcome whose per-contact claim fails, is marked `dropped` (with its
- * LOG_COST) and never delivered. A re-check that cannot be made stops the drain with the item still pending. Safe to call from a host retry
+ * whose reason is gone (`heldSendOver`), one more than STALE_AFTER_MS overdue, or an opt-in welcome whose per-contact claim
+ * fails, is marked `dropped` (with its LOG_COST) and never delivered. A re-check that cannot be made stops the drain with the item still pending. Safe to call from a host retry
  * loop; concurrent drains may redeliver an item, which the sink dedupes on `item.id`.
  */
 export async function drain(
@@ -139,7 +151,7 @@ export async function drain(
     try {
       if (a.type === 'SEND') {
         file ??= await ports.store.load(fileId);
-        why = file ? await blockedSend(ports, file, item) : 'NO_FILE';
+        why = file ? await blockedSend(ports, file, item, now) : 'NO_FILE';
       } else if (a.type === 'LOG_COST' && a.template === droppedSend)
         why = 'SEND_DROPPED';
       droppedSend = why && a.type === 'SEND' ? a.template : null;

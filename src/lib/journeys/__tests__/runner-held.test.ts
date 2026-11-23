@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { STALE_AFTER_MS } from '../runner';
 import {
   createRunner,
   drain,
@@ -65,6 +66,44 @@ const wroteAt = (at: string): Partial<JourneyFile> => ({
 });
 const outcomes = (s: MemoryStore) =>
   s.outbox.map((i) => i.dropReason ?? i.status);
+
+describe('drain: a send that is long overdue', () => {
+  const before = (ms: number) => new Date(Date.parse(AT) - ms).toISOString();
+
+  it('goes up to a day late, and is dropped with its LOG_COST after that', async () => {
+    const late = harness([
+      { ...send('a', 'SESSION'), committedAt: before(STALE_AFTER_MS + 1) },
+      { ...cost('a', 'SESSION'), committedAt: before(STALE_AFTER_MS + 1) },
+      { ...send('b', 'SESSION'), committedAt: before(STALE_AFTER_MS) },
+    ]);
+    expect(await late.drain()).toMatchObject({ dropped: 2, delivered: 1 });
+    expect(outcomes(late.store)).toEqual([
+      'STALE',
+      'SEND_DROPPED',
+      'delivered',
+    ]);
+  });
+
+  it('a held one counts from when it was due', async () => {
+    const committedAt = before(5 * STALE_AFTER_MS);
+    const h = harness(
+      [
+        {
+          ...send('a', 'UTILITY', { notBefore: before(STALE_AFTER_MS + 1) }),
+          committedAt,
+        },
+        {
+          ...send('b', 'UTILITY', { notBefore: before(60_000) }),
+          committedAt,
+        },
+      ],
+      CONSENT_PORT,
+      wroteAt(before(9 * STALE_AFTER_MS))
+    );
+    await h.drain();
+    expect(outcomes(h.store)).toEqual(['STALE', 'delivered']);
+  });
+});
 
 describe('drain: a MARKETING send and do-not-contact', () => {
   it('is dropped with its LOG_COST; a UTILITY send of the same file still goes', async () => {

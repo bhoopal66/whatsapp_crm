@@ -155,7 +155,10 @@ No migration.
   stored nowhere.
 - Journey bot: a marketing message no longer goes to a customer marked
   "Do not contact", and a message held for quiet hours is dropped when the
-  customer wrote in the night or their journey moved on.
+  customer wrote in the night or their journey moved on. Nothing more than
+  a day overdue is sent (the bot had been switched off, say). Timers that
+  fell due while it was off still fire one after another when it is
+  switched on again: look at the open journeys first.
 
 ### Voice notes: one tap to record, one tap to send
 

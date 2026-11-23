@@ -44,3 +44,11 @@ outside the engine barrel. `docs/journey-bot.md` is the contract.
 - The tick (`runJourneyTick`) runs from `GET /api/journeys/cron` and the
   automations cron. `SHIPPED_WORKFLOW_KEY` (`host/tick.ts`) equals 086's
   default key; `host/tick.test.ts` reads the migration. `verify-journeys.sql`.
+
+- **Overdue sends.** `drain` drops a SEND more than `STALE_AFTER_MS` (24 h)
+  past its `notBefore`, or past its commit when it was not held, as `STALE`.
+  Timers have no such bound: a tick after a long switch-off still fires every
+  one that fell due, and `window.lastInboundAt` was not updated meanwhile
+  (`inbound.ts` returns early while the bot is off), so re-arming from it
+  would recompute the same past time. Open: read the real last customer
+  message for a late timer before switching the bot on again.
