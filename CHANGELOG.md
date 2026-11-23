@@ -12,6 +12,17 @@ and polish.
 
 ## [Unreleased]
 
+### AI drafts, templates and groups: no second copies, no lost state
+
+No migration.
+- A held AI draft whose send may have reached the customer (a timeout, a
+  gateway error, a message that could not be saved) is no longer offered
+  again: the banner says it may have been sent and to check the chat. One
+  more click sent it twice.
+- **Send** and **Discard** act on the draft on your screen. When the AI has
+  held a newer one meanwhile, nothing is sent or discarded and the banner
+  shows the newer draft. A tab opened before the update asks for a reload.
+
 ### Voice notes: one tap to record, one tap to send
 
 No migration.

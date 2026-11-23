@@ -27,7 +27,10 @@ vi.mock('@/lib/whatsapp/send-message', async (importOriginal) => {
   return { ...actual, sendMessageToConversation: mocks.send };
 });
 
-import { SendMessageError } from '@/lib/whatsapp/send-message';
+import {
+  RestrictedSendError,
+  SendMessageError,
+} from '@/lib/whatsapp/send-message';
 import { POST } from './route';
 
 type Result = { data: unknown; error: unknown };
@@ -68,12 +71,14 @@ const HELD = {
 };
 
 let scoped: ReturnType<typeof fakeClient>;
+let results: Result[];
 
 function setup(
   conv: unknown,
   clearResult: Result = { data: [{ id: CONV }], error: null }
 ) {
-  scoped = fakeClient([{ data: conv, error: null }, clearResult]);
+  results = [{ data: conv, error: null }, clearResult];
+  scoped = fakeClient(results);
   mocks.requireRole.mockResolvedValue({
     supabase: scoped,
     accountId: 'account-1',
@@ -82,7 +87,12 @@ function setup(
   });
 }
 
-function post(body: unknown) {
+/** A post from a screen showing the held draft, unless `draft_at` says. */
+function post(body: Record<string, unknown>) {
+  return postRaw({ draft_at: DRAFT_AT, ...body });
+}
+
+function postRaw(body: unknown) {
   return POST(
     new Request(`http://localhost/api/ai/pending-draft/${CONV}`, {
       method: 'POST',
@@ -267,6 +277,100 @@ describe('POST /api/ai/pending-draft/[conversationId]', () => {
       method: 'is',
       args: ['ai_pending_draft', null],
     });
+  });
+
+  // An uncertain send left the draft one click from a second copy.
+  it.each([
+    [
+      'a gateway timeout',
+      new SendMessageError('whatsapp_error', 'timed out', 502, false),
+      502,
+      'send_unconfirmed',
+    ],
+    [
+      'a sent message that did not save',
+      new SendMessageError('db_error', 'sent but not saved', 500, false),
+      500,
+      'db_error',
+    ],
+    ['an unexpected error', new Error('boom'), 500, 'send_unconfirmed'],
+  ])('%s leaves the draft cleared', async (_label, err, status, code) => {
+    setup(HELD);
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mocks.send.mockRejectedValue(err);
+    const res = await post({ action: 'send' });
+    log.mockRestore();
+    expect(res.status).toBe(status);
+    expect(await res.json()).toEqual({
+      error: expect.any(String),
+      code,
+      retryable: false,
+    });
+    expect(updates()).toHaveLength(1);
+  });
+
+  it('a hard restriction restores the draft', async () => {
+    setup(HELD);
+    mocks.send.mockRejectedValue(
+      new RestrictedSendError({
+        rule: 'daily_limit',
+        blockId: null,
+        unlockable: false,
+        detail: {},
+      })
+    );
+    const res = await post({ action: 'send' });
+    expect(res.status).toBe(429);
+    expect(updates()[1].args[0]).toEqual({
+      ai_pending_draft: HELD.ai_pending_draft,
+      ai_pending_draft_at: DRAFT_AT,
+    });
+  });
+
+  it.each(['send', 'discard'])(
+    '%s is 409 with the newer draft when it is not the one shown',
+    async (action) => {
+      setup(HELD);
+      const res = await post({ action, draft_at: '2026-10-09T05:00:00.000Z' });
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual({
+        error: expect.any(String),
+        code: 'draft_changed',
+        ai_pending_draft: HELD.ai_pending_draft,
+        ai_pending_draft_at: DRAFT_AT,
+      });
+      expect(updates()).toHaveLength(0);
+      expect(mocks.send).not.toHaveBeenCalled();
+    }
+  );
+
+  it('reads another spelling of the same time as the same draft', async () => {
+    setup(HELD);
+    const res = await post({
+      action: 'send',
+      draft_at: '2026-10-09T06:00:00+00:00',
+    });
+    expect(res.status).toBe(200);
+  });
+
+  it('is 400 when the page does not say which draft it shows', async () => {
+    setup(HELD);
+    const res = await postRaw({ action: 'discard' });
+    expect(res.status).toBe(400);
+    expect(updates()).toHaveLength(0);
+  });
+
+  it('a claim lost to a newer draft answers with that draft', async () => {
+    const newer = {
+      ai_pending_draft: 'A newer answer.',
+      ai_pending_draft_at: '2026-10-09T06:01:00.000Z',
+    };
+    setup(HELD, { data: [], error: null });
+    results.push({ data: newer, error: null });
+    const res = await post({ action: 'send' });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ code: 'draft_changed', ...newer });
+    expect(mocks.send).not.toHaveBeenCalled();
   });
 
   it('a lost claim is 409 and sends nothing', async () => {
