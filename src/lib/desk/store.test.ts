@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { DESK_REFUSAL_HTTP } from './http';
+import { QUEUE_REASON_KEYS } from './intake-form';
 import {
   DESK_REFUSALS,
   DeskRefusedError,
@@ -23,6 +24,16 @@ describe('desk refusals', () => {
     );
     expect(hints.size).toBeGreaterThan(10);
     for (const h of hints) expect(DESK_REFUSALS).toContain(h);
+  });
+
+  it('knows the hint 289 raises, as a refusal and as a queue reason', () => {
+    const sql = readFileSync(
+      join(process.cwd(), 'supabase/migrations/289_access_points.sql'),
+      'utf8'
+    );
+    expect(sql).toContain("''intake_route'', ''COMPANY_RESTRICTED''");
+    expect(DESK_REFUSALS).toContain('COMPANY_RESTRICTED');
+    expect(QUEUE_REASON_KEYS).toContain('COMPANY_RESTRICTED');
   });
 
   it('answers every refusal with a status and wording', () => {

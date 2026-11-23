@@ -247,12 +247,15 @@ BEGIN
     VALUES (a_acct, u_agent2, ct) RETURNING id INTO cv_new;
   INSERT INTO messages (conversation_id, sender_type, content_text, created_at)
     VALUES (cv_new, 'customer', 'company hello', now() - interval '1 day');
+  -- 289: a leader is told only of contacts they can see.
+  UPDATE conversations SET user_id = u_lead WHERE id = cv_new;
 
   r := pg_temp.rf_try('authenticated', u_lead, format(
     'SELECT coalesce(string_agg(x::text, '',''), ''none'') FROM recycle_excluded_among(%L::uuid[], %L::timestamptz[]) x',
     ARRAY[ct, ct2], ARRAY[now() - interval '10 days', now() - interval '10 days']));
   n := n + 1; failed := failed || pg_temp.rf_ok(r = ct::text,
     '3: a team leader did not get exactly the company-chat return (' || r || ')');
+  UPDATE conversations SET user_id = u_agent2 WHERE id = cv_new;
   r := pg_temp.rf_try('authenticated', u_agent, format(
     'SELECT count(*)::text FROM recycle_excluded_among(%L::uuid[], %L::timestamptz[])',
     ARRAY[ct, ct2], ARRAY[now() - interval '10 days', now() - interval '10 days']));

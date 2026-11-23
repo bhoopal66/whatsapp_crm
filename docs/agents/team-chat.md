@@ -139,3 +139,9 @@ only). `docs/internal-chat.md` is the contract.
   - Verify files: `verify-chat-messaging-v2.sql`, `verify-chat-permissions.sql`,
     `verify-chat-sensitive-guard.sql`, `verify-chat-restricted-channels.sql`,
     `verify-chat-moderation.sql`.
+- **289.** `chat_add_members`: only a channel admin adds to a private
+  channel, bank guests included (a guest also still needs a workspace
+  owner, admin or supervisor); `lib/chat/membership.ts` mirrors it.
+  `chat_insert_attachments` takes only the poster's own object
+  (`owner_id`, else `owner`; a forward's storage copy carries the
+  forwarder). An object with no owner is one the server wrote.

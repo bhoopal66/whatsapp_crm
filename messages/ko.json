@@ -13136,6 +13136,7 @@
       "CASE_NOT_FOUND": "해당 번호나 코드의 진행 중인 케이스가 없습니다.",
       "BANK_MISMATCH": "케이스가 다른 은행에 있습니다.",
       "CASE_EXISTS_NAME_MISMATCH": "이 면허는 다른 회사명으로 등록되어 있습니다.",
+      "COMPANY_RESTRICTED": "이 회사 또는 고객은 다른 동료가 담당하고 있습니다. 분류 담당자가 처리합니다.",
       "OTHER": "자동으로 등록할 수 없었습니다."
     },
     "actions": {

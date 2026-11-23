@@ -235,11 +235,17 @@ BEGIN
   n := n+1; failed := failed || pg_temp.ck(r LIKE 'ERROR%only owner/admin/supervisor can add bank guests%', 'add: agent adds a guest: ' || r);
   r := pg_temp.u(u_sup, pg_temp.q_add(ch, ARRAY[u_guest]));
   n := n+1; failed := failed || pg_temp.ck(r LIKE 'ERROR%only members of a private channel%', 'add: non-member supervisor adds a guest: ' || r);
-  r := pg_temp.u(u_rm, pg_temp.q_add(ch, ARRAY[u_sup])) || '/' || pg_temp.u(u_sup, pg_temp.q_add(ch, ARRAY[u_guest]))
+  r := pg_temp.u(u_rm, pg_temp.q_add(ch, ARRAY[u_sup]));
+  -- 289: a supervisor who is no channel admin adds nobody, guests included.
+  n := n+1; failed := failed || pg_temp.ck(pg_temp.u(u_sup, pg_temp.q_add(ch, ARRAY[u_guest])) LIKE 'ERROR%only channel admins%',
+    'add: a supervisor who is no channel admin added a guest');
+  UPDATE chat_channel_members SET role = 'admin' WHERE channel_id = ch AND user_id = u_sup;
+  r := r || '/' || pg_temp.u(u_sup, pg_temp.q_add(ch, ARRAY[u_guest]))
     || '/' || pg_temp.u(u_rm, pg_temp.q_add(ch, ARRAY[u_rm2]));
   n := n+1; failed := failed || pg_temp.ck(r = '1/1/0'
     AND (SELECT role FROM chat_channel_members WHERE channel_id = ch AND user_id = u_guest) = 'guest',
-    'add: member supervisor adds a guest (role guest), re-add is 0: ' || r);
+    'add: channel admin supervisor adds a guest (role guest), re-add is 0: ' || r);
+  UPDATE chat_channel_members SET role = 'member' WHERE channel_id = ch AND user_id = u_sup;
   ch := pg_temp.id(u_sup, pg_temp.q_ch(a, 'private', 'ic-add-deny', ARRAY[u_rm, u_guest]));
   r := pg_temp.u(u_rm, pg_temp.q_add(ch, ARRAY[u_ag]));
   n := n+1; failed := failed || pg_temp.ck(r LIKE 'ERROR%only channel admins%', 'add: plain member adds: ' || r);
