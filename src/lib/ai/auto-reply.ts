@@ -1163,9 +1163,7 @@ export async function dispatchInboundToAiReply(
         flow: flowContext
           ? {
               ...flowContext,
-              promptTemplate: flowContext.promptTemplate
-                ? redactOwnText(flowContext.promptTemplate)
-                : flowContext.promptTemplate,
+              promptText: redactOwnText(flowContext.promptText),
             }
           : null,
         // A message that tried to steer the assistant is answered from
