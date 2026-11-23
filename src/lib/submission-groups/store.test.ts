@@ -1,11 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { describe, expect, it, vi } from 'vitest';
 
-import {
-  SubmissionGroupDbError,
-  SubmissionGroupStore,
-  toGroup,
-} from './store';
+import { SubmissionGroupDbError, SubmissionGroupStore, toGroup } from './store';
 import type { SubmissionGroup } from './store';
 import { fakeSupabase, type FakeDb } from './test-db';
 

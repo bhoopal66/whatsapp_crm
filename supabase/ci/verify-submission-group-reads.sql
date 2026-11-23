@@ -418,7 +418,9 @@ BEGIN
   n := n + 1; r := pg_temp.sr_try('authenticated', u_coord, format('SELECT sg_mark_read(%L)::text', ge));
   failed := failed || pg_temp.sr_ok(r LIKE 'ERROR 42501%', format('an ENDED group was marked read (%s)', r));
   b := sg_record_inbound(ge, 'sr-e2', '971500173001', 'customer', 'text', 'too late', NULL, NULL);
-  n := n + 1; failed := failed || pg_temp.sr_ok(b AND pg_temp.sr_bells(u_agent, ge) = 0, 'a post-end message rang the bell');
+  n := n + 1; failed := failed || pg_temp.sr_ok(b AND pg_temp.sr_bells(u_agent, ge) = 1
+    AND pg_temp.sr_bells(u_lead, ge) = 0 AND pg_temp.sr_bells(u_tlrow, ge) = 0,
+    'a post-end message rings the agent whose access was open when it ended, and nobody else (267)');
 
   -- ---------- (f) tombstones ----------
   n := n + 1; failed := failed || pg_temp.sr_ok(
