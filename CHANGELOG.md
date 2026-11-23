@@ -131,6 +131,15 @@ No migration.
   not a status changes nothing. Both used to set the template to pending,
   so every sender refused it until somebody pressed Sync. A template
   deleted at Meta becomes disabled.
+- A WhatsApp group whose gateway answers without its people keeps the
+  people it had. They were all removed and put back by the next good
+  answer, which made staff an admin had removed managers again.
+- Adding more people to a WhatsApp group than the hour still allows adds
+  the ones who fit and offers the invite link for the rest. It added
+  nobody, and used up the hour.
+- **Sync templates** disables a template that was deleted at Meta (when
+  all the account's Cloud API numbers share one WhatsApp Business
+  Account). It stayed approved, and every send of it failed.
 
 ### HR automated messages are safe to switch on
 

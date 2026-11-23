@@ -378,7 +378,9 @@ async function matchContacts(
  * sync must leave an existing row's creator alone. `our_role` is left
  * out when our number is not in the list, so an existing row keeps it
  * (a left group stays left) and a new one takes the default `member`.
- * The icon URL is an expiring CDN link and is not stored.
+ * A snapshot that names nobody leaves the people and their count as they
+ * are: gateways send one without its participants, and a group with
+ * nobody in it has no number of ours to tell us. The icon URL is an expiring CDN link and is not stored.
  *
  * A group an admin deleted (`whatsapp_group_tombstones`) stays deleted:
  * nothing is written and the answer is `null`. A failed tombstone read
@@ -407,13 +409,11 @@ export async function persistGroupSnapshot(
     wa_group_id: group.id,
     name: group.name.slice(0, 200),
     description: group.description?.slice(0, 2048) ?? null,
-    participants_count: Math.max(
-      group.participantsCount,
-      group.participants.length
-    ),
     settings: parseGroupSettings(group.settings),
     synced_at: new Date().toISOString(),
   };
+  const count = Math.max(group.participantsCount, group.participants.length);
+  if (count > 0) row.participants_count = count;
   const role = ourRoleIn(group, normalizePhone(channel.wabaId ?? '') || null);
   if (role) row.our_role = role === 'member' ? 'member' : 'admin';
   if (opts.createdBy) row.created_by = opts.createdBy;
@@ -456,6 +456,16 @@ export async function persistGroupSnapshot(
   const gone = ((cur.data ?? []) as Array<{ wa_id: string }>)
     .map((r) => r.wa_id)
     .filter((w) => !people.has(w));
+  // Dropping everyone here would have the next good snapshot INSERT them
+  // again, and 219's AFTER INSERT trigger would hand back the manager
+  // access an admin had removed. A real emptying arrives person by person
+  // as `participants` events, which write the table themselves.
+  if (people.size === 0 && gone.length > 0) {
+    console.warn(
+      `[groups] a snapshot of group ${saved.id} names nobody; kept its ${gone.length} participant(s)`
+    );
+    return saved;
+  }
   for (let i = 0; i < gone.length; i += MAX_IN) {
     const del = await admin
       .from('whatsapp_group_participants')

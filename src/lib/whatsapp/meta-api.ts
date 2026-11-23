@@ -819,15 +819,20 @@ export interface MetaTemplateComponent {
  * pagination to the end. This is the registry a template built in Meta
  * Business Manager lives in; without reading it, the CRM only ever
  * knew about templates it had submitted itself.
+ *
+ * `complete` is false when the list may be short: the page bound was
+ * reached, or an answer had no `data`. A template missing from such a
+ * list is not evidence that Meta no longer has it.
  */
 export async function listMessageTemplates(
   args: ListMessageTemplatesArgs
-): Promise<MetaTemplateRecord[]> {
+): Promise<{ templates: MetaTemplateRecord[]; complete: boolean }> {
   const { wabaId, accessToken } = args
   const fields = 'id,name,language,status,category,components,quality_score'
   let url: string | null =
     `${META_API_BASE}/${wabaId}/message_templates?fields=${fields}&limit=100`
-  const out: MetaTemplateRecord[] = []
+  const templates: MetaTemplateRecord[] = []
+  let complete = true
   // Bounded so a pathological `next` loop can't spin forever.
   for (let page = 0; url && page < 50; page++) {
     const response = await metaFetch(url, {
@@ -840,10 +845,11 @@ export async function listMessageTemplates(
       data?: MetaTemplateRecord[]
       paging?: { next?: string }
     }
-    out.push(...(data.data ?? []))
+    if (Array.isArray(data.data)) templates.push(...data.data)
+    else complete = false
     url = data.paging?.next ?? null
   }
-  return out
+  return { templates, complete: complete && url === null }
 }
 
 export interface EditMessageTemplateArgs {
