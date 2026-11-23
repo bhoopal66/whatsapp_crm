@@ -373,7 +373,7 @@ describe('runCaseCsat', () => {
     };
   }
 
-  it('marks each claim once: sent, held or failed (code only)', async () => {
+  it('marks each claim once: sent, held, failed or unconfirmed, for its own claim', async () => {
     const d = db([claimRow('1'), claimRow('2'), claimRow('3'), claimRow('4')]);
     const send = vi
       .fn()
@@ -385,17 +385,28 @@ describe('runCaseCsat', () => {
       })
       .mockResolvedValueOnce({ outcome: 'held', reason: 'awaiting_template' })
       .mockRejectedValueOnce(new CsatRefusal('invalid_number'))
-      .mockRejectedValueOnce(new Error('secret +971 text'));
+      .mockResolvedValueOnce({
+        outcome: 'unconfirmed',
+        via: 'text',
+        messageId: 'm4',
+        reason: 'whapierror',
+      });
     const s = await runCaseCsat(
       d,
       send,
       () => new Date('2026-11-22T08:00:00Z')
     );
-    expect(s).toEqual({ claimed: 4, sent: 1, held: 1, failed: 2 });
+    expect(s).toEqual({
+      claimed: 4,
+      sent: 1,
+      held: 1,
+      failed: 1,
+      unconfirmed: 1,
+    });
     const marks = d.rpc.mock.calls.filter((c) => c[0] === 'case_csat_mark');
     expect(
       marks.map((c) => (c[1] as Record<string, unknown>).p_outcome)
-    ).toEqual(['sent', 'held', 'failed', 'failed']);
+    ).toEqual(['sent', 'held', 'failed', 'unconfirmed']);
     expect((marks[0]![1] as Record<string, unknown>).p_via).toBe('text');
     expect((marks[1]![1] as Record<string, unknown>).p_reason).toBe(
       'awaiting_template'
@@ -403,12 +414,64 @@ describe('runCaseCsat', () => {
     expect((marks[2]![1] as Record<string, unknown>).p_reason).toBe(
       'invalid_number'
     );
-    expect((marks[3]![1] as Record<string, unknown>).p_reason).toBe('error');
+    expect(marks[3]![1]).toMatchObject({
+      p_via: 'text',
+      p_message_id: 'm4',
+      p_reason: 'whapierror',
+    });
+    for (const m of marks)
+      expect(m[1]).toMatchObject({ p_claimed_at: '2026-11-22T08:00:00.000Z' });
     expect(send.mock.calls[0]![1]).toMatchObject({
       id: '1',
       trigger: 'approved',
       bankName: 'RAKBANK',
+      claimedAt: '2026-11-22T08:00:00.000Z',
     });
+  });
+
+  it('leaves a lost claim and a broken-off send unmarked: SQL decides by the stamp', async () => {
+    const d = db([claimRow('1'), claimRow('2')]);
+    const send = vi
+      .fn()
+      .mockResolvedValueOnce({ outcome: 'lost' })
+      .mockRejectedValueOnce(new Error('secret +971 text'));
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const s = await runCaseCsat(d, send);
+    const logged = JSON.stringify(log.mock.calls);
+    log.mockRestore();
+    expect(s).toMatchObject({ claimed: 2, sent: 0, failed: 0 });
+    expect(d.rpc.mock.calls.map((c) => c[0])).toEqual(['case_csat_claim']);
+    expect(logged).not.toContain('971');
+  });
+
+  it('marks with the old form before 281, but never unconfirmed', async () => {
+    const d = db([claimRow('1'), claimRow('2')]);
+    d.rpc.mockImplementation((async (fn: string, args?: unknown) =>
+      fn === 'case_csat_claim'
+        ? { data: [claimRow('1'), claimRow('2')], error: null }
+        : 'p_claimed_at' in (args as object)
+          ? { data: null, error: { code: 'PGRST202' } }
+          : { data: true, error: null }) as never);
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await runCaseCsat(
+      d,
+      vi
+        .fn()
+        .mockResolvedValueOnce({ outcome: 'held', reason: 'x' })
+        .mockResolvedValueOnce({
+          outcome: 'unconfirmed',
+          via: 'text',
+          messageId: null,
+          reason: 'x',
+        })
+    );
+    log.mockRestore();
+    const old = d.rpc.mock.calls.filter(
+      (c) => c[0] === 'case_csat_mark' && !('p_claimed_at' in (c[1] as object))
+    );
+    expect(old.map((c) => (c[1] as { p_outcome: string }).p_outcome)).toEqual([
+      'held',
+    ]);
   });
 
   it('claims at most 5 per pass', async () => {
@@ -430,7 +493,9 @@ describe('noteCsatReply', () => {
   const input = {
     accountId: 'a',
     contactId: 'c',
+    conversationId: 'v',
     messageRowId: 'm',
+    quotedRowId: 'q',
   };
   it('costs nothing for a message that is not a rating', async () => {
     const rpc = vi.fn();
@@ -439,15 +504,34 @@ describe('noteCsatReply', () => {
     ).toBe(false);
     expect(rpc).not.toHaveBeenCalled();
   });
-  it('sends score and comment, and reports a capture', async () => {
+  it('reports a captured bare score as consumed', async () => {
+    const rpc = vi.fn(async () => ({ data: true, error: null }));
+    expect(
+      await noteCsatReply({ rpc } as never, { ...input, text: '4 👍' })
+    ).toBe(true);
+  });
+  it('falls back to the old form before 281', async () => {
+    const rpc = vi.fn(async (_fn: string, args: object) =>
+      'p_conversation' in args
+        ? { data: null, error: { code: 'PGRST202' } }
+        : { data: true, error: null }
+    );
+    expect(await noteCsatReply({ rpc } as never, { ...input, text: '4' })).toBe(
+      true
+    );
+    expect(rpc).toHaveBeenCalledTimes(2);
+  });
+  it('stores a score with a comment and does not report it consumed', async () => {
     const rpc = vi.fn(async () => ({ data: true, error: null }));
     expect(
       await noteCsatReply({ rpc } as never, { ...input, text: '4, good' })
-    ).toBe(true);
+    ).toBe(false);
     expect(rpc).toHaveBeenCalledWith('case_csat_capture', {
       p_account: 'a',
       p_contact: 'c',
+      p_conversation: 'v',
       p_message: 'm',
+      p_quoted: 'q',
       p_score: 4,
       p_comment: 'good',
     });

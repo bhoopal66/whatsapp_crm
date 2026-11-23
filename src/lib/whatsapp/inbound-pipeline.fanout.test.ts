@@ -799,7 +799,7 @@ describe('processMessage — case CSAT reply', () => {
     h.automations.mock.calls.map(
       (c) => (c[0] as { triggerType: string }).triggerType
     );
-  const rating = { ...message, id: 'wamid.csat', text: '5, great' };
+  const rating = { ...message, id: 'wamid.csat', text: '5' };
 
   it('asks nothing of the database for a message that is not a rating', async () => {
     await processMessage(message, 'acct-1', 'owner-1', channel);
@@ -813,13 +813,28 @@ describe('processMessage — case CSAT reply', () => {
     expect(h.rpcArgs[i]).toEqual({
       p_account: 'acct-1',
       p_contact: 'contact-1',
+      p_conversation: 'conv-1',
       p_message: 'row-1',
+      p_quoted: null,
       p_score: 5,
-      p_comment: 'great',
+      p_comment: null,
     });
     expect(h.journey).not.toHaveBeenCalled();
     expect(triggers()).toEqual([]);
     expect(h.ai).not.toHaveBeenCalled();
+  });
+
+  it('a captured rating with a comment still reaches the journey and the AI', async () => {
+    h.csatRpc.mockResolvedValue({ data: true, error: null });
+    await processMessage(
+      { ...rating, text: '1, please call me' },
+      'acct-1',
+      'owner-1',
+      channel
+    );
+    expect(h.rpcs).toContain('case_csat_capture');
+    expect(h.journey).toHaveBeenCalledTimes(1);
+    expect(h.ai).toHaveBeenCalledTimes(1);
   });
 
   it('a rating no request was open for fans out as usual', async () => {

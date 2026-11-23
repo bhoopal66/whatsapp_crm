@@ -1303,8 +1303,9 @@ export async function processMessage(
 
   // A 1-5 reply to a case rating request (migration 246) is stored as the
   // case's CSAT score. A Flow that consumed the message wins (its menus
-  // take typed numbers too); a captured rating is consumed like a Flow's,
-  // so no journey, content automation or AI reply answers it. Costs
+  // take typed numbers too); a captured bare rating is consumed like a
+  // Flow's, so no journey, content automation or AI reply answers it. One
+  // with a comment is stored and still answered (281). Costs
   // nothing unless the text reads as a rating; never throws.
   const csatConsumed =
     !flowConsumed &&
@@ -1312,7 +1313,9 @@ export async function processMessage(
     (await noteCsatReply(supabaseAdmin(), {
       accountId,
       contactId: contactRecord.id,
+      conversationId: conversation.id,
       messageRowId: insertedRows[0].id,
+      quotedRowId: replyToInternalId,
       text: contentText ?? message.text,
     }));
 
