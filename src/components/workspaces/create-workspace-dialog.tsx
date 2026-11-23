@@ -259,8 +259,11 @@ export function CreateWorkspaceDialog({
       <DialogContent
         className={cn(
           'border-border bg-popover text-popover-foreground',
-          // Mobile: a full-screen sheet. sm+: a wide centred dialog.
-          'top-0 start-0 h-dvh max-w-full translate-x-0 translate-y-0 content-start gap-5 overflow-y-auto rounded-none p-4',
+          // Mobile: a full-screen sheet. sm+: a wide centred dialog. The left
+          // edge is physical on purpose: it must replace the dialog's own
+          // centring, which a logical class does not.
+          // rtl-sweep-ignore-next-line
+          'top-0 left-0 h-dvh max-w-full translate-x-0 translate-y-0 content-start gap-5 overflow-y-auto rounded-none p-4',
           'sm:top-1/2 sm:left-1/2 sm:h-auto sm:max-h-[90dvh] sm:max-w-[960px] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-xl sm:p-6'
         )}
       >

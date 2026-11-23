@@ -13240,7 +13240,10 @@
       "on": "On hold: {reason}",
       "release": "Release the hold",
       "place": "Place a hold",
-      "reason": "Why (for example a court order or a dispute)"
+      "reason": "Why (for example a court order or a dispute)",
+      "releaseConfirm": "Release this hold? The customer can then be erased again.",
+      "keep": "Keep the hold",
+      "loadFailed": "Could not check whether this customer is on hold. Pick them again to retry."
     },
     "retention": {
       "title": "Retention",

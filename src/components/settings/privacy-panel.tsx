@@ -11,7 +11,7 @@
  *    and whether it is required.
  * Every rule is the server's; this only collects and shows.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 
@@ -91,10 +91,16 @@ function CustomerRequest() {
     onHold: boolean;
     reason: string | null;
   } | null>(null);
+  // The read failed: say so, and offer neither Place nor Release.
+  const [holdFailed, setHoldFailed] = useState(false);
   const [holdReason, setHoldReason] = useState('');
+  const [confirmRelease, setConfirmRelease] = useState(false);
   const [result, setResult] = useState<EraseOut | null>(null);
   const [confirm, setConfirm] = useState('');
   const [busy, setBusy] = useState(false);
+  // Whose answer may still be shown: a preview of one customer must never
+  // appear on (or be confirmed for) another.
+  const currentId = useRef<string | null>(null);
 
   useEffect(() => {
     if (!contact) return;
@@ -102,7 +108,9 @@ function CustomerRequest() {
     void call<{ onHold: boolean; reason: string | null }>(
       `/api/privacy/legal-hold?contactId=${contact.id}`
     ).then((r) => {
-      if (alive && r.ok) setHold(r.data);
+      if (!alive) return;
+      if (r.ok) setHold(r.data);
+      else setHoldFailed(true);
     });
     return () => {
       alive = false;
@@ -110,8 +118,14 @@ function CustomerRequest() {
   }, [contact]);
 
   const pick = (c: ContactOption | null) => {
+    // A request under way belongs to the customer on screen.
+    if (busy) return;
+    currentId.current = c?.id ?? null;
     setContact(c);
     setHold(null);
+    setHoldFailed(false);
+    setHoldReason('');
+    setConfirmRelease(false);
     setResult(null);
     setConfirm('');
   };
@@ -143,6 +157,7 @@ function CustomerRequest() {
 
   const setLegalHold = async (place: boolean) => {
     if (!contact) return;
+    const forId = contact.id;
     setBusy(true);
     const r = await call<{ onHold: boolean; reason: string | null }>(
       '/api/privacy/legal-hold',
@@ -153,13 +168,19 @@ function CustomerRequest() {
       })
     );
     setBusy(false);
+    setConfirmRelease(false);
+    if (currentId.current !== forId) return;
     if (!r.ok) return void toast.error(r.error);
     setHold(r.data);
     setHoldReason('');
+    // A preview made under the old hold no longer says what erasing does.
+    setResult(null);
+    setConfirm('');
   };
 
   const erase = async (dryRun: boolean) => {
     if (!contact) return;
+    const forId = contact.id;
     setBusy(true);
     const r = await call<EraseOut>(
       '/api/privacy/erase',
@@ -170,6 +191,7 @@ function CustomerRequest() {
       })
     );
     setBusy(false);
+    if (currentId.current !== forId) return;
     if (!r.ok) return void toast.error(r.error);
     setResult(r.data);
     if (!dryRun && !r.data.blocked) {
@@ -215,15 +237,41 @@ function CustomerRequest() {
                   <span className="text-warning">
                     {t('hold.on', { reason: hold.reason ?? '' })}
                   </span>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={busy}
-                    onClick={() => setLegalHold(false)}
-                  >
-                    {t('hold.release')}
-                  </Button>
+                  {confirmRelease ? (
+                    <>
+                      <span>{t('hold.releaseConfirm')}</span>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        disabled={busy}
+                        onClick={() => setLegalHold(false)}
+                      >
+                        {t('hold.release')}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={busy}
+                        onClick={() => setConfirmRelease(false)}
+                      >
+                        {t('hold.keep')}
+                      </Button>
+                    </>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={busy}
+                      onClick={() => setConfirmRelease(true)}
+                    >
+                      {t('hold.release')}
+                    </Button>
+                  )}
                 </div>
+              ) : holdFailed ? (
+                <p className="text-destructive" role="alert">
+                  {t('hold.loadFailed')}
+                </p>
               ) : (
                 <div className="flex flex-wrap items-center gap-2">
                   <Input

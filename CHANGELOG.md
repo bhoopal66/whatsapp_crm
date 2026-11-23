@@ -12,6 +12,16 @@ and polish.
 
 ## [Unreleased]
 
+### Two phone dialogs and the Privacy screen
+
+No migration.
+- **Phone.** Team chat's New channel and Create workspace opened with
+  their right half off the screen.
+- **Privacy.** A preview, hold or erase answer is shown only for the
+  customer it was asked for, and changing a hold clears the preview.
+  Releasing a hold asks first, and a hold that could not be read is said
+  so instead of showing "not on hold".
+
 ### Contacts, saved views and desk fixes
 
 No migration.
