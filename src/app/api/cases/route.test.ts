@@ -79,13 +79,13 @@ const post = (body: unknown) =>
 describe('GET /api/cases', () => {
   it('lists for the caller and the active account with parsed filters', async () => {
     m.statuses.mockResolvedValue(new Map([['c1', 'UNDER_REVIEW']]));
-    m.names.mockResolvedValue(new Map([['k1', 'Nasrullah']]));
+    m.names.mockResolvedValue(new Map([['k1', 'Omar']]));
     m.rpcResult = {
       data: [
         {
           case_id: 'c1',
           contact_id: 'k1',
-          contact_name: 'ALA DIN GENTS SALOON L.L.C',
+          contact_name: 'GREEN COMB GENTS SALON L.L.C',
           stage: 'New',
           agent_id: A,
           priority: 'high',
@@ -113,8 +113,8 @@ describe('GET /api/cases', () => {
       agentId: A,
       overdueRank: { slaOverdueMinutes: 5, overdueTasks: 1 },
       submissionStatus: 'UNDER_REVIEW',
-      contactName: 'ALA DIN GENTS SALOON L.L.C',
-      contactOwnName: 'Nasrullah',
+      contactName: 'GREEN COMB GENTS SALON L.L.C',
+      contactOwnName: 'Omar',
     });
     expect(m.statuses).toHaveBeenCalledWith(expect.anything(), 'acct-1', [
       'c1',

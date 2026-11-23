@@ -392,11 +392,11 @@ describe('group display (141)', () => {
 
   it('titles a group by the company, then the contact name, then the phone', () => {
     expect(
-      groupTitle({ customer_name: 'Acme LLC', contact: contact('Nasrullah') })
+      groupTitle({ customer_name: 'Acme LLC', contact: contact('Omar') })
     ).toBe('Acme LLC');
     expect(
-      groupTitle({ customer_name: '  ', contact: contact('Nasrullah') })
-    ).toBe('Nasrullah');
+      groupTitle({ customer_name: '  ', contact: contact('Omar') })
+    ).toBe('Omar');
     expect(groupTitle({ contact: contact(null, '97150') })).toBe('97150');
     expect(groupTitle({ customer_name: null, contact: null })).toBeNull();
   });
@@ -405,9 +405,9 @@ describe('group display (141)', () => {
     expect(
       groupContactName({
         customer_name: 'Acme LLC',
-        contact: contact('Nasrullah'),
+        contact: contact('Omar'),
       })
-    ).toBe('Nasrullah');
+    ).toBe('Omar');
     expect(
       groupContactName({
         customer_name: ' acme  llc ',

@@ -410,7 +410,7 @@ describe('OpenWA webhook: own sends (message.sent)', () => {
       sessionId: 'session-1',
       data: {
         id: 'own-1',
-        from: '971558233531@c.us',
+        from: '971500005678@c.us',
         to: '971500000001@c.us',
         chatId: '971500000001@c.us',
         body: 'typed on the phone',

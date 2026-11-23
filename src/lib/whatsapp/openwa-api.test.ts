@@ -71,9 +71,9 @@ afterEach(() => {
 
 describe('recipients', () => {
   it('maps a stored phone to a c.us chat id', () => {
-    expect(toOpenWAChatId('+971 55 823 3531')).toBe('971558233531@c.us');
-    expect(toOpenWAChatId('971558233531@s.whatsapp.net')).toBe(
-      '971558233531@c.us'
+    expect(toOpenWAChatId('+971 50 000 5678')).toBe('971500005678@c.us');
+    expect(toOpenWAChatId('971500005678@s.whatsapp.net')).toBe(
+      '971500005678@c.us'
     );
     expect(toOpenWAChatId('123-456@g.us')).toBe('123-456@g.us');
   });

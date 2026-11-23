@@ -120,20 +120,20 @@ describe('channelNameWithPhone', () => {
   const whapi = {
     provider: 'whapi',
     label: 'whapi 1',
-    waba_id: '971558233531',
+    waba_id: '971500005678',
     phone_number_id: 'NIGHTW-JJC9J',
   };
 
   it('adds the paired phone to a Whapi number', () => {
-    expect(channelNameWithPhone(whapi)).toBe('whapi 1 · +971558233531');
+    expect(channelNameWithPhone(whapi)).toBe('whapi 1 · +971500005678');
   });
 
   it('does not repeat a name that already is the number', () => {
     expect(
-      channelNameWithPhone({ ...whapi, label: 'WhatsApp 971558233531' })
-    ).toBe('WhatsApp 971558233531');
+      channelNameWithPhone({ ...whapi, label: 'WhatsApp 971500005678' })
+    ).toBe('WhatsApp 971500005678');
     expect(channelNameWithPhone({ ...whapi, label: null })).toBe(
-      '971558233531'
+      '971500005678'
     );
   });
 
@@ -143,7 +143,7 @@ describe('channelNameWithPhone', () => {
 
   it('adds the paired phone to an OpenWA number (waba_id is its phone, 144)', () => {
     expect(channelNameWithPhone({ ...whapi, provider: 'openwa' })).toBe(
-      'whapi 1 · +971558233531'
+      'whapi 1 · +971500005678'
     );
   });
 

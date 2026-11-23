@@ -278,7 +278,7 @@ describe('isDefiniteSendRefusal', () => {
   });
 });
 
-function whapiChannel(wabaId: string | null = '971581842504'): WhatsAppChannel {
+function whapiChannel(wabaId: string | null = '971500001234'): WhatsAppChannel {
   return {
     id: 'cfg-1',
     accountId: 'acct-1',
@@ -410,7 +410,7 @@ describe('explainSendFailure', () => {
       whapiChannel()
     );
     expect(text).toMatch(/is logged out of WhatsApp/);
-    expect(text).toContain('whoever holds +971581842504');
+    expect(text).toContain('whoever holds +971500001234');
     expect(text).toContain('panel.whapi.cloud');
     expect(text).toMatch(/Do not re-save the token/);
   });
@@ -437,7 +437,7 @@ describe('explainSendFailure', () => {
   });
 
   it('says so when the number reports connected but the send was refused', async () => {
-    getChannelInfo.mockResolvedValue(health('AUTH', '971581842504'));
+    getChannelInfo.mockResolvedValue(health('AUTH', '971500001234'));
     const text = await explainSendFailure(
       new WhapiError('Forbidden for this chat', 403),
       whapiChannel()

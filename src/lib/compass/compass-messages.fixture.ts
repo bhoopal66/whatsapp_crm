@@ -1,6 +1,6 @@
-// The two messages exactly as Compass sent them (copied from
-// compass_notifications on 2026-11-18).
-export const SUBMITTED_TEXT = `Dear PREMIER LUBRICANTS FACTORY L.L.C,
+// The two messages Compass sends, with made-up companies (this
+// repository is public: never copy a live message here).
+export const SUBMITTED_TEXT = `Dear BLUE PALM TRADING L.L.C,
 
 Thank you for choosing Taamul Credit Review Services. We are pleased to confirm that your bank account application has been submitted to MASHREQ.
 
@@ -14,7 +14,7 @@ Website: https://taamulcredit.com
 Kind regards,
 *Taamul Credit Review Services*`;
 
-export const APPROVED_TEXT = `Dear AL KHAYRAT FURNITURE & DECOR IND. FACTORY LLC.,
+export const APPROVED_TEXT = `Dear SILVER DUNE FURNITURE & DECOR IND. FACTORY LLC.,
 
 We are pleased to inform you that your bank account application with NBF has been *approved*.
 

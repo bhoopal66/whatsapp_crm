@@ -23,7 +23,7 @@ const senderLabel = (m: Message): SenderLabel =>
 const failed: FailedSend = {
   conversationId: 'conv-1',
   reason:
-    'WhatsApp API error: This number (971581842504) is not connected to WhatsApp: waiting for a QR scan.',
+    'WhatsApp API error: This number (971500001234) is not connected to WhatsApp: waiting for a QR scan.',
   message: {
     id: 'temp-1',
     conversation_id: 'conv-1',

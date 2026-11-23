@@ -113,7 +113,7 @@ beforeEach(() => {
   h.row = {
     id: 'cfg-1',
     verify_token: 'enc:secret',
-    waba_id: '971581842504',
+    waba_id: '971500001234',
     phone_number_id: 'NIGHTW-JJC9J',
     access_token: 'enc:tok',
     status: 'connected',
@@ -135,7 +135,7 @@ describe('POST /api/whatsapp/config — re-saving a number', () => {
     expect(res.status).toBe(200);
     expect(h.updates).toHaveLength(1);
     expect(h.updates[0]).toMatchObject({
-      waba_id: '971581842504',
+      waba_id: '971500001234',
       status: 'disconnected',
     });
   });
@@ -158,7 +158,7 @@ describe('POST /api/whatsapp/config — re-saving a number', () => {
       for (const word of ['LAUNCH', 'INIT']) {
         h.updates = [];
         h.row = { ...h.row, status: prev };
-        h.getChannelInfo.mockResolvedValue(channelInfo(word, '971581842504'));
+        h.getChannelInfo.mockResolvedValue(channelInfo(word, '971500001234'));
         await POST(
           post({ token: 'tok', channel_id: 'NIGHTW-JJC9J', config_id: 'cfg-1' })
         );
@@ -170,7 +170,7 @@ describe('POST /api/whatsapp/config — re-saving a number', () => {
   });
 
   it('stamps connected_at only when the number actually comes up', async () => {
-    h.getChannelInfo.mockResolvedValue(channelInfo('AUTH', '971581842504'));
+    h.getChannelInfo.mockResolvedValue(channelInfo('AUTH', '971500001234'));
 
     h.row = { ...h.row, status: 'connected' };
     await POST(
@@ -189,7 +189,7 @@ describe('POST /api/whatsapp/config — re-saving a number', () => {
   });
 
   it('marks a connected number down on ERROR, as the monitor does', async () => {
-    h.getChannelInfo.mockResolvedValue(channelInfo('ERROR', '971581842504'));
+    h.getChannelInfo.mockResolvedValue(channelInfo('ERROR', '971500001234'));
     await POST(
       post({ token: 'tok', channel_id: 'NIGHTW-JJC9J', config_id: 'cfg-1' })
     );
@@ -201,7 +201,7 @@ describe('POST /api/whatsapp/config — re-saving a number', () => {
 
 describe('GET /api/whatsapp/config — registered webhooks', () => {
   it('marks which webhooks are this CRM’s and keeps the secret redacted', async () => {
-    h.getChannelInfo.mockResolvedValue(channelInfo('AUTH', '971581842504'));
+    h.getChannelInfo.mockResolvedValue(channelInfo('AUTH', '971500001234'));
     h.getChannelSettings.mockResolvedValue({
       webhooks: [
         { url: 'https://crm.test/api/whatsapp/webhook?secret=abcdef123456' },

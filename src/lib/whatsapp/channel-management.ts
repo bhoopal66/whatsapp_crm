@@ -110,7 +110,7 @@ export function channelDisplayName(c: {
 }
 
 /**
- * The name plus the phone it sends from — `Support · +971558233531` —
+ * The name plus the phone it sends from — `Support · +971500005678` —
  * so a picker shows which handset a reply really leaves on. Linked
  * devices only (Whapi, OpenWA): their `waba_id` is the paired number
  * (migrations 040 and 144), while a Meta row's is the WABA id, not a

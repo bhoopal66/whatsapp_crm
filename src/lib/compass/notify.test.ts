@@ -358,7 +358,7 @@ describe('sendCompassNotification', () => {
       messageType: 'template',
       templateName: 'compass_case_approved',
       templateLanguage: 'en',
-      templateParams: ['AL KHAYRAT FURNITURE & DECOR IND. FACTORY LLC.', 'NBF'],
+      templateParams: ['SILVER DUNE FURNITURE & DECOR IND. FACTORY LLC.', 'NBF'],
       surface: 'api',
       provider: 'meta',
       requireProvider: true,
@@ -488,7 +488,7 @@ describe('sendCompassNotification', () => {
     expect(sendMessageToConversation.mock.calls[0][2]).toMatchObject({
       messageType: 'template',
       templateName: 'compass_case_submitted',
-      templateParams: ['PREMIER LUBRICANTS FACTORY L.L.C', 'MASHREQ'],
+      templateParams: ['BLUE PALM TRADING L.L.C', 'MASHREQ'],
     });
   });
 

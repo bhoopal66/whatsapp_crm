@@ -104,7 +104,7 @@ export const COMPASS_TEMPLATES: readonly CompassTemplate[] = [
       'Thank you for choosing Taamul Credit Review Services. We are pleased to confirm that your bank account application has been submitted to {{2}}.\n\n' +
       'We will keep you informed of its progress and will notify you as soon as the bank responds.\n\n' +
       CONTACT_BLOCK,
-    sample: ['PREMIER LUBRICANTS FACTORY L.L.C', 'MASHREQ'],
+    sample: ['BLUE PALM TRADING L.L.C', 'MASHREQ'],
   }),
   template({
     event: 'case.approved',
@@ -115,7 +115,7 @@ export const COMPASS_TEMPLATES: readonly CompassTemplate[] = [
       'We are pleased to inform you that your bank account application with {{2}} has been *approved*.\n\n' +
       'A member of our team will contact you shortly to guide you through the next steps.\n\n' +
       CONTACT_BLOCK,
-    sample: ['AL KHAYRAT FURNITURE & DECOR IND. FACTORY LLC.', 'NBF'],
+    sample: ['SILVER DUNE FURNITURE & DECOR IND. FACTORY LLC.', 'NBF'],
   }),
 ];
 

@@ -38,7 +38,7 @@ describe('compassTemplateFor', () => {
     const hit = compassTemplateFor('case.submitted', SUBMITTED_TEXT);
     expect(hit?.template.name).toBe('compass_case_submitted');
     expect(hit?.params).toEqual([
-      'PREMIER LUBRICANTS FACTORY L.L.C',
+      'BLUE PALM TRADING L.L.C',
       'MASHREQ',
     ]);
   });
@@ -47,7 +47,7 @@ describe('compassTemplateFor', () => {
     const hit = compassTemplateFor('case.approved', APPROVED_TEXT);
     expect(hit?.template.name).toBe('compass_case_approved');
     expect(hit?.params).toEqual([
-      'AL KHAYRAT FURNITURE & DECOR IND. FACTORY LLC.',
+      'SILVER DUNE FURNITURE & DECOR IND. FACTORY LLC.',
       'NBF',
     ]);
   });
@@ -67,14 +67,14 @@ describe('compassTemplateFor', () => {
   it('tolerates CRLF line endings and trailing spaces', () => {
     const crlf = SUBMITTED_TEXT.replace(/\n/g, '  \r\n');
     expect(compassTemplateFor('case.submitted', crlf)?.params).toEqual([
-      'PREMIER LUBRICANTS FACTORY L.L.C',
+      'BLUE PALM TRADING L.L.C',
       'MASHREQ',
     ]);
   });
 
   it('keeps a company name with a comma in it whole', () => {
     const text = SUBMITTED_TEXT.replace(
-      'PREMIER LUBRICANTS FACTORY L.L.C',
+      'BLUE PALM TRADING L.L.C',
       'ACME, TRADING LLC'
     );
     expect(compassTemplateFor('case.submitted', text)?.params[0]).toBe(

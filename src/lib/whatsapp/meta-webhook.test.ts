@@ -54,7 +54,7 @@ describe('normalizeMetaMessage — contact cards', () => {
                 wa_id: '971501234567',
               },
             ],
-            emails: [{ email: 'ahmed@dargol.ae' }],
+            emails: [{ email: 'ahmed@example.ae' }],
             org: { company: 'Dargol Logistics FZE' },
           },
         ],
@@ -68,7 +68,7 @@ describe('normalizeMetaMessage — contact cards', () => {
         {
           name: 'Ahmed Al Mansoori',
           phones: ['+971 50 123 4567'],
-          emails: ['ahmed@dargol.ae'],
+          emails: ['ahmed@example.ae'],
           org: 'Dargol Logistics FZE',
         },
       ],

@@ -796,7 +796,7 @@ describe('get', () => {
       opened_at: '2026-10-19T08:00:00+00:00',
     };
     const group = { id: GROUP, submission_ref: 'S-1', contact_id: CONTACT };
-    const contacts = [{ id: CONTACT, name: 'Nasrullah' }];
+    const contacts = [{ id: CONTACT, name: 'Omar' }];
     const named = new FakeDb(
       {},
       {
@@ -807,7 +807,7 @@ describe('get', () => {
     );
     const got = await new CaseStore(named.client).get(CASE);
     expect(got?.contactName).toBe('CANTUS - F.Z.E');
-    expect(got?.contactOwnName).toBe('Nasrullah');
+    expect(got?.contactOwnName).toBe('Omar');
     const unnamed = new FakeDb(
       {},
       {
@@ -817,7 +817,7 @@ describe('get', () => {
       }
     );
     expect((await new CaseStore(unnamed.client).get(CASE))?.contactName).toBe(
-      'Nasrullah'
+      'Omar'
     );
   });
 });

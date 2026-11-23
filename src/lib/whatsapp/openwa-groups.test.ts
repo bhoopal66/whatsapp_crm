@@ -63,17 +63,17 @@ afterEach(() => {
 
 describe('participant ids', () => {
   it('maps a waId to an OpenWA id', () => {
-    expect(toOpenWAParticipantId('971558233531')).toBe('971558233531@c.us');
+    expect(toOpenWAParticipantId('971500005678')).toBe('971500005678@c.us');
     expect(toOpenWAParticipantId('123456789012@lid')).toBe('123456789012@lid');
-    expect(toOpenWAParticipantId('971558233531@c.us')).toBeNull();
+    expect(toOpenWAParticipantId('971500005678@c.us')).toBeNull();
     expect(toOpenWAParticipantId('+971 55')).toBeNull();
     expect(toOpenWAParticipantId('')).toBeNull();
   });
 
   it('maps an OpenWA id back to an identity', () => {
-    expect(fromOpenWAParticipantId('971558233531@c.us')).toEqual({
-      jid: '971558233531@c.us',
-      waId: '971558233531',
+    expect(fromOpenWAParticipantId('971500005678@c.us')).toEqual({
+      jid: '971500005678@c.us',
+      waId: '971500005678',
     });
     expect(fromOpenWAParticipantId('123456789012@lid')).toEqual({
       jid: '123456789012@lid',

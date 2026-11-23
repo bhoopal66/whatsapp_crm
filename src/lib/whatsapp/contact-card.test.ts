@@ -15,13 +15,13 @@ describe('parseVcard', () => {
       'ORG:Dargol Logistics FZE;',
       'TEL;type=CELL;type=VOICE;waid=971501234567:+971 50 123 4567',
       'TEL;type=WORK:+971 4 000 0000',
-      'EMAIL;type=INTERNET:ahmed@dargol.ae',
+      'EMAIL;type=INTERNET:ahmed@example.ae',
       'END:VCARD',
     ].join('\r\n');
     expect(parseVcard(vcard)).toEqual({
       name: 'Ahmed Al Mansoori',
       phones: ['+971 50 123 4567', '+971 4 000 0000'],
-      emails: ['ahmed@dargol.ae'],
+      emails: ['ahmed@example.ae'],
       org: 'Dargol Logistics FZE',
     });
   });
@@ -62,13 +62,13 @@ describe('metaContactToShared', () => {
           { phone: '+971 50 123 4567', type: 'CELL', wa_id: '971501234567' },
           { wa_id: '971400000000' },
         ],
-        emails: [{ email: 'ahmed@dargol.ae' }],
+        emails: [{ email: 'ahmed@example.ae' }],
         org: { company: 'Dargol Logistics FZE' },
       })
     ).toEqual({
       name: 'Ahmed Al Mansoori',
       phones: ['+971 50 123 4567', '+971400000000'],
-      emails: ['ahmed@dargol.ae'],
+      emails: ['ahmed@example.ae'],
       org: 'Dargol Logistics FZE',
     });
   });

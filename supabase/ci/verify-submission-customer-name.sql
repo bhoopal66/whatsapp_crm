@@ -57,7 +57,7 @@ BEGIN
     RAISE EXCEPTION 'fixture: auth.users trigger did not provision an account';
   END IF;
   UPDATE profiles SET account_id = a_acct, account_role = 'agent' WHERE user_id = u_agent;
-  INSERT INTO contacts (account_id, user_id, phone, name) VALUES (a_acct, u_owner, '971500141001', 'Nasrullah')
+  INSERT INTO contacts (account_id, user_id, phone, name) VALUES (a_acct, u_owner, '971500141001', 'Omar')
     RETURNING id INTO c1;
 
   -- ---------- sg_open ----------
@@ -105,11 +105,11 @@ BEGIN
   END IF;
   n := n + 1;
   IF (SELECT x.contact_name FROM case_inbox(u_owner, a_acct, '{}', now(), 200) x WHERE x.case_id = k2)
-       IS DISTINCT FROM 'Nasrullah' THEN
+       IS DISTINCT FROM 'Omar' THEN
     failed := failed || 'case_inbox did not fall back to the contact''s name'::text;
   END IF;
   n := n + 1;
-  IF (SELECT name FROM contacts WHERE id = c1) <> 'Nasrullah' THEN
+  IF (SELECT name FROM contacts WHERE id = c1) <> 'Omar' THEN
     failed := failed || 'the CRM contact was renamed'::text;
   END IF;
 

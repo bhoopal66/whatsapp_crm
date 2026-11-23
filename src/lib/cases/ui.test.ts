@@ -448,10 +448,10 @@ describe('caseStatusView', () => {
 
 describe('contactPersonLine', () => {
   it("shows the contact's own name when it differs from the customer", () => {
-    expect(contactPersonLine('ALA DIN GENTS SALOON L.L.C', 'Nasrullah')).toBe(
-      'Nasrullah'
+    expect(contactPersonLine('GREEN COMB GENTS SALON L.L.C', 'Omar')).toBe(
+      'Omar'
     );
-    expect(contactPersonLine(null, ' Nasrullah ')).toBe('Nasrullah');
+    expect(contactPersonLine(null, ' Omar ')).toBe('Omar');
   });
 
   it('shows nothing when it adds nothing', () => {

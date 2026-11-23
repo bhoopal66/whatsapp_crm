@@ -114,7 +114,7 @@ beforeEach(() => {
             ended_at: null,
             ring_seconds: 5,
             talk_seconds: 90,
-            remote_number: '971558233531',
+            remote_number: '971500005678',
             did_number: null,
             extension: '101',
             contact_id: null,

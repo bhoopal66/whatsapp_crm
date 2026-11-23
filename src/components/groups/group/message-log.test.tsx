@@ -60,7 +60,7 @@ describe('GroupMessageLog', () => {
       // Sent from the phone itself: our number, and no CRM user.
       message({
         direction: 'out',
-        sender_wa_id: '971558232531',
+        sender_wa_id: '971500005679',
         sender_name: 'Taamul Credit',
         status: 'read',
       }),

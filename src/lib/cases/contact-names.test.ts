@@ -15,11 +15,11 @@ function db(rows: unknown[]) {
 describe('contactNames', () => {
   it("maps each contact id to the contact's own name, skipping blanks", async () => {
     const d = db([
-      { id: K1, name: 'Nasrullah' },
+      { id: K1, name: 'Omar' },
       { id: K2, name: ' ' },
     ]);
     const m = await contactNames(d.client, ACCOUNT_ID, [K1, K2]);
-    expect([...m]).toEqual([[K1, 'Nasrullah']]);
+    expect([...m]).toEqual([[K1, 'Omar']]);
   });
 
   it('reads once, deduplicated, confined to the account', async () => {

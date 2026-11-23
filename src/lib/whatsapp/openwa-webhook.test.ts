@@ -18,7 +18,7 @@ function received(data: Partial<RawOpenWAMessage>) {
     data: {
       id: 'false_971501234567@c.us_3EB0ABC123',
       from: '971501234567@c.us',
-      to: '971558233531@c.us',
+      to: '971500005678@c.us',
       body: 'Hello, is the loan still available?',
       type: 'text',
       timestamp: 1793174400,
@@ -401,7 +401,7 @@ describe('normalizeOpenWAWebhook — own sends (message.sent)', () => {
       event: 'message.sent',
       data: {
         ...base.data,
-        from: '971558233531@c.us',
+        from: '971500005678@c.us',
         to: '971501234567@c.us',
         chatId: '971501234567@c.us',
         body: 'typed on the phone',

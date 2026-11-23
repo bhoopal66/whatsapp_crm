@@ -98,7 +98,7 @@ describe('nextHealth', () => {
 describe('channelHealthAlert', () => {
   const channel = {
     label: null,
-    wabaId: '971581842504',
+    wabaId: '971500001234',
     phoneNumberId: 'NIGHTW-JJC9J',
   };
   const down = (reason: HealthVerdict['reason'], detail = 'QR') =>
@@ -112,8 +112,8 @@ describe('channelHealthAlert', () => {
   it('names the number, the physical fix and who does it for a logout', () => {
     const alert = channelHealthAlert(channel, down('logged_out'))!;
     expect(alert.type).toBe('channel_disconnected');
-    expect(alert.title).toBe('WhatsApp number …2504 is logged out');
-    expect(alert.body).toContain('+971581842504');
+    expect(alert.title).toBe('WhatsApp number …1234 is logged out');
+    expect(alert.body).toContain('+971500001234');
     expect(alert.body).toContain('panel.whapi.cloud');
     expect(alert.body).toMatch(/whoever holds that phone scans it/);
     expect(alert.body).toMatch(/Linked devices → Link a device/);
@@ -125,7 +125,7 @@ describe('channelHealthAlert', () => {
       channel,
       down('token_refused', 'HTTP 401')
     )!;
-    expect(alert.title).toBe('WhatsApp number …2504 is disconnected');
+    expect(alert.title).toBe('WhatsApp number …1234 is disconnected');
     expect(alert.body).toContain('HTTP 401');
     expect(alert.body).toMatch(/Settings → WhatsApp/);
   });
@@ -143,14 +143,14 @@ describe('channelHealthAlert', () => {
     expect(
       channelHealthAlert({ ...channel, label: 'Support' }, down('logged_out'))!
         .title
-    ).toBe('WhatsApp number Support (…2504) is logged out');
+    ).toBe('WhatsApp number Support (…1234) is logged out');
     // The default label is the number itself: not repeated.
     expect(
       channelHealthAlert(
-        { ...channel, label: 'WhatsApp 971581842504' },
+        { ...channel, label: 'WhatsApp 971500001234' },
         down('logged_out')
       )!.title
-    ).toBe('WhatsApp number …2504 is logged out');
+    ).toBe('WhatsApp number …1234 is logged out');
     const bare = channelHealthAlert(
       { ...channel, wabaId: null },
       down('logged_out')
@@ -167,7 +167,7 @@ describe('channelHealthAlert', () => {
       detail: 'AUTH',
     })!;
     expect(alert.type).toBe('channel_reconnected');
-    expect(alert.title).toBe('WhatsApp number …2504 is connected again');
+    expect(alert.title).toBe('WhatsApp number …1234 is connected again');
     expect(alert.body).toMatch(/re-send any replies that failed/);
   });
 
@@ -277,7 +277,7 @@ function whapi(
     provider: 'whapi',
     label: null,
     phoneNumberId: `ch-${id}`,
-    wabaId: '971581842504',
+    wabaId: '971500001234',
     accessToken: `tok-${id}`,
     appSecret: null,
     isPrimary: true,
@@ -341,7 +341,7 @@ describe('runChannelHealthCheck', () => {
       account_id: 'acct-1',
       type: 'channel_disconnected',
       conversation_id: null,
-      title: 'WhatsApp number …2504 is logged out',
+      title: 'WhatsApp number …1234 is logged out',
     });
   });
 
@@ -443,7 +443,7 @@ describe('runChannelHealthCheck', () => {
     ];
     expect(rows[0]).toMatchObject({
       type: 'channel_disconnected',
-      title: 'WhatsApp number …2504 is logged out',
+      title: 'WhatsApp number …1234 is logged out',
     });
   });
 
@@ -538,7 +538,7 @@ describe('runChannelHealthCheck', () => {
       ['id', 'w1'],
       ['account_id', 'acct-1'],
       ['provider', 'whapi'],
-      ['waba_id', '971581842504'],
+      ['waba_id', '971500001234'],
     ]);
     const [[rows]] = calls('notifications', 'insert') as [
       [Array<Record<string, unknown>>],
@@ -550,7 +550,7 @@ describe('runChannelHealthCheck', () => {
     h.channels = [whapi('w1', 'connected')];
     const { db, ops } = fakeAdmin({});
     await runChannelHealthCheck(db, {
-      probe: async () => ({ ...probeResult('AUTH'), phone: '971581842504' }),
+      probe: async () => ({ ...probeResult('AUTH'), phone: '971500001234' }),
     });
     expect(ops).toEqual([]);
   });
@@ -569,7 +569,7 @@ describe('runChannelHealthCheck', () => {
 });
 
 describe('pairedNumberPatch', () => {
-  const row = { wabaId: '971581842504', label: 'Support' };
+  const row = { wabaId: '971500001234', label: 'Support' };
 
   it('stores a different paired number and keeps a typed name', () => {
     expect(pairedNumberPatch(row, '971501234567')).toEqual({
@@ -580,7 +580,7 @@ describe('pairedNumberPatch', () => {
   it('moves a default label along with the number', () => {
     expect(
       pairedNumberPatch(
-        { wabaId: '971581842504', label: 'WhatsApp 971581842504' },
+        { wabaId: '971500001234', label: 'WhatsApp 971500001234' },
         '971501234567'
       )
     ).toEqual({ waba_id: '971501234567', label: 'WhatsApp 971501234567' });
@@ -593,7 +593,7 @@ describe('pairedNumberPatch', () => {
   });
 
   it('changes nothing for the same digits or no paired phone', () => {
-    expect(pairedNumberPatch(row, '+971 58 184 2504')).toBeNull();
+    expect(pairedNumberPatch(row, '+971 50 000 1234')).toBeNull();
     expect(pairedNumberPatch(row, null)).toBeNull();
     expect(pairedNumberPatch(row, '')).toBeNull();
   });
@@ -678,7 +678,7 @@ describe('OpenWA numbers', () => {
   });
 
   it('words alerts for OpenWA without Whapi', () => {
-    const ch = { label: null, wabaId: '971581842504', phoneNumberId: 's1' };
+    const ch = { label: null, wabaId: '971500001234', phoneNumberId: 's1' };
     for (const v of [
       nextHealth('connected', up('qr_ready'), wa),
       nextHealth('connected', up('failed'), wa),
