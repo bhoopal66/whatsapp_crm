@@ -12,6 +12,7 @@ import { updateRow } from '@/lib/supabase/changed-rows';
 import { createClient } from '@/lib/supabase/client';
 import type { Pipeline } from '@/types';
 import { BOARD_DEAL_SELECT, type BoardDeal } from '@/lib/pipelines/board-deal';
+import { loadBoardDeals } from '@/lib/pipelines/board-pages';
 import { PipelineBoard } from '@/components/pipelines/pipeline-board';
 import { PipelineSettings } from '@/components/pipelines/pipeline-settings';
 import { DealForm } from '@/components/pipelines/deal-form';
@@ -35,6 +36,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
   ArrowDownWideNarrow,
+  CircleAlert,
   GitBranch,
   Plus,
   ChevronDown,
@@ -177,20 +179,19 @@ export default function PipelinesPage() {
   const firstWaveStarted = useRef(false);
 
   const loadDeals = useCallback(
-    async (pipelineId: string, owner: string | null = null) => {
-      let query = supabase
-        .from('deals')
-        .select(BOARD_DEAL_SELECT)
-        .eq('pipeline_id', pipelineId);
-      if (owner) query = query.or(owner);
-      const { data, error } = await query.order('created_at', {
-        ascending: false,
-      });
-      // Throw rather than answer [] so a failed refresh keeps the board
-      // the session cache already holds instead of emptying it.
-      if (error) throw new Error(error.message);
-      return (data ?? []) as BoardDeal[];
-    },
+    async (pipelineId: string, owner: string | null = null) =>
+      loadBoardDeals<BoardDeal>((from, to) => {
+        let query = supabase
+          .from('deals')
+          .select(BOARD_DEAL_SELECT, { count: 'exact' })
+          .eq('pipeline_id', pipelineId);
+        if (owner) query = query.or(owner);
+        return query
+          .order('created_at', { ascending: false })
+          .order('id', { ascending: false })
+          .range(from, to)
+          .overrideTypes<BoardDeal[], { merge: false }>();
+      }),
     [supabase]
   );
 
@@ -687,6 +688,21 @@ export default function PipelinesPage() {
             <Plus className="me-1 h-4 w-4" />
             {t('createPipeline')}
           </GatedButton>
+        </div>
+      ) : dealsQuery.error && !dealsQuery.data ? (
+        <div
+          role="alert"
+          className="border-border flex flex-col items-center justify-center rounded-xl border border-dashed py-20"
+        >
+          <CircleAlert className="text-destructive h-12 w-12" />
+          <p className="text-foreground mt-4 text-sm">{t('dealsLoadFailed')}</p>
+          <Button
+            variant="outline"
+            onClick={() => void refreshDeals()}
+            className="mt-4"
+          >
+            {t('retry')}
+          </Button>
         </div>
       ) : (
         <>
