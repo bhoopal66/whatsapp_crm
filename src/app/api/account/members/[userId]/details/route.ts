@@ -10,13 +10,12 @@
 //      decides: 140's password rule (a live owner / admin of the active
 //      workspace who strictly outranks the person there and in every
 //      other workspace the person belongs to; never their own details).
-//   2. Read the roster row and the login. They can disagree: a person
-//      changing their own email in Settings → Profile changes only the
-//      login. The login's email is what a rollback restores, and either
+//   2. Read the roster row and the login. They can disagree: before 288 a
+//      person could change their own login's email. The login's email is what a rollback restores, and either
 //      differing from the new one counts as a change. If nothing
 //      changed, answer ok and write nothing.
-//   3. A new email goes to GoTrue first (service role), confirmed at
-//      once: this install sends no mail. A taken address is a 409, and
+//   3. A new email goes to GoTrue first (service role, with a permit:
+//      288), confirmed at once: this install sends no mail. A taken address is a 409, and
 //      nothing else has been written yet.
 //   4. Then the profiles rows (service role; 135's guard refuses only
 //      'authenticated'), writing only the fields that changed. The email
@@ -52,6 +51,25 @@ import {
   RATE_LIMITS,
 } from '@/lib/rate-limit';
 import { serverSupabaseUrl } from '@/lib/supabase/urls';
+import { isMissingFunction } from '@/lib/team-activity/db-errors';
+
+/**
+ * A login's email changes only with a permit (288), for this address and
+ * two minutes. Before 288 there is none to ask for; any other failure
+ * leaves the change to be refused by the database.
+ */
+async function permitLoginEmail(userId: string, email: string) {
+  const { error } = await supabaseAdmin().rpc('permit_login_email', {
+    p_user: userId,
+    p_email: email,
+  });
+  if (error && !isMissingFunction(error)) {
+    console.error(
+      `[member details route] no permit for the login email of ${userId}:`,
+      { code: error.code }
+    );
+  }
+}
 
 /** Service-role client for the Auth admin API, the profiles write and
  *  the audit row. Only reached after the RPC has authorised the caller. */
@@ -205,6 +223,7 @@ export async function PATCH(
     const emailChanged = changed.includes('email');
     /** Put the login email back; only after a GoTrue change succeeded. */
     async function restoreLogin(email: string) {
+      await permitLoginEmail(userId, email);
       const { error: revertError } = await admin.auth.admin.updateUserById(
         userId,
         { email, email_confirm: true }
@@ -218,6 +237,7 @@ export async function PATCH(
     }
 
     if (loginChanged) {
+      await permitLoginEmail(userId, next.email);
       const { error: authError } = await admin.auth.admin.updateUserById(
         userId,
         { email: next.email, email_confirm: true }

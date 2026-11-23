@@ -22,6 +22,11 @@ works before and after it; apply it as soon as you update.
   (received attachments, profile pictures, the voice library) are the
   server's alone. Links in messages open as before. See `docs/security.md`.
 
+**Migration required: 288** (`288_login_email_guard.sql`), with the build.
+- A login's email is changed only by an owner or admin, in Settings →
+  Members. The sign-in service also let a person change their own; cases and
+  submission groups are given to the login that holds an address.
+
 ### Case satisfaction
 
 **Migration required: 281** (`281_csat_fixes.sql`, after 263). Apply it

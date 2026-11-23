@@ -1060,6 +1060,11 @@ jobs:
       - name: Verify HR workflows
         run: supabase db query --local --file supabase/ci/verify-hr-workflows.sql
 
+      # Migration 288: a login's email changes only with a fresh permit for
+      # that address, asked for by the app's server.
+      - name: Verify login email guard
+        run: supabase db query --local --file supabase/ci/verify-login-email-guard.sql
+
       # Migration 213: HR lines. Off by default (no settings row); the
       # list and switch are read with an HR role and set by owners/admins
       # only (a number of another workspace is INVALID, nothing written);
