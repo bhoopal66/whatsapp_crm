@@ -14,6 +14,19 @@ and polish.
 
 ### Security
 
+- **Attachments and exports.** A download from a WhatsApp gateway stops at
+  a size limit instead of being held whole first: 16 MB for the stored
+  copy, 2 MB for a profile picture, 100 MB (WhatsApp's own limit) for a
+  deal room file and for an attachment opened through the app, which is
+  now passed on as it arrives. An answer that unpacks to more than 64 MB
+  is cut off. Forwarding takes an attachment only from this workspace's
+  own storage or from the gateway of the number that carried it; anything
+  else "cannot be forwarded", including a file sent by link through the
+  public API. The app opens a Meta attachment only for a customer's
+  message, and only with the number that carried it. In every CSV, a
+  formula sign after a semicolon, tab or line break, or written in its
+  full-width form, is neutralised too. No migration.
+
 - **Who reads automation runs, flow settings and number credentials.**
   The run log of an automation, its steps and the nodes of a flow are read
   by owners and admins only, the people whose screens show them. The

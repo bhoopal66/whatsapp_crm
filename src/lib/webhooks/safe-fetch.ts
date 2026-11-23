@@ -34,8 +34,9 @@ import type { LookupAddress } from 'node:dns';
 import http from 'node:http';
 import https from 'node:https';
 import { isIP } from 'node:net';
-import { Readable, type Transform } from 'node:stream';
+import { pipeline, Readable, Transform } from 'node:stream';
 import zlib from 'node:zlib';
+import { BodyTooLargeError } from '@/lib/media/capped-body';
 
 /** Thrown when a URL or a resolved address fails the SSRF guard. */
 export class UnsafeUrlError extends Error {
@@ -56,6 +57,26 @@ export interface GuardedRequestOptions {
   isBlocked: (ip: string) => boolean;
   /** Name resolution; defaults to `dns.lookup` (injectable for tests). */
   resolve?: Resolver;
+  /** What a compressed body may unpack to; past it the body errors. */
+  maxDecodedBytes?: number;
+}
+
+/**
+ * Decoding is where a small answer turns into a huge one, and it takes
+ * the Content-Length (a caller's size check) with it.
+ */
+export const DEFAULT_MAX_DECODED_BYTES = 64 * 1024 * 1024;
+
+/** Passes bytes through, erroring once there are more than `max`. */
+function byteLimit(max: number): Transform {
+  let total = 0;
+  return new Transform({
+    transform(chunk: Buffer, _encoding, done) {
+      total += chunk.byteLength;
+      if (total > max) done(new BodyTooLargeError(total, max));
+      else done(null, chunk);
+    },
+  });
 }
 
 // Statuses whose Response must have a null body (the constructor throws
@@ -137,7 +158,11 @@ export function guardedRequest(
   init: RequestInit,
   opts: GuardedRequestOptions
 ): Promise<Response> {
-  const { isBlocked, resolve = defaultResolver } = opts;
+  const {
+    isBlocked,
+    resolve = defaultResolver,
+    maxDecodedBytes = DEFAULT_MAX_DECODED_BYTES,
+  } = opts;
 
   let url: URL;
   try {
@@ -201,8 +226,11 @@ export function guardedRequest(
           if (!nullBody) {
             const decoder = decoderFor(resHeaders.get('content-encoding'));
             if (decoder) {
-              source = res.pipe(decoder);
-              res.on('error', (e) => decoder.destroy(e));
+              const limit = byteLimit(maxDecodedBytes);
+              // Destroys all three on an error, an abort or a cancelled
+              // read, so the socket does not outlive the body.
+              pipeline(res, decoder, limit, () => {});
+              source = limit;
               resHeaders.delete('content-encoding');
               resHeaders.delete('content-length');
             }

@@ -4,10 +4,10 @@
 // Two rules, both here so no route can forget them:
 //   1. Every field is quoted, with embedded quotes doubled (RFC 4180),
 //      so a comma, quote or newline in a name never shifts a column.
-//   2. A cell a spreadsheet would read as a formula is neutralised: a
-//      value starting with =, +, -, @, a tab or a carriage return gets a
-//      leading apostrophe (OWASP "CSV injection"). Numbers are written
-//      as numbers, so a negative figure is never touched.
+//   2. A cell a spreadsheet would read as a formula is neutralised
+//      (`neutraliseFormula`, which every hand-built CSV uses too).
+//      Numbers are written as numbers, so a negative figure is never
+//      touched.
 // Pure: no I/O.
 // ============================================================
 
@@ -18,7 +18,21 @@ export type CsvCell = string | number | boolean | null | undefined;
 /** The zone of every time in an export. */
 export const CSV_TIME_ZONE = 'Asia/Dubai';
 
-const FORMULA_START = /^[=+\-@\t\r]/;
+// The full-width forms are read as their ASCII ones by a spreadsheet in
+// an East Asian locale.
+const FORMULA_START = /^[=+\-@\t\r\n＝＋－＠]/;
+const FORMULA_AFTER_BREAK = /([;\t\n])(?=[=+\-@＝＋－＠])/g;
+
+/**
+ * Text a spreadsheet will not run (OWASP "CSV injection"): one starting
+ * with =, +, -, @, a tab or a line break gets a leading apostrophe. So
+ * does such a sign after a semicolon, tab or newline inside the cell,
+ * since a program that splits there makes it the start of its own cell.
+ */
+export function neutraliseFormula(text: string): string {
+  const inner = text.replace(FORMULA_AFTER_BREAK, "$1'");
+  return FORMULA_START.test(text) ? `'${inner}` : inner;
+}
 
 /** One cell, quoted and neutralised. */
 export function csvCell(value: CsvCell): string {
@@ -27,8 +41,7 @@ export function csvCell(value: CsvCell): string {
     return Number.isFinite(value) ? `"${String(value)}"` : '""';
   }
   if (typeof value === 'boolean') return value ? '"true"' : '"false"';
-  let text = String(value);
-  if (FORMULA_START.test(text)) text = `'${text}`;
+  const text = neutraliseFormula(String(value));
   return `"${text.replace(/"/g, '""')}"`;
 }
 

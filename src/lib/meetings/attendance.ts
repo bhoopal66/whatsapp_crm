@@ -1,3 +1,5 @@
+import { neutraliseFormula } from '@/lib/csv/build';
+
 import { isPresent } from './requests';
 import { PRESENCE_WINDOW_MS } from './types';
 
@@ -175,11 +177,8 @@ export interface AttendanceCsvLabels {
   yes: string;
 }
 
-/** A spreadsheet runs a cell opening with one of these as a formula. */
-const FORMULA_START_RE = /^[=+\-@\t\r]/;
-
 function csvCell(value: string): string {
-  const safe = FORMULA_START_RE.test(value) ? `'${value}` : value;
+  const safe = neutraliseFormula(value);
   // `;` too: a spreadsheet in a semicolon locale would split the cell there,
   // and the half after it could open with a formula.
   return /[",;\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;

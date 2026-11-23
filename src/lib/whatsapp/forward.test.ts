@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   planForward,
   isForwardable,
-  isGatewayFetchable,
+  ownPublicMediaUrl,
   type ForwardSource,
 } from './forward';
 
@@ -127,16 +127,23 @@ describe('planForward', () => {
   );
 });
 
-describe('isGatewayFetchable', () => {
-  const BASE = 'https://db.example.com/';
+describe('ownPublicMediaUrl', () => {
+  const BASE = 'https://db.example.com';
+  const PUBLIC = `${BASE}/storage/v1/object/public`;
 
-  it('accepts an object in our public storage', () => {
+  it.each(['chat-media', 'flow-media'])("takes this account's %s", (bucket) => {
+    const url = `${PUBLIC}/${bucket}/account-1/inbound/a.jpg`;
+    expect(ownPublicMediaUrl(url, `${BASE}/`, '1')).toBe(url);
+  });
+
+  it('rebuilds an older public origin on ours and never uses its host', () => {
     expect(
-      isGatewayFetchable(
-        'https://db.example.com/storage/v1/object/public/chat-media/account-1/a.jpg',
-        BASE
+      ownPublicMediaUrl(
+        'https://old.trycloudflare.com/supabase/storage/v1/object/public/chat-media/account-1/a.jpg',
+        BASE,
+        '1'
       )
-    ).toBe(true);
+    ).toBe(`${PUBLIC}/chat-media/account-1/a.jpg`);
   });
 
   it.each([
@@ -151,19 +158,26 @@ describe('isGatewayFetchable', () => {
     ],
     [
       'a private storage object',
-      'https://db.example.com/storage/v1/object/sign/chat-media/a.jpg',
+      `${BASE}/storage/v1/object/sign/chat-media/account-1/a.jpg`,
+    ],
+    ["another account's folder", `${PUBLIC}/chat-media/account-2/a.jpg`],
+    [
+      "another account's folder through ..",
+      `${PUBLIC}/chat-media/account-1/../account-2/a.jpg`,
     ],
     [
-      'a look-alike host',
-      'https://db.example.com.evil.test/storage/v1/object/public/a.jpg',
+      "another account's folder through an encoded ..",
+      `${PUBLIC}/chat-media/account-1/..%2Faccount-2/a.jpg`,
     ],
+    ['another bucket', `${PUBLIC}/avatars/account-1/a.jpg`],
+    ['the folder itself', `${PUBLIC}/chat-media/account-1/`],
   ])('rejects %s', (_label, url) => {
-    expect(isGatewayFetchable(url, BASE)).toBe(false);
+    expect(ownPublicMediaUrl(url, BASE, '1')).toBeNull();
   });
 
   it('rejects everything when no public origin is configured', () => {
     expect(
-      isGatewayFetchable('https://x/storage/v1/object/public/a.jpg', '')
-    ).toBe(false);
+      ownPublicMediaUrl(`${PUBLIC}/chat-media/account-1/a.jpg`, '', '1')
+    ).toBeNull();
   });
 });

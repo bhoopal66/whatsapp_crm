@@ -1757,8 +1757,8 @@ export async function resolveInboundMediaUrl(
         // OpenWA loopback URL was refused and never mirrored. Whapi and
         // Meta land on the same client as before (Whapi links are on
         // Whapi's host, Meta's on its lookaside host).
-        download: ({ downloadUrl: url }) =>
-          downloadMedia({ channel, downloadUrl: url }),
+        download: ({ downloadUrl: url, maxBytes }) =>
+          downloadMedia({ channel, downloadUrl: url, maxBytes }),
         mimeType: mimeType ?? undefined,
         fileSize,
         fileName: media.filename,

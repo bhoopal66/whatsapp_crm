@@ -765,10 +765,12 @@ describe('OpenWA channels use the OpenWA client', () => {
     const res = await downloadMedia({
       channel: openwaChannel(),
       downloadUrl: 'http://openwa.local/x/media',
+      maxBytes: 1024,
     });
     expect(openwaMock.downloadMedia).toHaveBeenCalledWith({
       ...owaCreds,
       downloadUrl: 'http://openwa.local/x/media',
+      maxBytes: 1024,
     });
     expect(res.contentType).toBe('image/jpeg');
   });
@@ -870,7 +872,12 @@ describe('an OpenWA channel never reaches the Whapi or Meta client', () => {
       ['getMediaUrl', () => getMediaUrl({ channel: ch, mediaId: 'c/m' })],
       [
         'downloadMedia',
-        () => downloadMedia({ channel: ch, downloadUrl: 'http://x/media' }),
+        () =>
+          downloadMedia({
+            channel: ch,
+            downloadUrl: 'http://x/media',
+            maxBytes: 1024,
+          }),
       ],
       ['getContactProfilePicture', () => getContactProfilePicture(ch, to)],
       ['probeChannel', () => probeChannel(ch)],

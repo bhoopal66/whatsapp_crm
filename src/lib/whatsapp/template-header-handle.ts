@@ -1,6 +1,7 @@
 import { uploadResumableMedia } from '@/lib/whatsapp/meta-api'
 import type { TemplatePayload } from '@/lib/whatsapp/template-validators'
 import { isDeliverableUrl, safeFetch } from '@/lib/webhooks/ssrf'
+import { BodyTooLargeError, readCapped } from '@/lib/media/capped-body'
 
 /**
  * Meta requires an `example.header_handle` (from the Resumable Upload
@@ -75,34 +76,14 @@ export async function ensureImageHeaderHandle(
     new Error(
       `Header image is ${(size / 1024 / 1024).toFixed(1)} MB — Meta's limit is 5 MB.`,
     )
-  // Refuse on the declared size, then count while reading: a host that
-  // lies about (or omits) content-length must not make us buffer it all.
-  const declared = Number(res.headers.get('content-length'))
-  if (declared > IMAGE_MAX_BYTES) {
-    await res.body?.cancel().catch(() => {})
-    throw tooBig(declared)
+  let bytes: Uint8Array<ArrayBuffer>
+  try {
+    bytes = new Uint8Array(await readCapped(res, IMAGE_MAX_BYTES))
+  } catch (err) {
+    throw err instanceof BodyTooLargeError ? tooBig(err.bytes) : err
   }
-  const chunks: Uint8Array[] = []
-  let total = 0
-  const reader = res.body?.getReader()
-  while (reader) {
-    const { done, value } = await reader.read()
-    if (done) break
-    total += value.byteLength
-    if (total > IMAGE_MAX_BYTES) {
-      await reader.cancel().catch(() => {})
-      throw tooBig(total)
-    }
-    chunks.push(value)
-  }
-  if (total === 0) {
+  if (bytes.byteLength === 0) {
     throw new Error('Header image is empty.')
-  }
-  const bytes = new Uint8Array(total)
-  let offset = 0
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset)
-    offset += chunk.byteLength
   }
 
   const mimeType = ALLOWED_IMAGE_TYPES.includes(contentType) ? contentType : 'image/jpeg'

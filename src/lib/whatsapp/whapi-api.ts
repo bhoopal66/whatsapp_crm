@@ -41,6 +41,7 @@ import type { MessageTemplate } from '@/types'
 
 import { renderTemplateBody } from './template-body'
 import { fetchPublicUrl, UnsafeUrlError } from '@/lib/webhooks/ssrf'
+import { readCapped } from '@/lib/media/capped-body'
 
 // ============================================================
 // Transport
@@ -1119,6 +1120,10 @@ export async function getMediaUrl(
 export interface DownloadMediaArgs {
   downloadUrl: string
   token: string
+  /** Past this many bytes the body is left unread (`BodyTooLargeError`). */
+  maxBytes: number
+  /** Replaces the default timeout, for a body that is streamed on. */
+  signal?: AbortSignal
 }
 
 /**
@@ -1146,7 +1151,22 @@ export function isWhapiMediaHost(url: URL): boolean {
 }
 
 /**
- * Fetch the bytes behind a media URL from `getMediaUrl`, or behind a
+ * True for a link into Whapi's own file store, where auto-download puts
+ * an inbound attachment (its bucket on Wasabi). Public, no token.
+ */
+export function isWhapiFileStoreUrl(url: URL): boolean {
+  return (
+    url.protocol === 'https:' &&
+    !url.username &&
+    !url.password &&
+    !url.port &&
+    /^s3(\.[a-z0-9-]+)?\.wasabisys\.com$/.test(url.hostname) &&
+    url.pathname.startsWith('/in-files/')
+  )
+}
+
+/**
+ * Ask for the bytes behind a media URL from `getMediaUrl`, or behind a
  * URL Whapi embedded directly in a webhook (auto-download mode).
  *
  * The Bearer header goes ONLY to Whapi's media endpoint
@@ -1159,17 +1179,16 @@ export function isWhapiMediaHost(url: URL): boolean {
  * auth) is fetched without credentials and only after the SSRF guard,
  * with every redirect hop re-checked.
  */
-export async function downloadMedia(
-  args: DownloadMediaArgs,
-): Promise<{ buffer: Buffer; contentType: string }> {
-  const { downloadUrl, token } = args
+export async function openMedia(args: DownloadMediaArgs): Promise<Response> {
+  const { downloadUrl, token, maxBytes } = args
 
   let response: Response
   try {
     response = await fetchPublicUrl(
       downloadUrl,
-      { signal: AbortSignal.timeout(WHAPI_TIMEOUT_MS) },
+      { signal: args.signal ?? AbortSignal.timeout(WHAPI_TIMEOUT_MS) },
       {
+        maxDecodedBytes: maxBytes,
         isTrusted: isWhapiMediaHost,
         trustedHeaders: { Authorization: `Bearer ${token}` },
       },
@@ -1184,10 +1203,17 @@ export async function downloadMedia(
     await response.body?.cancel().catch(() => {})
     throw new WhapiError(`Media download failed: ${response.status}`, response.status)
   }
+  return response
+}
 
+/** The bytes behind a media URL, at most `maxBytes` of them. */
+export async function downloadMedia(
+  args: DownloadMediaArgs,
+): Promise<{ buffer: Buffer; contentType: string }> {
+  const response = await openMedia(args)
   const contentType =
     response.headers.get('content-type') || 'application/octet-stream'
-  return { buffer: Buffer.from(await response.arrayBuffer()), contentType }
+  return { buffer: await readCapped(response, args.maxBytes), contentType }
 }
 
 // ============================================================

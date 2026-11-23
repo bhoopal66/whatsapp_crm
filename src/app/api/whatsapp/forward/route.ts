@@ -87,7 +87,7 @@ export async function POST(request: Request) {
     const { data: source } = await supabase
       .from('messages')
       .select(
-        'id, conversation_id, content_type, content_text, media_url, media_type, created_at, provider, channel_id'
+        'id, conversation_id, content_type, content_text, media_url, media_type, created_at, provider, channel_id, sender_type'
       )
       .eq('id', messageId)
       .maybeSingle();
@@ -155,15 +155,22 @@ export async function POST(request: Request) {
           400
         );
       }
-      mediaUrl = await resolveForwardMediaUrl({
+      const media = await resolveForwardMediaUrl({
         accountId,
         sourceMessageId: source.id,
         mediaUrl,
+        fromCustomer: source.sender_type === 'customer',
         mimeType: source.media_type,
         filename: plan.filename,
         channel,
       });
-      if (!mediaUrl) {
+      if (!media.ok && media.reason === 'refused') {
+        return NextResponse.json(
+          { error: REASON_TEXT.unsupported_type },
+          { status: 400 }
+        );
+      }
+      if (!media.ok) {
         return NextResponse.json(
           {
             error:
@@ -172,6 +179,7 @@ export async function POST(request: Request) {
           { status: 502 }
         );
       }
+      mediaUrl = media.url;
     }
 
     // Sequential on purpose: at most five sends, and each draws on the

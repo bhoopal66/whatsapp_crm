@@ -187,6 +187,7 @@ describe('refreshContactAvatar', () => {
     expect(args.download).toHaveBeenCalledWith({
       channel: args.channel,
       downloadUrl: 'https://pps.whatsapp.net/v/t61/full.jpg',
+      maxBytes: AVATAR_MAX_BYTES,
     });
   });
 

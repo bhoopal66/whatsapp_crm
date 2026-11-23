@@ -210,11 +210,12 @@ export async function isDeliverableUrl(
 export function safeFetch(
   rawUrl: string,
   init: RequestInit = {},
-  opts: { resolve?: Resolver } = {}
+  opts: { resolve?: Resolver; maxDecodedBytes?: number } = {}
 ): Promise<Response> {
   return guardedRequest(rawUrl, init, {
     isBlocked: isPrivateOrReservedIp,
     resolve: opts.resolve,
+    maxDecodedBytes: opts.maxDecodedBytes,
   });
 }
 
@@ -232,6 +233,8 @@ export interface FetchPublicUrlOptions {
   isTrusted?: (url: URL) => boolean;
   /** Extra headers sent only to a trusted hop — typically a bearer. */
   trustedHeaders?: Record<string, string>;
+  /** See `GuardedRequestOptions`; a trusted hop's caller caps its read. */
+  maxDecodedBytes?: number;
 }
 
 /**
@@ -246,7 +249,7 @@ export async function fetchPublicUrl(
   init: RequestInit = {},
   opts: FetchPublicUrlOptions = {}
 ): Promise<Response> {
-  const { maxRedirects = 3, isTrusted, trustedHeaders } = opts;
+  const { maxRedirects = 3, isTrusted, trustedHeaders, maxDecodedBytes } = opts;
   let current = rawUrl;
 
   for (let hop = 0; ; hop++) {
@@ -276,11 +279,10 @@ export async function fetchPublicUrl(
 
     // A trusted host may legitimately be on-prem, so it keeps plain
     // fetch; every other hop is address-pinned against DNS rebinding.
-    const res = await (trusted ? fetch : safeFetch)(url.href, {
-      ...init,
-      headers,
-      redirect: 'manual',
-    });
+    const hopInit: RequestInit = { ...init, headers, redirect: 'manual' };
+    const res = trusted
+      ? await fetch(url.href, hopInit)
+      : await safeFetch(url.href, hopInit, { maxDecodedBytes });
 
     const location = res.headers?.get?.('location');
     if (!REDIRECT_STATUSES.has(res.status) || !location) return res;

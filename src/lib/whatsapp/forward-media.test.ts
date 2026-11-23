@@ -46,16 +46,17 @@ describe('resolveForwardMediaUrl', () => {
 
   it('passes a public storage URL straight through', async () => {
     const url =
-      'https://db.example.com/storage/v1/object/public/chat-media/a.jpg';
+      'https://db.example.com/storage/v1/object/public/chat-media/account-acct-1/a.jpg';
     await expect(
       resolveForwardMediaUrl({
         accountId: 'acct-1',
         sourceMessageId: 'm1',
         mediaUrl: url,
+        fromCustomer: true,
         channel: CHANNEL,
         mirror,
       })
-    ).resolves.toBe(url);
+    ).resolves.toEqual({ ok: true, url });
     expect(mirror).not.toHaveBeenCalled();
   });
 
@@ -71,11 +72,12 @@ describe('resolveForwardMediaUrl', () => {
       sourceMessageId: 'm1',
       mediaUrl: '/api/whatsapp/media/9988',
       mimeType: 'image/jpeg',
+      fromCustomer: true,
       channel: CHANNEL,
       mirror,
     });
 
-    expect(out).toBe(REHOSTED);
+    expect(out).toEqual({ ok: true, url: REHOSTED });
     expect(getMediaUrl).toHaveBeenCalledWith({
       channel: CHANNEL,
       mediaId: '9988',
@@ -94,7 +96,8 @@ describe('resolveForwardMediaUrl', () => {
     await resolveForwardMediaUrl({
       accountId: 'acct-1',
       sourceMessageId: 'm1',
-      mediaUrl: 'https://lookaside/y',
+      mediaUrl: 'https://lookaside.fbsbx.com/y',
+      fromCustomer: true,
       channel: CHANNEL,
       mirror,
     });
@@ -103,10 +106,15 @@ describe('resolveForwardMediaUrl', () => {
       buffer: Buffer.from('x'),
       contentType: 'image/jpeg',
     });
-    await download({ downloadUrl: 'https://lookaside/y', token: 'ignored' });
+    await download({
+      downloadUrl: 'https://lookaside.fbsbx.com/y',
+      token: 'ignored',
+      maxBytes: 16,
+    });
     expect(downloadMedia).toHaveBeenCalledWith({
       channel: CHANNEL,
-      downloadUrl: 'https://lookaside/y',
+      downloadUrl: 'https://lookaside.fbsbx.com/y',
+      maxBytes: 16,
     });
   });
 
@@ -117,10 +125,11 @@ describe('resolveForwardMediaUrl', () => {
         accountId: 'acct-1',
         sourceMessageId: 'm1',
         mediaUrl: '/api/whatsapp/media/1',
+        fromCustomer: true,
         channel: CHANNEL,
         mirror,
       })
-    ).resolves.toBeNull();
+    ).resolves.toEqual({ ok: false, reason: 'unavailable' });
     expect(mirror).not.toHaveBeenCalled();
   });
 
@@ -130,10 +139,66 @@ describe('resolveForwardMediaUrl', () => {
       resolveForwardMediaUrl({
         accountId: 'acct-1',
         sourceMessageId: 'm1',
-        mediaUrl: 'https://whapi-cdn/a.jpg',
+        mediaUrl: 'https://lookaside.fbsbx.com/a.jpg',
+        fromCustomer: true,
         channel: CHANNEL,
         mirror,
       })
-    ).resolves.toBeNull();
+    ).resolves.toEqual({ ok: false, reason: 'unavailable' });
+  });
+
+  const WHAPI: WhatsAppChannel = { ...CHANNEL, provider: 'whapi' };
+  const run = (
+    mediaUrl: string,
+    channel: WhatsAppChannel = CHANNEL,
+    fromCustomer = true
+  ) =>
+    resolveForwardMediaUrl({
+      accountId: 'acct-1',
+      sourceMessageId: 'm1',
+      mediaUrl,
+      fromCustomer,
+      channel,
+      mirror,
+    });
+
+  it.each([
+    ['an outside URL', 'https://attacker.example/a.jpg', CHANNEL],
+    ['an outside URL on Whapi', 'https://attacker.example/a.jpg', WHAPI],
+    ['an internal URL', 'http://10.0.0.5/settings', WHAPI],
+    ["another gateway's URL", 'https://lookaside.fbsbx.com/a', WHAPI],
+    [
+      'Whapi outside its media path',
+      'https://gate.whapi.cloud/settings',
+      WHAPI,
+    ],
+    ['another Wasabi bucket', 'https://s3.wasabisys.com/mine/a.jpg', WHAPI],
+    [
+      "another account's storage",
+      'https://db.example.com/storage/v1/object/public/chat-media/account-acct-2/a.jpg',
+      CHANNEL,
+    ],
+    ['not a URL', 'nonsense', CHANNEL],
+  ])('refuses %s without fetching it', async (_label, url, channel) => {
+    await expect(run(url, channel)).resolves.toEqual({
+      ok: false,
+      reason: 'refused',
+    });
+    expect(mirror).not.toHaveBeenCalled();
+    expect(getMediaUrl).not.toHaveBeenCalled();
+  });
+
+  it("refuses a proxy path on a row that is not a customer's", async () => {
+    await expect(
+      run('/api/whatsapp/media/9988', CHANNEL, false)
+    ).resolves.toEqual({ ok: false, reason: 'refused' });
+    expect(getMediaUrl).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    'https://gate.whapi.cloud/media/abc',
+    'https://s3.eu-central-1.wasabisys.com/in-files/1/a.jpg',
+  ])('re-hosts what the Whapi number holds: %s', async (url) => {
+    await expect(run(url, WHAPI)).resolves.toEqual({ ok: true, url: REHOSTED });
   });
 });
