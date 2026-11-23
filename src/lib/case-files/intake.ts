@@ -21,6 +21,9 @@
  *   never message text or file names.
  */
 
+import type { DocumentRead } from './bytes';
+import { dubaiDay } from './day';
+
 /** Wording keys; each is used only while its template is approved. */
 export type IntakeTemplateKind =
   'classify' | 'document_rejected' | 'document_received_next';
@@ -109,11 +112,14 @@ export interface IntakePorts {
     choice: number;
     now: Date;
   }): Promise<{ fileId: string; docKey: string }>;
+  /** `readCaseFile`: the bytes, or why there are none. */
+  readFile(fileId: string): Promise<DocumentRead>;
   /** `classifyAndCheck` with actor NULL. */
   classifyAndCheck(input: {
     fileId: string;
     docKey: string;
     today: string;
+    read?: DocumentRead;
   }): Promise<IntakeCheckResult>;
   fileReady(caseId: string): Promise<boolean>;
   /** Ids and codes only. Defaults to `console.warn`. */
@@ -133,6 +139,7 @@ export type IntakeOutcome =
   | 'not_an_answer'
   | 'no_prompt'
   | 'answer_refused'
+  | 'unavailable'
   | 'rejected'
   | 'received'
   | 'ready'
@@ -405,6 +412,24 @@ export async function onCustomerGroupText(
   if (!prompt.value) return 'no_prompt';
   const promptId = prompt.value.id;
 
+  // The bytes before the answer is spent: storage that does not answer is
+  // not a bad document. The prompt stays open, nothing is sent, and the
+  // same reply works later. (An option not on the list is the SQL's to
+  // refuse, so it costs no read.)
+  let read: DocumentRead | undefined;
+  if (prompt.value.options.some((o) => o.n === choice)) {
+    const file = prompt.value.fileId;
+    const r = await attempt(log, 'readFile', { caseId, promptId }, () =>
+      ports.readFile(file)
+    );
+    if (!r.ok) return 'error';
+    if (r.value.kind === 'unavailable') {
+      log('STORAGE_UNAVAILABLE', { caseId, promptId });
+      return 'unavailable';
+    }
+    read = r.value;
+  }
+
   const answer = await attempt(log, 'answerPrompt', { caseId, promptId }, () =>
     ports.answerPrompt({ promptId, choice, now: input.now })
   );
@@ -421,7 +446,9 @@ export async function onCustomerGroupText(
       ports.classifyAndCheck({
         fileId,
         docKey,
-        today: input.now.toISOString().slice(0, 10),
+        today: dubaiDay(input.now),
+        // The prompt's own file; anything else is read afresh.
+        ...(fileId === prompt.value?.fileId ? { read } : {}),
       })
   );
   if (!result.ok) return 'error';

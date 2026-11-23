@@ -46,6 +46,7 @@ import {
   type CaseFilesStorage,
 } from './bytes';
 import { sha256Hex } from './checks';
+import { dubaiDay } from './day';
 import { CASE_FILES_BUCKET, isAlreadyExists } from './intake-file';
 import {
   CASE_FILES_REFUSALS,
@@ -327,7 +328,7 @@ function drawCover(
     ['Customer reference', info.customerRef ?? '-'],
     ['Bank', info.bankCode ?? '-'],
     ['Product', info.product ?? '-'],
-    ['Built', info.builtAt.toISOString().slice(0, 10)],
+    ['Built', dubaiDay(info.builtAt)],
     ['Version', String(info.version)],
     ['Contents', info.merged ? 'Index and every document' : 'Index only'],
   ];

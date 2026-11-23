@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { DocumentRead } from './bytes';
 import {
   buildIntakeOptions,
   onCustomerGroupDocument,
@@ -15,6 +16,7 @@ import {
 } from './intake';
 
 const NOW = new Date('2026-11-10T22:30:00Z');
+const READ: DocumentRead = { kind: 'bytes', bytes: new Uint8Array([1]) };
 const CASE = 'case-1';
 const GROUP = 'group-1';
 const DOC = 'doc-1';
@@ -47,6 +49,7 @@ function fake(
     prompt?: IntakePrompt | null;
     answer?: { fileId: string; docKey: string } | { refuse: string };
     check?: IntakeCheckResult;
+    read?: DocumentRead;
     ready?: boolean;
   } = {}
 ): Fake {
@@ -84,6 +87,10 @@ function fake(
     groupMode: async (g) => {
       rec('groupMode', g);
       return o.mode === undefined ? 'group' : o.mode;
+    },
+    readFile: async (fileId) => {
+      rec('readFile', fileId);
+      return o.read ?? READ;
     },
     register: async (c, d) => {
       rec('register', { c, d });
@@ -418,9 +425,29 @@ describe('onCustomerGroupText', () => {
     expect(f.calls.find((c) => c.name === 'classifyAndCheck')!.args).toEqual({
       fileId: 'file-1',
       docKey: 'passport',
-      today: '2026-11-10',
+      // 22:30 UTC is already the 11th in Dubai.
+      today: '2026-11-11',
+      read: READ,
     });
     expect(f.sends()).toEqual([]);
+  });
+
+  it('a storage hiccup leaves the prompt open and tells the customer nothing', async () => {
+    const f = fake({ read: { kind: 'unavailable' } });
+    expect(await onCustomerGroupText(f.ports, textInput('2'))).toBe(
+      'unavailable'
+    );
+    expect(f.writes()).toEqual([]);
+    expect(f.sends()).toEqual([]);
+  });
+
+  it('an unreadable document is still checked (and rejected), as before', async () => {
+    const f = fake({
+      read: { kind: 'unreadable' },
+      check: { status: 'failed', checks: [{ name: 'readable', ok: false }] },
+    });
+    expect(await onCustomerGroupText(f.ports, textInput('2'))).toBe('rejected');
+    expect(f.sends()).toEqual(['Passport failed: readable']);
   });
 
   it('sends the remaining list when passed but not ready', async () => {

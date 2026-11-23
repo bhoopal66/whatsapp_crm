@@ -12,6 +12,16 @@ and polish.
 
 ## [Unreleased]
 
+### Case documents: a storage hiccup is not a bad document
+
+No migration.
+- When the file store does not answer while a document is being checked,
+  nothing is marked failed and a customer is never told their document was
+  rejected: staff are asked to try again, and a customer's reply stays
+  open.
+- A document's expiry, and the date on a built case file, count Dubai
+  days.
+
 ### Automations that wait, and stay where they were
 
 **Migration required:** `269_automation_runs.sql`, before the build.

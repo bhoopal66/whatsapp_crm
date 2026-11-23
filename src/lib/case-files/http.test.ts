@@ -13,7 +13,6 @@ import {
   parseClassifyBody,
   parseUploadForm,
   requireFileId,
-  todayUtc,
 } from './http';
 import {
   CASE_FILES_REFUSALS,
@@ -46,6 +45,7 @@ const EXPECTED: Record<CaseFilesRefusal, number> = {
   VALIDATION_FAILED: 422,
   MIME_NOT_ALLOWED: 422,
   FILE_TOO_LARGE: 413,
+  STORAGE_UNAVAILABLE: 503,
 };
 
 function thrown(f: () => unknown): CaseHttpError {
@@ -222,15 +222,11 @@ describe('parseUploadForm', () => {
   });
 });
 
-describe('requireFileId / todayUtc', () => {
+describe('requireFileId', () => {
   it('404s a non-uuid file id', () => {
     expect(requireFileId(DOC)).toBe(DOC);
     const e = thrown(() => requireFileId('../x'));
     expect(e.status).toBe(404);
     expect(e.body.code).toBe('FILE_NOT_FOUND');
-  });
-
-  it('takes the date in UTC', () => {
-    expect(todayUtc(new Date('2026-11-10T23:30:00-05:00'))).toBe('2026-11-11');
   });
 });

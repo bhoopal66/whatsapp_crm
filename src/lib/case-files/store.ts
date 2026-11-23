@@ -42,7 +42,11 @@ export const CASE_FILES_REFUSALS = [
 
 /** Refused in TypeScript before anything is written (intake-file.ts). */
 export type CaseFilesIntakeRefusal =
-  'MIME_NOT_ALLOWED' | 'FILE_TOO_LARGE' | 'VALIDATION_FAILED';
+  | 'MIME_NOT_ALLOWED'
+  | 'FILE_TOO_LARGE'
+  | 'VALIDATION_FAILED'
+  // Storage did not answer: nothing was classified, try again.
+  | 'STORAGE_UNAVAILABLE';
 
 /** Refused in TypeScript by the case-file assembly (assembly.ts). */
 export type CaseFilesBuildRefusal = 'BUILD_TOO_LARGE';

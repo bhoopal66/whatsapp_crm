@@ -23,8 +23,8 @@ import {
   parseClassifyBody,
   refusalResponse,
   requireFileId,
-  todayUtc,
 } from '@/lib/case-files/http';
+import { dubaiDay } from '@/lib/case-files/day';
 import { classifyAndCheck } from '@/lib/case-files/intake-file';
 import { CaseFilesStore } from '@/lib/case-files/store';
 import { supabaseAdmin } from '@/lib/submission-groups/server';
@@ -51,7 +51,7 @@ export async function POST(request: Request, { params }: Params) {
       fileId,
       docKey,
       expiresOn,
-      today: todayUtc(new Date()),
+      today: dubaiDay(new Date()),
       deps: { storage: admin.storage },
     });
     return NextResponse.json({ result });

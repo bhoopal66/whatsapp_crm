@@ -69,7 +69,7 @@ beforeEach(() => {
 });
 
 describe('POST files/[fileId]/classify', () => {
-  it("classifies with today's UTC date and answers 200 { result }", async () => {
+  it("classifies with today's Dubai date and answers 200 { result }", async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-11-10T22:30:00Z'));
     const res = await post({ docKey: 'passport', expiresOn: '2030-01-01' });
@@ -83,7 +83,8 @@ describe('POST files/[fileId]/classify', () => {
       fileId: F,
       docKey: 'passport',
       expiresOn: '2030-01-01',
-      today: '2026-11-10',
+      // 22:30 UTC is already the 11th in Dubai.
+      today: '2026-11-11',
       deps: { storage: admin.storage },
     });
   });
