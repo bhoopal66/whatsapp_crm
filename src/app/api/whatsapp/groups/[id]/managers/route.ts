@@ -1,9 +1,11 @@
 // ============================================================
 // /api/whatsapp/groups/[id]/managers — who works a group (114).
 // GET is open to anyone who can see the group. PUT replaces the whole
-// set and is for owners/admins and the group's creator only; every id
-// must be a live, non-guest member of the account (400
-// `invalid_manager`). The creator's row is always kept, so a group is
+// set and is for owners/admins and the group's creator only; every new
+// id must be a live, non-guest member of the account (400
+// `invalid_manager`). A manager who no longer is one (deactivated) is
+// dropped from the set instead: the picker sends them back unseen, and
+// refusing them would block every save of the group. The creator's row is always kept, so a group is
 // never left without the person who made it.
 //
 // Managers and their saved numbers are linked (2026-11-21): once the
@@ -297,7 +299,19 @@ export async function PUT(request: Request, { params }: Params) {
       );
     }
     const admin = supabaseAdmin();
-    const wanted = [...new Set(userIds)];
+    const { data: current, error: readError } = await admin
+      .from('whatsapp_group_managers')
+      .select('user_id')
+      .eq('account_id', ctx.accountId)
+      .eq('group_id', group.id);
+    if (readError) {
+      console.error('[groups] managers read failed', readError);
+      throw unavailable();
+    }
+    const before = ((current ?? []) as { user_id: string }[]).map(
+      (r) => r.user_id
+    );
+    let wanted = [...new Set(userIds)];
     if (wanted.length > 0) {
       const { data, error } = await admin
         .from('profiles')
@@ -313,28 +327,18 @@ export async function PUT(request: Request, { params }: Params) {
       const live = new Set(
         ((data ?? []) as { user_id: string }[]).map((r) => r.user_id)
       );
-      if (wanted.some((u) => !live.has(u))) {
+      if (wanted.some((u) => !live.has(u) && !before.includes(u))) {
         throw new GroupHttpError(
           400,
           'invalid_manager',
           'Managers must be active staff of this workspace'
         );
       }
+      wanted = wanted.filter((u) => live.has(u));
     }
 
     const keep = new Set(wanted);
-    const { data: current, error: readError } = await admin
-      .from('whatsapp_group_managers')
-      .select('user_id')
-      .eq('account_id', ctx.accountId)
-      .eq('group_id', group.id);
-    if (readError) {
-      console.error('[groups] managers read failed', readError);
-      throw unavailable();
-    }
-    const drop = ((current ?? []) as { user_id: string }[])
-      .map((r) => r.user_id)
-      .filter((u) => !keep.has(u) && u !== group.created_by);
+    const drop = before.filter((u) => !keep.has(u) && u !== group.created_by);
     if (drop.length > 0) {
       const { error } = await admin
         .from('whatsapp_group_managers')
@@ -369,9 +373,6 @@ export async function PUT(request: Request, { params }: Params) {
         );
       }
     }
-    const before = ((current ?? []) as { user_id: string }[]).map(
-      (r) => r.user_id
-    );
     const { added, removed } = diffManagers({
       before,
       after: [...wanted, ...(group.created_by ? [group.created_by] : [])],

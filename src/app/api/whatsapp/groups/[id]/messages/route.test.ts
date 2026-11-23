@@ -29,6 +29,7 @@ vi.mock('@/lib/groups/server', async (importOriginal) => ({
   supabaseAdmin: () => fakeSupabase(mocks.admin),
 }));
 
+import { OpenWAError } from '@/lib/whatsapp/openwa-api';
 import { WhapiError } from '@/lib/whatsapp/whapi-api';
 
 import { GET, POST } from './route';
@@ -247,6 +248,34 @@ describe('POST', () => {
     expect(stored()).toHaveLength(0);
   });
 
+  it.each([
+    ['a timeout', new WhapiError('timed out', 503)],
+    ['a gateway 5xx', new WhapiError('bad gateway', 502)],
+    ['an OpenWA 5xx', new OpenWAError('boom', 500)],
+    ['an answer that is not JSON', new SyntaxError('Unexpected token <')],
+  ])('says %s may have been sent, whatever was sent', async (_what, err) => {
+    mocks.sendGroupText.mockRejectedValue(err);
+    mocks.sendGroupMedia.mockRejectedValue(err);
+    const media = { kind: 'image', url: URL_OK, path: PATH };
+    for (const body of [{ text: 'hi' }, { media }]) {
+      const res = await post(body);
+      expect(res.status).toBe(502);
+      expect((await res.json()).code).toBe('send_unconfirmed');
+    }
+    expect(stored()).toHaveLength(0);
+  });
+
+  it('keeps the code of a certain refusal', async () => {
+    for (const [status, code] of [
+      [401, 'channel_disconnected'],
+      [403, 'not_admin'],
+      [400, 'invalid_request'],
+    ] as const) {
+      mocks.sendGroupText.mockRejectedValue(new WhapiError('no', status));
+      expect((await (await post({ text: 'hi' })).json()).code).toBe(code);
+    }
+  });
+
   const PATH = 'account-acct-1/groups/1700000000000-photo.jpg';
   const URL_OK = `https://tunnel.example/storage/v1/object/public/chat-media/${PATH}`;
   // The link sent and stored is rebuilt on our own public origin.
@@ -278,6 +307,67 @@ describe('POST', () => {
       type: 'image',
       body: 'look',
       media: { link: URL_SENT, mime_type: 'image/jpeg', filename: 'photo.jpg' },
+    });
+  });
+
+  it('gives the echo of an attachment, which has no file, the one sent', async () => {
+    stored().push({
+      id: 'echo',
+      account_id: 'acct-1',
+      group_id: G,
+      wa_message_id: 'wa-media',
+      direction: 'out',
+      sender_user_id: null,
+      sender_name: null,
+      type: 'unsupported',
+      body: null,
+      media: null,
+      status: 'delivered',
+      created_at: new Date().toISOString(),
+    });
+    const res = await post({
+      media: {
+        kind: 'image',
+        url: URL_OK,
+        path: PATH,
+        caption: 'look',
+        filename: 'photo.jpg',
+        mimeType: 'image/jpeg',
+      },
+    });
+    expect(res.status).toBe(200);
+    expect(stored()).toHaveLength(1);
+    const want = {
+      sender_user_id: 'agent-1',
+      sender_name: 'Aya',
+      type: 'image',
+      body: 'look',
+      media: { link: URL_SENT, mime_type: 'image/jpeg', filename: 'photo.jpg' },
+      // A receipt that already moved it is not set back.
+      status: 'delivered',
+    };
+    expect(stored()[0]).toMatchObject(want);
+    expect((await res.json()).message).toMatchObject(want);
+  });
+
+  it("leaves the words of a text's echo alone", async () => {
+    stored().push({
+      id: 'echo',
+      account_id: 'acct-1',
+      group_id: G,
+      wa_message_id: 'wa-new',
+      direction: 'out',
+      type: 'text',
+      body: 'hi',
+      media: null,
+      status: 'sent',
+      created_at: new Date().toISOString(),
+    });
+    await post({ text: 'hi' });
+    expect(stored()[0]).toMatchObject({
+      type: 'text',
+      body: 'hi',
+      media: null,
     });
   });
 

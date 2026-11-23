@@ -8,7 +8,8 @@
 // `chat-media/account-<id>/groups/`, checked by `parseGroupMedia`). At most
 // GROUP_SEND_LIMIT sends a minute per group (anti-ban). The row is
 // written after the gateway accepts; the webhook echo of the same
-// message may win the race, in which case we only attribute it.
+// message may win the race, in which case we attribute it (and give
+// an attachment's the file the echo lacks).
 // ============================================================
 
 import { NextResponse } from 'next/server';
@@ -35,8 +36,14 @@ import {
   parseGroupMedia,
   type GroupOutboundMedia,
 } from '@/lib/groups/outbound-media';
+import { SEND_UNCONFIRMED } from '@/lib/groups/unconfirmed-sends';
 import { publicSupabaseUrl } from '@/lib/supabase/urls';
-import { sendGroupMedia, sendGroupText } from '@/lib/whatsapp/groups';
+import {
+  GroupsUnsupportedError,
+  sendGroupMedia,
+  sendGroupText,
+} from '@/lib/whatsapp/groups';
+import { isDefiniteSendRefusal } from '@/lib/whatsapp/provider';
 
 export const maxDuration = 60;
 
@@ -44,6 +51,23 @@ type Params = { params: Promise<{ id: string }> };
 
 const MESSAGE_COLUMNS =
   'id, group_id, wa_message_id, direction, sender_wa_id, sender_name, sender_user_id, type, body, media, status, created_at';
+
+/**
+ * A send that failed without a certain refusal (a timeout, a gateway 5xx,
+ * "accepted" with no id) may already be in the group. Wording it as a
+ * plain failure invites a second copy, so it gets a code of its own.
+ */
+function sendFailure(err: unknown): unknown {
+  if (isDefiniteSendRefusal(err) || err instanceof GroupsUnsupportedError) {
+    return err;
+  }
+  console.error('[groups] send outcome unknown', err);
+  return new GroupHttpError(
+    502,
+    SEND_UNCONFIRMED,
+    'This message may have been sent: check the chat before sending it again'
+  );
+}
 
 export async function GET(request: Request, { params }: Params) {
   try {
@@ -125,21 +149,26 @@ export async function POST(request: Request, { params }: Params) {
     }
 
     const channel = await channelForGroup(group);
-    const sent = media
-      ? await sendGroupMedia({
-          channel,
-          groupId: group.wa_group_id,
-          kind: media.kind,
-          link: media.url,
-          caption: media.caption ?? undefined,
-          filename: media.filename ?? undefined,
-          mimeType: media.mimeType ?? undefined,
-        })
-      : await sendGroupText({
-          channel,
-          groupId: group.wa_group_id,
-          text: text ?? '',
-        });
+    let sent: { messageId: string };
+    try {
+      sent = media
+        ? await sendGroupMedia({
+            channel,
+            groupId: group.wa_group_id,
+            kind: media.kind,
+            link: media.url,
+            caption: media.caption ?? undefined,
+            filename: media.filename ?? undefined,
+            mimeType: media.mimeType ?? undefined,
+          })
+        : await sendGroupText({
+            channel,
+            groupId: group.wa_group_id,
+            text: text ?? '',
+          });
+    } catch (err) {
+      throw sendFailure(err);
+    }
 
     const { data: me } = await admin
       .from('profiles')
@@ -172,10 +201,22 @@ export async function POST(request: Request, { params }: Params) {
       // The message went out; failing here would invite a resend.
       console.error('[groups] sent message not recorded', insertError);
     } else if ((inserted ?? []).length === 0) {
-      // The webhook echo won the race: only attribute its row.
+      // The webhook echo won the race: attribute its row. An echo of an
+      // attachment carries no file, so it gets ours too, or the sender's
+      // own attachment would read as unavailable for good.
       const { error } = await admin
         .from('whatsapp_group_messages')
-        .update({ sender_user_id: ctx.userId, sender_name: senderName })
+        .update({
+          sender_user_id: ctx.userId,
+          sender_name: senderName,
+          ...(media
+            ? {
+                type: groupMediaRowType(media.kind),
+                body: media.caption,
+                media: groupMediaRowMedia(media),
+              }
+            : {}),
+        })
         .eq('group_id', group.id)
         .eq('wa_message_id', sent.messageId);
       if (error) console.error('[groups] attribution failed', error);

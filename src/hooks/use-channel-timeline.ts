@@ -148,6 +148,7 @@ export function useChannelTimeline(ws: ChatWorkspace, channelId: string) {
   );
   // Which key's first fetch failed, so the skeleton does not stay up.
   const [failedKey, setFailedKey] = useState<SessionKey | null>(null);
+  const [attempt, setAttempt] = useState(0);
   const [loadingOlder, setLoadingOlder] = useState(false);
 
   const patch = useCallback(
@@ -193,7 +194,12 @@ export function useChannelTimeline(ws: ChatWorkspace, channelId: string) {
     return () => {
       cancelled = true;
     };
-  }, [key, sb, channelId, loadDetails, fail]);
+  }, [key, sb, channelId, loadDetails, fail, attempt]);
+
+  const retry = useCallback(() => {
+    setFailedKey(null);
+    setAttempt((n) => n + 1);
+  }, []);
 
   const loadOlder = useCallback(async () => {
     const s = key ? sessionCache.peek<CachedTimeline>(key)?.value : undefined;
@@ -303,7 +309,11 @@ export function useChannelTimeline(ws: ChatWorkspace, channelId: string) {
     ...timeline,
     cards: shown?.cards ?? NO_CARDS,
     callCards: shown?.callCards ?? NO_CALL_CARDS,
-    loading: !shown?.loaded && failedKey !== key,
+    // Until there are rows to show: a failed read is no empty channel,
+    // and must not count as one seen (the read mark, the divider).
+    loading: !shown?.loaded,
+    failed: !shown?.loaded && key !== null && failedKey === key,
+    retry,
     loadingOlder,
     loadOlder,
     toggle,

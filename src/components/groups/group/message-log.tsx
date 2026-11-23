@@ -36,9 +36,12 @@ export type GroupChatMessage = Pick<
 export function GroupMessageLog({
   messages,
   currentUserId,
+  footer,
 }: {
   messages: readonly GroupChatMessage[];
   currentUserId: string | null;
+  /** What stands under a bubble (a send whose outcome is unknown). */
+  footer?: (message: GroupChatMessage) => React.ReactNode;
 }) {
   const t = useTranslations('Groups.page');
   const locale = useLocale();
@@ -74,7 +77,10 @@ export function GroupMessageLog({
             return (
               <div
                 key={m.id}
-                className={cn('flex', out ? 'justify-end' : 'justify-start')}
+                className={cn(
+                  'flex flex-col gap-1',
+                  out ? 'items-end' : 'items-start'
+                )}
               >
                 <div
                   className={cn(
@@ -123,6 +129,7 @@ export function GroupMessageLog({
                     )}
                   </p>
                 </div>
+                {footer?.(m)}
               </div>
             );
           })}

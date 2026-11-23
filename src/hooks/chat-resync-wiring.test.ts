@@ -7,7 +7,7 @@ vi.mock('react', async (importOriginal) => ({
   ...(await importOriginal<typeof import('react')>()),
   useState: (init: unknown) => [
     typeof init === 'function' ? init() : init,
-    () => {},
+    (next: unknown) => void setStates.push(next),
   ],
   useEffect: (effect: () => void | (() => void)) => {
     const cleanup = effect();
@@ -32,10 +32,13 @@ vi.mock('@/hooks/use-chat-tags', () => ({ useChatTags: () => ({}) }));
 vi.mock('@/lib/supabase/client', () => ({ createClient: () => ({}) }));
 
 const refreshed: string[] = [];
+let channels: { data?: unknown[]; error: unknown } = { error: null };
+// What the state setters were called with: no state is kept here.
+const setStates: unknown[] = [];
 vi.mock('@/hooks/use-session-query', () => ({
   useSessionQuery: (key: string) => ({
     data: undefined,
-    error: null,
+    ...channels,
     refresh: async () => void refreshed.push(key.split(':').pop()!),
   }),
 }));
@@ -65,6 +68,8 @@ beforeEach(() => {
   vi.useFakeTimers();
   refreshed.length = 0;
   listMessages.mockClear();
+  channels = { error: null };
+  setStates.length = 0;
 });
 afterEach(() => {
   cleanups.splice(0).forEach((fn) => fn());
@@ -106,5 +111,31 @@ describe('team chat after a gap', () => {
     status?.('SUBSCRIBED');
     await vi.advanceTimersByTimeAsync(10_000);
     expect(listMessages).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('a failed team chat read', () => {
+  it('is not an empty channel list', () => {
+    expect(useChatWorkspace().channelsFailed).toBe(false);
+    channels = { error: new Error('503') };
+    expect(useChatWorkspace().channelsFailed).toBe(true);
+    // The list held stays on screen when only its refresh failed.
+    channels = { data: [], error: new Error('503') };
+    expect(useChatWorkspace().channelsFailed).toBe(false);
+  });
+
+  it('is remembered for the channel it was raised for, never as loaded', async () => {
+    const ws = useChatWorkspace();
+    listMessages.mockRejectedValueOnce(new Error('503'));
+    const tl = useChannelTimeline({ ...ws, fail: () => '' }, CHANNEL);
+    // An unread channel is never `loaded`, so it is not marked read.
+    expect(tl.loading).toBe(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(setStates).toHaveLength(1);
+    const failedKey = setStates[0];
+    expect(failedKey).toContain(CHANNEL);
+    tl.retry();
+    expect(setStates[1]).toBeNull();
+    expect((setStates[2] as (n: number) => number)(0)).toBe(1);
   });
 });

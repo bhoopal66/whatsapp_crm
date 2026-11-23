@@ -103,9 +103,11 @@ export function useChatWorkspace() {
   useEffect(() => {
     if (channelsError) fail(channelsError);
   }, [channelsError, fail]);
-  // A failed first load shows an empty list rather than loading forever.
+  // A failed first load shows an empty list rather than loading forever;
+  // `channelsFailed` tells it from one that is empty.
   const channels: ChannelWithMembership[] | null =
     channelsQuery.data ?? (channelsError ? [] : null);
+  const channelsFailed = !channelsQuery.data && !!channelsError;
   const unread: UnreadCount[] = unreadQuery.data ?? EMPTY_UNREAD;
   const loadChannels = channelsQuery.refresh;
   // A channel that leaves the list (removed, a 159 audience, a guest's
@@ -224,6 +226,7 @@ export function useChatWorkspace() {
     userId,
     accountId,
     channels,
+    channelsFailed,
     people,
     peopleById,
     unknownName,

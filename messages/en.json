@@ -5520,6 +5520,8 @@
     "unassigned": "Unassigned",
     "assignedToMe": "Assigned to me",
     "noChannels": "No channels yet.",
+    "channelsLoadFailed": "Couldn't load the channels.",
+    "retry": "Try again",
     "mentions": "{count, plural, =1 {# mention} other {# mentions}}",
     "pickTitle": "Pick a channel",
     "pickBody": "Choose a channel or a direct message on the left.",
@@ -5583,6 +5585,7 @@
       "jumpFailed": "That message couldn’t be found in this channel."
     },
     "timeline": {
+      "loadFailed": "Couldn't load the messages.",
       "today": "Today",
       "yesterday": "Yesterday",
       "edited": "(edited)",
@@ -8509,7 +8512,8 @@
         "unsupported": "This number's WhatsApp gateway doesn't support that action.",
         "unknown": "Something went wrong. Try again.",
         "no_participants": "None of those people could be added to a group. Check the numbers and try again.",
-        "saved_failed_run_sync": "The group was created on WhatsApp but couldn't be saved here. An admin can run Sync to bring it in — don't create it again."
+        "saved_failed_run_sync": "The group was created on WhatsApp but couldn't be saved here. An admin can run Sync to bring it in — don't create it again.",
+        "send_unconfirmed": "This message may have been sent: check the chat before sending it again."
       },
       "membersTab": {
         "search": "Search members",

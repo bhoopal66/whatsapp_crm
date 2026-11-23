@@ -12,6 +12,23 @@ and polish.
 
 ## [Unreleased]
 
+### Group chats that stay current and never send twice
+
+No migration.
+- A WhatsApp group message that timed out is shown as "may have been
+  sent" with Copy and Discard, not put back into the composer: sending it
+  again could put it in the group twice.
+- Your own attachment in a group on a linked number no longer reads
+  "unavailable" when WhatsApp's echo arrives first.
+- An open group or submission group chat catches up after sleep or a
+  dropped connection, is marked read only while it is on screen, and a
+  failed load has a Retry.
+- A deactivated manager no longer blocks every change to a group's
+  managers.
+- A team chat channel (or the channel list) that could not be read says
+  so with a Retry, instead of looking empty.
+- The team chat badge no longer re-reads whenever anyone reads anything.
+
 ### Webhooks during an outage, and an office behind one address
 
 No migration.

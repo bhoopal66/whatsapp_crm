@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 
 import { useAuth } from '@/hooks/use-auth';
 import { subscribeChat, unreadCounts, type UnreadCount } from '@/lib/chat';
+import { isOwnMemberEvent } from '@/lib/chat/channel-list-cache';
 import { totalUnread } from '@/lib/chat/view';
 import { startLiveRead } from '@/lib/realtime/catch-up';
 import { createClient } from '@/lib/supabase/client';
@@ -41,7 +42,10 @@ export function useChatUnreadTotal(): number {
       accountId,
       userId,
       onMessage: schedule,
-      onMember: schedule,
+      // Someone else reading a channel changes no count of ours.
+      onMember: (event) => {
+        if (isOwnMemberEvent(event, userId)) schedule();
+      },
       onChannel: schedule,
       onStatus: live.onStatus,
     });

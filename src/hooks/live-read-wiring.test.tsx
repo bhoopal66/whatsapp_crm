@@ -51,6 +51,7 @@ let answers: Answer[] = [];
 let reads = 0;
 type Handler = (payload: unknown) => void;
 let handlers: Handler[] = [];
+let tables: string[] = [];
 let status: ((s: string) => void) | undefined;
 vi.mock('@/lib/supabase/client', () => {
   const query = () => {
@@ -77,8 +78,9 @@ vi.mock('@/lib/supabase/client', () => {
       removeChannel: () => Promise.resolve('ok'),
       channel: () => {
         const channel = {
-          on: (_t: string, _f: unknown, fn: Handler) => {
+          on: (_t: string, f: { table?: string }, fn: Handler) => {
             handlers.push(fn);
+            tables.push(f.table ?? '');
             return channel;
           },
           subscribe: (fn?: (s: string) => void) => {
@@ -110,6 +112,7 @@ beforeEach(() => {
   answers = [];
   reads = 0;
   handlers = [];
+  tables = [];
   status = undefined;
   sets = [];
 });
@@ -193,6 +196,34 @@ describe('the unread badges', () => {
     await later(0);
     expect(heldIds().sort()).toEqual(['a', 'b']);
     expect(rises).toEqual(['a']);
+  });
+});
+
+describe('the team chat badge', () => {
+  it("reads again for the viewer's own read mark, not for other people's", async () => {
+    answers = [
+      { data: [], error: null },
+      { data: [], error: null },
+    ];
+    useChatUnreadTotal();
+    status?.('SUBSCRIBED');
+    await later(0);
+    expect(reads).toBe(1);
+    const own = handlers[tables.indexOf('chat_channel_members')];
+    own({
+      eventType: 'UPDATE',
+      new: { channel_id: 'c', user_id: 'someone-else' },
+      old: {},
+    });
+    await later(5_000);
+    expect(reads).toBe(1);
+    own({
+      eventType: 'UPDATE',
+      new: { channel_id: 'c', user_id: USER },
+      old: {},
+    });
+    await later(5_000);
+    expect(reads).toBe(2);
   });
 });
 

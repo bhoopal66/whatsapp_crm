@@ -23,6 +23,7 @@ import { ChannelHeader } from './channel-header';
 import { useChatWorkspaceContext } from './chat-context';
 import type { RowActionContext } from './message-actions';
 import { useMessageMarks } from './message-marks';
+import { LoadFailed } from './load-failed';
 import { MessageTimeline } from './message-timeline';
 import { useVoicePlaysValue, VoicePlaysProvider } from './played-by';
 import { QuoteProvider, useQuoteResolver } from './quotes';
@@ -214,6 +215,13 @@ export function ChannelView({
     [channel, ws.userId, ws.peopleById, ws.unknownName]
   );
 
+  if (!channel && ws.channelsFailed)
+    return (
+      <LoadFailed
+        message={t('channelsLoadFailed')}
+        onRetry={() => void ws.reloadChannels()}
+      />
+    );
   if (!channel)
     return (
       <p className="text-muted-foreground p-8 text-center text-sm">
@@ -261,6 +269,8 @@ export function ChannelView({
                 callCards={tl.callCards}
                 hasMoreOlder={tl.hasMoreOlder}
                 loading={tl.loading}
+                failed={tl.failed}
+                onRetry={tl.retry}
                 loadingOlder={tl.loadingOlder}
                 onLoadOlder={tl.loadOlder}
                 onToggleReaction={tl.toggle}
