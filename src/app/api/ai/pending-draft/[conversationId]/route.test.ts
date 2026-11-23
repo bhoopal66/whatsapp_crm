@@ -294,20 +294,33 @@ describe('POST /api/ai/pending-draft/[conversationId]', () => {
       'db_error',
     ],
     ['an unexpected error', new Error('boom'), 500, 'send_unconfirmed'],
-  ])('%s leaves the draft cleared', async (_label, err, status, code) => {
-    setup(HELD);
-    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
-    mocks.send.mockRejectedValue(err);
-    const res = await post({ action: 'send' });
-    log.mockRestore();
-    expect(res.status).toBe(status);
-    expect(await res.json()).toEqual({
-      error: expect.any(String),
-      code,
-      retryable: false,
-    });
-    expect(updates()).toHaveLength(1);
-  });
+  ])(
+    '%s leaves the draft cleared and the chat pinned',
+    async (_label, err, status, code) => {
+      setup(HELD);
+      const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+      mocks.send.mockRejectedValue(err);
+      const res = await post({ action: 'send' });
+      log.mockRestore();
+      expect(res.status).toBe(status);
+      expect(await res.json()).toEqual({
+        error: expect.any(String),
+        code,
+        retryable: false,
+      });
+      // The claim cleared the Important pin; the chat is pinned again
+      // (only while no draft is held), and the draft is not restored.
+      expect(updates()).toHaveLength(2);
+      expect(updates()[1]).toEqual({
+        method: 'update',
+        args: [{ ai_attention_at: expect.any(String) }],
+      });
+      expect(scoped.calls).toContainEqual({
+        method: 'is',
+        args: ['ai_pending_draft_at', null],
+      });
+    }
+  );
 
   it('a hard restriction restores the draft', async () => {
     setup(HELD);

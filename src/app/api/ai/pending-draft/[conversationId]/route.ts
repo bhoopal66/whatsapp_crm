@@ -209,6 +209,20 @@ export async function POST(request: Request, { params }: Params) {
           console.error('[ai/pending-draft] send outcome unknown:', err);
         }
         if (!(err instanceof SendMessageError) || !err.definite) {
+          // The claim cleared the Important pin (migration 078), but the
+          // customer may or may not have been answered: pin the chat
+          // again so it stays in Important until a person looks. Only
+          // while no draft is held (a newer one pins itself).
+          const { error: repinErr } = await supabase
+            .from('conversations')
+            .update({ ai_attention_at: new Date().toISOString() })
+            .eq('id', conversationId)
+            .eq('account_id', accountId)
+            .is('ai_pending_draft_at', null)
+            .select('id');
+          if (repinErr) {
+            console.error('[ai/pending-draft] re-pin error:', repinErr);
+          }
           const unsaved =
             err instanceof SendMessageError && err.code === DRAFT_SENT_UNSAVED;
           return NextResponse.json(

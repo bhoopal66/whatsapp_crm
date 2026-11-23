@@ -170,6 +170,9 @@ No migration.
   gateway error, a message that could not be saved) is no longer offered
   again: the banner says it may have been sent and to check the chat. One
   more click sent it twice.
+- When that happens the chat stays in **Important** (the pin was cleared
+  when Send was pressed), and the text you sent stays on the screen with a
+  **Copy** button, so it can be checked or sent again by hand.
 - **Send** and **Discard** act on the draft on your screen. When the AI has
   held a newer one meanwhile, nothing is sent or discarded and the banner
   shows the newer draft. A tab opened before the update asks for a reload.
