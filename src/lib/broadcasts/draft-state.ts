@@ -2,6 +2,8 @@ import type {
   AudienceConfig,
   VariableMapping,
 } from '@/hooks/use-broadcast-sending';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { MessageTemplate } from '@/types';
 import type { QuietHours } from '@/lib/broadcasts/quiet-hours';
 import { normalizeNarrowing } from '@/lib/broadcasts/audience-narrow';
 
@@ -203,4 +205,36 @@ export function reopenedScheduledAt(
   if (!iso) return null;
   const d = new Date(iso);
   return d.getTime() > now.getTime() ? d : null;
+}
+
+/** The schedule to reopen with, and the past one it had to drop. */
+export function reopenedSchedule(
+  iso: string | null,
+  now: Date = new Date()
+): { at: Date | null; dropped: Date | null } {
+  const at = reopenedScheduledAt(iso, now);
+  return { at, dropped: iso && !at ? new Date(iso) : null };
+}
+
+/** The one template status the wizard offers (step 1) and reopens with. */
+export const SENDABLE_TEMPLATE_STATUS = 'APPROVED';
+
+/**
+ * The template a draft names, if it can still be sent: step 1's filter
+ * and order, so a template paused or rejected since is not found.
+ */
+export async function findDraftTemplate(
+  supabase: Pick<SupabaseClient, 'from'>,
+  ref: { name: string; language: string }
+): Promise<MessageTemplate | null> {
+  const { data } = await supabase
+    .from('message_templates')
+    .select('*')
+    .eq('name', ref.name)
+    .eq('language', ref.language)
+    .eq('status', SENDABLE_TEMPLATE_STATUS)
+    .order('created_at', { ascending: false })
+    .order('id')
+    .limit(1);
+  return (data?.[0] as MessageTemplate | undefined) ?? null;
 }

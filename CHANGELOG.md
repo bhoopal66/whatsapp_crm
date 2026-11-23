@@ -26,6 +26,17 @@ No migration.
   after 1.5 seconds and lets the request through, so a slow database
   cannot hold up a reply.
 - **Web form.** Junk posts no longer use up a form's hourly allowance.
+### A broadcast draft can only be sent once
+
+No migration. Sending a reopened draft now takes the draft first, so two
+people (or two tabs) with the same draft open can no longer both send it.
+The second one is told it was already sent or deleted.
+- If the send fails before a campaign exists, the draft is saved again.
+  If the campaign exists, its own page opens so it can be continued there.
+- Saving a draft that was sent or deleted elsewhere says so instead of
+  reporting success.
+- A draft whose template is no longer approved reopens on the template
+  step, and one whose schedule has passed says the time was removed.
 
 ### Lead source on API broadcasts
 
