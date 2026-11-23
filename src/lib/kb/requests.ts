@@ -12,6 +12,7 @@ import {
   type KbEntry,
   type KbStatus,
 } from './types';
+import { isLearnedEntry } from './learn-settings';
 
 /** A `KbEntry`'s columns (the generated `search` tsvector left out). */
 export const KB_ENTRY_COLUMNS =
@@ -193,9 +194,12 @@ export interface KbFilter {
   audience: KbAudience | 'all';
   status: KbStatus | 'all';
   query: string;
+  /** 'learned': only drafts learned from team answers (migration 270).
+   *  Absent = any origin. */
+  origin?: 'all' | 'learned';
 }
 
-/** The table's filter: audience, status ('all' = any) and a
+/** The table's filter: audience, status, origin ('all' = any) and a
  *  case-insensitive search over ref, category, question and answers. */
 export function kbEntryMatches(
   entry: Pick<
@@ -207,13 +211,18 @@ export function kbEntryMatches(
     | 'question'
     | 'answer_en'
     | 'answer_ar'
-  >,
+  > & { source?: string | null },
   filter: KbFilter
 ): boolean {
   if (filter.audience !== 'all' && entry.audience !== filter.audience) {
     return false;
   }
   if (filter.status !== 'all' && entry.status !== filter.status) return false;
+  if (
+    filter.origin === 'learned' &&
+    !isLearnedEntry({ source: entry.source ?? null })
+  )
+    return false;
   const q = filter.query.trim().toLowerCase();
   if (!q) return true;
   return [

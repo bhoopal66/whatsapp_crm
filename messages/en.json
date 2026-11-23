@@ -5512,7 +5512,8 @@
       "audience": "Audience",
       "status": "Status",
       "search": "Search",
-      "searchPlaceholder": "Search ref, question or answer…"
+      "searchPlaceholder": "Search ref, question or answer…",
+      "origin": "Origin"
     },
     "table": {
       "ref": "Ref",
@@ -5578,6 +5579,12 @@
       "deleteDescription": "{ref} will be removed and the bot can no longer send it. Importing a workbook that still contains it adds it back.",
       "deleted": "Answer deleted",
       "deleteFailed": "Failed to delete answer"
+    },
+    "origin": {
+      "all": "Any origin",
+      "learned": "Learned only",
+      "badge": "Learned",
+      "learnedTitle": "Drafted from how the team answered this question in chat. Check it before approving."
     }
   },
   "Chat": {
@@ -13487,5 +13494,16 @@
     "me": " (me)",
     "unknownAgent": "Unknown agent",
     "assignFailed": "Couldn't assign this chat. Try again."
+  },
+  "KbLearn": {
+    "title": "Learn from team answers",
+    "description": "Once a week, draft an answer for open topics from how your team replied in chat. Drafts only: nothing is sent until an admin approves it.",
+    "notApplied": "Not available yet: apply database migration 270.",
+    "lastRun": "Last run {when}.",
+    "notRunYet": "The first run starts within the hour.",
+    "loadFailed": "Could not load the learning setting",
+    "saveFailed": "Could not save the learning setting",
+    "switchedOn": "Learning from team answers is on",
+    "switchedOff": "Learning from team answers is off"
   }
 }

@@ -176,7 +176,7 @@ module gets its own file and one line here; don't grow this file.
 - **Release 2026-11-22** (236–253, 257: assignment, response times, worklist, notes, voice library, CSAT, web form, saved views, recycle, drafts, contact sort) → `release-2026-11-22.md`. `assignment_rotate_assign` is the only automatic assigner; notes never enter `messages`.
 - **Shell and reports** (`nav-items.ts`, 254–255, `lib/csv/build.ts`) → `shell-and-reports.md`. A new screen is added in `nav-items.ts` once; CSV always through `build.ts`.
 - **Flows vs Automations, crons** (`lib/flows/*`, `lib/automations/*`) → `flows-automations.md`. Seven `x-cron-secret` endpoints; a new background job joins the automations cron.
-- **AI** (`lib/ai/*`, 030, 052, 054, 077–079, 081, 154) → `ai.md`. Every dispatch records one outcome; `ai_usage_log.mode` ↔ `LogAiUsageArgs` ↔ `byMode`.
+- **AI** (`lib/ai/*`, 030, 052, 054, 077–079, 081, 154, 270) → `ai.md`. Every dispatch records one outcome; `ai_usage_log.mode` ↔ `LogAiUsageArgs` ↔ `byMode`.
 - **TypeSafe** (`lib/typesafe/*`, 063–064) → `typesafe.md`. `act: false` changes nothing; no database id goes into TypeSafe state.
 - **Outbound webhooks** (`lib/webhooks/*`, 134) → `outbound-webhooks.md`. Signed, SSRF-guarded, at-most-once, never throws; `WEBHOOK_EVENTS` ↔ 134.
 

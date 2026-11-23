@@ -7,6 +7,7 @@ import {
   AlertTriangle,
   BadgeCheck,
   Loader2,
+  GraduationCap,
   Lock,
   Trash2,
   Upload,
@@ -80,6 +81,7 @@ import {
   type KbEntry,
   type KbStatus,
 } from '@/lib/kb/types';
+import { isLearnedEntry } from '@/lib/kb/learn-settings';
 import { cn } from '@/lib/utils';
 
 const TONE_CLASS: Record<KbStatusTone, string> = {
@@ -131,6 +133,7 @@ export function AiApprovedAnswers({
     audience: 'all',
     status: 'all',
     query: '',
+    origin: 'all',
   });
   const [uploading, setUploading] = useState(false);
   const [lastImport, setLastImport] = useState<KbImportResult | null>(null);
@@ -344,7 +347,7 @@ export function AiApprovedAnswers({
             ) : null}
 
             <section className="space-y-3">
-              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,2fr)]">
+              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,2fr)]">
                 <Select
                   value={filter.audience}
                   onValueChange={(v) =>
@@ -402,6 +405,32 @@ export function AiApprovedAnswers({
                         {t(`status.${s}`)}
                       </SelectItem>
                     ))}
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={filter.origin ?? 'all'}
+                  onValueChange={(v) =>
+                    setFilter((f) => ({
+                      ...f,
+                      origin: v === 'learned' ? 'learned' : 'all',
+                    }))
+                  }
+                >
+                  <SelectTrigger
+                    className="w-full"
+                    aria-label={t('filters.origin')}
+                  >
+                    <SelectValue>
+                      {filter.origin === 'learned'
+                        ? t('origin.learned')
+                        : t('origin.all')}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">{t('origin.all')}</SelectItem>
+                    <SelectItem value="learned">
+                      {t('origin.learned')}
+                    </SelectItem>
                   </SelectContent>
                 </Select>
                 <Input
@@ -514,7 +543,18 @@ function EntryRow({ entry, onOpen }: { entry: KbEntry; onOpen: () => void }) {
         <span className="line-clamp-2">{entry.question}</span>
       </TableCell>
       <TableCell>
-        <StatusPill status={entry.status} />
+        <span className="flex flex-wrap items-center gap-1">
+          <StatusPill status={entry.status} />
+          {isLearnedEntry(entry) ? (
+            <span
+              className="bg-info-soft text-info inline-flex h-5 items-center gap-1 rounded-full px-2 text-xs font-medium whitespace-nowrap"
+              title={t('origin.learnedTitle')}
+            >
+              <GraduationCap className="h-3 w-3" aria-hidden />
+              {t('origin.badge')}
+            </span>
+          ) : null}
+        </span>
       </TableCell>
       <TableCell>
         {entry.handoff_after ? (

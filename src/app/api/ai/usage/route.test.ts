@@ -34,13 +34,14 @@ const row = (mode: string, total: number) => ({
 beforeEach(() => mocks.requireRole.mockReset());
 
 describe('GET /api/ai/usage', () => {
-  it('tallies translate and hr_agent rows in their own buckets', async () => {
+  it('tallies translate, hr_agent and kb_learn rows in their own buckets', async () => {
     mocks.requireRole.mockResolvedValue({
       supabase: fakeClient([
         row('translate', 7),
         row('translate', 3),
         row('draft', 5),
         row('hr_agent', 4),
+        row('kb_learn', 6),
       ]),
       accountId: 'account-1',
     });
@@ -52,7 +53,8 @@ describe('GET /api/ai/usage', () => {
       draft: { calls: 1, tokens: 5 },
       translate: { calls: 2, tokens: 10 },
       hr_agent: { calls: 1, tokens: 4 },
+      kb_learn: { calls: 1, tokens: 6 },
     });
-    expect(body.totals.total_tokens).toBe(19);
+    expect(body.totals.total_tokens).toBe(25);
   });
 });

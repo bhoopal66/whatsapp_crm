@@ -12,6 +12,28 @@ and polish.
 
 ## [Unreleased]
 
+### Knowledge base: learn from team answers
+
+**Migration required:** `270_kb_learn.sql`, before the build (as a
+superuser or BYPASSRLS role; after 152 and 202).
+- New switch under **Unanswered questions** (Settings → AI Agents →
+  Knowledge): **Learn from team answers**. Off by default; owners and
+  admins switch it on.
+- Once a week it takes open question topics the knowledge base cannot
+  answer, finds how people on the team answered them in chat (within
+  48 hours, a person's own reply, not the bot, an automation or a
+  template; personal chats and opted-out customers are skipped), and
+  drafts one general answer with the workspace's own AI key.
+- Names, phone numbers, e-mails, IBANs, IDs, card and account numbers
+  are masked before anything is sent; if a text cannot be screened, the
+  topic is skipped. An answer that still carries one is thrown away.
+- Each draft appears in **Approved answers** with a **Learned** badge
+  (filter: **Learned only**) and a note on how many replies it came
+  from. It is never approved or sent by itself: edit it and approve it
+  as usual. A topic is drafted once, again only if its draft is deleted
+  or set to Remove.
+- The tokens show in AI usage as **Learned answers**.
+
 ### Voice notes: one tap to record, one tap to send
 
 No migration.
