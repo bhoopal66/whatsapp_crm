@@ -1,37 +1,34 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { useTranslations } from 'next-intl';
 import { X } from 'lucide-react';
 
+import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/use-auth';
 import { useChannelMembers } from '@/hooks/use-channel-members';
+import { useThread } from '@/hooks/use-thread';
 import { isChannelModerator } from '@/lib/chat/moderation';
-import {
-  applyMessageEvent,
-  applyReactionEvent,
-  attachmentsFor,
-  createTimeline,
-  isGroupedWithPrevious,
-  listMessages,
-  MESSAGE_COLUMNS,
-  reactionsFor,
-  sharedCallCards,
-  sharedCards,
-  threadSummaries,
-  toChatError,
-  toChatMessage,
-  toggleReaction,
-  withDetails,
-  type SharedCallCard,
-  type SharedCard,
-  type TimelineState,
-} from '@/lib/chat';
+import { isGroupedWithPrevious, toggleReaction } from '@/lib/chat';
 import { offersBroadcasts } from '@/lib/chat/composer-input';
+import {
+  holdThread,
+  threadScrollBy,
+  type RowBox,
+  type ThreadScroll,
+} from '@/lib/chat/thread-scroll';
 import { channelDisplayName } from '@/lib/chat/view';
 
 import { useChatWorkspaceContext } from './chat-context';
 import { Composer } from './composer';
+import { LoadFailed } from './load-failed';
 import type { RowActionContext } from './message-actions';
 import { MessageRow } from './message-row';
 import { useVoicePlaysValue, VoicePlaysProvider } from './played-by';
@@ -40,10 +37,23 @@ import { ReplyTargetProvider } from './reply-target';
 import { TypingIndicator } from './typing-indicator';
 import { useWriteBlock } from './use-write-block';
 
-/** Replies read at once; a longer thread shows its latest ones. */
-const REPLY_LIMIT = 200;
 /** How long a quote's jump target stays tinted (as in the main timeline). */
 const HIGHLIGHT_MS = 2000;
+
+/** The list's rows, measured from the top of its viewport. */
+function rowBoxes(el: HTMLElement): RowBox[] {
+  const { top } = el.getBoundingClientRect();
+  return [...el.querySelectorAll<HTMLElement>('[data-message-id]')].map(
+    (row) => {
+      const box = row.getBoundingClientRect();
+      return {
+        id: row.dataset.messageId ?? '',
+        top: box.top - top,
+        bottom: box.bottom - top,
+      };
+    }
+  );
+}
 
 export interface ThreadPanelProps {
   channelId: string;
@@ -53,113 +63,19 @@ export interface ThreadPanelProps {
 
 /**
  * The right column (a full-screen sheet below lg): the root message,
- * its replies and the thread composer. Live through the workspace's
- * one subscription: the root in a main-list timeline (so replies bump
- * its summary) and the replies in a thread-mode one.
+ * its replies and the thread composer (`use-thread.ts`).
  */
 export function ThreadPanel({ channelId, rootId, onClose }: ThreadPanelProps) {
   const t = useTranslations('Chat');
   const ws = useChatWorkspaceContext();
-  const { sb, listen, fail } = ws;
+  const { sb, fail } = ws;
   const { canManageMembers, isBankGuest } = useAuth();
   const channel = ws.channels?.find((c) => c.id === channelId) ?? null;
   const block = useWriteBlock(channel);
-  const [root, setRoot] = useState<TimelineState>(() =>
-    createTimeline(channelId)
-  );
-  const [replies, setReplies] = useState<TimelineState>(() =>
-    createTimeline(channelId, rootId)
-  );
-  const [card, setCard] = useState<SharedCard | null>(null);
-  const [callCard, setCallCard] = useState<SharedCallCard | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let off = false;
-    (async () => {
-      const [head, page] = await Promise.all([
-        sb
-          .from('internal_messages')
-          .select(MESSAGE_COLUMNS)
-          .eq('id', rootId)
-          .maybeSingle(),
-        listMessages(sb, channelId, {
-          threadRootId: rootId,
-          limit: REPLY_LIMIT,
-        }),
-      ]);
-      if (head.error) throw toChatError(head.error);
-      const rootRow = head.data
-        ? toChatMessage(head.data as Record<string, unknown>)
-        : null;
-      const all = rootRow ? [rootRow, ...page.messages] : page.messages;
-      const ids = all.map((m) => m.id);
-      const rootIds = rootRow ? [rootRow.id] : [];
-      const [attachments, reactions, threads, cards, calls] = await Promise.all(
-        [
-          attachmentsFor(sb, ids),
-          reactionsFor(sb, ids),
-          threadSummaries(sb, rootIds),
-          sharedCards(sb, rootIds),
-          sharedCallCards(sb, rootIds),
-        ]
-      );
-      if (off) return;
-      const detailed = withDetails(all, { attachments, reactions, threads });
-      setRoot({
-        ...createTimeline(channelId),
-        messages: rootRow ? detailed.slice(0, 1) : [],
-        hasMoreOlder: false,
-      });
-      setReplies({
-        ...createTimeline(channelId, rootId),
-        messages: rootRow ? detailed.slice(1) : detailed,
-        hasMoreOlder: page.hasMore,
-      });
-      setCard(cards[0] ?? null);
-      setCallCard(calls[0] ?? null);
-    })()
-      .catch((err) => !off && fail(err))
-      .finally(() => !off && setLoading(false));
-    return () => {
-      off = true;
-    };
-  }, [sb, channelId, rootId, fail]);
-
-  useEffect(
-    () =>
-      listen((e) => {
-        if (e.kind === 'reaction') {
-          setRoot((s) => applyReactionEvent(s, e.event));
-          setReplies((s) => applyReactionEvent(s, e.event));
-          return;
-        }
-        if (e.kind !== 'message') return;
-        const ev = e.event;
-        if (
-          ev.type === 'delete' ||
-          ev.message.id === rootId ||
-          ev.message.threadRootId === rootId
-        )
-          setRoot((s) => applyMessageEvent(s, ev));
-        setReplies((s) => applyMessageEvent(s, ev));
-        // The row event carries no attachments: read a new reply's.
-        if (ev.type === 'insert' && ev.message.threadRootId === rootId) {
-          const m = ev.message;
-          attachmentsFor(sb, [m.id])
-            .then((a) =>
-              setReplies((s) =>
-                applyMessageEvent(s, {
-                  type: 'update',
-                  message: { ...m, attachments: a[m.id] ?? [] },
-                })
-              )
-            )
-            .catch(() => {});
-        }
-      }),
-    [listen, sb, rootId]
-  );
+  const { store, view } = useThread(ws, channelId, rootId);
+  const replies = view.replies.timeline;
+  const card = view.root.cards[rootId] ?? null;
+  const callCard = view.root.callCards[rootId] ?? null;
 
   /** Not optimistic: the realtime echo applies the change. */
   const toggle = useCallback(
@@ -169,11 +85,32 @@ export function ThreadPanel({ channelId, rootId, onClose }: ThreadPanelProps) {
     [sb, fail]
   );
 
-  const rootMsg = root.messages.find((m) => m.id === rootId) ?? null;
+  const rootMsg =
+    view.root.timeline.messages.find((m) => m.id === rootId) ?? null;
 
   // A quote in the thread names the root or another reply (156), so its
   // jump stays inside this panel; one not shown here does nothing.
   const scrollerRef = useRef<HTMLDivElement>(null);
+  // What the reader sees, measured as the thread is about to change (the
+  // store tells before React draws) and put back once it has.
+  const heldScroll = useRef<ThreadScroll | null>(null);
+  useEffect(
+    () =>
+      store.subscribe(() => {
+        const el = scrollerRef.current;
+        heldScroll.current = el && holdThread(rowBoxes(el), rootId, el);
+      }),
+    [store, rootId]
+  );
+  useLayoutEffect(() => {
+    const el = scrollerRef.current;
+    const held = heldScroll.current;
+    heldScroll.current = null;
+    if (!el || !held) return;
+    const rows = rowBoxes(el);
+    const topOf = (id: string) => rows.find((r) => r.id === id)?.top ?? null;
+    el.scrollTop += threadScrollBy(held, topOf, el);
+  }, [view]);
   const [highlightId, setHighlightId] = useState<string | null>(null);
   useEffect(() => {
     if (!highlightId) return;
@@ -255,7 +192,12 @@ export function ThreadPanel({ channelId, rootId, onClose }: ThreadPanelProps) {
               data-inbox-scroll-root=""
               className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto pb-3"
             >
-              {loading ? (
+              {view.phase === 'failed' ? (
+                <LoadFailed
+                  message={t('timeline.loadFailed')}
+                  onRetry={store.retry}
+                />
+              ) : view.phase === 'loading' ? (
                 <p className="text-muted-foreground p-6 text-center text-sm">
                   {t('thread.loading')}
                 </p>
@@ -278,6 +220,22 @@ export function ThreadPanel({ channelId, rootId, onClose }: ThreadPanelProps) {
                     </span>
                     <span className="bg-border h-px flex-1" />
                   </div>
+                  {replies.hasMoreOlder && (
+                    <div className="px-4 py-2 text-center">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={view.loadingOlder}
+                        onClick={() => void store.loadOlder()}
+                      >
+                        {t(
+                          view.loadingOlder
+                            ? 'thread.loadingOlder'
+                            : 'thread.loadOlder'
+                        )}
+                      </Button>
+                    </div>
+                  )}
                   {replies.messages.map((m, i) => (
                     <MessageRow
                       key={m.id}
@@ -299,7 +257,7 @@ export function ThreadPanel({ channelId, rootId, onClose }: ThreadPanelProps) {
               )}
             </div>
           </VoicePlaysProvider>
-          {rootMsg && !rootMsg.deletedAt && (
+          {view.phase === 'ready' && rootMsg && !rootMsg.deletedAt && (
             <>
               <TypingIndicator channelId={channelId} threadRootId={rootId} />
               <Composer

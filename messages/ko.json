@@ -5864,7 +5864,9 @@
       "close": "스레드 닫기",
       "loading": "스레드를 불러오는 중…",
       "gone": "이 메시지를 볼 수 없습니다.",
-      "replies": "{count, plural, =0 {아직 답글이 없습니다} other {답글 #개}}"
+      "replies": "{count, plural, =0 {아직 답글이 없습니다} other {답글 #개}}",
+      "loadOlder": "이전 답글 불러오기",
+      "loadingOlder": "이전 답글을 불러오는 중…"
     },
     "members": {
       "title": "멤버",
