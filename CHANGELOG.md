@@ -14,6 +14,19 @@ and polish.
 
 ### Security
 
+- **Who reads automation runs, flow settings and number credentials.**
+  The run log of an automation, its steps and the nodes of a flow are read
+  by owners and admins only, the people whose screens show them. The
+  credentials of a WhatsApp number are no longer readable by any signed-in
+  session; the server reads them with the service role after the caller's
+  own read has said which numbers they may see. A customer note is always
+  the writer's own, on a customer the writer can see, and only its writer
+  can change it. **Migration required: 285. Deploy the build first, then
+  apply the migration:** the previous build reads the credentials through
+  the session and cannot send after it.
+
+### Security
+
 **Migration required: 283** (`283_chat_media_owner.sql`, after 242). The app
 works before and after it; apply it as soon as you update.
 - WhatsApp files in Storage (`chat-media`, `flow-media`): a signed-in person

@@ -207,3 +207,15 @@ process; an install that does not ping that cron can schedule
 `SELECT public.edge_purge()` with pg_cron every 15 minutes instead.
 Correctness does not depend on it: an unpurged row is dead weight,
 never a wrong answer.
+
+## Read rules (migration 285)
+
+- `automation_logs`, `automation_steps`, `flow_nodes`: owners and admins.
+- `whatsapp_config`: every member reads the rows, nobody signed in reads
+  `access_token`, `verify_token` or `app_secret`. These columns are not
+  granted to `authenticated`, so a session never selects `*` from this
+  table; server code adds them with `withChannelSecrets()`
+  (`src/lib/whatsapp/channel-secrets.ts`). A new column needs its own
+  `GRANT SELECT`; `verify-read-rules.sql` fails until it has one.
+- `contact_notes`: a note is inserted and changed by its writer only, on a
+  customer the writer can see.

@@ -202,7 +202,10 @@ export function WhatsAppConfig({
         // and the panel reports "Not connected" for a healthy channel.
         let query = supabase
           .from('whatsapp_config')
-          .select('*')
+          .select(
+            // Named, never '*': a session may not read the tokens (285).
+            'id, user_id, phone_number_id, waba_id, status, connected_at, registered_at, subscribed_apps_at, last_registration_error, mirror_inbound_media, provider, label, is_primary, is_personal, account_id, created_at, updated_at'
+          )
           .eq('account_id', acctId)
           .eq('provider', 'whapi');
         query = configId
