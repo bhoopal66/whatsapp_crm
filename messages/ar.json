@@ -8192,6 +8192,8 @@
       "team_activity_unlock_request": "طلبات فك حظر رسالة محظورة",
       "team_activity_unlock_decided": "البتّ في طلبات فك الحظر الخاصة بي",
       "meeting_invite": "دعوات الاجتماعات",
+      "meeting_update": "تغيير موعد اجتماع",
+      "meeting_cancelled": "إلغاء اجتماع",
       "meeting_reminder": "تذكيرات الاجتماعات",
       "event_reminder": "تذكيرات التقويم",
       "group_join_request": "طلبات الانضمام إلى مجموعات WhatsApp",

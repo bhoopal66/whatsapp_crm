@@ -450,8 +450,13 @@ export type NotificationType =
   // Video meetings (106): you were invited to a meeting (the invitees
   // trigger). meta = {meeting_id}.
   | 'meeting_invite'
+  // ... a scheduled one was moved, or cancelled (278's meetings trigger,
+  // to its invitees). meta = {meeting_id}.
+  | 'meeting_update'
+  | 'meeting_cancelled'
   // Calendar (108): invited to / changed / cancelled event (to the
-  // attendees), an attendee answered (to the creator, meta adds
+  // attendees; a person taken off one is rung cancelled, 278), an
+  // attendee answered (to the creator, meta adds
   // {user_id, response}), and the reminder sweep's event reminder
   // (meta adds {occurrence_start, offset}). meta = {event_id}.
   | 'calendar_invite'

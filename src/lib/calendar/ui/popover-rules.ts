@@ -9,6 +9,9 @@ export interface EventDetailFacts {
   createdBy: string;
   /** The API's own `canEdit` (organiser only). */
   canEdit: boolean;
+  /** The API's own `canDelete`: the organiser, or an admin for a leaver's
+   *  event (278). */
+  canDelete: boolean;
   attendees: readonly { user_id: string; response: AttendeeResponse }[];
 }
 
@@ -44,8 +47,9 @@ const NONE: PopoverActions = {
 
 /**
  * `detail` is the loaded event (null while loading or for meetings and
- * tasks). Edit and Delete need the organiser on both counts: the API's
- * `canEdit` and the row's creator being me.
+ * tasks). Edit needs the organiser on both counts: the API's `canEdit` and
+ * the row's creator being me. Delete takes the API's `canDelete` too: an
+ * admin may delete a leaver's event, never edit it.
  */
 export function popoverActions(
   item: FeedItem,
@@ -59,6 +63,7 @@ export function popoverActions(
   }
   if (!detail || !me) return NONE;
   const organiser = detail.canEdit && detail.createdBy === me;
+  const remove = organiser || detail.canDelete;
   const mine = organiser
     ? null
     : (detail.attendees.find((a) => a.user_id === me) ?? null);
@@ -68,8 +73,8 @@ export function popoverActions(
     myResponse: mine?.response ?? null,
     notify: !!mine && mine.response !== 'pending',
     edit: organiser,
-    remove: organiser,
-    askScope: organiser && item.recurring,
+    remove,
+    askScope: remove && item.recurring,
   };
 }
 

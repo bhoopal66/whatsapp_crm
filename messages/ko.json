@@ -8192,6 +8192,8 @@
       "team_activity_unlock_request": "차단된 메시지의 잠금 해제 요청",
       "team_activity_unlock_decided": "내 잠금 해제 요청이 결정됨",
       "meeting_invite": "회의 초대",
+      "meeting_update": "회의 시간이 변경됨",
+      "meeting_cancelled": "회의가 취소됨",
       "meeting_reminder": "회의 미리 알림",
       "event_reminder": "캘린더 미리 알림",
       "group_join_request": "WhatsApp 그룹 가입 요청",

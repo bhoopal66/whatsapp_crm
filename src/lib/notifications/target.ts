@@ -40,7 +40,8 @@
  *   leaders and up (`TeamLeaderOnlyLayout`); the person over the limit
  *   has the whole message in the row already.
  * - Team chat (087): `chatNotificationHref`.
- * - `meeting_invite` (106's invitees trigger) and `meeting_reminder`
+ * - `meeting_invite` (106's invitees trigger), `meeting_update` /
+ *   `meeting_cancelled` (278's meetings trigger) and `meeting_reminder`
  *   (108's reminder sweep): `meta.meeting_id` → the meeting's page.
  * - `group_join_request` (the Whapi groups webhook): `meta.group_id` →
  *   the group's requests tab.
@@ -159,6 +160,8 @@ function hrefFor(
       return isUuid(group) ? `/submission-groups/${group}` : null;
     }
     case 'meeting_invite':
+    case 'meeting_update':
+    case 'meeting_cancelled':
     case 'meeting_reminder': {
       const meeting = metaField(n.meta, 'meeting_id');
       return isUuid(meeting) ? `/meetings/${meeting}` : null;

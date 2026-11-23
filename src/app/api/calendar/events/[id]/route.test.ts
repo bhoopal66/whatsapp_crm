@@ -52,8 +52,8 @@ function eventRow(over: Record<string, unknown>) {
   };
 }
 
-const ctx = (userId: string) => ({
-  role: 'agent',
+const ctx = (userId: string, role = 'agent') => ({
+  role,
   userId,
   accountId: 'acct-1',
   supabase: fakeSupabase(db),
@@ -151,6 +151,40 @@ describe('/api/calendar/events/[id]', () => {
 
       mocks.getCurrentAccount.mockResolvedValue(ctx(OTHER));
       expect((await (await get()).json()).canEdit).toBe(false);
+    });
+
+    it('lets the creator delete, without asking the database', async () => {
+      expect((await (await get()).json()).canDelete).toBe(true);
+      expect(rpcCalls()).toEqual([]);
+    });
+
+    it("asks the database whether an admin may delete somebody else's", async () => {
+      mocks.getCurrentAccount.mockResolvedValue(ctx(OTHER, 'admin'));
+      for (const data of [true, false]) {
+        db.rpc = { calendar_event_can_remove: () => ({ data }) };
+        db.rpcCalls = [];
+        expect(await (await get()).json()).toMatchObject({
+          canEdit: false,
+          canDelete: data,
+        });
+        expect(rpcCalls()).toEqual([
+          ['calendar_event_can_remove', { p_event: ONE }],
+        ]);
+      }
+      // Before 278 the function is not there.
+      db.rpc = {
+        calendar_event_can_remove: () => ({ error: { code: 'PGRST202' } }),
+      };
+      const res = await get();
+      expect(res.status).toBe(200);
+      expect((await res.json()).canDelete).toBe(false);
+    });
+
+    it('never asks for anyone below admin', async () => {
+      mocks.getCurrentAccount.mockResolvedValue(ctx(OTHER, 'team_leader'));
+      db.rpc = { calendar_event_can_remove: () => ({ data: true }) };
+      expect((await (await get()).json()).canDelete).toBe(false);
+      expect(rpcCalls()).toEqual([]);
     });
 
     it('answers 404 for an event the caller cannot see, 400 for a bad id', async () => {
@@ -498,6 +532,37 @@ describe('/api/calendar/events/[id]', () => {
       ).toBe(403);
       expect(events()).toHaveLength(2);
       expect(rpcCalls()).toEqual([]);
+    });
+
+    it("lets an admin delete a leaver's event, or cancel one of its dates", async () => {
+      mocks.getCurrentAccount.mockResolvedValue(ctx(OTHER, 'admin'));
+      db.rpc!.calendar_event_can_remove = () => ({ data: true });
+      expect(
+        (await del(SERIES, `scope=this&occurrenceStart=${OCC}`)).status
+      ).toBe(200);
+      expect(rpcCalls().map((c) => c[0])).toEqual([
+        'calendar_event_can_remove',
+        'calendar_cancel_occurrence',
+      ]);
+      expect((await del()).status).toBe(200);
+      expect(events().map((r) => r.id)).toEqual([SERIES]);
+      // Editing stays the creator's.
+      expect((await patch({ title: 'x' }, SERIES)).status).toBe(403);
+    });
+
+    it('refuses an admin when the database says no, or cannot say', async () => {
+      mocks.getCurrentAccount.mockResolvedValue(ctx(OTHER, 'admin'));
+      for (const answer of [{ data: false }, { error: { code: 'PGRST202' } }]) {
+        db.rpc!.calendar_event_can_remove = () => answer;
+        expect((await del()).status).toBe(403);
+        expect(
+          (await del(SERIES, `scope=this&occurrenceStart=${OCC}`)).status
+        ).toBe(403);
+      }
+      expect(events()).toHaveLength(2);
+      expect(rpcCalls().map((c) => c[0])).not.toContain(
+        'calendar_cancel_occurrence'
+      );
     });
 
     it('answers 403 when the policy refuses the delete (0 rows)', async () => {
