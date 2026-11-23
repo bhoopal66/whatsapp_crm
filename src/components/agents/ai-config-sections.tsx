@@ -871,7 +871,9 @@ export function GuardrailRetryRow({ form }: { form: AiConfigForm }) {
       description={t('guardrailRetryDesc')}
       checked={form.values.guardrailRetry}
       onCheckedChange={(x) => form.set('guardrailRetry', x)}
-      disabled={!form.canEdit || form.saving}
+      // The safety panel mounts this outside the form tabs, so it must
+      // refuse edits itself until the config was read.
+      disabled={!form.canEdit || form.saving || form.loading || form.loadError}
     />
   );
 }
