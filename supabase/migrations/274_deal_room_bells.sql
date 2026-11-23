@@ -84,12 +84,14 @@ BEGIN
          WHERE m.channel_id = r.channel_id
            AND public.deal_room_is_staff(r.account_id, m.user_id)
         UNION
-        -- Who opened it, while their role still shows it to them: an agent
-        -- who left the room's channel can no longer open it.
+        -- Who opened it, while it opens for them outside its channel too:
+        -- owners and admins (deal_room_access, 088). A leader's sight of the
+        -- room answers for the caller only (deal_room_leader_sees), so a
+        -- leader or agent who left the channel is not rung.
         SELECT p.user_id FROM public.profiles p
          WHERE p.user_id = r.created_by AND p.account_id = r.account_id
            AND p.deactivated_at IS NULL
-           AND p.account_role::text IN ('owner', 'admin', 'team_leader')) w
+           AND p.account_role::text IN ('owner', 'admin')) w
      WHERE r.id = NEW.room_id AND r.account_id = NEW.account_id
        AND r.status NOT IN ('failed', 'closed')
        AND NOT EXISTS (
@@ -109,7 +111,7 @@ $$;
 REVOKE ALL ON FUNCTION public.deal_room_ring_message() FROM PUBLIC, anon, authenticated;
 
 COMMENT ON FUNCTION public.deal_room_ring_message() IS
-  'AFTER INSERT on group_messages: one unread deal_room_message bell per person per room for an inbound message, to the live staff in the room''s channel and whoever opened it. A redelivered message inserts no row, so it rings nobody.';
+  'AFTER INSERT on group_messages: one unread deal_room_message bell per person per room for an inbound message, to the live staff in the room''s channel and, while an owner or admin, whoever opened it. A redelivered message inserts no row, so it rings nobody.';
 
 DROP TRIGGER IF EXISTS group_messages_ring ON public.group_messages;
 CREATE TRIGGER group_messages_ring

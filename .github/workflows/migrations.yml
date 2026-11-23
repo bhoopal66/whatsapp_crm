@@ -1401,6 +1401,6 @@ jobs:
         run: supabase db query --local --file supabase/ci/verify-case-file-fixes.sql
 
       # Migration 274: a customer's or bank's message in a deal room rings
-      # its live staff and whoever opened it, once while unread.
+      # its live staff and the owner or admin who opened it, once while unread.
       - name: Verify deal room bells
         run: supabase db query --local --file supabase/ci/verify-deal-room-bells.sql
