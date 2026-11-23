@@ -12,6 +12,22 @@ and polish.
 
 ## [Unreleased]
 
+### Contact import and pipeline fixes
+
+No migration.
+- Contact CSV files keep quotes and apostrophes in names, and a line break
+  or comma inside a quoted cell no longer breaks the row. `;` and tab
+  separated files are read too. A row that cannot be read is listed with
+  its line number.
+- The contact import checks the file's own numbers (it stopped at the
+  first 1,000 contacts), says before importing how many are new and how
+  many are already there, lists every row it could not import with the
+  reason, and asks before closing while it runs.
+- The pipelines board shows every deal (it stopped at 1,000). When the
+  deals cannot be loaded it says so with a Try again button.
+- Editing a deal saves only the fields you changed, so it no longer undoes
+  a colleague's change, and a board refresh no longer clears what you typed.
+
 ### Limits on what reaches a customer's group, and on uploads
 
 No migration.
