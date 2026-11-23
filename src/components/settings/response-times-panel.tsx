@@ -51,6 +51,7 @@ const ERROR_KEYS = [
   'invalid_hours',
   'invalid_target',
   'not_allowed',
+  'reload',
 ] as const;
 
 /**
@@ -150,7 +151,7 @@ export function ResponseTimesPanel() {
       const res = await fetch('/api/response-times/settings', {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(patch),
+        body: JSON.stringify({ ...patch, partial: true }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {

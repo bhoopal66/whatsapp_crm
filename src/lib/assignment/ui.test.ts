@@ -232,9 +232,12 @@ describe('assignmentSettingsDiff', () => {
     });
   });
 
-  it('sends everyone as the whole answer', () => {
+  it('sends everyone with the pool it was loaded with', () => {
     expect(
       assignmentSettingsDiff(saved, { ...saved, broadcastPool: [] })
-    ).toEqual({ broadcastPool: [] });
+    ).toEqual({
+      broadcastPool: [],
+      broadcastPoolExpected: saved.broadcastPool,
+    });
   });
 });

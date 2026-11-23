@@ -9,6 +9,7 @@ import {
   Send,
   Pencil,
   Trash2,
+  Copy,
   X,
   AlertTriangle,
   ShieldAlert,
@@ -142,6 +143,12 @@ export function AiThreadBanner({
     null
   );
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
+  // The text Send was pressed on when the answer was "may have been
+  // sent": kept readable and copyable once the draft is gone.
+  const [unconfirmed, setUnconfirmed] = useState<{
+    conv: string;
+    text: string;
+  } | null>(null);
 
   useEffect(() => {
     // GET /api/ai/config refuses a restricted department; status stays null.
@@ -213,6 +220,7 @@ export function AiThreadBanner({
   );
 
   const draftAt = conversation.ai_pending_draft_at ?? null;
+  const serverDraft = conversation.ai_pending_draft ?? null;
   const actOnDraft = useCallback(
     async (action: 'send' | 'discard', text?: string) => {
       setBusy({
@@ -220,6 +228,7 @@ export function AiThreadBanner({
         action: action === 'discard' ? 'discard' : text ? 'sendEdited' : 'send',
       });
       try {
+        const sentText = text ?? serverDraft ?? '';
         const res = await fetch(`/api/ai/pending-draft/${conversationId}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -240,10 +249,12 @@ export function AiThreadBanner({
               toast.info(t('draftReplaced'));
               return;
             case 'maybeSent':
+              setUnconfirmed({ conv: conversationId, text: sentText });
               applied(DRAFT_CLEARED);
               toast.warning(t('draftMaybeSent'));
               return;
             case 'sentUnsaved':
+              setUnconfirmed({ conv: conversationId, text: sentText });
               applied(DRAFT_CLEARED);
               toast.warning(t('draftSentUnsaved'));
               return;
@@ -269,7 +280,7 @@ export function AiThreadBanner({
         setBusy(null);
       }
     },
-    [conversationId, draftAt, applied, t]
+    [conversationId, draftAt, serverDraft, applied, t]
   );
 
   // Account has no auto-reply → nothing to show. (Still loading → nothing.)
@@ -297,204 +308,258 @@ export function AiThreadBanner({
     </BannerButton>
   );
 
-  switch (state.kind) {
-    case 'hidden':
-      return null;
-
-    case 'draft':
-      return (
-        <Banner
-          tone={attention ? 'attention' : 'primary'}
-          placement={placement}
-          stacked
+  const unconfirmedText =
+    unconfirmed?.conv === conversationId ? unconfirmed.text : null;
+  const banner = renderState();
+  if (unconfirmedText === null || state.kind === 'hidden') return banner;
+  return (
+    <>
+      {banner}
+      <div className="border-wa-divider bg-wa-panel-header flex items-start gap-2 border-t px-3 py-2 text-xs sm:px-4">
+        <div className="min-w-0 flex-1">
+          <p className="text-wa-text-secondary">{t('unconfirmedLabel')}</p>
+          <p className="text-wa-text max-h-32 overflow-y-auto break-words whitespace-pre-wrap">
+            {unconfirmedText}
+          </p>
+        </div>
+        <BannerButton
+          onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(unconfirmedText);
+              toast.success(t('copiedText'));
+            } catch {
+              toast.error(t('updateError'));
+            }
+          }}
+          busy={false}
+          disabled={false}
+          icon={Copy}
         >
-          <div className="flex items-center gap-1.5">
-            {important}
-            <ShieldAlert className="text-wa-teal h-3.5 w-3.5 flex-shrink-0" />
-            <span className="text-wa-text font-medium">{t('draftTitle')}</span>
-          </div>
-          {state.reason && (
-            <ExpandableText
-              text={t('draftReason', { reason: state.reason })}
-              expanded={expanded}
-              onToggle={() => setExpandedKey(expanded ? null : textKey)}
-              moreLabel={t('showMore')}
-              lessLabel={t('showLess')}
-            />
-          )}
-          {editText === null ? (
-            <blockquote className="border-wa-teal bg-wa-panel text-wa-text max-h-48 overflow-y-auto rounded-e border-s-2 px-2.5 py-1.5 break-words whitespace-pre-wrap">
-              {state.draft}
-            </blockquote>
-          ) : (
-            <textarea
-              aria-label={t('editLabel')}
-              value={editText}
-              onChange={(e) =>
-                setEditing({ key: textKey, text: e.target.value })
-              }
-              disabled={disabled}
-              rows={4}
-              autoFocus
-              className="border-wa-divider bg-wa-panel text-wa-text focus-visible:border-wa-teal max-h-48 min-h-16 w-full resize-y rounded border px-2.5 py-1.5 text-xs outline-none disabled:opacity-60"
-            />
-          )}
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            {editText === null ? (
-              <>
-                <BannerButton
-                  onClick={() => actOnDraft('discard')}
-                  busy={busyAction === 'discard'}
-                  disabled={disabled}
-                  icon={Trash2}
-                >
-                  {t('discardDraft')}
-                </BannerButton>
-                <BannerButton
-                  onClick={() =>
-                    setEditing({ key: textKey, text: state.draft })
-                  }
-                  busy={false}
-                  disabled={disabled}
-                  icon={Pencil}
-                >
-                  {t('editDraft')}
-                </BannerButton>
-                <BannerButton
-                  onClick={() => actOnDraft('send')}
-                  busy={busyAction === 'send'}
-                  disabled={disabled}
-                  icon={Send}
-                >
-                  {t('sendDraft')}
-                </BannerButton>
-              </>
-            ) : (
-              <>
-                <BannerButton
-                  onClick={() => setEditing(null)}
-                  busy={false}
-                  disabled={disabled}
-                  icon={X}
-                >
-                  {t('cancelEdit')}
-                </BannerButton>
-                <BannerButton
-                  onClick={() => actOnDraft('send', editText.trim())}
-                  busy={busyAction === 'sendEdited'}
-                  disabled={disabled || !editText.trim()}
-                  icon={Send}
-                >
-                  {t('sendEdited')}
-                </BannerButton>
-              </>
-            )}
-          </div>
-        </Banner>
-      );
+          {t('copyText')}
+        </BannerButton>
+        <button
+          type="button"
+          aria-label={t('cancelEdit')}
+          onClick={() => setUnconfirmed(null)}
+          className="text-wa-text-secondary flex-shrink-0 p-1"
+        >
+          <X className="h-3 w-3" />
+        </button>
+      </div>
+    </>
+  );
 
-    case 'paused':
-      return (
-        <Banner tone={attention ? 'attention' : 'muted'} placement={placement}>
-          <div className="min-w-0 flex-1">
-            <p className="text-wa-text flex items-center gap-1.5 font-medium">
+  function renderState() {
+    switch (state.kind) {
+      case 'hidden':
+        return null;
+
+      case 'draft':
+        return (
+          <Banner
+            tone={attention ? 'attention' : 'primary'}
+            placement={placement}
+            stacked
+          >
+            <div className="flex items-center gap-1.5">
               {important}
-              {attention
-                ? t('attentionTitle')
-                : state.reason === 'agent_reply'
-                  ? t('pausedAgentReply')
-                  : state.reason === 'handoff'
-                    ? t('pausedHandoff')
-                    : t('pausedTakeOver')}
-            </p>
-            {state.autoResume && (
-              <p className="text-wa-text-secondary">
-                {t(
-                  state.autoResume.unit === 'hours'
-                    ? 'resumesAfterHours'
-                    : 'resumesAfterMinutes',
-                  { count: state.autoResume.count }
-                )}
-              </p>
-            )}
-            {state.summary && (
+              <ShieldAlert className="text-wa-teal h-3.5 w-3.5 flex-shrink-0" />
+              <span className="text-wa-text font-medium">
+                {t('draftTitle')}
+              </span>
+            </div>
+            {state.reason && (
               <ExpandableText
-                text={state.summary}
+                text={t('draftReason', { reason: state.reason })}
                 expanded={expanded}
                 onToggle={() => setExpandedKey(expanded ? null : textKey)}
                 moreLabel={t('showMore')}
                 lessLabel={t('showLess')}
               />
             )}
-          </div>
-          {/* Needing attention, the person can claim the chat or hand
-              it back to the AI. */}
-          {attention && takeOverButton}
-          <BannerButton
-            onClick={() => setPaused(false, state.replyNow)}
-            busy={busyAction === 'toggle'}
-            disabled={disabled}
-            icon={Undo2}
-          >
-            {state.replyNow ? t('resumeAndReply') : t('resume')}
-          </BannerButton>
-        </Banner>
-      );
-
-    case 'assigned':
-      return (
-        <Banner tone={attention ? 'attention' : 'muted'} placement={placement}>
-          <p className="text-wa-text-secondary flex min-w-0 flex-1 items-center gap-1.5">
-            {important}
-            <span className="truncate">{t('assignedText')}</span>
-          </p>
-          {attention && takeOverButton}
-          <BannerButton
-            onClick={() => setPaused(false)}
-            busy={busyAction === 'toggle'}
-            disabled={disabled}
-            icon={Undo2}
-          >
-            {t('resume')}
-          </BannerButton>
-        </Banner>
-      );
-
-    case 'active':
-      return (
-        <Banner
-          tone={attention ? 'attention' : 'primary'}
-          placement={placement}
-        >
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1.5">
-              {important}
-              <Sparkles className="text-wa-teal h-3.5 w-3.5 flex-shrink-0" />
-              <span className="text-wa-text truncate font-medium">
-                {t('activeText')}
-              </span>
-            </div>
-            {state.warning && (
-              <div role="status" className="text-wa-warning mt-1 flex gap-1.5">
-                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
-                <div className="min-w-0">
-                  <p>
-                    {t('outcomeWarning', {
-                      reason: t(`outcome.${state.warning.outcome}`),
-                    })}
-                  </p>
-                  {state.warning.detail && (
-                    <p className="text-wa-text-secondary break-words">
-                      {t('outcomeDetail', { detail: state.warning.detail })}
-                    </p>
-                  )}
-                </div>
-              </div>
+            {editText === null ? (
+              <blockquote className="border-wa-teal bg-wa-panel text-wa-text max-h-48 overflow-y-auto rounded-e border-s-2 px-2.5 py-1.5 break-words whitespace-pre-wrap">
+                {state.draft}
+              </blockquote>
+            ) : (
+              <textarea
+                aria-label={t('editLabel')}
+                value={editText}
+                onChange={(e) =>
+                  setEditing({ key: textKey, text: e.target.value })
+                }
+                disabled={disabled}
+                rows={4}
+                autoFocus
+                className="border-wa-divider bg-wa-panel text-wa-text focus-visible:border-wa-teal max-h-48 min-h-16 w-full resize-y rounded border px-2.5 py-1.5 text-xs outline-none disabled:opacity-60"
+              />
             )}
-          </div>
-          {takeOverButton}
-        </Banner>
-      );
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {editText === null ? (
+                <>
+                  <BannerButton
+                    onClick={() => actOnDraft('discard')}
+                    busy={busyAction === 'discard'}
+                    disabled={disabled}
+                    icon={Trash2}
+                  >
+                    {t('discardDraft')}
+                  </BannerButton>
+                  <BannerButton
+                    onClick={() =>
+                      setEditing({ key: textKey, text: state.draft })
+                    }
+                    busy={false}
+                    disabled={disabled}
+                    icon={Pencil}
+                  >
+                    {t('editDraft')}
+                  </BannerButton>
+                  <BannerButton
+                    onClick={() => actOnDraft('send')}
+                    busy={busyAction === 'send'}
+                    disabled={disabled}
+                    icon={Send}
+                  >
+                    {t('sendDraft')}
+                  </BannerButton>
+                </>
+              ) : (
+                <>
+                  <BannerButton
+                    onClick={() => setEditing(null)}
+                    busy={false}
+                    disabled={disabled}
+                    icon={X}
+                  >
+                    {t('cancelEdit')}
+                  </BannerButton>
+                  <BannerButton
+                    onClick={() => actOnDraft('send', editText.trim())}
+                    busy={busyAction === 'sendEdited'}
+                    disabled={disabled || !editText.trim()}
+                    icon={Send}
+                  >
+                    {t('sendEdited')}
+                  </BannerButton>
+                </>
+              )}
+            </div>
+          </Banner>
+        );
+
+      case 'paused':
+        return (
+          <Banner
+            tone={attention ? 'attention' : 'muted'}
+            placement={placement}
+          >
+            <div className="min-w-0 flex-1">
+              <p className="text-wa-text flex items-center gap-1.5 font-medium">
+                {important}
+                {attention
+                  ? t('attentionTitle')
+                  : state.reason === 'agent_reply'
+                    ? t('pausedAgentReply')
+                    : state.reason === 'handoff'
+                      ? t('pausedHandoff')
+                      : t('pausedTakeOver')}
+              </p>
+              {state.autoResume && (
+                <p className="text-wa-text-secondary">
+                  {t(
+                    state.autoResume.unit === 'hours'
+                      ? 'resumesAfterHours'
+                      : 'resumesAfterMinutes',
+                    { count: state.autoResume.count }
+                  )}
+                </p>
+              )}
+              {state.summary && (
+                <ExpandableText
+                  text={state.summary}
+                  expanded={expanded}
+                  onToggle={() => setExpandedKey(expanded ? null : textKey)}
+                  moreLabel={t('showMore')}
+                  lessLabel={t('showLess')}
+                />
+              )}
+            </div>
+            {/* Needing attention, the person can claim the chat or hand
+              it back to the AI. */}
+            {attention && takeOverButton}
+            <BannerButton
+              onClick={() => setPaused(false, state.replyNow)}
+              busy={busyAction === 'toggle'}
+              disabled={disabled}
+              icon={Undo2}
+            >
+              {state.replyNow ? t('resumeAndReply') : t('resume')}
+            </BannerButton>
+          </Banner>
+        );
+
+      case 'assigned':
+        return (
+          <Banner
+            tone={attention ? 'attention' : 'muted'}
+            placement={placement}
+          >
+            <p className="text-wa-text-secondary flex min-w-0 flex-1 items-center gap-1.5">
+              {important}
+              <span className="truncate">{t('assignedText')}</span>
+            </p>
+            {attention && takeOverButton}
+            <BannerButton
+              onClick={() => setPaused(false)}
+              busy={busyAction === 'toggle'}
+              disabled={disabled}
+              icon={Undo2}
+            >
+              {t('resume')}
+            </BannerButton>
+          </Banner>
+        );
+
+      case 'active':
+        return (
+          <Banner
+            tone={attention ? 'attention' : 'primary'}
+            placement={placement}
+          >
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5">
+                {important}
+                <Sparkles className="text-wa-teal h-3.5 w-3.5 flex-shrink-0" />
+                <span className="text-wa-text truncate font-medium">
+                  {t('activeText')}
+                </span>
+              </div>
+              {state.warning && (
+                <div
+                  role="status"
+                  className="text-wa-warning mt-1 flex gap-1.5"
+                >
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+                  <div className="min-w-0">
+                    <p>
+                      {t('outcomeWarning', {
+                        reason: t(`outcome.${state.warning.outcome}`),
+                      })}
+                    </p>
+                    {state.warning.detail && (
+                      <p className="text-wa-text-secondary break-words">
+                        {t('outcomeDetail', { detail: state.warning.detail })}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+            {takeOverButton}
+          </Banner>
+        );
+    }
   }
 }
 

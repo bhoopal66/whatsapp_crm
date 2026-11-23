@@ -37,11 +37,13 @@ function supabase() {
   };
 }
 
-const json = (body: unknown) =>
+const raw = (body: unknown) =>
   new Request('http://localhost/api/assignment/settings', {
     method: 'PUT',
     body: JSON.stringify(body),
   });
+// The panels send only changed keys, marked partial.
+const json = (body: Record<string, unknown>) => raw({ partial: true, ...body });
 const params = (userId: string) => ({ params: Promise.resolve({ userId }) });
 
 beforeEach(() => {
@@ -203,6 +205,43 @@ describe('PUT /api/assignment/settings', () => {
       p_default_chat_limit: null,
     });
     expect((await res.json()).settings.broadcastPool).toEqual([U1]);
+  });
+
+  it('answers 409 reload to a body that is not partial, touching nothing', async () => {
+    const res = await PUT(raw({ limitsEnabled: true, broadcastPool: [U1] }));
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toBe('reload');
+    expect(h.rpc).not.toHaveBeenCalled();
+  });
+
+  it('saves everyone when the stored pool equals the loaded one as a set', async () => {
+    h.tables.assignment_settings = {
+      data: { broadcast_pool: [U2, U1] },
+      error: null,
+    };
+    const res = await PUT(
+      json({ broadcastPool: [], broadcastPoolExpected: [U1, U2] })
+    );
+    expect(res.status).toBe(200);
+    expect(h.rpc).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses everyone when someone was added meanwhile, saving nothing', async () => {
+    h.tables.assignment_settings = {
+      data: { broadcast_pool: [U1, U2] },
+      error: null,
+    };
+    const res = await PUT(
+      json({ broadcastPool: [], broadcastPoolExpected: [U1] })
+    );
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toBe('pool_changed');
+    expect(h.rpc).not.toHaveBeenCalled();
+  });
+
+  it('refuses everyone without the pool it was loaded with', async () => {
+    expect((await PUT(json({ broadcastPool: [] }))).status).toBe(400);
+    expect(h.rpc).not.toHaveBeenCalled();
   });
 
   const poolSent = () =>

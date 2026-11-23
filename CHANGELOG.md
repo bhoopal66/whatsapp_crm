@@ -121,6 +121,13 @@ No migration.
   and removed, so two admins' changes both stay. Where they cannot (the list
   has since become "everyone", or would), nothing is saved and the page says
   so.
+- **Response times and Chat assignment**: a page opened before this update
+  no longer saves at all. It sent its whole old form and overwrote another
+  admin's changes. It is told to reload; the new page says "This page is out
+  of date. Reload it and try again."
+- **Chat assignment**: choosing "everyone" (untick the last name) is saved
+  only when nobody else has changed who takes turns since the page loaded.
+  It replaced whatever was stored.
 - **Chat assignment**: when the personal limits cannot be read, the page says
   it did not load. It showed nobody as having one. When the open chats cannot
   be read, it says "not available" instead of 0, and the **Assign** menu shows
@@ -163,6 +170,9 @@ No migration.
   gateway error, a message that could not be saved) is no longer offered
   again: the banner says it may have been sent and to check the chat. One
   more click sent it twice.
+- When that happens the chat stays in **Important** (the pin was cleared
+  when Send was pressed), and the text you sent stays on the screen with a
+  **Copy** button, so it can be checked or sent again by hand.
 - **Send** and **Discard** act on the draft on your screen. When the AI has
   held a newer one meanwhile, nothing is sent or discarded and the banner
   shows the newer draft. A tab opened before the update asks for a reload.
