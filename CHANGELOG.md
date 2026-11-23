@@ -23,6 +23,12 @@ and polish.
   database was briefly unavailable is asked for again from Meta. It was
   lost for good. What had been saved the first time is not saved twice, and
   nobody is told twice.
+- A deal room left open while the laptop slept or the connection dropped
+  now catches up by itself: messages, the room's status and the reply
+  window were stale until something else changed. However many messages
+  were missed, the list has no hole in it.
+- Messages that could not be loaded say so, with Try again, instead of
+  showing an empty group.
 
 ### Voice notes: one tap to record, one tap to send
 

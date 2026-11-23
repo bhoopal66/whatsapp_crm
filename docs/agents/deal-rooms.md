@@ -48,6 +48,9 @@ it.
 - **Bells** (274): `group_messages_ring` gives the room's live staff and its
   creator one unread `deal_room_message` per room; `markRoomBellsRead` in the
   room's screen must clear it or the room never rings again.
+- **The screen** re-reads after a realtime gap (`table-signal.ts`); a guest's
+  room and list stay on the minute refresh. `room-timeline.ts` pages back to
+  what is held, or replaces it: never a hole.
 - **Reconcile** (`reconcileCreatingRooms`, from `GET /api/deal-rooms/cron` and
   the automations cron) takes rooms still `creating` after 2 minutes: matched
   to their group by subject, asked for once more, or failed at 10. Invites

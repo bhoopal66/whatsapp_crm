@@ -9,50 +9,30 @@ import {
   type RoomScope,
 } from '@/lib/deal-rooms/entry';
 import type { RoomSummary } from '@/lib/deal-rooms/reads';
+import { startTableSignal } from '@/lib/deal-rooms/table-signal';
 import { startGuestRefresh } from '@/lib/deal-rooms/view';
 import { createClient } from '@/lib/supabase/client';
 
-const DEBOUNCE_MS = 600;
-
 /**
- * Debounced callback on any change to `table` rows matching `filter`.
+ * Debounced callback on any change to `table` rows matching `filter`,
+ * and after each gap realtime cannot replay (sleep, a dropped channel).
  * Realtime only signals; the data is re-read through the API, which
- * names its columns (the column grants refuse `select=*`).
+ * names its columns (the column grants refuse `select=*`). `onChange`
+ * resolves to false when its read failed. `catchUp` off: a bank guest's
+ * room reads, which `useGuestRefresh` repeats anyway.
  */
 export function useTableSignal(
   sb: SupabaseClient,
   tables: readonly string[],
   filter: (table: string) => string | null,
-  onChange: () => void
+  onChange: () => unknown,
+  catchUp = true
 ) {
   const key = tables.map((t) => `${t}:${filter(t)}`).join('|');
   useEffect(() => {
     if (key.includes(':null')) return;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const fire = () => {
-      clearTimeout(timer);
-      timer = setTimeout(onChange, DEBOUNCE_MS);
-    };
-    let ch = sb.channel(`signal:${Math.random().toString(36).slice(2, 10)}`);
-    for (const part of key.split('|')) {
-      const at = part.indexOf(':');
-      ch = ch.on(
-        'postgres_changes' as never,
-        {
-          event: '*',
-          schema: 'public',
-          table: part.slice(0, at),
-          filter: part.slice(at + 1),
-        },
-        fire
-      );
-    }
-    const sub = ch.subscribe();
-    return () => {
-      clearTimeout(timer);
-      void sb.removeChannel(sub);
-    };
-  }, [sb, key, onChange]);
+    return startTableSignal(sb, key, onChange, catchUp);
+  }, [sb, key, onChange, catchUp]);
 }
 
 /**
@@ -76,8 +56,10 @@ export function useDealRooms(accountId: string | null, guest = false) {
       const res = await fetch('/api/deal-rooms', { cache: 'no-store' });
       if (!res.ok) throw new Error(String(res.status));
       setRooms(((await res.json()) as { rooms: RoomSummary[] }).rooms);
+      return true;
     } catch {
       setRooms((prev) => prev ?? []);
+      return false;
     }
   }, []);
   useEffect(() => {
@@ -89,7 +71,8 @@ export function useDealRooms(accountId: string | null, guest = false) {
     sb,
     ['deal_rooms'],
     () => (accountId ? `account_id=eq.${accountId}` : null),
-    reload
+    reload,
+    !guest
   );
   useGuestRefresh(guest, reload);
   return { rooms, reload };
@@ -128,7 +111,7 @@ export function useScopedDealRooms(scope: RoomScope | null) {
     } catch {
       rooms = null;
     }
-    if (latest.current !== query) return;
+    if (latest.current !== query) return true;
     setState((prev) =>
       rooms
         ? { query, rooms, failed: false }
@@ -136,6 +119,7 @@ export function useScopedDealRooms(scope: RoomScope | null) {
           ? prev
           : { query, rooms: null, failed: true }
     );
+    return rooms !== null;
   }, [query]);
   useEffect(() => {
     // setState lands after the fetch, not in the effect body.

@@ -6074,6 +6074,7 @@
       "timeline": {
         "loading": "Loading messages…",
         "loadOlder": "Load older messages",
+        "loadFailed": "Couldn't load the messages.",
         "empty": "No messages in this group yet.",
         "unsupported": "Unsupported message",
         "savedToDeal": "Saved to deal file automatically",

@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -24,6 +25,7 @@ import { toast } from 'sonner';
 import { ChannelView } from '@/components/chat/channel-view';
 import { useChatWorkspaceContext } from '@/components/chat/chat-context';
 import { Composer } from '@/components/chat/composer';
+import { LoadFailed } from '@/components/chat/load-failed';
 import { MessageMarksProvider } from '@/components/chat/message-marks';
 import { ThreadPanel } from '@/components/chat/thread-panel';
 import { Button } from '@/components/ui/button';
@@ -38,18 +40,18 @@ import {
 import { useGuestRefresh, useTableSignal } from '@/hooks/use-deal-rooms';
 import { useAuth } from '@/hooks/use-auth';
 import { markRoomBellsRead } from '@/lib/deal-rooms/bells';
-import type {
-  MessagePage,
-  RoomDetail,
-  RoomMessage,
-} from '@/lib/deal-rooms/reads';
+import type { MessagePage, RoomDetail } from '@/lib/deal-rooms/reads';
+import {
+  ROOM_TIMELINE_EMPTY,
+  createRoomTimeline,
+  timelinePhase,
+} from '@/lib/deal-rooms/room-timeline';
 import {
   ROOM_SIGNAL_TABLES,
   bubbleOf,
   groupAudience,
   groupComposerMode,
   roomBanner,
-  mergeRoomMessages,
   receiptLine,
   roomPhase,
   roomSignalFilter,
@@ -69,7 +71,7 @@ import { cn } from '@/lib/utils';
 
 export interface RoomContext {
   detail: RoomDetail;
-  reload: () => Promise<void>;
+  reload: () => Promise<unknown>;
 }
 
 export interface DealRoomViewProps {
@@ -111,6 +113,7 @@ export function DealRoomView({
 }: DealRoomViewProps) {
   const t = useTranslations('Chat');
   const ws = useChatWorkspaceContext();
+  const { isBankGuest } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -128,13 +131,16 @@ export function DealRoomView({
         // Gone, or no longer ours (a guest whose access was withdrawn):
         // drop what is on screen rather than keep showing it.
         setDetail(null);
-        return setState('gone');
+        setState('gone');
+        return true;
       }
       if (!res.ok) throw new Error(String(res.status));
       setDetail((await res.json()) as RoomDetail);
       setState('ok');
+      return true;
     } catch {
       setState((s) => (s === 'ok' ? s : 'error'));
+      return false;
     }
   }, [roomId]);
   useEffect(() => {
@@ -144,7 +150,8 @@ export function DealRoomView({
     ws.sb,
     ROOM_SIGNAL_TABLES,
     (table) => roomSignalFilter(table, roomId),
-    reload
+    reload,
+    !isBankGuest
   );
   // A guest cannot read `deal_rooms`, so that signal never reaches them.
   useGuestRefresh(detail?.access === 'guest', reload);
@@ -332,12 +339,9 @@ function GroupTimeline({ roomId }: { roomId: string }) {
   const t = useTranslations('Chat.rooms');
   const format = useFormatter();
   const { sb } = useChatWorkspaceContext();
-  const [messages, setMessages] = useState<RoomMessage[] | null>(null);
-  const [older, setOlder] = useState<string | null>(null);
+  const [timeline, setTimeline] = useState(ROOM_TIMELINE_EMPTY);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const box = useRef<HTMLDivElement>(null);
-  // The first page sets where paging older starts; refreshes do not.
-  const first = useRef(false);
   // Where the scroll goes after the next render: the bottom, or kept
   // in place while an older page is put above.
   const anchor = useRef<'bottom' | { height: number; top: number } | null>(
@@ -356,25 +360,21 @@ function GroupTimeline({ roomId }: { roomId: string }) {
     },
     [roomId]
   );
+  const log = useMemo(() => createRoomTimeline(page), [page]);
   const refresh = useCallback(async () => {
-    try {
-      const p = await page(null);
+    const ok = await log.refresh();
+    if (ok) {
       const el = box.current;
       if (!el || el.scrollHeight - el.scrollTop - el.clientHeight < 120) {
         anchor.current = 'bottom';
       }
-      if (!first.current) {
-        first.current = true;
-        setOlder(p.nextBefore);
-      }
-      setMessages((prev) => mergeRoomMessages(prev ?? [], p.messages));
       if (document.visibilityState === 'visible') {
         void markRoomBellsRead(sb, roomId);
       }
-    } catch {
-      setMessages((prev) => prev ?? []);
     }
-  }, [page, sb, roomId]);
+    setTimeline(log.state());
+    return ok;
+  }, [log, sb, roomId]);
   useEffect(() => {
     void Promise.resolve().then(refresh);
   }, [refresh]);
@@ -391,20 +391,17 @@ function GroupTimeline({ roomId }: { roomId: string }) {
   useTableSignal(sb, ['group_messages'], () => `room_id=eq.${roomId}`, refresh);
 
   const loadOlder = async () => {
-    if (!older || loadingOlder) return;
+    if (!timeline.older || loadingOlder) return;
     setLoadingOlder(true);
-    try {
-      const p = await page(older);
+    if (await log.loadOlder()) {
       const el = box.current;
       if (el) anchor.current = { height: el.scrollHeight, top: el.scrollTop };
-      setOlder(p.nextBefore);
-      setMessages((prev) => mergeRoomMessages(prev ?? [], p.messages));
-    } catch {
-      // The button stays; the next scroll tries again.
-    } finally {
-      setLoadingOlder(false);
+      setTimeline(log.state());
     }
+    setLoadingOlder(false);
   };
+  const { messages, older } = timeline;
+  const phase = timelinePhase(timeline);
 
   useLayoutEffect(() => {
     const el = box.current;
@@ -415,6 +412,17 @@ function GroupTimeline({ roomId }: { roomId: string }) {
     anchor.current = null;
   }, [messages]);
 
+  if (phase === 'failed') {
+    return (
+      <LoadFailed
+        message={t('timeline.loadFailed')}
+        onRetry={() => {
+          setTimeline(ROOM_TIMELINE_EMPTY);
+          void refresh();
+        }}
+      />
+    );
+  }
   if (messages === null) {
     return (
       <p className="text-muted-foreground flex-1 p-8 text-center text-sm">

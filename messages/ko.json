@@ -6074,6 +6074,7 @@
       "timeline": {
         "loading": "메시지를 불러오는 중…",
         "loadOlder": "이전 메시지 불러오기",
+        "loadFailed": "메시지를 불러오지 못했습니다.",
         "empty": "이 그룹에 아직 메시지가 없습니다.",
         "unsupported": "지원되지 않는 메시지",
         "savedToDeal": "딜 파일에 자동 저장됨",
