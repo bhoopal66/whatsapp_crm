@@ -168,8 +168,17 @@ export function sensitiveKinds(
 }
 
 /**
+ * A passport number, only right after the word: "passport no. A1234567",
+ * "جواز رقم A1234567". Letters and exactly seven digits, never a
+ * currency ("passport ready, Dh1500000" is not one). Kept out of
+ * `sensitiveKinds`, which is a copy of migration 158's function.
+ */
+const PASSPORT =
+  /(?:(?<![a-z])passport|جواز(?:\s+(?:ال)?سفر)?)(?:\s+(?:no\.?|number|num|id|is|رقم))*[\s.:#=-]{0,3}(?<![a-z])(?!dh|rs)[a-z]{1,2}\d{7}(?![a-z0-9])/i;
+
+/**
  * True when a customer message carries an Emirates ID, a card number
- * (Luhn-checked) or an IBAN: the approved-answers bot then sends the
+ * (Luhn-checked), an IBAN or a labelled passport number: the approved-answers bot then sends the
  * account's `sensitive_data_reply` instead of an answer.
  *
  * Emirates ID, card and phone patterns are redact.ts's, so the two
@@ -180,5 +189,7 @@ export function sensitiveKinds(
  * replace (which reset lastIndex), never .test().
  */
 export function containsSensitiveData(text: string): boolean {
-  return sensitiveKinds(text).length > 0;
+  return (
+    sensitiveKinds(text).length > 0 || PASSPORT.test(normaliseDigits(text))
+  );
 }

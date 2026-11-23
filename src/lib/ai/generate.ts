@@ -8,6 +8,7 @@ import {
 import { HANDOFF_SENTINEL, aiRequestTimeoutMs } from './defaults';
 import { generateOpenAi } from './providers/openai';
 import { generateAnthropic } from './providers/anthropic';
+import { redactMessages } from './redact-input';
 import { assertAiTransfer, promptSize } from '@/lib/privacy/ai-transfer';
 
 export interface GenerateArgs {
@@ -35,7 +36,10 @@ export interface GenerateArgs {
 export async function generateReply(
   args: GenerateArgs
 ): Promise<GenerateResult> {
-  const { config, systemPrompt, messages } = args;
+  const { config, systemPrompt } = args;
+  // Here, not in the callers: every reply, draft and playground turn
+  // passes through, so none of them can forget it.
+  const messages = redactMessages(args.messages);
   const timeoutMs = args.timeoutMs ?? aiRequestTimeoutMs();
   const providerArgs = {
     apiKey: config.apiKey,

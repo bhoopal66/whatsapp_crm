@@ -265,3 +265,30 @@ describe('generateReply — model override (tier routing)', () => {
     timeout.mockRestore();
   });
 });
+
+describe('what the provider is shown', () => {
+  it('masks an identifier from an earlier turn, the customer’s and ours', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      okResponse({ choices: [{ message: { content: 'ok' } }] })
+    );
+    await generateReply({
+      config: config(),
+      systemPrompt: 'Call us on 04 123 4567.',
+      messages: [
+        { role: 'user', content: 'my id 784-1990-1234567-1' },
+        {
+          role: 'assistant',
+          content: 'Please do not send 4111 1111 1111 1111.',
+        },
+        { role: 'user', content: 'ok. My salary is 25000, can I apply?' },
+      ],
+    });
+    const body = String(vi.mocked(fetch).mock.calls[0]![1]!.body);
+    expect(body).not.toContain('1234567-1');
+    expect(body).not.toContain('4111');
+    expect(body).toContain('[EID]');
+    expect(body).toContain('My salary is 25000');
+    // The business's own prompt is not a chat turn.
+    expect(body).toContain('04 123 4567');
+  });
+});

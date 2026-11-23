@@ -2844,3 +2844,30 @@ describe('dispatchInboundToAiReply — the open question drives retrieval and ro
     ]);
   });
 });
+
+describe('safety of what goes out', () => {
+  it('masks an identifier a flow step quotes back', async () => {
+    await dispatchInboundToAiReply({
+      ...ARGS,
+      flowContext: {
+        flowName: 'Apply',
+        promptText: 'Is 784-1990-1234567-1 right? Or call 04 123 4567.',
+        options: ['Yes'],
+      },
+    });
+    const prompt = h.generateReply.mock.calls[0][0].systemPrompt as string;
+    expect(prompt).not.toContain('1234567-1');
+    expect(prompt).toContain('Is [EID] right?');
+  });
+
+  it('hands off instead of sending a mask the model repeated', async () => {
+    h.generateReply.mockResolvedValue({
+      text: 'Is your ID [EID]?',
+      handoff: false,
+      usage: null,
+    });
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('handed_off');
+    expect(h.engineSendText).not.toHaveBeenCalled();
+    expect(h.state.updatePayload?.ai_handoff_reason).toBe('model');
+  });
+});

@@ -194,5 +194,11 @@ export function buildDraftMessages(args: {
   }
 
   parts.push('Output only the message text.');
-  return [{ role: 'user', content: parts.join('\n\n') }];
+  return [
+    {
+      role: 'user',
+      content: parts.join('\n\n'),
+      ...(typed ? { agentText: typed } : {}),
+    },
+  ];
 }

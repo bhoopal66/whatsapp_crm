@@ -28,6 +28,15 @@ No migration.
 - A team chat channel (or the channel list) that could not be read says
   so with a Retry, instead of looking empty.
 - The team chat badge no longer re-reads whenever anyone reads anything.
+### The AI no longer sees ID, card or account numbers
+
+No migration. Every message the AI reads (the customer's and ours, in
+bot replies, drafts and the knowledge search) is now sent to the AI
+provider with Emirates IDs, cards, IBANs, account and passport numbers,
+one-time codes, phone numbers and e-mails masked. Salaries and other
+amounts are kept, and so is a phone number an agent typed for a draft.
+A bot reply that repeats a mask goes to a person instead. A labelled
+passport number now counts as sensitive data for the warning reply.
 
 ### Webhooks during an outage, and an office behind one address
 

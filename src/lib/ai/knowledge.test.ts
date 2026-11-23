@@ -90,6 +90,17 @@ describe('retrieveKnowledge', () => {
     expect(state.rpcCalls).toEqual([]);
   });
 
+  it('embeds the question with identifiers masked', async () => {
+    const { db } = makeDb();
+    await retrieveKnowledge(
+      db,
+      'acct',
+      { embeddingsApiKey: 'sk' },
+      'is 784-1990-1234567-1 eligible?'
+    );
+    expect(h.embedTexts).toHaveBeenCalledWith('sk', ['is [EID] eligible?']);
+  });
+
   it('uses lexical FTS only when there is no embeddings key', async () => {
     const { db, state } = makeDb();
     state.fts = [{ id: 'f1', content: 'F1' }];
