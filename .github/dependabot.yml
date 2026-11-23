@@ -49,6 +49,10 @@ updates:
         update-types: ["version-update:semver-major"]
       # The safety layer's wire format is pinned and tested against it.
       - dependency-name: "@typesafe-ai/sdk"
+      # web-push 4 is ESM with named exports only: the import, its types
+      # and a real delivery have to move together.
+      - dependency-name: web-push
+        update-types: ["version-update:semver-major"]
       # TypeScript 7 is the native compiler: needs the whole toolchain.
       - dependency-name: typescript
         update-types: ["version-update:semver-major"]
