@@ -12,6 +12,21 @@ and polish.
 
 ## [Unreleased]
 
+### Sign-in hardening
+
+No migration.
+- "Forgot password" tells people to ask an administrator, who sets a new
+  password in Settings → Members. It used to promise an email that could
+  not arrive.
+- Your email in Settings → Profile is read-only; an administrator changes
+  it in Settings → Members.
+- Changing your own password goes through the server: the sign-in lockout
+  counts wrong guesses, and your other devices are signed out.
+- A short outage of the auth service no longer sends signed-in people to
+  the login page. API calls answer 503 until it is back.
+- Automations, flows and quick replies no longer show raw database
+  messages when a request fails.
+
 ### Dependencies and repository settings
 
 No migration. Run `npm ci` after pulling.
