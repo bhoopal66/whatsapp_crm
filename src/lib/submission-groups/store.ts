@@ -130,8 +130,6 @@ export const GROUP_COLUMNS =
 
 type Row = Record<string, unknown>;
 
-/** Pending 'out' rows an echo reconcile scans; a full page is treated as ambiguous. */
-export const PENDING_OUT_SCAN = 50;
 const str = (v: unknown): string | null =>
   v === null || v === undefined ? null : String(v);
 const date = (v: unknown): Date | null =>
@@ -663,53 +661,28 @@ export class SubmissionGroupStore {
     );
   }
 
-  /** Echo reconcile: does any row of the group already carry this WhatsApp message id? */
-  async hasWaMessage(groupId: string, waMessageId: string): Promise<boolean> {
-    const { data, error } = await this.db
-      .from('submission_group_messages')
-      .select('id')
-      .eq('group_id', groupId)
-      .eq('wa_message_id', waMessageId)
-      .limit(1);
-    if (error) throw new Error(`submission_group_messages: ${error.message}`);
-    return ((data ?? []) as Row[]).length > 0;
-  }
-
   /**
-   * Echo reconcile: up to two ids of the group's pending 'out' rows created
-   * in [`since`, `until`] whose prefixed body is exactly `prefixedBody`
-   * (`until` null = no upper bound). The caller settles only a sole match:
-   * the same sender resending the same text makes identical candidates,
-   * and the echo cannot say which send it is. The body is compared here,
-   * not in the query string, so a long text never lengthens the URL; a
-   * group has only a handful of pending rows, and a full page answers no
-   * match because a twin past it cannot be ruled out.
+   * 267: WhatsApp's echo of one of our own sends. Settles the oldest own row
+   * of the last 15 minutes with exactly that prefixed text (or caption), still
+   * pending or settled failed, as sent with this id. False when the id is
+   * already on a row, or nothing matches.
    */
-  async pendingOutMatching(
-    groupId: string,
-    prefixedBody: string,
-    since: Date,
-    until: Date | null
-  ): Promise<string[]> {
-    let q = this.db
-      .from('submission_group_messages')
-      .select('id, prefixed_body')
-      .eq('group_id', groupId)
-      .eq('direction', 'out')
-      .eq('send_status', 'pending')
-      .gte('created_at', since.toISOString());
-    if (until) q = q.lte('created_at', until.toISOString());
-    const { data, error } = await q
-      .order('created_at', { ascending: true })
-      .order('id', { ascending: true })
-      .limit(PENDING_OUT_SCAN);
-    if (error) throw new Error(`submission_group_messages: ${error.message}`);
-    const rows = (data ?? []) as Row[];
-    if (rows.length >= PENDING_OUT_SCAN) return [];
-    return rows
-      .filter((r) => r.prefixed_body === prefixedBody)
-      .slice(0, 2)
-      .map((r) => String(r.id));
+  async reconcileEcho(echo: {
+    groupId: string;
+    waMessageId: string;
+    type: string;
+    text: string;
+    sentAt: Date | null;
+  }): Promise<boolean> {
+    return (
+      (await this.rpc('sg_reconcile_echo', {
+        p_group: echo.groupId,
+        p_wa_message_id: echo.waMessageId,
+        p_type: echo.type,
+        p_text: echo.text,
+        p_sent_at: echo.sentAt?.toISOString() ?? null,
+      })) === true
+    );
   }
 
   /** A message's send state; null if there is no such row. */

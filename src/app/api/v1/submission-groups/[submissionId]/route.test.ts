@@ -187,9 +187,21 @@ describe('PATCH moves the case', () => {
     expect((await res.json()).data.case).toBeNull();
   });
 
-  it('on an ENDED group still moves the case, recording nothing on the group', async () => {
+  it('answers 500 for a later status an ENDED group could not store', async () => {
+    m.store.findByRef.mockResolvedValue(group({ status: 'ENDED' }));
+    m.rpc.mockResolvedValue({ data: null, error: { message: 'boom' } });
+    const res = await patch({ status: 'DISBURSED' });
+    expect(res.status).toBe(500);
+    expect(m.cases.applySubmissionStatus).not.toHaveBeenCalled();
+  });
+
+  it('on an ENDED group records the later status and still moves the case', async () => {
     m.store.findByRef.mockResolvedValue(group({ status: 'ENDED' }));
     const res = await patch({ status: 'APPROVED' });
+    expect(m.rpc).toHaveBeenCalledWith('sg_note_submission_status', {
+      p_group: 'g1',
+      p_status: 'APPROVED',
+    });
     expect(m.cases.applySubmissionStatus).toHaveBeenCalledWith(
       'g1',
       'APPROVED'
@@ -322,7 +334,7 @@ describe('PATCH /api/v1/submission-groups/{submission_id}', () => {
     expect(m.service.endIfDue).not.toHaveBeenCalled();
   });
 
-  it('records nothing on an ENDED group and reports its state', async () => {
+  it('records a later status on an ENDED group and reports its state', async () => {
     m.store.findByRef.mockResolvedValue(
       group({
         status: 'ENDED',
@@ -332,7 +344,10 @@ describe('PATCH /api/v1/submission-groups/{submission_id}', () => {
     );
     const res = await patch({ status: 'approved' });
     expect(res.status).toBe(200);
-    expect(m.rpc).not.toHaveBeenCalled();
+    expect(m.rpc).toHaveBeenCalledExactlyOnceWith('sg_note_submission_status', {
+      p_group: 'g1',
+      p_status: 'approved',
+    });
     expect(m.service.endIfDue).not.toHaveBeenCalled();
     expect((await res.json()).data).toMatchObject({
       status: 'ENDED',

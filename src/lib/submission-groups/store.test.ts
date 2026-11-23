@@ -1,11 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { describe, expect, it, vi } from 'vitest';
 
-import type { GroupInboundMessage } from '@/lib/groups/inbound';
-
-import { reconcileEcho } from './inbound';
 import {
-  PENDING_OUT_SCAN,
   SubmissionGroupDbError,
   SubmissionGroupStore,
   toGroup,
@@ -70,123 +66,37 @@ describe('the 1:1 invite (118)', () => {
   });
 });
 
-describe('echo reconcile queries', () => {
-  const NOW = new Date('2026-10-16T10:20:00.000Z');
-  const SINCE = new Date('2026-10-16T10:05:00.000Z');
-  const UNTIL = new Date('2026-10-16T10:19:58.999Z');
-  const BODY = 'Ali (Agent): hi';
-
-  const row = (id: string, over: Record<string, unknown> = {}) => ({
-    id,
-    group_id: 'sg-1',
-    direction: 'out',
-    send_status: 'pending',
-    created_at: '2026-10-16T10:19:00.000Z',
-    prefixed_body: BODY,
-    wa_message_id: null,
-    ...over,
-  });
-
-  /** A store over an in-memory table; sg_settle_send settles a pending row once, as the SQL does. */
-  const storeOver = (rows: Record<string, unknown>[]) => {
-    const db: FakeDb = {
-      tables: { submission_group_messages: rows },
-      rpc: {
-        sg_settle_send: (a) => {
-          const r = rows.find((x) => x.id === a.p_message);
-          if (!r || r.send_status !== 'pending') return false;
-          r.send_status = a.p_status;
-          r.wa_message_id = a.p_wa_message_id;
-          return true;
-        },
-      },
+describe('reconcileEcho (267)', () => {
+  it('asks sg_reconcile_echo and answers its boolean', async () => {
+    const rpc = vi.fn(async () => ({ data: true, error: null }));
+    const store = new SubmissionGroupStore({
+      rpc,
+    } as unknown as SupabaseClient);
+    const echo = {
+      groupId: 'sg-1',
+      waMessageId: 'wa-echo',
+      type: 'image',
+      text: 'Ali (Agent)',
     };
-    return new SubmissionGroupStore(
-      fakeSupabase(db) as unknown as SupabaseClient
-    );
-  };
-
-  const echo: GroupInboundMessage = {
-    id: 'wa-echo',
-    waGroupId: '120363000000000001@g.us',
-    fromMe: true,
-    senderWaId: '971500000001',
-    senderName: null,
-    type: 'text',
-    body: BODY,
-    media: null,
-    sentAt: '2026-10-16T10:19:58.000Z',
-  };
-
-  it("pendingOutMatching keeps only the group's pending 'out' rows in the window with exactly that text", async () => {
-    const store = storeOver([
-      row('match'),
-      row('other-group', { group_id: 'sg-2' }),
-      row('inbound', { direction: 'in' }),
-      row('failed', { send_status: 'failed' }),
-      row('too-old', { created_at: '2026-10-16T10:04:59.000Z' }),
-      row('after-echo', { created_at: '2026-10-16T10:19:59.000Z' }),
-      row('other-text', { prefixed_body: 'Ali (Agent): hi ' }),
-    ]);
-    expect(await store.pendingOutMatching('sg-1', BODY, SINCE, UNTIL)).toEqual([
-      'match',
-    ]);
-    // No upper bound when the echo has no timestamp.
-    expect(await store.pendingOutMatching('sg-1', BODY, SINCE, null)).toEqual([
-      'match',
-      'after-echo',
-    ]);
-  });
-
-  it('a full scan page answers no match: a twin past it cannot be ruled out', async () => {
-    const rows = Array.from({ length: PENDING_OUT_SCAN }, (_, i) =>
-      row(`r${String(i).padStart(2, '0')}`, {
-        prefixed_body: i === 0 ? BODY : `Ali (Agent): other ${i}`,
+    expect(
+      await store.reconcileEcho({
+        ...echo,
+        sentAt: new Date('2026-10-16T10:19:58.000Z'),
       })
-    );
-    expect(
-      await storeOver(rows).pendingOutMatching('sg-1', BODY, SINCE, UNTIL)
-    ).toEqual([]);
-    expect(
-      await storeOver(rows.slice(0, -1)).pendingOutMatching(
-        'sg-1',
-        BODY,
-        SINCE,
-        UNTIL
-      )
-    ).toEqual(['r00']);
-  });
-
-  it("one matching pending row is settled sent with the echo's id", async () => {
-    const rows = [row('m1', { created_at: '2026-10-16T10:19:58.500Z' })];
-    expect(await reconcileEcho(storeOver(rows), 'sg-1', echo, NOW)).toBe(true);
-    expect(rows[0]).toMatchObject({
-      send_status: 'sent',
-      wa_message_id: 'wa-echo',
+    ).toBe(true);
+    expect(rpc).toHaveBeenCalledExactlyOnceWith('sg_reconcile_echo', {
+      p_group: 'sg-1',
+      p_wa_message_id: 'wa-echo',
+      p_type: 'image',
+      p_text: 'Ali (Agent)',
+      p_sent_at: '2026-10-16T10:19:58.000Z',
     });
-  });
-
-  it('two identical pending rows are ambiguous: neither is settled', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const rows = [
-      row('m1', { created_at: '2026-10-16T10:18:00.000Z' }),
-      row('m2', { created_at: '2026-10-16T10:19:00.000Z' }),
-    ];
-    expect(await reconcileEcho(storeOver(rows), 'sg-1', echo, NOW)).toBe(false);
-    expect(rows.map((r) => [r.send_status, r.wa_message_id])).toEqual([
-      ['pending', null],
-      ['pending', null],
-    ]);
-    warn.mockRestore();
-  });
-
-  it('an echo whose WhatsApp id is already recorded in the group settles nothing', async () => {
-    const rows = [
-      row('done', { send_status: 'sent', wa_message_id: 'wa-echo' }),
-      row('m1'),
-    ];
-    expect(await reconcileEcho(storeOver(rows), 'sg-1', echo, NOW)).toBe(false);
-    expect(rows[1]).toMatchObject({ send_status: 'pending' });
+    rpc.mockResolvedValue({ data: false, error: null });
+    expect(await store.reconcileEcho({ ...echo, sentAt: null })).toBe(false);
+    expect(rpc).toHaveBeenLastCalledWith(
+      'sg_reconcile_echo',
+      expect.objectContaining({ p_sent_at: null })
+    );
   });
 });
 

@@ -445,9 +445,9 @@ BEGIN
   SELECT ended_at, last_activity_at INTO e_at, last_at FROM submission_groups WHERE id = g1;
   n := n + 1;
   r := sg_note_submission_status(g1, 'LATE')::text;
-  IF r IS DISTINCT FROM 'false'
-     OR (SELECT submission_status FROM submission_groups WHERE id = g1) IS DISTINCT FROM 'UNDER_REVIEW' THEN
-    failed := failed || 'sg_note_submission_status changed an ENDED group'::text;
+  IF r IS DISTINCT FROM 'true'
+     OR (SELECT submission_status FROM submission_groups WHERE id = g1) IS DISTINCT FROM 'LATE' THEN
+    failed := failed || 'sg_note_submission_status did not store a later status on an ENDED group (267)'::text;
   END IF;
   n := n + 1;
   SELECT invite_sent_at INTO last_inv FROM submission_groups WHERE id = g1;

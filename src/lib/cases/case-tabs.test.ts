@@ -81,6 +81,7 @@ describe('timelineIcon', () => {
     expect(timelineIcon('document')).toBe('FileText');
     expect(timelineIcon('sla')).toBe('Timer');
     expect(timelineIcon('bank_contact')).toBe('Landmark');
+    expect(timelineIcon('submission_status')).toBe('ArrowRightLeft');
     expect(timelineIcon('group_open')).toBe('Users');
     expect(timelineIcon('group_end')).toBe('UserX');
     expect(timelineIcon('conversation_archived')).toBe('Archive');

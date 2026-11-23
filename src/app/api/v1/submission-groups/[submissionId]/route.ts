@@ -7,8 +7,8 @@
 // PATCH records `status` on an ACTIVE group; a final status ends the
 // group and closes its WhatsApp group (`closed`), or defers the close
 // while a message is still being sent (`close_deferred`; the next call
-// retries). On an ENDED group it records nothing and only reports the
-// group's state (`ended: false` — this call did not end it).
+// retries). On an ENDED group it records a later status (267) and reports
+// the group's state (`ended: false` — this call did not end it).
 // Account-scoped: a submission of another workspace → 404.
 //
 // A group without a case (the POST could not open it) gets one first, with
@@ -210,6 +210,19 @@ export async function PATCH(request: Request, { params }: Params) {
       });
 
     if (group.status !== 'ACTIVE') {
+      // 267: a status after the final one (a correction, "disbursed") is
+      // stored on the group and logged on the case; a repeat is a no-op.
+      if (status !== null) {
+        const { error } = await ctx.supabase.rpc('sg_note_submission_status', {
+          p_group: group.id,
+          p_status: status,
+        });
+        if (error) {
+          console.error('[api/v1/submission-groups] status note:', error);
+          return fail('internal', 'Failed to record the status', 500);
+        }
+        group = (await store.get(group.id)) ?? group;
+      }
       if (!(await applyCaseStatus(ctx.accountId, group.id, caseStatus)))
         return caseStatusFailed();
       return ok({

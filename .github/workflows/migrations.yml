@@ -1361,3 +1361,6 @@ jobs:
       # message is unread but not the chat's preview.
       - name: Verify guards
         run: supabase db query --local --file supabase/ci/verify-guards.sql
+
+      - name: Verify submission group fixes
+        run: supabase db query --local --file supabase/ci/verify-sg-fixes.sql
