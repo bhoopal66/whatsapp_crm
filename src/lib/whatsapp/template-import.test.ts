@@ -96,7 +96,13 @@ describe('metaTemplateToRow', () => {
     ).toBeNull();
   });
 
-  it('falls back on unknown category / status / quality', () => {
+  it('reads a status as the webhook does: a flagged one still sends', () => {
+    expect(metaTemplateToRow({ ...full, status: 'FLAGGED' })?.status).toBe(
+      'APPROVED'
+    );
+  });
+
+  it('falls back on unknown category / quality, and guesses no status', () => {
     const row = metaTemplateToRow({
       ...full,
       category: 'SOMETHING_NEW',
@@ -104,7 +110,7 @@ describe('metaTemplateToRow', () => {
       quality_score: { score: 'UNKNOWN' },
     });
     expect(row?.category).toBe('Marketing');
-    expect(row?.status).toBe('PENDING');
+    expect(row?.status).toBeNull();
     expect(row?.quality_score).toBeNull();
   });
 });

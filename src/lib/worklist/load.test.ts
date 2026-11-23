@@ -243,12 +243,19 @@ describe('loadWorklistInputs reads every page of cases', () => {
   });
 
   it.each([500, 403])(
-    'a later page answering %i fails the part, never a shorter list',
+    'a later page answering %i leaves the ones read, marked cut',
     async (status) => {
       const { f } = paged({ '': { rows: ['a'], next: 'k1' }, k1: status });
       const out = await load(f);
-      expect(ids(out)).toEqual([]);
-      expect([out.failed, out.casesTruncated]).toEqual([['cases'], false]);
+      expect(ids(out)).toEqual(['a']);
+      expect([out.failed, out.casesTruncated]).toEqual([[], true]);
     }
   );
+
+  it('a first page that fails is the part that failed', async () => {
+    const { f } = paged({ '': 500 });
+    const out = await load(f);
+    expect(ids(out)).toEqual([]);
+    expect([out.failed, out.casesTruncated]).toEqual([['cases'], false]);
+  });
 });

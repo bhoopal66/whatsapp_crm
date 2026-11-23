@@ -287,6 +287,29 @@ describe('POST participants', () => {
       role: 'agent',
     }));
 
+  it('logs an override only for people who were added', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect((await addMany(50)).status).toBe(200);
+    // Ten left: of the twenty, all overridden, ten are added.
+    mocks.screenRecipients.mockResolvedValueOnce({
+      recipients: Array.from({ length: 20 }, (_, i) => ({
+        waId: `9715001${String(i).padStart(5, '0')}`,
+        contactId: null,
+        overridden: true,
+      })),
+      invalid: [],
+      notFound: [],
+      skipped: [],
+      overridden: 20,
+    });
+    expect((await call(POST, { contactIds: [C1] })).status).toBe(200);
+    expect(warn).toHaveBeenCalledWith(
+      '[groups] consent override',
+      expect.objectContaining({ count: 10 })
+    );
+    warn.mockRestore();
+  });
+
   it('stops one person at 60 people an hour and a number at 120', async () => {
     expect((await addMany(50)).status).toBe(200);
     expect((await addMany(10)).status).toBe(200);

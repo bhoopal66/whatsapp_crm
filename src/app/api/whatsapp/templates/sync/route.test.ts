@@ -108,6 +108,21 @@ describe('templates sync: what Meta no longer has', () => {
     expect(status('4')).toBe('APPROVED');
   });
 
+  it('keeps the stored status when Meta names one we do not know', async () => {
+    answer([
+      { ...remote('1'), status: 'LIMIT_EXCEEDED' },
+      remote('2'),
+      { ...remote('9'), status: 'LIMIT_EXCEEDED' },
+    ]);
+    await sync();
+    expect(status('1')).toBe('APPROVED');
+    // A new one is not offered to any sender.
+    expect(
+      mocks.db.tables.message_templates.find((r) => r.meta_template_id === '9')
+        ?.status
+    ).toBe('PENDING');
+  });
+
   it('leaves one still waiting for Meta alone: the list may not have it yet', async () => {
     mocks.db.tables.message_templates.push(local('5', { status: 'PENDING' }));
     answer([remote('1'), remote('2')]);

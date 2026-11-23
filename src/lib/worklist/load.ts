@@ -81,11 +81,12 @@ const NO_CASES: CasesRead = { cases: [], truncated: false };
 /**
  * The cases, page by page: the person and team filters run on what is
  * read here, so a first page alone hid a person's cases behind everyone
- * else's. Null when any page failed, never a silently shorter list.
+ * else's. Null when the first page failed; after that what was read is
+ * kept and marked cut, never a silently shorter list.
  */
 async function loadCases(fetchImpl: typeof fetch): Promise<CasesRead | null> {
+  let cases: InboxRow[] = [];
   try {
-    let cases: InboxRow[] = [];
     let after: string | null = null;
     for (let read = 0; read < WORKLIST_CASE_MAX; read += WORKLIST_CASE_LIMIT) {
       const res: Response = await fetchImpl(
@@ -93,7 +94,8 @@ async function loadCases(fetchImpl: typeof fetch): Promise<CasesRead | null> {
         { cache: 'no-store' }
       );
       if (res.status === 403 && after === null) return NO_CASES;
-      if (!res.ok) return null;
+      // What was read stays, and says it is not all of it.
+      if (!res.ok) return after === null ? null : { cases, truncated: true };
       const page = parseInboxPage(await res.json());
       cases = appendRows(cases, page.rows);
       after = page.nextCursor;
@@ -101,7 +103,7 @@ async function loadCases(fetchImpl: typeof fetch): Promise<CasesRead | null> {
     }
     return { cases, truncated: true };
   } catch {
-    return null;
+    return cases.length > 0 ? { cases, truncated: true } : null;
   }
 }
 

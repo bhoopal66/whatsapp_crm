@@ -262,6 +262,9 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     // See loadOlder: the two never run together.
     if (!upTo || loadingOlder) return;
     setMarkingAll(true);
+    // A list read before the update must not land on top of it.
+    loadSeq.current += 1;
+    setLoading(false);
     const now = new Date().toISOString();
     dispatch({ type: 'markAllRead', at: now, upTo });
     const { error: updateErr } = await createClient()
@@ -270,10 +273,10 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       .lte('created_at', upTo)
       .is('read_at', null);
     setMarkingAll(false);
-    if (updateErr) {
-      toast.error(t('markAllReadFailed'));
-      void load();
-    }
+    if (updateErr) toast.error(t('markAllReadFailed'));
+    // What the dropped read would have brought, and the truth after a
+    // failure.
+    void load();
   }, [state, loadingOlder, load, t]);
 
   // Every type's screen, gated by the reader's role in the row's own

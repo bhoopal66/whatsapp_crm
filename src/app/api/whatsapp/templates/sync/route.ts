@@ -108,19 +108,28 @@ export async function POST() {
       const id =
         byMetaId.get(row.meta_template_id) ??
         byNameLang.get(`${row.name} ${row.language}`);
+      const { status, ...columns } = row;
       if (id) {
         const { error } = await supabase
           .from('message_templates')
-          .update({ ...row, submission_error: null })
+          .update({
+            ...columns,
+            // One we do not know says nothing: the stored one stays.
+            ...(status ? { status } : {}),
+            submission_error: null,
+          })
           .eq('id', id)
           .eq('account_id', accountId);
         if (error) throw error;
         touched.add(id);
         updated++;
       } else {
-        const { error } = await supabase
-          .from('message_templates')
-          .insert({ ...row, account_id: accountId, user_id: userId });
+        const { error } = await supabase.from('message_templates').insert({
+          ...columns,
+          status: status ?? 'PENDING',
+          account_id: accountId,
+          user_id: userId,
+        });
         if (error) throw error;
         created++;
       }

@@ -109,7 +109,11 @@ export async function POST(request: Request, { params }: Params) {
       for (const [key, rule] of budgets) checkRateLimit(key, rule);
     }
     const overLimit = waIds.slice(allowed);
-    logConsentOverride(group.id, ctx.userId, screened.overridden);
+    logConsentOverride(
+      group.id,
+      ctx.userId,
+      screened.recipients.slice(0, allowed).filter((r) => r.overridden).length
+    );
     const outcome =
       allowed > 0
         ? await addParticipants({

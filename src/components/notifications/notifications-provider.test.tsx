@@ -158,11 +158,35 @@ describe('the list', () => {
 });
 
 describe('mark all as read', () => {
+  const update = () => sent.find((c) => c.some(([m]) => m === 'update'))!;
+
   it('is bounded by the newest row loaded, as a string', async () => {
     await loadFirst();
+    unreadTotal = 0;
     await bell().markAllRead();
-    expect(args(lastRequest(), 'lte')).toEqual([['created_at', stamp(0)]]);
-    expect(args(lastRequest(), 'is')).toEqual([['read_at', null]]);
+    expect(args(update(), 'lte')).toEqual([['created_at', stamp(0)]]);
+    expect(args(update(), 'is')).toEqual([['read_at', null]]);
+    expect(bell().unread).toBe(0);
+  });
+
+  it('is not undone by a list read before it, and reads the list again', async () => {
+    await loadFirst();
+    let land: (a: Answer) => void = () => {};
+    answers = [new Promise<Answer>((r) => (land = r))];
+    const reading = bell().load();
+    await settle();
+    const before = sent.length;
+    unreadTotal = 0;
+    const read = rows(0, 3).map((r) => ({ ...r, read_at: stamp(0) }));
+    answers = [{ error: null }, { data: read, error: null }];
+    await bell().markAllRead();
+    await settle();
+    // The update, then the fresh list and count.
+    expect(sent.length).toBeGreaterThan(before + 1);
+    expect(bell().notifications).toHaveLength(3);
+    land(page(0, 101));
+    await reading;
+    expect(bell().notifications).toHaveLength(3);
     expect(bell().unread).toBe(0);
   });
 

@@ -80,8 +80,8 @@ describe('screenRecipients', () => {
     });
     expect(out.recipients).toEqual([
       { waId: '971501111111', contactId: C1 },
-      { waId: '971502222222', contactId: C2 },
-      { waId: '971503333333', contactId: null },
+      { waId: '971502222222', contactId: C2, overridden: true },
+      { waId: '971503333333', contactId: null, overridden: true },
       { waId: '971504444444', contactId: null },
     ]);
     expect(out.skipped).toEqual([]);
