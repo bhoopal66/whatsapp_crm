@@ -2322,6 +2322,7 @@
       "customised": "(تغيّر عن الافتراضي)",
       "saved": "تم حفظ إعدادات {department}",
       "saveFailed": "تعذّر حفظ إعدادات القسم",
+      "rereadFailed": "تعذر التحقق من الإعدادات الحالية، لذلك لم يتغير شيء. حاول مرة أخرى.",
       "loadFailed": "تعذّر تحميل إعدادات القسم",
       "memberLabel": "القسم",
       "memberChanged": "{name} الآن في {department}",

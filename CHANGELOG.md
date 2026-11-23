@@ -12,6 +12,14 @@ and polish.
 
 ## [Unreleased]
 
+### Settings saved from an old tab, and older notifications
+
+No migration.
+- **Departments**: turning one switch changes that switch only. It sent the
+  other one as the screen had loaded it, so a page left open could undo
+  another admin's change (and give HR staff the sales areas back). If the
+  current settings cannot be read, nothing is saved and the page says so.
+
 ### Voice notes: one tap to record, one tap to send
 
 No migration.

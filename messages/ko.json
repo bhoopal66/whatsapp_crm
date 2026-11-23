@@ -2322,6 +2322,7 @@
       "customised": "(기본값에서 변경됨)",
       "saved": "{department} 설정을 저장했습니다",
       "saveFailed": "부서 설정을 저장하지 못했습니다",
+      "rereadFailed": "현재 설정을 확인하지 못해 아무것도 변경하지 않았습니다. 다시 시도하세요.",
       "loadFailed": "부서 설정을 불러오지 못했습니다",
       "memberLabel": "부서",
       "memberChanged": "{name}님이 {department} 부서로 이동했습니다",

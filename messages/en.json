@@ -2322,6 +2322,7 @@
       "customised": "(changed from the default)",
       "saved": "Saved {department} settings",
       "saveFailed": "Could not save the department settings",
+      "rereadFailed": "Could not check the current settings, so nothing was changed. Try again.",
       "loadFailed": "Could not load the department settings",
       "memberLabel": "Department",
       "memberChanged": "{name} is now in {department}",
