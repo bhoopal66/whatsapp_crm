@@ -99,6 +99,12 @@ export interface IngestInput {
    * connection's event clock alone. See `onCallEnd`.
    */
   historical?: boolean;
+  /**
+   * Leaves the connection's clock and status alone: a call found in the
+   * CDR (reconcile-calls.ts) did not come over the event link, and
+   * stamping it would hide the silence alert during the very outage.
+   */
+  keepClock?: boolean;
 }
 
 /** How events reach the app: Yeastar's push, or the WebSocket gateway. */
@@ -234,6 +240,7 @@ export async function storePbxEvent(input: IngestInput): Promise<StoreResult> {
       receivedAt,
       via: input.via,
       historical: input.historical,
+      keepClock: input.keepClock,
     },
   };
 }
@@ -291,6 +298,8 @@ export interface StoredEventInput {
   receivedAt: string;
   via?: PbxEventPath;
   historical?: boolean;
+  /** IngestInput.keepClock. */
+  keepClock?: boolean;
   /**
    * A retry too late to act on (event-retry.ts): a call end writes the
    * calls row and clears its screen pop, an all-hung-up frame clears the
@@ -380,7 +389,7 @@ export async function processStoredPbxEvent(
     console.warn(`[pbx] event ${rawId} on ${connectionId}: ${failure}`);
   // A historical frame says nothing about the link now (nor does the
   // retry sweep's, which passes no `via`): the clock and status stay.
-  if (conn && !historical && !late) {
+  if (conn && !historical && !late && !input.keepClock) {
     // A delivery proves the push works; a refused API login stays shown.
     // An older stamp (a retry, a late delivery) leaves the clock and its
     // path as they are (104's pbx_connections_event_clock trigger).

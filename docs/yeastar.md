@@ -457,6 +457,14 @@ carries `meta.settled_without_cdr` (when, and the status it had). A
 PBX that cannot be reached closes nothing; its calls wait for the next
 run.
 
+**Calls whose events were lost.** At most every 15 minutes the cron also
+reads the last hour of call records and adds the calls the CRM has no
+trace of (the PBX could not reach it), once they have been over for 10
+minutes. They are added quietly, except that a customer call nobody
+answered that ended within the hour opens its usual missed-call task and
+bell, once. Calls that started over an hour ago are not found this way:
+the gateway's backfill or the CDR import below covers them.
+
 ## 11. Calling from the CRM
 
 **Off unless switched on.** The CRM places no calls unless the app was

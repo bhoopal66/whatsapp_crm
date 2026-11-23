@@ -63,6 +63,13 @@ parser, signature check, WebSocket helpers, token manager and CDR helpers.
   decides what an old one may still do: over an hour on, a call end only
   writes its row (`late`: no task, bell or call-back), and an old ring or
   a superseded status is stamped without running.
+- **Lost events.** The cron's `reconcile` step (`reconcile-calls.ts`,
+  every 15 minutes) ingests calls with no `calls` row from the last hour's
+  CDR, 10 minutes after they end and decided on the merged call: all legs
+  `historical`, except the last leg of a missed inbound call, which rings
+  once; `keepClock` leaves `last_event_at` alone. Calls that started over
+  an hour ago are not recovered here (the gateway's 24 h backfill covers
+  those when the gateway runs).
 - **Chats follow the caller.** `assignChatFromCallHistory`
   (`assign-from-calls.ts`) runs in `processMessage` after the idempotency
   boundary and before the unread bump (the bump's realtime event is what

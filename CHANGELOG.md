@@ -12,6 +12,17 @@ and polish.
 
 ## [Unreleased]
 
+### Phone system: calls whose events were lost
+
+No migration.
+- When the PBX could not reach the app, the calls of that time were
+  missing. Every 15 minutes the app now looks for them in the last hour of
+  the PBX's call records and adds them. A customer call nobody answered
+  that ended within the hour opens its usual missed-call task and bell,
+  once; every other call is added quietly.
+- The silence alert still rings during such an outage: a call found this
+  way does not count as an event from the PBX.
+
 ### Automations that wait, and stay where they were
 
 **Migration required:** `269_automation_runs.sql`, before the build.
