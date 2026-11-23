@@ -21,6 +21,8 @@ No migration.
   it sends nothing.
 - The bot no longer also answers a message a meaning-trigger automation just
   answered.
+- Questions kept for the knowledge-gap review are stored with identifiers
+  masked, and older ones are masked before they are grouped.
 
 ### Cases: timers, snoozes and rules
 

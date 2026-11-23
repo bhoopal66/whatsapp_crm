@@ -3267,3 +3267,22 @@ describe('dispatchInboundToAiReply — a burst inside a flow', () => {
     expect(h.engineSendText).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('dispatchInboundToAiReply — knowledge gaps are stored masked', () => {
+  it('masks identifiers in the stored question', async () => {
+    h.loadAiConfig.mockResolvedValue(aiConfig({ retrievalMinScore: 0.4 }));
+    h.buildConversationContext.mockResolvedValue([
+      {
+        role: 'user',
+        content: 'Write to ali@example.com about the early settlement fee?',
+      },
+    ]);
+    h.retrieveKnowledge.mockResolvedValue(
+      retrieval(['x'], { bestSimilarity: 0.1 })
+    );
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('handed_off');
+    expect(h.state.gaps).toHaveLength(1);
+    expect(h.state.gaps[0].question).toContain('[EMAIL]');
+    expect(h.state.gaps[0].question).not.toContain('ali@example.com');
+  });
+});

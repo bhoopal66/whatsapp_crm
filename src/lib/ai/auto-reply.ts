@@ -35,7 +35,11 @@ import {
 import { isGreetingOrThanks, resolveTierModel, routeMessage } from './router';
 import { markOptedOut } from './opt-out';
 import { containsSensitiveData } from '@/lib/kb/sensitive';
-import { echoesRedaction, redactOwnText } from './redact-input';
+import {
+  echoesRedaction,
+  redactForProvider,
+  redactOwnText,
+} from './redact-input';
 import { shortlistApprovedAnswers } from '@/lib/kb/shortlist';
 import {
   decideApprovedAnswer,
@@ -2008,7 +2012,8 @@ async function logKnowledgeGap(
     const { error } = await db.from('ai_knowledge_gaps').insert({
       account_id: args.accountId,
       conversation_id: args.conversationId,
-      question: args.question.slice(0, 2000),
+      // Masked: this row is read by admins and embedded later.
+      question: redactForProvider(args.question).slice(0, 2000),
       best_score: args.bestScore,
     });
     if (error)
