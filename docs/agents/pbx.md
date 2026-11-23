@@ -55,7 +55,11 @@ parser, signature check, WebSocket helpers, token manager and CDR helpers.
   softphone.
 - `runPbxCron` (recordings, call-backs, event retries, purge) runs from
   `GET /api/pbx/cron` and the automations cron, and starts no new work
-  after 45 s. `verify-pbx.sql`.
+  after 45 s. `verify-pbx.sql`. The retry also picks events interrupted
+  before their stamp (no error, over 2 minutes old); `event-retry.ts`
+  decides what an old one may still do: over an hour on, a call end only
+  writes its row (`late`: no task, bell or call-back), and an old ring or
+  a superseded status is stamped without running.
 - **Chats follow the caller.** `assignChatFromCallHistory`
   (`assign-from-calls.ts`) runs in `processMessage` after the idempotency
   boundary and before the unread bump (the bump's realtime event is what

@@ -29,7 +29,9 @@ No migration.
   stored (one short second try), and with 503 when one could not be, so a
   database hiccup no longer loses a call event the PBX was told had
   arrived. Processing still happens after the answer. No migration.
-
+- A phone event whose processing was interrupted (a restart) is retried.
+  An old one never rings, opens a task or changes a current status: past
+  an hour it only completes the call's record.
 
 ### Reminders and meeting invites after sleep
 

@@ -139,6 +139,43 @@ async function download(fetchFn: FetchFn, url: string): Promise<Uint8Array> {
   return new Uint8Array(await res.arrayBuffer());
 }
 
+/** Tries at writing a call whose row keeps changing underneath. */
+const WRITE_ATTEMPTS = 3;
+
+/**
+ * Writes a still-pending call, its meta built on the row as it is now: a
+ * download takes seconds, and a call end may add a leg to meta meanwhile.
+ * Compare-and-set on updated_at (calls_guard stamps it on every write); a
+ * lost race reads again. A call no longer pending is left alone.
+ */
+async function writePending(
+  db: SupabaseClient,
+  call: Row,
+  patch: (meta: Row) => Row
+): Promise<void> {
+  let seen: Row | null = call;
+  for (let attempt = 0; attempt < WRITE_ATTEMPTS && seen; attempt++) {
+    const upd = await db
+      .from('calls')
+      .update(patch((seen.meta ?? {}) as Row))
+      .eq('id', String(call.id))
+      .eq('recording_state', 'pending')
+      .eq('updated_at', seen.updated_at)
+      .select('id');
+    if (upd.error) throw new Error(`calls update: ${upd.error.message}`);
+    if (((upd.data ?? []) as unknown[]).length) return;
+    const again = await db
+      .from('calls')
+      .select('meta, updated_at')
+      .eq('id', String(call.id))
+      .eq('recording_state', 'pending')
+      .maybeSingle();
+    if (again.error) throw new Error(`calls read: ${again.error.message}`);
+    seen = again.data as Row | null;
+  }
+  if (seen) throw new Error(`calls write lost ${WRITE_ATTEMPTS} races`);
+}
+
 export async function fetchPendingRecordings(
   input: FetchRecordingsInput
 ): Promise<RecordingsSummary> {
@@ -158,7 +195,7 @@ export async function fetchPendingRecordings(
   const { data, error } = await db
     .from('calls')
     .select(
-      'id, account_id, connection_id, recording_file, meta, started_at, created_at'
+      'id, account_id, connection_id, recording_file, meta, started_at, created_at, updated_at'
     )
     .eq('recording_state', 'pending')
     .order('updated_at', { ascending: true })
@@ -228,7 +265,6 @@ export async function fetchPendingRecordings(
     if (deadline !== undefined && now() >= deadline) break;
     const callId = String(call.id);
     const accountId = String(call.account_id);
-    const meta = (call.meta ?? {}) as Row;
     const file =
       typeof call.recording_file === 'string' ? call.recording_file : '';
     try {
@@ -285,16 +321,11 @@ export async function fetchPendingRecordings(
         { onConflict: 'call_id' }
       );
       if (rec.error) throw new Error(`call_recordings: ${rec.error.message}`);
-      const done = await db
-        .from('calls')
-        .update({
-          recording_state: 'fetched',
-          announcement_played: announced,
-          meta: { ...meta, announcement_basis: basis },
-        })
-        .eq('id', callId)
-        .eq('recording_state', 'pending');
-      if (done.error) throw new Error(`calls update: ${done.error.message}`);
+      await writePending(db, call, (meta) => ({
+        recording_state: 'fetched',
+        announcement_played: announced,
+        meta: { ...meta, announcement_basis: basis },
+      }));
       summary.fetched++;
     } catch (err) {
       if (err instanceof YeastarError && err.isRecordingDownloadBusy) {
@@ -310,26 +341,26 @@ export async function fetchPendingRecordings(
         summary.skipped++;
         continue;
       }
-      const attempts = Number(meta.recording_attempts ?? 0) + 1;
-      const gaveUp = attempts >= MAX_RECORDING_ATTEMPTS;
+      let gaveUp = false;
       summary.failed++;
-      if (gaveUp) summary.gaveUp++;
       console.warn(`[pbx] recording of call ${callId}: ${message(err)}`);
-      const mark = await db
-        .from('calls')
-        .update({
-          ...(gaveUp ? { recording_state: 'failed' } : {}),
-          meta: {
-            ...meta,
-            recording_attempts: attempts,
-            recording_error: message(err),
-          },
-        })
-        .eq('id', callId)
-        .eq('recording_state', 'pending');
-      if (mark.error) {
-        console.error(`[pbx] call ${callId}: ${mark.error.message}`);
+      try {
+        await writePending(db, call, (meta) => {
+          const attempts = Number(meta.recording_attempts ?? 0) + 1;
+          gaveUp = attempts >= MAX_RECORDING_ATTEMPTS;
+          return {
+            ...(gaveUp ? { recording_state: 'failed' } : {}),
+            meta: {
+              ...meta,
+              recording_attempts: attempts,
+              recording_error: message(err),
+            },
+          };
+        });
+      } catch (markErr) {
+        console.error(`[pbx] call ${callId}: ${message(markErr)}`);
       }
+      if (gaveUp) summary.gaveUp++;
     }
   }
   return summary;
