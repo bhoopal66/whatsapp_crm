@@ -49,6 +49,24 @@ No migration.
 - A case's due date out of range is refused before anything is saved. The
   other fields were saved and the screen showed an error.
 
+### Team chat: a message is posted once
+
+**Migration required:** `276_chat_post_once.sql`
+- When the connection dropped as a message was sent, the message could be
+  posted while its author saw an error. Pressing **Send** again posted it
+  a second time and notified everyone twice, or, with files or a voice
+  note, failed although the message was there. Sending it again now shows
+  the message already posted. A changed message is sent as a new one.
+
+### Team chat: nobody falls out of a direct message
+
+**Migration required:** `273_team_chat_fixes.sql`
+- A direct message between two people can no longer be left. The other
+  side kept writing as normal and the one who had left heard nothing.
+  People who had left one are back in it, with what they missed unread. A
+  direct message of three or more people can still be left; opening it
+  again with the same people brings everyone back.
+
 ### Voice notes: one tap to record, one tap to send
 
 No migration.

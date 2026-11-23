@@ -115,7 +115,7 @@ export const openDm = (
 ): Promise<string> =>
   rpc(sb, 'chat_open_dm', { p_ws: i.accountId, p_member_ids: i.memberIds });
 
-export const postMessage = (
+export async function postMessage(
   sb: SupabaseClient,
   i: {
     channelId: string;
@@ -125,9 +125,11 @@ export const postMessage = (
     attachments?: AttachmentInput[];
     /** 156: the message this one quotes. */
     replyToId?: string | null;
+    /** 276: names this post; a repeat of it is answered with the first message. */
+    clientId?: string;
   }
-): Promise<string> =>
-  rpc(sb, 'chat_post_message', {
+): Promise<string> {
+  const args: Row = {
     p_channel: i.channelId,
     p_body: i.body,
     p_thread_root: i.threadRootId ?? null,
@@ -136,7 +138,19 @@ export const postMessage = (
     // Sent only when set: a database still on 087-155 has no p_reply_to
     // and would reject the named argument, so ordinary posts must not carry it.
     ...(i.replyToId ? { p_reply_to: i.replyToId } : {}),
-  });
+  };
+  if (!i.clientId) return rpc(sb, 'chat_post_message', args);
+  try {
+    return await rpc(sb, 'chat_post_message', {
+      ...args,
+      p_client_id: i.clientId,
+    });
+  } catch (err) {
+    // No function with that argument (a database before 276): nothing ran.
+    if ((err as ChatError).sqlState !== 'PGRST202') throw err;
+    return rpc(sb, 'chat_post_message', args);
+  }
+}
 
 /**
  * Forwards a message into another channel (156). The server copies body

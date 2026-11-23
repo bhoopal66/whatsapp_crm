@@ -282,14 +282,16 @@ BEGIN
   r := pg_temp.u(u_rm, pg_temp.q_leave(ch));
   n := n+1; failed := failed || pg_temp.ck(r NOT LIKE 'ERROR%'
     AND NOT EXISTS (SELECT 1 FROM chat_channel_members WHERE channel_id = ch AND user_id = u_rm), 'leave: team creator leaves: ' || r);
-  dm := pg_temp.id(u_rm2, pg_temp.q_dm(a, ARRAY[u_ag]));
+  -- 273: a DM of two cannot be left (verify-team-chat-fixes.sql), so three people here
+  dm := pg_temp.id(u_rm2, pg_temp.q_dm(a, ARRAY[u_ag, u_sup]));
   PERFORM pg_temp.id(u_rm2, pg_temp.q_post(dm, 'before leaving'));
   r := pg_temp.u(u_ag, pg_temp.q_leave(dm));
   n := n+1; failed := failed || pg_temp.ck(r NOT LIKE 'ERROR%'
     AND pg_temp.u(u_ag, pg_temp.q_n('internal_messages', 'channel_id', dm)) = '0', 'leave: DM leaver loses the history: ' || r);
+  PERFORM pg_temp.u(u_sup, pg_temp.q_leave(dm));
   r := pg_temp.u(u_rm2, pg_temp.q_leave(dm));
   n := n+1; failed := failed || pg_temp.ck(r LIKE 'ERROR%last member cannot leave a DM%', 'leave: last DM member: ' || r);
-  r := pg_temp.u(u_ag, pg_temp.q_dm(a, ARRAY[u_rm2]));
+  r := pg_temp.u(u_ag, pg_temp.q_dm(a, ARRAY[u_rm2, u_sup]));
   PERFORM pg_temp.id(u_ag, pg_temp.q_post(dm, 'back again'));
   n := n+1; failed := failed || pg_temp.ck(r = dm::text
     AND pg_temp.u(u_ag, pg_temp.q_n('internal_messages', 'channel_id', dm)) = '2', 'leave: reopening the DM brings the leaver back: ' || r);

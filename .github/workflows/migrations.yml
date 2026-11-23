@@ -1405,3 +1405,15 @@ jobs:
       # once.
       - name: Verify case timers
         run: supabase db query --local --file supabase/ci/verify-case-timers.sql
+
+      # Migration 273: a DM between two people cannot be left, and
+      # reopening a DM brings back everyone named, never a deactivated
+      # person or a pair the DM rules block.
+      - name: Verify team chat fixes
+        run: supabase db query --local --file supabase/ci/verify-team-chat-fixes.sql
+
+      # Migration 276: a repeated post (same client id) answers the first
+      # message, with one set of bells and its files kept; a concurrent
+      # repeat too; one chat_post_message, calls without the id as before.
+      - name: Verify chat posts once
+        run: supabase db query --local --file supabase/ci/verify-chat-post-once.sql
