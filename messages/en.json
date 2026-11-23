@@ -8220,6 +8220,7 @@
       "channel_reconnected": "A WhatsApp number reconnects",
       "inbound_message_failed": "A WhatsApp message could not be saved",
       "meta_number_alert": "The Meta number's health gets worse",
+      "retention_failed": "Automatic data removal (retention) fails",
       "pbx_connection_silent": "The phone system goes quiet",
       "pbx_connection_restored": "The phone system is back",
       "team_activity_alert": "Team activity alerts",
@@ -13486,7 +13487,11 @@
       },
       "apply": "Apply: the daily sweep deletes and blanks",
       "dryRun": "Preview only: the daily sweep counts and changes nothing",
-      "saved": "Retention saved"
+      "saved": "Retention saved",
+      "lastDryRun": "Last run {at}: a preview. It would remove or blank {rows, plural, one {# row} other {# rows}} and {files, plural, one {# file} other {# files}}.",
+      "lastApply": "Last run {at}: {rows, plural, one {# row} other {# rows}} removed or blanked, {files, plural, one {# file} other {# files}} queued for deletion.",
+      "lastMore": "More is left; it continues automatically.",
+      "lastFailed": "Last run {at} failed ({code}). It is tried again automatically; the owners were told."
     },
     "ai": {
       "title": "Sending customer text to AI providers",

@@ -134,6 +134,18 @@ sweeps once a day:
 - **What can never be swept.** Bank cases, case files, the case's
   WhatsApp group, consent and audit tables are not on the list and
   cannot be added by a setting.
+- **Files.** The stored files of the messages it deletes or blanks are
+  deleted too (282), unless something else still points at them: another
+  message, a customer's document, a case, or a deal's files, which keep
+  a deal room's attachments. They are listed with the sweep's log entry
+  and removed right after it; one that cannot be deleted is tried again
+  daily.
+- **Batches.** It works through old rows 500 of each kind at a time and
+  continues every minute until nothing is left, so the first Apply on
+  years of data finishes by itself.
+- **When it fails** the owners get a notification (once a day), the log
+  has an entry, and it is tried again every 15 minutes. Settings → Privacy
+  shows the outcome of the last run.
 - **Call recordings** have their own retention (Settings → Consent and
   retention).
 

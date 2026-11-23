@@ -34,6 +34,15 @@ Port of package 033h-k. `docs/privacy.md` is the contract.
   cron): allow-list `privacy_retention_rules()` = `RETENTION_RULES`
   (`retention.test.ts` compares); no retained table may join it. Dry
   run until the workspace applies; holds skipped.
+- **Retention runs (282).** 282 restates 262's sweep, pending and settle
+  and 223's get: apply in order, once. `privacy_retention_sweep(account,
+  dry, limit)` is one slice and answers `more`; a kind whose rows point at
+  files collects them (`privacy_media_objects`) before the row goes, into
+  `detail.objects_list` of the `retention` row. `retentionRunner` loops
+  slices, then `retryErasedObjects`; a failure goes to
+  `privacy_retention_failed` (row plus the owners' `retention_failed`
+  bell, once a day) and never spends the day's run.
+  `verify-retention-fixes.sql`.
 - **AI transfer** (`ai_transfer_check`): `assertAiTransfer` before every
   OpenAI/Anthropic call of a config with `accountId` (generate,
   translate, HR agents, query and gap embeddings) and the TypeSafe

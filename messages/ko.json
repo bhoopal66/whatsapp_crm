@@ -8220,6 +8220,7 @@
       "channel_reconnected": "WhatsApp 번호 다시 연결됨",
       "inbound_message_failed": "WhatsApp 메시지를 저장하지 못함",
       "meta_number_alert": "Meta 번호 상태 악화",
+      "retention_failed": "자동 데이터 삭제(보관 기간) 실패",
       "pbx_connection_silent": "전화 시스템 응답 없음",
       "pbx_connection_restored": "전화 시스템 복구됨",
       "team_activity_alert": "팀 활동 알림",
@@ -13486,7 +13487,11 @@
       },
       "apply": "적용: 매일 삭제하고 비웁니다",
       "dryRun": "미리보기만: 매일 세기만 하고 바꾸지 않습니다",
-      "saved": "보관 기간을 저장했습니다"
+      "saved": "보관 기간을 저장했습니다",
+      "lastDryRun": "마지막 실행 {at}: 미리보기. {rows, plural, one {#개 행} other {#개 행}}과 {files, plural, one {#개 파일} other {#개 파일}}을 삭제하거나 비우게 됩니다.",
+      "lastApply": "마지막 실행 {at}: {rows, plural, one {#개 행} other {#개 행}}을 삭제하거나 비웠고, {files, plural, one {#개 파일} other {#개 파일}}이 삭제 대기 중입니다.",
+      "lastMore": "남은 데이터가 있으며 자동으로 계속됩니다.",
+      "lastFailed": "마지막 실행 {at}이 실패했습니다({code}). 자동으로 다시 시도하며 소유자에게 알렸습니다."
     },
     "ai": {
       "title": "고객 텍스트를 AI 제공자에게 보내기",

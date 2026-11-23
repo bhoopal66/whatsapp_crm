@@ -1459,3 +1459,8 @@ jobs:
       # when it was handed to the gateway.
       - name: Verify case CSAT fixes
         run: supabase db query --local --file supabase/ci/verify-csat-fixes.sql
+
+      # Migration 282: retention lists the files nothing else points at,
+      # works in slices, and a failure leaves a row and rings the owners.
+      - name: Verify retention fixes
+        run: supabase db query --local --file supabase/ci/verify-retention-fixes.sql
