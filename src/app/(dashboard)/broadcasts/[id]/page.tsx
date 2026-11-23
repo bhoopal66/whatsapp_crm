@@ -48,6 +48,10 @@ import { useTranslations } from 'next-intl';
 import { ReplyClassesCard } from '@/components/broadcasts/reply-classes-card';
 import { buildCsv } from '@/lib/csv/build';
 import {
+  isUnconfirmedSend,
+  RESENDABLE_FILTER,
+} from '@/lib/broadcasts/unconfirmed-send';
+import {
   REPLY_CLASS_LABEL_KEY,
   REPLY_CLASS_TONE,
   isReplyClass,
@@ -242,7 +246,9 @@ export default function BroadcastDetailPage() {
           .maybeSingle(),
         recipientCount(),
         recipientCount('pending'),
-        recipientCount('failed'),
+        // What Retry failed would take: an unconfirmed send is never
+        // retried, so it must not light the button.
+        recipientCount('failed').or(RESENDABLE_FILTER),
       ]);
 
       if (bcRes.error) throw bcRes.error;
@@ -372,7 +378,11 @@ export default function BroadcastDetailPage() {
       r.sent_at ?? '',
       r.delivered_at ?? '',
       r.read_at ?? '',
-      r.error_message ?? '',
+      isUnconfirmedSend(r.error_message)
+        ? r.status === 'failed'
+          ? t('mayHaveBeenSent')
+          : ''
+        : (r.error_message ?? ''),
     ]);
     // The shared builder: every field quoted, formula starts neutralised.
     const csv = buildCsv(header, rows);
@@ -924,7 +934,13 @@ export default function BroadcastDetailPage() {
                           : '-'}
                       </TableCell>
                       <TableCell className="text-destructive max-w-xs truncate text-xs">
-                        {recipient.error_message ?? '-'}
+                        {isUnconfirmedSend(recipient.error_message)
+                          ? // Also the mark a pending row carries while it
+                            // is being sent, which is not news yet.
+                            recipient.status === 'failed'
+                            ? t('mayHaveBeenSent')
+                            : '-'
+                          : (recipient.error_message ?? '-')}
                       </TableCell>
                     </TableRow>
                   );

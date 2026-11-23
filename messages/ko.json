@@ -1374,6 +1374,7 @@
       "scheduledHintQuiet": "예약 시간이 되면 자동으로 발송합니다 — {start}~{end} ({tz}) 사이에는 발송하지 않습니다.",
       "sendScheduledNow": "지금 발송",
       "retryFailed": "실패 재시도 ({count})",
+      "mayHaveBeenSent": "발송되었을 수 있음",
       "toastResumeStarted": "{count}명에게 백그라운드로 발송 중입니다.",
       "toastResumeStartedCapped": "{count}명에게 백그라운드로 발송 중입니다. 나머지 {remaining}명은 한 번 더 실행해야 합니다.",
       "toastResumeFailed": "이어서 발송할 수 없습니다: {error}",

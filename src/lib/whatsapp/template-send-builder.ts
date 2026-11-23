@@ -91,6 +91,18 @@ function missingHeaderMedia(
 }
 
 /**
+ * A template this recipient's values cannot fill, refused before any
+ * request is made: `isDefiniteSendRefusal` reads the class to know
+ * nothing went out.
+ */
+export class TemplateParamError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'TemplateParamError';
+  }
+}
+
+/**
  * Why a Meta send of this template would fail for want of header media,
  * or null when it would not.
  *
@@ -130,7 +142,7 @@ function buildHeaderComponent(
     if (varCount === 0) return null;
     const value = params.headerText;
     if (!value || !value.trim()) {
-      throw new Error(
+      throw new TemplateParamError(
         'Header text variable {{1}} requires a value — pass headerText.'
       );
     }
@@ -152,7 +164,7 @@ function buildHeaderComponent(
   const link = params.headerMediaUrl ?? template.header_media_url;
   const id = params.headerMediaId;
   if (missingHeaderMedia(template, params)) {
-    throw new Error(
+    throw new TemplateParamError(
       `${headerType} header requires a media link or id at send time — set header_media_url on the template or pass headerMediaUrl/headerMediaId.`
     );
   }
@@ -183,7 +195,7 @@ function buildBodyComponent(
   const body = params.body ?? [];
   if (varCount === 0 && body.length === 0) return null;
   if (body.length < varCount) {
-    throw new Error(
+    throw new TemplateParamError(
       `Body has ${varCount} variable(s) but only ${body.length} value(s) were supplied.`
     );
   }
@@ -197,7 +209,7 @@ function buildBodyComponent(
   // recipient row (deliverBroadcast stores this message).
   values.forEach((text, i) => {
     if (!String(text ?? '').trim()) {
-      throw new Error(
+      throw new TemplateParamError(
         `Template variable {{${keys[i] ?? i + 1}}} is empty for this recipient — Meta rejects blank template values.`
       );
     }
@@ -242,7 +254,7 @@ function buildButtonComponent(
       // Each URL button is its own component with sub_type=url and
       // the button's index in the template's buttons array.
       if (!override || !override.trim()) {
-        throw new Error(
+        throw new TemplateParamError(
           `URL button #${index + 1} uses {{1}} — requires a buttonParams[${index}] value.`
         );
       }

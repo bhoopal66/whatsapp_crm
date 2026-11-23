@@ -22,6 +22,7 @@ import {
   sendTemplate,
   describeSendFailure,
   isChannelLevelFailure,
+  isDefiniteSendRefusal,
 } from '@/lib/whatsapp/provider';
 import {
   resolveChannelForSurface,
@@ -37,6 +38,11 @@ import { validateContactPhone } from '@/lib/contacts/phone-validation';
 import { resolveTemplateRow } from '@/lib/whatsapp/template-body';
 import { headerMediaProblem } from '@/lib/whatsapp/template-send-builder';
 import { isInQuietHours, type QuietHours } from '@/lib/broadcasts/quiet-hours';
+import {
+  RESENDABLE_FILTER,
+  SEND_UNCONFIRMED_REASON,
+  SENT_NOT_RECORDED_REASON,
+} from '@/lib/broadcasts/unconfirmed-send';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
 import type { MessageTemplate } from '@/types';
 import { findOrCreateContact } from '@/lib/api/v1/contacts';
@@ -494,8 +500,9 @@ export async function deliverBroadcast(
   // once per recipient, and the rest stay pending for a Resume once the
   // day turns.
   let dailyLimit: string | null = null;
-  // Set when the pass reached the campaign's quiet hours, or could not
-  // read whether the next customer opted out. Both stop it the same way.
+  // Set when the pass reached the campaign's quiet hours, or the database
+  // stopped answering the reads and writes that keep a send safe. Both
+  // stop it the same way.
   let stopped: string | null = null;
   let attempted = 0;
 
@@ -557,6 +564,23 @@ export async function deliverBroadcast(
       }
     }
 
+    // Write-ahead: the row says "may have been sent" BEFORE the gateway is
+    // asked, so a pass that dies mid-send leaves a row the next plan fails
+    // instead of sending again. Conditional, so a row another pass already
+    // sent or is sending matches nothing and is skipped.
+    const { data: marked, error: markError } = await db
+      .from('broadcast_recipients')
+      .update({ error_message: SEND_UNCONFIRMED_REASON })
+      .eq('id', recipient.recipientRowId)
+      .in('status', ['pending', 'failed'])
+      .or(RESENDABLE_FILTER)
+      .select('id');
+    if (markError) {
+      stopped = `the next send could not be recorded: ${markError.message}`;
+      break;
+    }
+    if (!marked || marked.length === 0) continue;
+
     const variants = phoneVariants(recipient.phone);
     let sentMessageId: string | null = null;
     let lastError: string | null = null;
@@ -576,6 +600,16 @@ export async function deliverBroadcast(
       } catch (error) {
         if (isChannelLevelFailure(error)) {
           channelFailure = error;
+          break;
+        }
+        if (!isDefiniteSendRefusal(error)) {
+          // A timeout or a 5xx may have reached the customer: no other
+          // variant, and no Retry (`RESENDABLE_FILTER`).
+          console.error(
+            `[broadcast-core] ${plan.broadcastId}: unconfirmed send to recipient ${recipient.recipientRowId}:`,
+            describeSendFailure(error)
+          );
+          lastError = SEND_UNCONFIRMED_REASON;
           break;
         }
         // Provider-aware: names Meta's closed 24-hour window and
@@ -608,15 +642,25 @@ export async function deliverBroadcast(
     attempted++;
 
     if (sentMessageId) {
-      await db
-        .from('broadcast_recipients')
-        .update({
-          status: 'sent',
-          sent_at: new Date().toISOString(),
-          whatsapp_message_id: sentMessageId,
-          error_message: null,
-        })
-        .eq('id', recipient.recipientRowId);
+      const stampError = await stampSent(
+        db,
+        recipient.recipientRowId,
+        sentMessageId
+      );
+      if (stampError) {
+        // The customer has the message. Any terminal status keeps the row
+        // out of the next pass; the write-ahead mark does if this fails
+        // too.
+        await db
+          .from('broadcast_recipients')
+          .update({
+            status: 'failed',
+            error_message: SENT_NOT_RECORDED_REASON,
+          })
+          .eq('id', recipient.recipientRowId);
+        stopped = `a send could not be recorded: ${stampError}`;
+        break;
+      }
     } else {
       await db
         .from('broadcast_recipients')
@@ -643,6 +687,35 @@ export async function deliverBroadcast(
   // Receipts that beat a wamid stamp above were matched to nothing.
   await reconcileBroadcastStatuses({ broadcastId: plan.broadcastId });
   await finalizeBroadcastStatus(db, plan.broadcastId);
+}
+
+const SENT_STAMP_ATTEMPTS = 3;
+
+/** Stamp a delivered send. Returns the last error, or null once stored. */
+async function stampSent(
+  db: SupabaseClient,
+  recipientRowId: string,
+  messageId: string
+): Promise<string | null> {
+  const sentAt = new Date().toISOString();
+  let lastError = '';
+  for (let attempt = 1; attempt <= SENT_STAMP_ATTEMPTS; attempt++) {
+    const { error } = await db
+      .from('broadcast_recipients')
+      .update({
+        status: 'sent',
+        sent_at: sentAt,
+        whatsapp_message_id: messageId,
+        error_message: null,
+      })
+      .eq('id', recipientRowId);
+    if (!error) return null;
+    lastError = error.message;
+    if (attempt < SENT_STAMP_ATTEMPTS) {
+      await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
+    }
+  }
+  return lastError;
 }
 
 let reconcileMissingLogged = false;
@@ -760,28 +833,33 @@ export async function settleBroadcastAfterLateFailure(
 
 /**
  * 'failed' when every recipient failed, 'sent' otherwise, and null while
- * any recipient is still pending.
+ * any recipient is still pending or when a count could not be read: a
+ * failed read counted as zero pending closed campaigns with hundreds of
+ * customers still to message.
  */
 async function terminalStatusFromRecipients(
   db: SupabaseClient,
   broadcastId: string
 ): Promise<'sent' | 'failed' | null> {
-  const countWhere = async (status: string): Promise<number> => {
-    const { count } = await db
+  const countWhere = async (status?: string): Promise<number | null> => {
+    let query = db
       .from('broadcast_recipients')
       .select('id', { count: 'exact', head: true })
-      .eq('broadcast_id', broadcastId)
-      .eq('status', status);
-    return count ?? 0;
+      .eq('broadcast_id', broadcastId);
+    if (status) query = query.eq('status', status);
+    const { count, error } = await query;
+    if (error) {
+      console.error('[broadcast-core] recipient count failed:', error.message);
+      return null;
+    }
+    return count;
   };
 
-  if ((await countWhere('pending')) > 0) return null;
+  if ((await countWhere('pending')) !== 0) return null;
 
   const failed = await countWhere('failed');
-  const { count: total } = await db
-    .from('broadcast_recipients')
-    .select('id', { count: 'exact', head: true })
-    .eq('broadcast_id', broadcastId);
+  const total = await countWhere();
+  if (failed === null || total === null) return null;
 
-  return failed > 0 && failed === (total ?? 0) ? 'failed' : 'sent';
+  return failed > 0 && failed === total ? 'failed' : 'sent';
 }

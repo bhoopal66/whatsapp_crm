@@ -18,10 +18,16 @@ vi.mock('@/lib/flows/admin-client', () => ({
 
 import {
   deliverBroadcast,
+  finalizeBroadcastStatus,
   OPTED_OUT_REASON,
   type BroadcastPlan,
 } from './broadcast-core';
 import { planBroadcastResume } from './broadcast-resume';
+import { MetaError } from './meta-api';
+import {
+  SEND_UNCONFIRMED_REASON,
+  SENT_NOT_RECORDED_REASON,
+} from '@/lib/broadcasts/unconfirmed-send';
 
 const QUIET = { start: '21:00', end: '08:00', tz: 'Asia/Dubai' };
 const NOON = new Date('2026-11-23T08:00:00Z'); // 12:00 Dubai
@@ -190,5 +196,205 @@ describe('quiet hours', () => {
       code: 'quiet_hours',
       status: 400,
     });
+  });
+});
+
+describe('sends whose outcome nobody knows', () => {
+  it('fails an unanswered send, tries no other variant, and never retries it', async () => {
+    const w = world(3);
+    // The one error a second variant of the number is worth trying on.
+    sendTemplate
+      .mockRejectedValueOnce(new MetaError('not in allowed list', 504, 131030))
+      .mockRejectedValueOnce(new MetaError('no such number', 400, 131026));
+    const db = fakeDb(w);
+    await deliverBroadcast(db, planFor(w));
+
+    expect(sendTemplate).toHaveBeenCalledTimes(3);
+    expect(statuses(w)).toEqual(['failed', 'failed', 'sent']);
+    expect(w.broadcast_recipients[0].error_message).toBe(
+      SEND_UNCONFIRMED_REASON
+    );
+    // Retry failed takes the refusal, not the unconfirmed send.
+    const { plan } = await resume(db, 'failed');
+    expect(plan.planned.map((r) => r.recipientRowId)).toEqual(['r00001']);
+  });
+
+  it('marks the row before the gateway is asked, and clears it after', async () => {
+    const w = world(1);
+    let duringSend: unknown;
+    sendTemplate.mockImplementationOnce(async () => {
+      duringSend = { ...w.broadcast_recipients[0] };
+      return { messageId: 'wamid.1' };
+    });
+    await deliverBroadcast(fakeDb(w), planFor(w));
+
+    expect(duringSend).toMatchObject({
+      status: 'pending',
+      error_message: SEND_UNCONFIRMED_REASON,
+    });
+    expect(w.broadcast_recipients[0]).toMatchObject({
+      status: 'sent',
+      error_message: null,
+    });
+  });
+
+  it('never resends a row a restart caught mid-send', async () => {
+    const w = world(2);
+    w.broadcast_recipients[0].error_message = SEND_UNCONFIRMED_REASON;
+    const { plan } = await resume(fakeDb(w));
+
+    expect(plan.planned.map((r) => r.recipientRowId)).toEqual(['r00001']);
+    expect(statuses(w)).toEqual(['failed', 'pending']);
+  });
+
+  it('refuses to plan when those rows cannot be settled', async () => {
+    const w = world(2);
+    const db = fakeDb(w, {
+      fail: ({ table, patch }) =>
+        table === 'broadcast_recipients' && patch ? 'timeout' : null,
+    });
+    await expect(resume(db)).rejects.toMatchObject({ code: 'internal' });
+  });
+
+  it('does not send when the mark cannot be written', async () => {
+    const w = world(2);
+    const db = fakeDb(w, {
+      fail: ({ table, patch }) =>
+        table === 'broadcast_recipients' && patch ? 'timeout' : null,
+    });
+    await deliverBroadcast(db, planFor(w));
+
+    expect(sendTemplate).not.toHaveBeenCalled();
+    expect(statuses(w)).toEqual(['pending', 'pending']);
+  });
+
+  it('skips a row another pass sent, or is sending', async () => {
+    const w = world(3);
+    const plan = planFor(w);
+    w.broadcast_recipients[0].status = 'sent';
+    w.broadcast_recipients[1].error_message = SEND_UNCONFIRMED_REASON;
+    await deliverBroadcast(fakeDb(w), plan);
+
+    expect(sendTemplate).toHaveBeenCalledTimes(1);
+    expect(statuses(w)).toEqual(['sent', 'pending', 'sent']);
+  });
+
+  it('stamps sent on the third try', async () => {
+    const w = world(1);
+    let tries = 0;
+    const db = fakeDb(w, {
+      fail: ({ table, patch }) =>
+        table === 'broadcast_recipients' &&
+        patch?.status === 'sent' &&
+        ++tries < 3
+          ? 'timeout'
+          : null,
+    });
+    await deliverBroadcast(db, planFor(w));
+
+    expect(tries).toBe(3);
+    expect(w.broadcast_recipients[0]).toMatchObject({
+      status: 'sent',
+      whatsapp_message_id: 'wamid.1',
+    });
+  });
+
+  it('stops, and never resends, when a send cannot be recorded', async () => {
+    const w = world(2);
+    const db = fakeDb(w, {
+      fail: ({ table, patch }) =>
+        table === 'broadcast_recipients' && patch?.status === 'sent'
+          ? 'timeout'
+          : null,
+    });
+    await deliverBroadcast(db, planFor(w));
+
+    expect(sendTemplate).toHaveBeenCalledTimes(1);
+    expect(w.broadcast_recipients[0]).toMatchObject({
+      status: 'failed',
+      error_message: SENT_NOT_RECORDED_REASON,
+    });
+    expect(w.broadcast_recipients[0].whatsapp_message_id).toBeUndefined();
+    expect(w.broadcast_recipients[1].status).toBe('pending');
+    await expect(resume(db, 'failed')).rejects.toMatchObject({
+      code: 'nothing_to_resume',
+    });
+  });
+});
+
+describe('finalizing on unreadable counts', () => {
+  it.each([1, 2, 3])(
+    'leaves the status alone when count %i fails',
+    async (n) => {
+      const w = world(2);
+      for (const r of w.broadcast_recipients) r.status = 'sent';
+      let reads = 0;
+      const db = fakeDb(w, {
+        fail: ({ table }) =>
+          table === 'broadcast_recipients' && ++reads === n ? 'timeout' : null,
+      });
+      await finalizeBroadcastStatus(db, 'bc-1');
+      expect(w.broadcasts[0].status).toBe('sending');
+
+      await finalizeBroadcastStatus(db, 'bc-1');
+      expect(w.broadcasts[0].status).toBe('sent');
+    }
+  );
+
+  it('leaves the status alone when a count is missing', async () => {
+    const w = world(2);
+    const real = fakeDb(w);
+    const db = {
+      from: (table: string) =>
+        table === 'broadcasts'
+          ? real.from(table)
+          : {
+              select() {
+                return this;
+              },
+              eq() {
+                return this;
+              },
+              then: (ok: (r: unknown) => unknown) =>
+                ok({ count: null, error: null }),
+            },
+    } as unknown as ReturnType<typeof fakeDb>;
+    await finalizeBroadcastStatus(db, 'bc-1');
+    expect(w.broadcasts[0].status).toBe('sending');
+  });
+});
+
+describe('more than 1,000 recipients', () => {
+  it('reports what one load cannot see as remaining', async () => {
+    const w = world(2300);
+    const { plan, remaining } = await resume(fakeDb(w));
+    expect(plan.planned).toHaveLength(1000);
+    expect(remaining).toBe(1300);
+  });
+
+  it('reads on past a first page that all opted out', async () => {
+    const w = world(2300);
+    for (const r of w.broadcast_recipients.slice(0, 1000)) {
+      (r.contact as Row).opted_out_at = '2026-11-22T00:00:00Z';
+    }
+    (w.broadcast_recipients[1000].contact as Row).phone = null;
+    const { plan, remaining, optedOut, unsendable } = await resume(fakeDb(w));
+
+    expect(plan.planned).toHaveLength(1000);
+    expect(plan.planned[0].recipientRowId).toBe('r01001');
+    expect(new Set(plan.planned.map((r) => r.recipientRowId)).size).toBe(1000);
+    expect([optedOut, unsendable, remaining]).toEqual([1000, 1, 299]);
+    expect(statuses(w).filter((s) => s === 'failed')).toHaveLength(1001);
+  });
+
+  it('refuses to plan on an unreadable count', async () => {
+    const w = world(2);
+    let asked = 0;
+    const db = fakeDb(w, {
+      // 1 is the sweep of unconfirmed sends.
+      fail: ({ table }) =>
+        table === 'broadcast_recipients' && ++asked === 2 ? 'timeout' : null,
+    });
+    await expect(resume(db)).rejects.toMatchObject({ code: 'internal' });
   });
 });

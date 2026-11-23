@@ -369,13 +369,18 @@ interface ResumeResponse {
  * lock and starts the next, so the whole audience still goes out from
  * one click; if the tab closes in between, the leftovers stay
  * 'pending' and the detail page offers Resume.
+ *
+ * A pass that stopped early (the number failed, its daily limit, quiet
+ * hours) also leaves recipients for Resume: starting it again at once
+ * would stop at the same customer, for ever.
  */
-async function deliverOnServer(
+export async function deliverOnServer(
   supabase: ReturnType<typeof createClient>,
   broadcastId: string,
   total: number,
   onProgress: (pct: number) => void = () => {}
 ): Promise<void> {
+  let lastRemaining = Infinity;
   for (let pass = 0; ; pass++) {
     let res: Response;
     let data: ResumeResponse = {};
@@ -400,27 +405,46 @@ async function deliverOnServer(
       // A pass is still running (ours, from the previous iteration, if
       // its lock outlived the last poll). Wait for it, then go again.
       await waitForDeliveryPass(supabase, broadcastId, total, onProgress);
+      if (await passStopped(supabase, broadcastId)) return;
       continue;
     }
     if (!res.ok) {
       if (data.code === 'nothing_to_resume') {
-        // First pass: every recipient lacked a usable phone and the
-        // planner has already stamped them failed — settle the
-        // campaign as failed rather than leaving it 'sending'. A later
-        // pass: a concurrent Resume took the rest; nothing to do.
-        if (pass === 0) {
-          await supabase
-            .from('broadcasts')
-            .update({ status: 'failed' })
-            .eq('id', broadcastId);
-        }
+        // Every recipient is terminal: no usable phone, opted out, or a
+        // concurrent Resume took the rest. The route has settled the
+        // campaign's status from the rows.
         return;
       }
+      // The window began between two passes: a pause, not a failure. The
+      // rest stay pending for Resume.
+      if (data.code === 'quiet_hours' && pass > 0) return;
       throw new Error(data.error || 'Failed to start the broadcast delivery');
     }
-    if (!data.remaining) return;
+    // No smaller than before the last pass: it sent nobody.
+    if (!data.remaining || data.remaining >= lastRemaining) return;
+    lastRemaining = data.remaining;
     await waitForDeliveryPass(supabase, broadcastId, total, onProgress);
+    if (await passStopped(supabase, broadcastId)) return;
   }
+}
+
+/**
+ * Whether the last pass stopped before its end: it writes the reason on
+ * the recipient it stopped at, which stays pending. A failed read counts
+ * as stopped; Resume is always there.
+ */
+async function passStopped(
+  supabase: ReturnType<typeof createClient>,
+  broadcastId: string
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('broadcast_recipients')
+    .select('id')
+    .eq('broadcast_id', broadcastId)
+    .eq('status', 'pending')
+    .not('error_message', 'is', null)
+    .limit(1);
+  return Boolean(error) || (data ?? []).length > 0;
 }
 
 /** Poll until the running delivery pass releases its lock. */
@@ -1163,7 +1187,9 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
             const results = await Promise.all(
               batches
                 .slice(i, i + INSERT_CONCURRENCY)
-                .map((batch) => supabase.from('broadcast_recipients').insert(batch))
+                .map((batch) =>
+                  supabase.from('broadcast_recipients').insert(batch)
+                )
             );
             const failedAt = results.findIndex((r) => r.error);
             if (failedAt !== -1) {

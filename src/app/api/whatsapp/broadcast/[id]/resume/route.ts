@@ -45,11 +45,29 @@ import {
 // The fan-out below is sequential over up to 1 000 recipients.
 export const maxDuration = 300;
 
+/**
+ * Every row is terminal, or was just stamped so by the planner: settle a
+ * campaign that would otherwise read 'sending' for ever. Only that one:
+ * a draft with no recipients yet has nothing left to send either.
+ */
+async function settleIfSending(broadcastId: string): Promise<void> {
+  const admin = supabaseAdmin();
+  const { data } = await admin
+    .from('broadcasts')
+    .select('status')
+    .eq('id', broadcastId)
+    .maybeSingle();
+  if (data?.status === 'sending') {
+    await finalizeBroadcastStatus(admin, broadcastId);
+  }
+}
+
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   let claimedId: string | null = null;
+  let settleId: string | null = null;
 
   try {
     // Same gate as the batch send endpoint: running a broadcast is a
@@ -87,6 +105,7 @@ export async function POST(
       );
     }
     claimedId = id;
+    settleId = id;
 
     const { plan, remaining, unsendable } = await planBroadcastResume(
       supabase,
@@ -140,6 +159,9 @@ export async function POST(
       );
     }
     if (error instanceof BroadcastError) {
+      if (error.code === 'nothing_to_resume' && settleId) {
+        await settleIfSending(settleId).catch(() => {});
+      }
       return NextResponse.json(
         { error: error.message, code: error.code },
         { status: error.status }

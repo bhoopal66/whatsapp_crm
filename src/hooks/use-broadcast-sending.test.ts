@@ -1,11 +1,13 @@
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
+
+import { fakeDb, type Row } from '@/lib/whatsapp/broadcast.fake';
 
 // The hook module pulls in the browser Supabase client and the auth
 // context; neither is needed for the pure helper under test.
 vi.mock('@/lib/supabase/client', () => ({ createClient: () => ({}) }));
 vi.mock('@/hooks/use-auth', () => ({ useAuth: () => ({ accountId: 'acct' }) }));
 
-import { resolveSendTime } from './use-broadcast-sending';
+import { deliverOnServer, resolveSendTime } from './use-broadcast-sending';
 
 const DUBAI = { start: '21:00', end: '08:00', tz: 'Asia/Dubai' };
 
@@ -38,5 +40,85 @@ describe('resolveSendTime', () => {
     expect(resolveSendTime(now, at, DUBAI)?.toISOString()).toBe(
       '2026-09-19T04:00:00.000Z'
     );
+  });
+});
+
+describe('deliverOnServer', () => {
+  const answer = (status: number, body: Row) =>
+    new Response(JSON.stringify(body), { status });
+  const fetchMock = vi.fn<() => Promise<Response>>();
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.stubGlobal('fetch', fetchMock);
+    fetchMock.mockReset();
+    // A pass that always says there is more: the loop must end itself.
+    let remaining = 5000;
+    fetchMock.mockImplementation(async () =>
+      answer(202, { remaining: (remaining -= 1000) })
+    );
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  const tables = (row: Row) => ({
+    broadcasts: [{ id: 'bc-1', delivery_locked_at: null }] as Row[],
+    broadcast_recipients: [
+      { id: 'r1', broadcast_id: 'bc-1', error_message: null, ...row },
+    ] as Row[],
+  });
+  const run = async (t: Record<string, Row[]>) => {
+    const done = deliverOnServer(fakeDb(t) as never, 'bc-1', 5000);
+    done.catch(() => {});
+    await vi.runAllTimersAsync();
+    return done;
+  };
+
+  it('runs every pass of a campaign that keeps sending', async () => {
+    await run(tables({ status: 'pending' }));
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+  });
+
+  it('stops after a pass that stopped early', async () => {
+    await run(
+      tables({ status: 'pending', error_message: 'This number reached…' })
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('goes on past recipients that failed for their own reason', async () => {
+    await run(tables({ status: 'failed', error_message: 'No such number' }));
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+  });
+
+  it('stops when a pass left as many as before', async () => {
+    fetchMock.mockImplementation(async () => answer(202, { remaining: 1000 }));
+    await run(tables({ status: 'pending' }));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('pauses when quiet hours begin between passes, and throws on the first', async () => {
+    const t = tables({ status: 'pending' });
+    const quiet = async () =>
+      answer(400, { code: 'quiet_hours', error: 'quiet' });
+    fetchMock
+      .mockImplementationOnce(async () => answer(202, { remaining: 10 }))
+      .mockImplementation(quiet);
+    await run(t);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    await expect(run(t)).rejects.toThrow('quiet');
+  });
+
+  it('leaves the status to the route when nothing is left to send', async () => {
+    const t = tables({ status: 'sent' });
+    t.broadcasts[0].status = 'sent';
+    fetchMock.mockImplementation(async () =>
+      answer(400, { code: 'nothing_to_resume' })
+    );
+    await run(t);
+    expect(t.broadcasts[0].status).toBe('sent');
   });
 });

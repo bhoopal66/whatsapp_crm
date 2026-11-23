@@ -10,6 +10,7 @@ import {
   type BroadcastPlan,
 } from './broadcast-core';
 import { findOrCreateContact } from '@/lib/api/v1/contacts';
+import { SEND_UNCONFIRMED_REASON } from '@/lib/broadcasts/unconfirmed-send';
 
 // Contact resolution and token decryption are exercised elsewhere — stub
 // them so these tests focus on the persistence boundary.
@@ -30,6 +31,9 @@ vi.mock('@/lib/whatsapp/provider', () => ({
   // A channel-wide failure is marked on the thrown error by the tests.
   isChannelLevelFailure: (e: unknown) =>
     (e as { channelDown?: boolean } | null)?.channelDown === true,
+  // Every other error here stands for a refusal the gateway answered;
+  // unconfirmed sends are in broadcast-delivery.test.ts.
+  isDefiniteSendRefusal: () => true,
 }));
 // The reconcile RPC (migration 066) goes through the service-role client.
 const rpc = vi.fn<
@@ -500,8 +504,18 @@ describe('deliverBroadcast', () => {
     const db = {
       from: () => ({
         update: (payload: Record<string, unknown>) => {
-          updates.push(payload);
-          return { eq: async () => ({ error: null }) };
+          const chain = {
+            eq: () => chain,
+            in: () => chain,
+            or: () => chain,
+            select: async () => ({ data: [{ id: 'r1' }], error: null }),
+            then: (r: (v: { error: null }) => void) => r({ error: null }),
+          };
+          // The write-ahead mark before the send is not the outcome.
+          if (payload.error_message !== SEND_UNCONFIRMED_REASON) {
+            updates.push(payload);
+          }
+          return chain;
         },
         select: () => ({
           eq: () => ({
@@ -740,8 +754,10 @@ function deliverDb(pending: number, events: string[]) {
       let payload: Record<string, unknown> | null = null;
       const b: Record<string, unknown> = {
         select: () => b,
+        or: () => b,
         update: (row: Record<string, unknown>) => {
-          payload = row;
+          // The write-ahead mark before a send is not an outcome.
+          payload = row.error_message === SEND_UNCONFIRMED_REASON ? null : row;
           return b;
         },
         eq: (col: string, val: unknown) => {
@@ -761,9 +777,16 @@ function deliverDb(pending: number, events: string[]) {
           }
           return b;
         },
-        then: (resolve: (r: { count: number; error: null }) => unknown) =>
+        then: (
+          resolve: (r: {
+            count: number;
+            data: unknown[];
+            error: null;
+          }) => unknown
+        ) =>
           resolve({
             count: status === 'pending' ? pending : status === 'failed' ? 0 : 3,
+            data: [{ id: 'marked' }],
             error: null,
           }),
       };

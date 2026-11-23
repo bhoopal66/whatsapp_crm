@@ -85,6 +85,7 @@ import {
 import type { WhatsAppChannel } from './channels';
 import { MetaError } from './meta-api';
 import { OpenWAError } from './openwa-api';
+import { buildSendComponents } from './template-send-builder';
 import { WhapiError } from './whapi-api';
 
 const template = {
@@ -263,6 +264,19 @@ describe('isDefiniteSendRefusal', () => {
       false
     );
     expect(isDefiniteSendRefusal(new WhapiError('timeout', 408))).toBe(false);
+  });
+
+  it("is true for the template builder's own checks, made before a request", () => {
+    const template = { body_text: 'Hi {{1}}', buttons: [] };
+    let thrown: unknown;
+    try {
+      buildSendComponents(template as unknown as MessageTemplate, {
+        body: [' '],
+      });
+    } catch (err) {
+      thrown = err;
+    }
+    expect(isDefiniteSendRefusal(thrown)).toBe(true);
   });
 
   it('is false for anything that is not a gateway answer', () => {
