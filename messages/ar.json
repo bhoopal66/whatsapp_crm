@@ -6084,6 +6084,7 @@
       "timeline": {
         "loading": "جارٍ تحميل الرسائل…",
         "loadOlder": "تحميل رسائل أقدم",
+        "loadFailed": "تعذّر تحميل الرسائل.",
         "empty": "لا توجد رسائل في هذه المجموعة بعد.",
         "unsupported": "رسالة غير مدعومة",
         "savedToDeal": "حُفظت تلقائياً في ملف الصفقة",
@@ -6115,9 +6116,11 @@
         "confirmBody": "سيصل إلى {count, plural, =1 {# شخص} other {# أشخاص}} ويُحتسب على كل عضو يستلمه. لا يمكن تعديله أو حذفه بعد الإرسال.",
         "confirm": "إرسال القالب",
         "cancel": "إلغاء",
+        "notRecorded": "أُرسلت إلى المجموعة، لكنها لم تُسجَّل هنا: لن تظهر في هذه المحادثة.",
         "errors": {
           "window_closed": "أُغلقت نافذة الرد للتو. أرسل قالباً معتمداً بدلاً من ذلك.",
           "room_not_open": "هذه الغرفة غير مفتوحة.",
+          "unconfirmed": "ربما أُرسلت هذه الرسالة: تحقق من المجموعة قبل إرسالها مرة أخرى.",
           "group_not_ready": "لم ينضم أحد إلى المجموعة بعد.",
           "group_suspended": "علّق WhatsApp هذه المجموعة.",
           "template_rejected": "رفض WhatsApp هذا القالب.",
@@ -8170,6 +8173,7 @@
       "call_outcome_due": "مكالمة تحتاج إلى تسجيل نتيجتها",
       "deal_room_join_request": "طلبات الانضمام إلى غرفة الصفقة",
       "deal_room_update": "تحديثات غرفة الصفقة",
+      "deal_room_message": "رسائل العملاء والبنوك في غرف الصفقات",
       "channel_disconnected": "انقطاع اتصال رقم WhatsApp",
       "channel_reconnected": "عودة اتصال رقم WhatsApp",
       "inbound_message_failed": "تعذّر حفظ رسالة WhatsApp",

@@ -6084,6 +6084,7 @@
       "timeline": {
         "loading": "Loading messages…",
         "loadOlder": "Load older messages",
+        "loadFailed": "Couldn't load the messages.",
         "empty": "No messages in this group yet.",
         "unsupported": "Unsupported message",
         "savedToDeal": "Saved to deal file automatically",
@@ -6115,9 +6116,11 @@
         "confirmBody": "It goes to {count, plural, =1 {# person} other {# people}} and is charged per member who receives it. It can't be edited or deleted once sent.",
         "confirm": "Send template",
         "cancel": "Cancel",
+        "notRecorded": "Sent to the group, but not recorded here: it will not show in this chat.",
         "errors": {
           "window_closed": "The reply window just closed. Send an approved template instead.",
           "room_not_open": "This room isn't open.",
+          "unconfirmed": "This may have been sent: check the group before sending it again.",
           "group_not_ready": "Nobody has joined the group yet.",
           "group_suspended": "WhatsApp suspended this group.",
           "template_rejected": "WhatsApp refused this template.",
@@ -8170,6 +8173,7 @@
       "call_outcome_due": "A call needs its outcome",
       "deal_room_join_request": "Deal room join requests",
       "deal_room_update": "Deal room updates",
+      "deal_room_message": "Messages from customers and banks in deal rooms",
       "channel_disconnected": "A WhatsApp number disconnects",
       "channel_reconnected": "A WhatsApp number reconnects",
       "inbound_message_failed": "A WhatsApp message could not be saved",

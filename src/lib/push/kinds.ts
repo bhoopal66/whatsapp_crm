@@ -31,6 +31,7 @@ export const PUSH_KINDS = [
   'call_outcome_due',
   'deal_room_join_request',
   'deal_room_update',
+  'deal_room_message',
   'channel_disconnected',
   'channel_reconnected',
   'inbound_message_failed',
@@ -66,6 +67,7 @@ export const QUIET_HOURS_EXEMPT: readonly string[] = [
 const URGENT: readonly string[] = [
   'whatsapp_message',
   'submission_group_message',
+  'deal_room_message',
   'chat_message',
   'meeting_reminder',
   'event_reminder',
@@ -88,6 +90,7 @@ export function ttlFor(kind: string): number {
   if (ALARM_TTL.includes(kind)) return 1_800;
   return kind === 'whatsapp_message' ||
     kind === 'submission_group_message' ||
+    kind === 'deal_room_message' ||
     kind === 'chat_message'
     ? 86_400
     : 259_200;

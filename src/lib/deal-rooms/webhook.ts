@@ -222,6 +222,23 @@ export interface HandleGroupWebhookArgs {
 
 class UnknownGroup extends Error {}
 
+/** Before the one retry of a STOP's database work. */
+const STOP_RETRY_MS = 500;
+
+/**
+ * Meta delivers a STOP once (the route has answered 200), so a database
+ * blip must not lose it: run again after a short pause.
+ */
+async function withRetry<T>(run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (err) {
+    if (err instanceof UnknownGroup) throw err;
+    await new Promise((r) => setTimeout(r, STOP_RETRY_MS));
+    return run();
+  }
+}
+
 export async function handleGroupWebhook(
   args: HandleGroupWebhookArgs
 ): Promise<void> {
@@ -530,8 +547,11 @@ export async function handleGroupWebhook(
     const id = str(m.id);
     const from = digits(m.from);
     if (!id || !from) return;
-    const r = await room(groupId);
     const type = str(m.type) ?? 'unsupported';
+    const stop = type === 'text' && isOptOutText(str(obj(m.text).body));
+    const attempt = <T>(run: () => Promise<T>) =>
+      stop ? withRetry(run) : run();
+    const r = await attempt(() => room(groupId));
     const rawMedia = MEDIA_TYPES.has(type) ? obj(m[type]) : null;
     let body = str(obj(m.text).body) ?? str(rawMedia?.caption);
     let media: Json | null = null;
@@ -550,21 +570,25 @@ export async function handleGroupWebhook(
 
     // A STOP seen before (a redelivery the edge screen let through)
     // removes and stamps again, but writes no second opt-out record.
-    const stop = type === 'text' && isOptOutText(body);
     const fresh = stop && !(await seenMessage(id));
 
-    await rpc('deal_room_record_message', {
-      p_account: accountId,
-      p_group_id: groupId,
-      p_direction: 'in',
-      p_type: rawMedia || type === 'text' ? type : 'unsupported',
-      p_wa_message_id: id,
-      p_sender_wa_id: from,
-      p_body: body,
-      p_media: media,
-    });
-
-    if (stop) await optOut(r, groupId, from, fresh);
+    try {
+      await attempt(() =>
+        rpc('deal_room_record_message', {
+          p_account: accountId,
+          p_group_id: groupId,
+          p_direction: 'in',
+          p_type: rawMedia || type === 'text' ? type : 'unsupported',
+          p_wa_message_id: id,
+          p_sender_wa_id: from,
+          p_body: body,
+          p_media: media,
+        })
+      );
+    } finally {
+      // Even when the message itself could not be recorded.
+      if (stop) await optOut(r, groupId, from, fresh);
+    }
   }
 
   async function seenMessage(waMessageId: string): Promise<boolean> {
@@ -644,46 +668,41 @@ export async function handleGroupWebhook(
     waId: string,
     fresh: boolean
   ): Promise<void> {
-    const { data: p } = await db
-      .from('deal_room_participants')
-      .select('contact_id')
-      .eq('room_id', r.id)
-      .or(`wa_id.eq.${waId},phone.eq.${waId}`)
-      .limit(1)
-      .maybeSingle();
-    let contactId =
-      (p as { contact_id: string | null } | null)?.contact_id ?? null;
-    if (!contactId) {
-      // Not a listed person's contact: the account's contact on this
-      // number, whatever form its phone was saved in.
-      const variants = phoneVariants(waId);
-      const { data: rows, error } = await db
-        .from('contacts')
-        .select('id, phone_normalized')
-        .eq('account_id', accountId)
-        .in('phone_normalized', variants)
-        .limit(20);
-      if (error)
-        console.error('[deal-rooms] opt-out contact lookup failed:', error);
-      contactId = pickContactByPhone(rows, variants);
-      // Saved in a local form ("0501234567"): the inbound pipeline's
-      // own rule, a last-8-digits match with the exact form first. A
-      // failed lookup must not stop the removal below.
-      if (!contactId && !error) {
-        try {
-          contactId =
-            (await findExistingContact(db, accountId, waId))?.id ?? null;
-        } catch (err) {
-          console.error('[deal-rooms] opt-out contact lookup failed:', err);
-        }
+    let contactId: string | null = null;
+    let unread = false;
+    // The participant's contact, else the number's. A failed lookup must
+    // not stop the removal below.
+    for (const find of [participantContact, contactOnNumber]) {
+      if (contactId) break;
+      try {
+        contactId = await withRetry(() => find(r, waId));
+      } catch (err) {
+        unread = true;
+        console.error('[deal-rooms] opt-out contact lookup failed:', err);
       }
     }
-    // markOptedOut answers false for a failed write and for a contact
-    // stamped before alike; only the stamp itself tells them apart.
+    const found = contactId;
     const optedOut =
-      contactId !== null &&
-      ((await markOptedOut(db, { accountId, contactId })) ||
-        (await hasOptedOut(contactId)));
+      found !== null &&
+      (await withRetry(async () => {
+        // markOptedOut answers false for a failed write and for a contact
+        // stamped before alike; only the stamp itself tells them apart.
+        const stamped =
+          (await markOptedOut(db, { accountId, contactId: found })) ||
+          (await hasOptedOut(found));
+        if (!stamped) throw new Error('not stamped');
+        return true;
+      }).catch(() => false));
+    // Nothing repeats this: a person has to. No phone number in the log.
+    if (found ? !optedOut : unread) {
+      console.error(
+        `[deal-rooms] STOP NOT APPLIED: ${
+          found
+            ? `contact ${found} is not marked opted out`
+            : 'the contact could not be looked up'
+        }; mark it by hand (room ${r.id})`
+      );
+    }
     if (fresh) {
       // The room's record of the STOP; its audit trigger (migration 100)
       // posts the Team note. Written before the removal at Meta, so the
@@ -726,6 +745,44 @@ export async function handleGroupWebhook(
         : `+${waId} asked to stop; removing them from the group failed.`,
       p_status: 'sent',
     });
+  }
+
+  async function participantContact(
+    r: Room,
+    waId: string
+  ): Promise<string | null> {
+    const { data, error } = await db
+      .from('deal_room_participants')
+      .select('contact_id')
+      .eq('room_id', r.id)
+      .or(`wa_id.eq.${waId},phone.eq.${waId}`)
+      .limit(1)
+      .maybeSingle();
+    if (error) throw new Error(`participant lookup failed: ${error.message}`);
+    return (data as { contact_id: string | null } | null)?.contact_id ?? null;
+  }
+
+  // Not a listed person's contact: the account's contact on this number,
+  // whatever form its phone was saved in.
+  async function contactOnNumber(
+    _r: Room,
+    waId: string
+  ): Promise<string | null> {
+    const variants = phoneVariants(waId);
+    const { data: rows, error } = await db
+      .from('contacts')
+      .select('id, phone_normalized')
+      .eq('account_id', accountId)
+      .in('phone_normalized', variants)
+      .limit(20);
+    if (error) throw new Error(`contact lookup failed: ${error.message}`);
+    // Saved in a local form ("0501234567"): the inbound pipeline's own
+    // rule, a last-8-digits match with the exact form first.
+    return (
+      pickContactByPhone(rows, variants) ??
+      (await findExistingContact(db, accountId, waId))?.id ??
+      null
+    );
   }
 
   async function hasOptedOut(contactId: string): Promise<boolean> {

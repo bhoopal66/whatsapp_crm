@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
   approveJoinRequests,
@@ -28,10 +28,12 @@ vi.mock('@/lib/whatsapp/meta-groups', () => ({
   removeParticipants,
   deleteGroup,
 }));
-vi.mock('@/lib/whatsapp/meta-api', () => ({
+vi.mock('@/lib/whatsapp/meta-api', async (importOriginal) => ({
+  // The real class: its status and code decide what is done about it.
+  MetaError: (await importOriginal<typeof import('@/lib/whatsapp/meta-api')>())
+    .MetaError,
   getMediaUrl,
   downloadMedia,
-  MetaError: class extends Error {},
 }));
 vi.mock('@/lib/ai/opt-out', () => ({ markOptedOut }));
 const { lookupFailure } = vi.hoisted(() => ({
@@ -54,6 +56,7 @@ const { sendRoomInvites } = vi.hoisted(() => ({
 }));
 vi.mock('./invites', () => ({ sendRoomInvites }));
 
+import { MetaError } from '@/lib/whatsapp/meta-api';
 import {
   groupMessages,
   groupStatuses,
@@ -74,9 +77,15 @@ const ROOM = {
 };
 
 // A query builder that records every call and resolves to a per-table result.
+// `blips`: how many reads of a table answer an error first.
 function fakeDb(
-  opts: { rpc?: Record<string, unknown>; tables?: Record<string, unknown> } = {}
+  opts: {
+    rpc?: Record<string, unknown>;
+    tables?: Record<string, unknown>;
+    blips?: Record<string, number>;
+  } = {}
 ) {
+  const blips = { ...opts.blips };
   const calls: { table: string; ops: unknown[][] }[] = [];
   const rpc = vi.fn(async (fn: string) => {
     const r = opts.rpc?.[fn];
@@ -87,7 +96,11 @@ function fakeDb(
   const from = (table: string) => {
     const entry = { table, ops: [] as unknown[][] };
     calls.push(entry);
-    const result = { data: opts.tables?.[table] ?? null, error: null };
+    let result: unknown = { data: opts.tables?.[table] ?? null, error: null };
+    if (blips[table] > 0) {
+      blips[table]--;
+      result = { data: null, error: { message: 'blip' } };
+    }
     const builder: Record<string, unknown> = {};
     for (const m of [
       'select',
@@ -118,16 +131,25 @@ function fakeDb(
   return { db: db as never, rpc, upload, inserts };
 }
 
-const run = (db: never, value: Record<string, unknown>) =>
-  handleGroupWebhook({
+async function run(db: never, value: Record<string, unknown>) {
+  const done = handleGroupWebhook({
     db,
     accountId: 'acct-1',
     phoneNumberId: '106',
     accessToken: 'tok',
     value,
   });
+  await vi.runAllTimersAsync(); // the pause before a STOP's retry
+  return done;
+}
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+});
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe('helpers', () => {
   it('recognises the four group fields and group-only messages/statuses', () => {
@@ -207,6 +229,20 @@ describe('lifecycle', () => {
       groupId: GROUP,
       accessToken: 'tok',
     });
+  });
+
+  it('is silent when the late group is already gone, and says any other refusal', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const created = {
+      groups: [{ type: 'group_create', group_id: GROUP, request_id: 'req-1' }],
+    };
+    deleteGroup.mockRejectedValueOnce(new MetaError('gone', 400, 131041));
+    await run(fakeDb({ rpc: { deal_room_group_created: null } }).db, created);
+    expect(error).not.toHaveBeenCalled();
+    deleteGroup.mockRejectedValueOnce(new MetaError('down', 503));
+    await run(fakeDb({ rpc: { deal_room_group_created: null } }).db, created);
+    expect(error).toHaveBeenCalledTimes(1);
+    error.mockRestore();
   });
 
   it('tells nobody when a failed create changes nothing (cancelled, even after the read)', async () => {
@@ -725,8 +761,8 @@ describe('group messages and receipts', () => {
     });
     const detail = (db: ReturnType<typeof fakeDb>) =>
       (db.inserts('deal_room_audit')[0] as { detail: unknown }).detail;
-    // The stamp failed: the contact is not opted out.
-    markOptedOut.mockResolvedValueOnce(false);
+    // The stamp failed, and again: the contact is not opted out.
+    markOptedOut.mockResolvedValueOnce(false).mockResolvedValueOnce(false);
     const failedWrite = fakeDb({
       tables: {
         deal_rooms: ROOM,
@@ -817,6 +853,150 @@ describe('group messages and receipts', () => {
     expect(removeParticipants).toHaveBeenCalledWith(
       expect.objectContaining({ participants: ['971501234567'] })
     );
+  });
+
+  describe('a STOP outlives a database blip', () => {
+    const stop = (text = 'STOP') => ({
+      messages: [
+        {
+          id: 'wamid.blip',
+          from: '971501234567',
+          group_id: GROUP,
+          type: 'text',
+          text: { body: text },
+        },
+      ],
+    });
+    const listed = {
+      deal_rooms: ROOM,
+      deal_room_participants: { contact_id: 'contact-9' },
+      contacts: { opted_out_at: null },
+    };
+    const unlisted = {
+      deal_rooms: ROOM,
+      deal_room_participants: null,
+      contacts: [{ id: 'contact-plus', phone_normalized: '971501234567' }],
+    };
+    const stamped = (db: unknown, contactId: string) =>
+      expect(markOptedOut).toHaveBeenCalledWith(db, {
+        accountId: 'acct-1',
+        contactId,
+      });
+    const quiet = () => vi.spyOn(console, 'error').mockImplementation(() => {});
+    let error: ReturnType<typeof quiet>;
+    beforeEach(() => {
+      error = quiet();
+    });
+    afterEach(() => {
+      error.mockRestore();
+    });
+    const loud = () =>
+      error.mock.calls
+        .map((c) => String(c[0]))
+        .filter((l) => l.includes('STOP NOT APPLIED'));
+
+    it('looks the participant up again', async () => {
+      const { db } = fakeDb({
+        tables: listed,
+        blips: { deal_room_participants: 1 },
+      });
+      await run(db, stop());
+      stamped(db, 'contact-9');
+      expect(loud()).toEqual([]);
+    });
+
+    it('looks the contact up again', async () => {
+      const { db } = fakeDb({ tables: unlisted, blips: { contacts: 1 } });
+      await run(db, stop());
+      stamped(db, 'contact-plus');
+      expect(loud()).toEqual([]);
+    });
+
+    it('falls back to the number when the participant cannot be read', async () => {
+      const { db } = fakeDb({
+        tables: unlisted,
+        blips: { deal_room_participants: 2 },
+      });
+      await run(db, stop());
+      stamped(db, 'contact-plus');
+      expect(loud()).toEqual([]);
+    });
+
+    it('stamps again when the stamp did not land', async () => {
+      markOptedOut.mockResolvedValueOnce(false);
+      const { db, inserts } = fakeDb({ tables: listed });
+      await run(db, stop());
+      expect(markOptedOut).toHaveBeenCalledTimes(2);
+      expect(inserts('deal_room_audit')[0]).toMatchObject({
+        detail: { opted_out: true },
+      });
+      expect(loud()).toEqual([]);
+    });
+
+    it('says loudly, without the number, that a found contact is not stamped', async () => {
+      markOptedOut.mockResolvedValueOnce(false).mockResolvedValueOnce(false);
+      const { db } = fakeDb({ tables: listed });
+      await run(db, stop());
+      expect(markOptedOut).toHaveBeenCalledTimes(2);
+      expect(loud()).toEqual([
+        expect.stringMatching(/contact contact-9 .*room room-1/),
+      ]);
+      expect(JSON.stringify(error.mock.calls)).not.toContain('501234567');
+      expect(removeParticipants).toHaveBeenCalledTimes(1);
+    });
+
+    it('says loudly that the contact could not be looked up', async () => {
+      const { db } = fakeDb({
+        tables: unlisted,
+        blips: { deal_room_participants: 2, contacts: 2 },
+      });
+      await run(db, stop());
+      expect(markOptedOut).not.toHaveBeenCalled();
+      expect(loud()).toHaveLength(1);
+      expect(JSON.stringify(error.mock.calls)).not.toContain('501234567');
+      expect(removeParticipants).toHaveBeenCalledTimes(1);
+    });
+
+    it('is quiet when the number has no contact', async () => {
+      const { db } = fakeDb({ tables: { ...unlisted, contacts: [] } });
+      await run(db, stop());
+      expect(loud()).toEqual([]);
+    });
+
+    it('looks the room up again, but not an unknown group', async () => {
+      const { db } = fakeDb({ tables: listed, blips: { deal_rooms: 1 } });
+      await run(db, stop());
+      stamped(db, 'contact-9');
+      const timer = vi.spyOn(globalThis, 'setTimeout');
+      await run(fakeDb().db, stop());
+      expect(timer).not.toHaveBeenCalled();
+    });
+
+    it('is applied even when its message cannot be recorded, twice over', async () => {
+      const { db, rpc } = fakeDb({ tables: listed });
+      const refuse = async () => ({
+        data: null,
+        error: { code: '08006', message: 'connection failure' },
+      });
+      rpc
+        .mockImplementationOnce(refuse as never)
+        .mockImplementationOnce(refuse as never);
+      await run(db, stop());
+      const directions = rpc.mock.calls.map(
+        (c) =>
+          (c as unknown as [string, { p_direction: string }])[1].p_direction
+      );
+      expect(directions).toEqual(['in', 'in', 'out']);
+      stamped(db, 'contact-9');
+      expect(removeParticipants).toHaveBeenCalledTimes(1);
+    });
+
+    it('an ordinary message is not tried twice', async () => {
+      const { db, rpc } = fakeDb({ tables: listed, blips: { deal_rooms: 1 } });
+      await run(db, stop('hello'));
+      expect(rpc).not.toHaveBeenCalled();
+      expect(removeParticipants).not.toHaveBeenCalled();
+    });
   });
 
   it('says in the transcript when removing a STOP sender failed', async () => {

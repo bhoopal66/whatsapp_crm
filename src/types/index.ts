@@ -445,6 +445,8 @@ export type NotificationType =
   // meta = {room_id, ...}.
   | 'deal_room_join_request'
   | 'deal_room_update'
+  // ... a customer or bank wrote in it (274's trigger).
+  | 'deal_room_message'
   // Video meetings (106): you were invited to a meeting (the invitees
   // trigger). meta = {meeting_id}.
   | 'meeting_invite'

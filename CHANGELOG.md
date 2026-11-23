@@ -161,6 +161,27 @@ No migration.
   fell due while it was off still fire one after another when it is
   switched on again: look at the open journeys first.
 
+### Deal rooms: a bell for a customer's message, and a screen that catches up
+
+**Migration required:** `274_deal_room_bells.sql`
+- A customer's or bank's message in a deal room now rings the bell (and the
+  phone, if push is on) of the staff in the room, and of the owner or admin
+  who opened it. Nobody was told, so the 24-hour window could close unseen.
+  One bell per room until it is read; opening the room reads it.
+- A STOP in a deal room is tried again when the database fails for a moment;
+  if the contact still could not be marked, the log says so for follow-up.
+- A deal room left open while the laptop slept or the connection dropped
+  now catches up by itself: messages, the room's status and the reply
+  window were stale until something else changed. However many messages
+  were missed, the list has no hole in it.
+- Messages that could not be loaded say so, with Try again, instead of
+  showing an empty group.
+- A message to a deal room whose outcome WhatsApp did not confirm (a
+  timeout, a dropped connection) says it may have been sent and to check
+  the group first. It said it could not be sent, so the group got it twice.
+- A message WhatsApp accepted but the CRM failed to record is recorded on a
+  second try, or the sender is told it will not show here.
+
 ### Voice notes: one tap to record, one tap to send
 
 No migration.

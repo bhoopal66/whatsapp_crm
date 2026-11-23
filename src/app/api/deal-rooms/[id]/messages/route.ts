@@ -36,6 +36,9 @@ export const maxDuration = 60;
  * bank guest is refused one). 30 sends a minute per person and room, 60
  * per room (429). A sent file is
  * kept in the deal file (`deal_files`, source `deal_room_media`).
+ * A send Meta did not certainly refuse (a timeout, a 5xx, a dropped
+ * connection) is 502 `unconfirmed`: the group may hold it. A 201 with
+ * `id: null` went out but could not be recorded here.
  *
  * Bank guests may post in their own rooms, and `requireRole` refuses
  * them, so this route authenticates the session itself and leaves the

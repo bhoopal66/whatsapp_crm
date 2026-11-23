@@ -26,7 +26,8 @@
  * - `call_outcome_due` (097's `pbx_outcome_reminders`): the same, the
  *   customer page listing the call whose outcome is owed.
  * - `deal_room_join_request` / `deal_room_update`
- *   (`lib/deal-rooms/webhook.ts`, `shared.ts`): `meta.room_id` → the room.
+ *   (`lib/deal-rooms/webhook.ts`, `shared.ts`) and `deal_room_message`
+ *   (274's messages trigger): `meta.room_id` → the room.
  * - `channel_disconnected` / `channel_reconnected`
  *   (`lib/whatsapp/channel-health.ts`), `meta_number_alert` (188,
  *   `lib/whatsapp/meta-health/alert.ts`) and `inbound_message_failed`
@@ -113,7 +114,8 @@ function hrefFor(
         customer(n.contact_id ?? metaField(n.meta, 'contact_id')) ?? '/calls'
       );
     case 'deal_room_join_request':
-    case 'deal_room_update': {
+    case 'deal_room_update':
+    case 'deal_room_message': {
       const room = metaField(n.meta, 'room_id');
       return isUuid(room) ? `/chat/rooms/${room}` : null;
     }
