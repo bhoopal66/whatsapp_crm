@@ -20,6 +20,8 @@ and polish.
 - An all-day event now reminds you at 09:00 the day before, not at 23:50 the
   night before. Its reminder chips are "9:00 the day before", "18:00 the day
   before" and "At midnight". Saved events keep their reminders.
+- The calendar no longer drops attendees (and your own reply) on an event with
+  more than 1,000 invitees, and ended series are left out of the read.
 
 ### Cases: timers, snoozes and rules
 

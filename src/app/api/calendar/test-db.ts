@@ -22,6 +22,10 @@ export interface FakeDb {
   rpcCalls?: [name: string, args: Row][];
   /** `table:in` → the length of every `.in()` list on that table. */
   inSizes?: Record<string, number[]>;
+  /** PostgREST's `max-rows`: no read answers more rows than this. */
+  maxRows?: number;
+  /** Every `.or()` filter, `table` + the filter text (filled by the fake). */
+  orCalls?: [table: string, filter: string][];
 }
 
 const JOIN: Record<string, [fk: string, pk: string]> = {
@@ -42,6 +46,8 @@ class FakeQuery {
   private op: 'select' | 'update' | 'insert' | 'delete' = 'select';
   private values: Row | Row[] = {};
   private returning = false;
+  private sorts: string[] = [];
+  private window: [from: number, to: number] | null = null;
 
   constructor(
     private db: FakeDb,
@@ -50,7 +56,7 @@ class FakeQuery {
 
   select(cols = '*') {
     if (this.op !== 'select') this.returning = true;
-    const m = /^(\w+)!inner\(/.exec(cols);
+    const m = /(\w+)!inner\(/.exec(cols);
     if (m) this.embed = m[1];
     return this;
   }
@@ -86,7 +92,19 @@ class FakeQuery {
       (x) => x != null && Date.parse(String(x)) >= Date.parse(v)
     );
   }
-  or() {
+  or(filter?: string, opts?: { referencedTable?: string }) {
+    (this.db.orCalls ??= []).push([
+      opts?.referencedTable ?? this.table,
+      String(filter),
+    ]);
+    return this;
+  }
+  order(col: string) {
+    this.sorts.push(col);
+    return this;
+  }
+  range(from: number, to: number) {
+    this.window = [from, to];
     return this;
   }
   update(v: Row) {
@@ -155,7 +173,15 @@ class FakeQuery {
         }))
         .filter((r) => r[this.embed!]);
     }
-    return { data: view.filter(match), error: null };
+    let out = view.filter(match);
+    for (const col of [...this.sorts].reverse()) {
+      out = [...out].sort((a, b) =>
+        String(get(a, col)).localeCompare(String(get(b, col)))
+      );
+    }
+    if (this.window) out = out.slice(this.window[0], this.window[1] + 1);
+    if (this.db.maxRows) out = out.slice(0, this.db.maxRows);
+    return { data: out, error: null };
   }
 }
 

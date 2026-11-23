@@ -228,6 +228,59 @@ describe('GET /api/calendar/feed', () => {
     expect(db.inSizes?.['calendar_event_attendees:in']).toEqual([100, 100, 50]);
   });
 
+  it('reads every attendee past the row cap, and keeps the caller’s answer', async () => {
+    db.maxRows = 1000;
+    db.tables.calendar_events = [event('big', { visibility: 'workspace' })];
+    db.tables.calendar_event_attendees = [
+      ...Array.from({ length: 1200 }, (_, i) => ({
+        event_id: 'big',
+        account_id: ACCT,
+        user_id: `u-${String(i).padStart(4, '0')}`,
+        response: 'pending',
+      })),
+      // Sorts after the first 1,000: a capped, unordered read loses it.
+      { event_id: 'big', account_id: ACCT, user_id: ME, response: 'accepted' },
+    ];
+    const res = await feed();
+    expect(res.status).toBe(200);
+    const { items } = (await res.json()) as { items: FeedItem[] };
+    const big = items.find((i) => i.id === 'big');
+    expect(big).toMatchObject({ myResponse: 'accepted', attendeeCount: 1201 });
+  });
+
+  it('keeps the caller’s response even if the paged read comes back short', async () => {
+    db.maxRows = 1000;
+    db.tables.calendar_events = [event('big', {})];
+    db.tables.calendar_event_attendees = [
+      ...Array.from({ length: 1100 }, (_, i) => ({
+        event_id: 'big',
+        account_id: ACCT,
+        user_id: `a-${String(i).padStart(4, '0')}`,
+        response: 'pending',
+      })),
+      { event_id: 'big', account_id: ACCT, user_id: ME, response: 'declined' },
+    ];
+    db.errors = undefined;
+    const res = await feed();
+    const { items } = (await res.json()) as { items: FeedItem[] };
+    expect(items.find((i) => i.id === 'big')).toMatchObject({
+      myResponse: 'declined',
+    });
+  });
+
+  it('filters a series on the end of its last occurrence', async () => {
+    await feed();
+    const filters = (db.orCalls ?? [])
+      .filter(([table]) => table === 'calendar_events')
+      .map(([, f]) => f);
+    expect(filters.length).toBeGreaterThan(0);
+    for (const f of filters) {
+      expect(f).toContain(
+        'or(series_end_at.is.null,series_end_at.gt.2026-10-01T00:00:00.000Z)'
+      );
+    }
+  });
+
   it('adds open-to-workspace meetings only when asked', async () => {
     const res = await feed(`${RANGE}&includeWorkspaceMeetings=1`);
     const { items } = (await res.json()) as { items: FeedItem[] };
