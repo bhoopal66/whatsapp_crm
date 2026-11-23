@@ -8,6 +8,7 @@ import {
   callTimeoutMs,
   createGroup,
   describeGroupFailure,
+  findGroupsNamed,
   normaliseParticipants,
   ourRoleIn,
   planParticipantBatches,
@@ -322,4 +323,59 @@ describe('time budget', () => {
     expect(res.notAttempted).toEqual(phones(7).slice(5));
     expect(res.error).toBe('time_budget');
   });
+});
+
+describe('findGroupsNamed', () => {
+  const g = (id: string, name: string) => ({
+    id: `1203630000000${id}@g.us`,
+    name,
+  });
+  const find = (o: { deadline?: number } = {}) =>
+    findGroupsNamed({
+      channel: {
+        id: 'c',
+        provider: 'whapi',
+        accessToken: 'tok',
+      } as WhatsAppChannel,
+      name: 'Acme ',
+      ...o,
+    });
+
+  it('answers the exact name only, over every page', async () => {
+    const full = Array.from({ length: 500 }, (_, i) => g(`1${i}`, 'x'));
+    fetchMock
+      .mockResolvedValueOnce(json({ groups: full, total: 502 }))
+      .mockResolvedValueOnce(
+        json({ groups: [g('21', 'Acme'), g('22', 'Acme 2')], total: 502 })
+      );
+    expect((await find()).map((x) => x.id)).toEqual(['120363000000021@g.us']);
+  });
+
+  it('throws unless the list was read whole', async () => {
+    for (const body of [{}, { groups: [], total: 3 }]) {
+      fetchMock.mockResolvedValueOnce(json(body));
+      await expect(find()).rejects.toThrow(/read whole/);
+    }
+    fetchMock.mockResolvedValueOnce(json({}, 503));
+    await expect(find()).rejects.toBeInstanceOf(WhapiError);
+    await expect(find({ deadline: 1 })).rejects.toThrow(/read whole/);
+  });
+});
+
+it('createTimeoutMs replaces the paced limit on the create call', async () => {
+  const timeout = vi.spyOn(AbortSignal, 'timeout');
+  fetchMock.mockResolvedValueOnce(json({ id: '120363000000000001@g.us' }));
+  await createGroup({
+    channel: {
+      id: 'c',
+      provider: 'whapi',
+      accessToken: 'tok',
+    } as WhatsAppChannel,
+    name: 'Acme',
+    participants: ['971501234567'],
+    deadline: Date.now() + 45_000,
+    createTimeoutMs: 40_000,
+  });
+  expect(timeout).toHaveBeenCalledWith(40_000);
+  timeout.mockRestore();
 });

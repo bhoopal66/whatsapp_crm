@@ -6,6 +6,7 @@ import { WhapiError } from '@/lib/whatsapp/whapi-api';
 const h = vi.hoisted(() => ({
   loadChannels: vi.fn(),
   createGroup: vi.fn(),
+  findGroupsNamed: vi.fn(),
   getInviteLink: vi.fn(),
   sendGroupText: vi.fn(),
   sendInviteLink: vi.fn(),
@@ -19,6 +20,7 @@ vi.mock('@/lib/whatsapp/channels', () => ({ loadChannels: h.loadChannels }));
 vi.mock('@/lib/whatsapp/groups', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/whatsapp/groups')>()),
   createGroup: h.createGroup,
+  findGroupsNamed: h.findGroupsNamed,
   getInviteLink: h.getInviteLink,
   sendGroupText: h.sendGroupText,
   sendInviteLink: h.sendInviteLink,
@@ -70,6 +72,64 @@ beforeEach(() => {
       { ...identity('971501234567'), role: 'member' },
       { jid: '999@lid', waId: null, role: 'member' },
     ],
+  });
+});
+
+describe('findCreatedGroups', () => {
+  const since = new Date(1_800_000_000_000);
+  const g = (o: object = {}) => ({
+    id: WA_GROUP,
+    createdAt: 1_800_000_010,
+    createdBy: identity('971500000000'),
+    terminated: false,
+    participants: [
+      { ...identity('971500000000'), role: 'superadmin' },
+      { ...identity('971501234567'), role: 'member' },
+    ],
+    ...o,
+  });
+  const find = () => api().findCreatedGroups('cfg-1', 'Case 1', since);
+
+  it('answers our group with its members, read from the group itself', async () => {
+    h.findGroupsNamed.mockResolvedValue([g({ participants: [] })]);
+    h.getGroup.mockResolvedValue(g());
+    expect(await find()).toEqual([
+      {
+        waGroupId: WA_GROUP,
+        createdAt: new Date(1_800_000_010_000),
+        others: ['971501234567'],
+      },
+    ]);
+  });
+
+  it('skips a group made earlier, by someone else, ended, or that we have left', async () => {
+    h.findGroupsNamed.mockResolvedValue([g({ createdAt: 1_799_999_999 })]);
+    expect(await find()).toEqual([]);
+    expect(h.getGroup).not.toHaveBeenCalled();
+    h.findGroupsNamed.mockResolvedValue([g()]);
+    for (const o of [
+      { createdBy: identity('971507777777') },
+      { terminated: true },
+      { participants: [{ ...identity('971501234567'), role: 'member' }] },
+    ]) {
+      h.getGroup.mockResolvedValue(g(o));
+      expect(await find()).toEqual([]);
+    }
+  });
+
+  it('throws when the list or the group could not be read', async () => {
+    h.findGroupsNamed.mockRejectedValueOnce(new Error('not whole'));
+    await expect(find()).rejects.toThrow('not whole');
+    h.findGroupsNamed.mockResolvedValue([g()]);
+    h.getGroup.mockRejectedValue(new WhapiError('down', 503));
+    await expect(find()).rejects.toThrow('down');
+  });
+
+  it('gives the create call longer than a paced one', async () => {
+    await api().createGroup('cfg-1', ['971501234567'], 'Case 1', 'k');
+    expect(h.createGroup).toHaveBeenCalledWith(
+      expect.objectContaining({ createTimeoutMs: 40_000 })
+    );
   });
 });
 

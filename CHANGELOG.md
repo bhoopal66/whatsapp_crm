@@ -45,6 +45,13 @@ No migration.
 - Operators: the retries run in `GET /api/automations/cron`, so that cron
   must be scheduled. `/api/metrics` has `wacrm_inbound_queue_*`
   (`docs/monitoring.md`).
+### Submission groups: no second WhatsApp group
+
+No migration.
+- When WhatsApp does not confirm that a submission group was made, the next
+  try first looks for it on the number and adopts it, and makes a new one only
+  when the whole list holds none. After 5 unconfirmed tries it stops, with the
+  reason shown, until an admin presses Retry.
 
 ### Reminders and meeting invites after sleep
 

@@ -14,7 +14,15 @@
  *     (idempotency key = the group row id); anyone else returns the pending
  *     group. A failed createGroup releases the claim, recording the error. A
  *     WhatsApp group that cannot be saved (claim lost, DB error) is closed again
- *     only if the re-read row shows it cannot be live. Before every createGroup
+ *     only if the re-read row shows it cannot be live.
+ *     An UNCONFIRMED attempt (timeout, 5xx, no id in the answer, or a claim that
+ *     lapsed because its holder died) may have made a group nobody recorded, and
+ *     Whapi has no idempotency key. It is counted in wa_create_error, the one
+ *     column sg_release_create_claim can write, and every later attempt first
+ *     lists the number's groups: the one that can only be ours is adopted, a
+ *     complete list with no match allows a create, anything else does neither.
+ *     After MAX_CREATE_ATTEMPTS only a person's retry (retryOne) tries again.
+ *     Before every createGroup
  *     the claim holder re-checks consent (deps.consent: opt-out, do-not-contact,
  *     phone on record — never the caller's phone).
  *     Every create (first call, repeat call, cron, admin retry) ends here, so
@@ -50,6 +58,7 @@ import {
   welcomeMessage,
   type StaffLabel,
 } from './rules';
+import { CREATE_STOPPED } from './store';
 import type {
   AddNumberRefusal,
   ArchiveResult,
@@ -91,6 +100,16 @@ export interface GroupsApi {
     /** Participants WhatsApp refused to add; the group exists regardless. */
     refused?: string[];
   }>;
+  /**
+   * The number's own groups named exactly `subject` and created at or after
+   * `since` (or at an unknown time). Throws unless the number's list was read
+   * whole: an empty answer is taken to mean there is no such group.
+   */
+  findCreatedGroups(
+    channelId: string,
+    subject: string,
+    since: Date
+  ): Promise<FoundGroup[]>;
   sendGroupText(
     channelId: string,
     waGroupId: string,
@@ -119,9 +138,19 @@ export interface GroupsApi {
   ): Promise<'added' | 'refused'>;
 }
 
+/** A WhatsApp group found on the hosting number by its name. */
+export interface FoundGroup {
+  waGroupId: string;
+  /** null = the gateway did not say. */
+  createdAt: Date | null;
+  /** Everyone but our number: phone digits, or the raw id of a hidden number (`…@lid`). */
+  others: string[];
+}
+
 export type GroupStore = Pick<
   SubmissionGroupStore,
   | 'noteCustomerMembership'
+  | 'adoptionRivals'
   | 'open'
   | 'get'
   | 'findByRef'
@@ -239,6 +268,26 @@ export class SubmissionGroupChannelError extends Error {
   }
 }
 
+/** createGroup failed before the gateway was called, so no group can exist. */
+export class SubmissionGroupNotAttemptedError extends Error {
+  override readonly name = 'SubmissionGroupNotAttemptedError';
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause), { cause });
+  }
+}
+
+/** A retried create that neither adopted nor created: nobody can tell whether the group exists. */
+export class SubmissionGroupCreateUnsettledError extends Error {
+  override readonly name = 'SubmissionGroupCreateUnsettledError';
+  constructor(
+    reason: string,
+    /** False: waiting or an unreadable list, which another try can settle. */
+    readonly counts: boolean
+  ) {
+    super(reason);
+  }
+}
+
 /** The consent check refused a send; the row was settled 'blocked'. */
 export class SubmissionGroupSendBlockedError extends Error {
   override readonly name = 'SubmissionGroupSendBlockedError';
@@ -310,6 +359,51 @@ type CreateOutcome =
     };
 
 export const DEFAULT_CREATE_LEASE_MS = 120_000;
+
+/** Attempts with an unconfirmed outcome before only a person's retry may try again. */
+export const MAX_CREATE_ATTEMPTS = 5;
+/** No second create this soon after an unconfirmed one: WhatsApp may still be making the group. */
+export const CREATE_QUIET_MS = 120_000;
+/** How far WhatsApp's clock may disagree; a group this much older than its row is nobody's to judge. */
+export const CREATE_CLOCK_SLACK_MS = 120_000;
+
+/** What wa_create_error holds after an unconfirmed attempt: how many, and when the last one was. */
+interface Unconfirmed {
+  attempts: number;
+  at: Date;
+}
+const UNCONFIRMED_RE =
+  /^(?:Attempt (\d+) of \d+|Stopped after (\d+) attempts, the last) not confirmed at (\S+): /;
+
+export function unconfirmedCreate(error: string | null): Unconfirmed | null {
+  const m = error ? UNCONFIRMED_RE.exec(error) : null;
+  if (!m) return null;
+  return { attempts: Number(m[1] ?? m[2]), at: new Date(m[3]) };
+}
+
+export function unconfirmedError(u: Unconfirmed, why: string): string {
+  const head =
+    u.attempts >= MAX_CREATE_ATTEMPTS
+      ? `${CREATE_STOPPED} after ${u.attempts} attempts, the last`
+      : `Attempt ${u.attempts} of ${MAX_CREATE_ATTEMPTS}`;
+  return `${head} not confirmed at ${u.at.toISOString()}: ${why}`;
+}
+
+/** A refusal the gateway gave (4xx) or a call never made; anything else may have made the group. */
+function refusedCreate(err: unknown): boolean {
+  if (
+    err instanceof SubmissionGroupChannelError ||
+    err instanceof SubmissionGroupNotAttemptedError
+  )
+    return true;
+  const status = (err as { status?: unknown } | null)?.status;
+  return (
+    typeof status === 'number' &&
+    status >= 400 &&
+    status < 500 &&
+    status !== 408
+  );
+}
 
 // The invite's recorded failure (`invite_send_error`), one fixed category:
 // every member of the group reads it in the dashboard, so the gateway's own
@@ -462,7 +556,7 @@ export class SubmissionGroupService {
         refusedParticipants: [],
         inviteSent: false,
       };
-    const out = await this.createPending(group);
+    const out = await this.createPending(group, true);
     if (out.consentRequired) return CONSENT_REQUIRED;
     return {
       consentRequired: false,
@@ -474,8 +568,14 @@ export class SubmissionGroupService {
     };
   }
 
-  /** The claim / consent re-check / create / attach path for one pending group. */
-  private async createPending(group: SubmissionGroup): Promise<CreateOutcome> {
+  /**
+   * The claim / consent re-check / create / attach path for one pending group. `byPerson`: an admin's retry, the
+   * only caller that goes on once the attempts are used up (the lookup before the create still applies).
+   */
+  private async createPending(
+    group: SubmissionGroup,
+    byPerson = false
+  ): Promise<CreateOutcome> {
     const { store, api } = this.deps;
     // Number or contact deleted (115 detaches the group): nothing to create on, nobody to add.
     const { channelId, contactId } = group;
@@ -487,13 +587,7 @@ export class SubmissionGroupService {
         refused: [],
         inviteSent: false,
       };
-    // Only the holder of the create claim calls the gateway; anyone else gets the group as it stands.
-    const token = await store.claimCreate(
-      group.id,
-      this.deps.createLeaseMs ?? DEFAULT_CREATE_LEASE_MS,
-      this.deps.now?.()
-    );
-    if (token === null) {
+    const asItStands = async (): Promise<CreateOutcome> => {
       const current = await store.get(group.id);
       return {
         consentRequired: false,
@@ -502,10 +596,40 @@ export class SubmissionGroupService {
         refused: [],
         inviteSent: false,
       };
-    }
-    let made: Awaited<ReturnType<GroupsApi['createGroup']>>;
+    };
+    const stopped = (u: Unconfirmed | null) =>
+      !byPerson && u !== null && u.attempts >= MAX_CREATE_ATTEMPTS;
+    const leaseMs = this.deps.createLeaseMs ?? DEFAULT_CREATE_LEASE_MS;
+    const claim = () => store.claimCreate(group.id, leaseMs, this.deps.now?.());
+    // Read before the claim: taking one over overwrites the lapsed lease that says its holder died while creating.
+    const before = (await store.get(group.id)) ?? group;
+    if (stopped(unconfirmedCreate(before.waCreateError))) return asItStands();
+    // Only the holder of the create claim calls the gateway; anyone else gets the group as it stands.
+    let token = await claim();
+    if (token === null) return asItStands();
+    let made: Awaited<ReturnType<GroupsApi['createGroup']>> | null = null;
     let customerPhone: string;
+    let prior: Unconfirmed | null = null;
+    let calling = false;
     try {
+      // After the claim: nobody else writes the error now.
+      const row = (await store.get(group.id)) ?? group;
+      prior = unconfirmedCreate(row.waCreateError);
+      if (before.waCreateClaimedUntil) {
+        // Recorded at once, so an attempt that dies every time is still counted.
+        prior = {
+          attempts: (prior?.attempts ?? 0) + 1,
+          at: new Date(before.waCreateClaimedUntil.getTime() - leaseMs),
+        };
+        await store.releaseCreateClaim(
+          group.id,
+          token,
+          unconfirmedError(prior, 'the attempt was cut short')
+        );
+        if (stopped(prior)) return asItStands();
+        token = await claim();
+        if (token === null) return asItStands();
+      }
       // Re-checked by the claim holder before every createGroup: a pending group's row says nothing about consent now.
       const consent = await this.deps.consent(contactId);
       if (!consent.allowed || !consent.phone) {
@@ -526,14 +650,42 @@ export class SubmissionGroupService {
         seen.push(d);
         participants.push(p!);
       }
-      made = await api.createGroup(
-        channelId,
-        participants,
-        group.subject,
-        group.id
-      );
+      if (prior) made = await this.findLost(group, channelId, participants);
+      if (!made) {
+        // Not counted: nothing was tried. WhatsApp may still be making the last one.
+        if (prior && this.nowMs() - prior.at.getTime() < CREATE_QUIET_MS)
+          throw new SubmissionGroupCreateUnsettledError(
+            'waiting before another attempt',
+            false
+          );
+        calling = true;
+        made = await api.createGroup(
+          channelId,
+          participants,
+          group.subject,
+          group.id
+        );
+      }
     } catch (err) {
-      await this.releaseClaimQuietly(group.id, token, errText(err));
+      const unconfirmed = calling && !refusedCreate(err);
+      const counts =
+        calling ||
+        (err instanceof SubmissionGroupCreateUnsettledError && err.counts);
+      // Once one attempt is unconfirmed the row stays so, whatever the later ones answered.
+      const next: Unconfirmed | null =
+        prior || unconfirmed
+          ? {
+              attempts: (prior?.attempts ?? 0) + (counts ? 1 : 0),
+              at: unconfirmed || !prior ? new Date(this.nowMs()) : prior.at,
+            }
+          : null;
+      const text = errText(err);
+      if (token !== null)
+        await this.releaseClaimQuietly(
+          group.id,
+          token,
+          next ? unconfirmedError(next, text) : text
+        );
       throw err;
     }
     let attached: boolean;
@@ -549,8 +701,7 @@ export class SubmissionGroupService {
       throw err;
     }
     if (!attached) {
-      // Our claim expired and another caller took it (or the group ended). Whapi has no idempotency key, so the
-      // group we got back is ours alone unless the row stores its id: otherwise close it (the cron recreates).
+      // Our claim expired and another caller took it (or the group ended).
       const current = await this.discardIfOrphan(
         group,
         made.waGroupId,
@@ -582,6 +733,76 @@ export class SubmissionGroupService {
       refused,
       inviteSent: invite.sent,
     };
+  }
+
+  private nowMs(): number {
+    return (this.deps.now?.() ?? new Date()).getTime();
+  }
+
+  /**
+   * The WhatsApp group an earlier unconfirmed attempt made, or null when the number certainly has none. Adopts only
+   * the one group that can be nobody else's: this exact subject, created after the row (so after its first attempt),
+   * held by no submission, no other submission of the same name still without its group, and nobody in it we did
+   * not ask for. Anything less throws, and the caller neither adopts nor creates.
+   */
+  private async findLost(
+    group: SubmissionGroup,
+    channelId: string,
+    participants: readonly string[]
+  ): Promise<Awaited<ReturnType<GroupsApi['createGroup']>> | null> {
+    const { store, api } = this.deps;
+    const unsettled = (why: string) =>
+      new SubmissionGroupCreateUnsettledError(why, true);
+    // WhatsApp keeps whole seconds.
+    const first = Math.floor(group.createdAt.getTime() / 1000) * 1000;
+    const found = await api.findCreatedGroups(
+      channelId,
+      group.subject,
+      new Date(first - CREATE_CLOCK_SLACK_MS)
+    );
+    if (found.length === 0) return null;
+    // Read after the list: a submission whose group is in it already has its row.
+    const rivals = await store.adoptionRivals(
+      group,
+      found.map((f) => f.waGroupId)
+    );
+    const free = found.filter((f) => !rivals.held.includes(f.waGroupId));
+    if (free.length === 0) return null;
+    if (free.length > 1)
+      throw unsettled('several WhatsApp groups have this name');
+    if (rivals.twin)
+      throw unsettled(
+        'a WhatsApp group has this name, and another submission of the same name is waiting for its own'
+      );
+    const [it] = free;
+    if (it.createdAt === null || it.createdAt.getTime() < first)
+      throw unsettled(
+        'a WhatsApp group has this name, but not certainly from this submission'
+      );
+    if (
+      it.others.some(
+        (o) =>
+          !o.includes('@') && !participants.some((p) => phoneWasRefused([o], p))
+      )
+    )
+      throw unsettled(
+        'a WhatsApp group has this name, but other people are in it'
+      );
+    let inviteLink: string | null = null;
+    try {
+      inviteLink = await api.getInviteLink(channelId, it.waGroupId);
+    } catch {
+      // Best-effort, as on a create.
+    }
+    this.log.warn('WhatsApp group of an unconfirmed create adopted', {
+      groupId: group.id,
+      waGroupId: it.waGroupId,
+    });
+    // Behind a hidden id may be anyone we asked for: nobody is then called missing.
+    const refused = it.others.some((o) => o.includes('@'))
+      ? []
+      : participants.filter((p) => !phoneWasRefused(it.others, p));
+    return { waGroupId: it.waGroupId, inviteLink, refused };
   }
 
   /** Sends a refused customer the group's invite link and records the outcome. Never throws. */
@@ -775,9 +996,10 @@ export class SubmissionGroupService {
 
   /**
    * After a failed attach: `waGroupId` is live only when the re-read row stores exactly this id (an attach that
-   * threw after committing). Whapi's createGroup has no idempotency key, so nobody else can ever attach the group
-   * we created: a row still pending, holding another group, ENDED or gone means ours is an orphan and is closed
-   * (a pending row's group is recreated by the cron). A failed re-read keeps it open, since it may be live.
+   * threw after committing). A row holding another group, ENDED or gone means ours is an orphan and is closed. On a
+   * row still pending it stays open: the next attempt, or the one that took our claim, finds it by name and adopts
+   * it (closing it would break a group being adopted, or cost the customer a second one). A failed re-read keeps it
+   * open too, since it may be live.
    */
   private async discardIfOrphan(
     group: SubmissionGroup,
@@ -797,7 +1019,17 @@ export class SubmissionGroupService {
       return null;
     }
     const live = current !== null && current.waGroupId === waGroupId;
-    if (!live && group.channelId !== null) {
+    const adoptable =
+      current !== null &&
+      current.status === 'ACTIVE' &&
+      current.waGroupId === null;
+    if (adoptable)
+      this.log.warn('WhatsApp group kept open: its row is still pending', {
+        groupId: group.id,
+        waGroupId,
+        why: errText(why),
+      });
+    if (!live && !adoptable && group.channelId !== null) {
       try {
         await this.deps.api.closeGroup(group.channelId, waGroupId);
       } catch (err) {
