@@ -54,6 +54,8 @@ type Row = Record<string, unknown>;
 function makeDb(
   seed: {
     contacts?: Row[];
+    /** The CRM's own `contacts` rows. */
+    crmContacts?: Row[];
     notifications?: Row[];
     conversations?: Row[];
     groups?: Row[];
@@ -73,6 +75,7 @@ function makeDb(
 ) {
   const tables: Record<string, Row[]> = {
     compass_contacts: seed.contacts ?? [],
+    contacts: seed.crmContacts ?? [],
     compass_notifications: seed.notifications ?? [],
     conversations: seed.conversations ?? [],
     submission_groups: seed.groups ?? [],
@@ -166,6 +169,11 @@ function makeDb(
         },
         not: (k: string, _op: 'is', v: unknown) => {
           filters.push((r) => (r[k] ?? null) !== v);
+          return builder;
+        },
+        like: (k: string, pattern: string) => {
+          const end = pattern.replace(/^%/, '');
+          filters.push((r) => String(r[k]).endsWith(end));
           return builder;
         },
         order: (k: string, o?: { ascending?: boolean }) => {
@@ -658,6 +666,67 @@ describe('sendCompassNotification', () => {
     }
   );
 
+  describe('an opt-out on any contact the phone matches', () => {
+    const crm = (id: string, phone: string, over: Row = {}): Row => ({
+      id,
+      account_id: 'acct',
+      phone,
+      phone_normalized: phone.replace(/\D/g, ''),
+      ...over,
+    });
+    const optedOut = { opted_out_at: '2026-11-01T00:00:00Z' };
+    const exact = crm('full', '971501234567');
+
+    it.each<[string, Row | null, Row[]]>([
+      [
+        'the older local-format twin of the exact match',
+        exact,
+        [crm('twin', '050 123 4567', optedOut), exact],
+      ],
+      [
+        'one of two local-format rows, where no contact is picked',
+        null,
+        [
+          crm('a', '0501234567'),
+          crm('b', '50 123 4567', {
+            do_not_contact_at: '2026-11-01T00:00:00Z',
+          }),
+        ],
+      ],
+    ])('refuses: %s', async (_label, found, crmContacts) => {
+      const { db, tables } = makeDb({ crmContacts });
+      findExistingContact.mockResolvedValue(found);
+      await expect(
+        sendCompassNotification(db, 'acct', baseRequest())
+      ).rejects.toMatchObject({ code: 'customer_opted_out', status: 422 });
+      expect(resolveConversationByPhone).not.toHaveBeenCalled();
+      expect(sendMessageToConversation).not.toHaveBeenCalled();
+      expect(tables.compass_notifications[0].status).toBe('failed');
+    });
+
+    it("sends past another person's opt-out, in this account or another", async () => {
+      const { db } = makeDb({
+        crmContacts: [
+          exact,
+          // The same last eight digits, in Saudi Arabia.
+          crm('ksa', '966501234567', optedOut),
+          crm('other', '0501234567', { ...optedOut, account_id: 'acct-2' }),
+        ],
+      });
+      findExistingContact.mockResolvedValue(exact);
+      const out = await sendCompassNotification(db, 'acct', baseRequest());
+      expect(out.notification.status).toBe('sent');
+    });
+
+    it('refuses, retryable, when the matches cannot be read', async () => {
+      const { db } = makeDb({ failReads: ['contacts'] });
+      await expect(
+        sendCompassNotification(db, 'acct', baseRequest())
+      ).rejects.toMatchObject({ code: 'contact_lookup_failed', status: 503 });
+      expect(sendMessageToConversation).not.toHaveBeenCalled();
+    });
+  });
+
   it('refuses, retryable and sending nothing, when the contact cannot be read', async () => {
     const { db, tables } = makeDb();
     findExistingContact.mockRejectedValue(new ContactLookupError('down'));
@@ -684,6 +753,7 @@ describe('sendCompassNotification', () => {
     expect([...touched].sort()).toEqual([
       'assignment_settings',
       'compass_notifications',
+      'contacts',
       'conversations',
       'message_templates',
       'messages',

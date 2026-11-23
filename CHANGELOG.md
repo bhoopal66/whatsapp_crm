@@ -18,7 +18,9 @@ No migration.
 - A Compass notification is no longer sent 1:1 to a customer who opted out
   or is marked do-not-contact: it answers 422 `customer_opted_out`, as in
   the group. When the contact cannot be read it answers 503
-  `contact_lookup_failed` and sends nothing.
+  `contact_lookup_failed` and sends nothing. The opt-out counts on any
+  contact the phone matches, such as an older one saved without its
+  country code.
 - A Compass notification that WhatsApp may already have is never sent
   twice. After a timeout, a gateway error or a restart mid-send, the answer
   is 409 `delivery_unconfirmed` (don't retry; check the chat). A definite

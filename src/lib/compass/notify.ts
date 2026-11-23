@@ -47,6 +47,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   ContactLookupError,
   findExistingContact,
+  findMatchingContacts,
   isUniqueViolation,
   type ExistingContact,
 } from '@/lib/contacts/dedupe';
@@ -470,21 +471,22 @@ const customerOptedOut = () =>
 /**
  * The CRM contact a 1:1 update would reach, found the way
  * `resolveConversationByPhone` finds it, or null when this phone has
- * none. Throws the group path's 422 when the contact opted out or is
- * do-not-contact, and a retryable 503 when that cannot be read.
+ * none. Throws the group path's 422 when it, or any other contact this
+ * phone matches, opted out or is do-not-contact (the opt-out may sit on
+ * an older local-format twin), and a retryable 503 when that cannot be
+ * read.
  */
 async function consentingContact(
   db: SupabaseClient,
   accountId: string,
   phone: string
 ): Promise<ExistingContact | null> {
+  const number = sanitizePhoneForMeta(`+${phone}`);
   let contact: ExistingContact | null;
+  let matches: ExistingContact[];
   try {
-    contact = await findExistingContact(
-      db,
-      accountId,
-      sanitizePhoneForMeta(`+${phone}`)
-    );
+    contact = await findExistingContact(db, accountId, number);
+    matches = await findMatchingContacts(db, accountId, number);
   } catch (err) {
     if (!(err instanceof ContactLookupError)) throw err;
     throw new NotifyError(
@@ -493,11 +495,11 @@ async function consentingContact(
       503
     );
   }
-  const register = contact as {
+  const registers = [contact, ...matches] as ({
     opted_out_at?: string | null;
     do_not_contact_at?: string | null;
-  } | null;
-  if (consentRefusal(register)) throw customerOptedOut();
+  } | null)[];
+  if (registers.some((r) => consentRefusal(r))) throw customerOptedOut();
   return contact;
 }
 
