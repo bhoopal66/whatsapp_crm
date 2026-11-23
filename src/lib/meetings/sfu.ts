@@ -32,17 +32,42 @@ export class SfuError extends Error {
   /** Cloudflare's `errorCode`, or `timeout` / `network` / `not_configured` /
    *  `bad_response` / `http_<status>`. */
   readonly code: string;
+  /** Cloudflare's `errorDescription`, safe to log (`logSafeDetail`). */
+  readonly detail: string | null;
 
-  constructor(message: string, status: number, code: string) {
+  constructor(
+    message: string,
+    status: number,
+    code: string,
+    detail: string | null = null
+  ) {
     super(message);
     this.name = 'SfuError';
     this.status = status;
     this.code = code;
+    this.detail = detail;
   }
 
   get isTimeout(): boolean {
     return this.code === 'timeout';
   }
+}
+
+const DETAIL_MAX = 120;
+
+/**
+ * Cloudflare's `errorDescription`, cut to what a log line may hold: one
+ * short line, nothing from an SDP on, and no session, participant or
+ * track id (a track name starts with the participant's id).
+ */
+export function logSafeDetail(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const text = raw
+    .split(/[\r\n]|\\[rn]|v=0|\ba=/)[0]
+    .replace(/[0-9a-f]{8}-[0-9a-f-]{20,}|[0-9a-z]{20,}/gi, '[id]')
+    .trim()
+    .slice(0, DETAIL_MAX);
+  return text || null;
 }
 
 function credentials(): { appId: string; secret: string } | null {
@@ -92,7 +117,8 @@ async function call<T>(
   }
 
   const text = await res.text();
-  let json: (T & { errorCode?: unknown }) | null = null;
+  let json: (T & { errorCode?: unknown; errorDescription?: unknown }) | null =
+    null;
   try {
     json = text ? JSON.parse(text) : null;
   } catch {
@@ -102,12 +128,14 @@ async function call<T>(
     json && typeof json.errorCode === 'string' && json.errorCode
       ? json.errorCode
       : null;
+  const detail = logSafeDetail(json?.errorDescription);
 
   if (!res.ok) {
     throw new SfuError(
       `Cloudflare Realtime answered ${res.status}`,
       res.status,
-      errorCode ?? `http_${res.status}`
+      errorCode ?? `http_${res.status}`,
+      detail
     );
   }
   // A request-level error inside a 2xx (per-track errors stay in the body
@@ -116,7 +144,8 @@ async function call<T>(
     throw new SfuError(
       `Cloudflare Realtime refused the request (${errorCode})`,
       502,
-      errorCode
+      errorCode,
+      detail
     );
   }
   if (!json || typeof json !== 'object') {

@@ -82,6 +82,18 @@ describe('Cloudflare Realtime SFU client', () => {
     expect(String(err.message)).not.toContain(SECRET);
   });
 
+  it('keeps a short description to log, with no SDP and no ids', async () => {
+    fetchMock.mockResolvedValue(
+      answer(400, {
+        errorCode: 'decoding_error',
+        errorDescription:
+          'bad mid for 0f8fad5b-d9cb-469f-a165-70867728950e:audio\r\nv=0',
+      })
+    );
+    const err = await createSession().catch((e) => e);
+    expect(err.detail).toBe('bad mid for [id]:audio');
+  });
+
   it('treats an errorCode inside a 2xx as a refusal', async () => {
     fetchMock.mockResolvedValue(
       answer(200, { errorCode: 'bad_sdp', errorDescription: 'x' })

@@ -92,7 +92,12 @@ export function sfuErrorResponse(err: unknown): NextResponse | null {
   if (err.status === 410) {
     return jsonError('The video session has already ended', 410);
   }
-  console.error('[meetings] sfu call failed', err.status, err.code);
+  console.error(
+    '[meetings] sfu call failed',
+    err.status,
+    err.code,
+    err.detail ?? ''
+  );
   if (err.code === 'not_configured') {
     return jsonError('meetings_not_configured', 503);
   }
