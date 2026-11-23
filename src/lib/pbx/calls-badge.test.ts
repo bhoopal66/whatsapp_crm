@@ -68,7 +68,7 @@ describe('loadCallsBadge', () => {
     });
   });
 
-  it('shows no pill when the task count errors', async () => {
+  it('does not know the count when it errors (no pill)', async () => {
     const { db } = fakeDb(
       Promise.resolve({ count: 1, error: null }),
       Promise.resolve({ count: null, error: { message: 'x' } })
