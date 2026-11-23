@@ -121,7 +121,7 @@ sign-in bounces back to `/login`.
 - `lib/auth/conversation-visibility.ts` — client-side mirror of the
   `can_view_conversation` / `can_view_contact` SQL functions (migrations 042 and
   043). It informs UI decisions only; the DB decides. Change one, change both.
-  Since 217, `conversations_select`, `messages_select` and `messages_modify`
+  Since 217, `conversations_select`, `messages_select` and `messages_insert`
   restate `can_view_conversation` / `can_view_personal_chat` as set
   membership over `contact_visibility_people()` and
   `personal_number_visible_ids()`, because the per-row calls timed out for

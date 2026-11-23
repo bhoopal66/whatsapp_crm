@@ -175,6 +175,20 @@ server block sets any. `verify-storage-safe-mime.sql` asserts the bucket
 lists and the trigger's refusals; nothing in CI checks the nginx
 headers.
 
+## Chats and messages from a login (migration 284)
+
+What a signed-in person's own database access may write, whatever the
+client:
+
+| Table | Allowed | Never |
+| --- | --- | --- |
+| `conversations` | open a company chat for a contact they can see; open a personal chat on their own personal number; update a chat they can see | change its contact or workspace; delete it (delete the contact: open work and the legal hold are checked there); take it off its number unless an admin |
+| `messages` | add their own sent message to a chat they may write to | edit or delete any message; add one for the customer, the bot or a colleague, with another status, time or AI mark |
+
+Webhooks, delivery statuses, automations, merges and erasure use the
+service role or definer functions and are not affected. Refusals are
+`42501`.
+
 ## WhatsApp media in Storage (migration 283)
 
 `chat-media` and `flow-media` are public buckets, because the WhatsApp

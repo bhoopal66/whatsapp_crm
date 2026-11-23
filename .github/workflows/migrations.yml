@@ -1469,3 +1469,8 @@ jobs:
       # what they uploaded, and uploads only into the browser's folders.
       - name: Verify chat media owner
         run: supabase db query --local --file supabase/ci/verify-chat-media-owner.sql
+
+      # Migration 284: a session writes chats and messages only as the app
+      # does (each caller by role, and every other write refused).
+      - name: Verify chat integrity
+        run: supabase db query --local --file supabase/ci/verify-chat-integrity.sql
