@@ -20,6 +20,8 @@ and polish.
   are still not offered for a new message, a channel or a mention, and no
   longer as a forward target. Someone removed from the workspace still
   reads "Unknown".
+- Mentioning someone by editing a message now notifies them, once. Taking
+  a mention out of a message clears its badge.
 
 ### Team chat: a message is posted once
 

@@ -8,6 +8,9 @@
 --    (src/lib/chat). Someone removed from the workspace has no profile
 --    row here and stays unknown. A browser still on the previous build
 --    ignores the flag, and offers leavers in its pickers until it reloads.
+-- 2. chat_edit_message changed the body and the bells' text only: a
+--    mention added by an edit told nobody, and one taken out kept its
+--    badge.
 --
 -- Nothing here refuses itself on existing data. Safe to run twice. Apply
 -- after 157. Re-applying 157 brings the old chat_edit_message back:
@@ -48,5 +51,63 @@ $body$
   REVOKE ALL ON FUNCTION public.chat_people(uuid) FROM PUBLIC, anon, authenticated, service_role;
   GRANT EXECUTE ON FUNCTION public.chat_people(uuid) TO authenticated;
 END $do$;
+
+-- ---------- 2. chat_edit_message (157_chat_permissions.sql): mentions follow the new body ----------
+
+CREATE OR REPLACE FUNCTION public.chat_edit_message(p_message uuid, p_body text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+DECLARE
+  v_msg      public.internal_messages;
+  v_mentions uuid[];
+BEGIN
+  SELECT * INTO v_msg FROM public.internal_messages WHERE id = p_message FOR UPDATE;
+  IF NOT FOUND OR NOT public.chat_can_read_channel(v_msg.channel_id) THEN
+    RAISE EXCEPTION 'chat_edit_message: message not found' USING ERRCODE = 'P0002';
+  END IF;
+  IF v_msg.author_id IS DISTINCT FROM auth.uid() THEN
+    RAISE EXCEPTION 'chat_edit_message: only the author can edit' USING ERRCODE = '42501';
+  END IF;
+  IF v_msg.deleted_at IS NOT NULL OR v_msg.erased_at IS NOT NULL THEN
+    RAISE EXCEPTION 'chat_edit_message: message was deleted' USING ERRCODE = '42501';
+  END IF;
+  PERFORM public.chat_assert_can_write(v_msg.channel_id, false);
+  -- 157: only the author edits, so edit_own and the edit window always apply.
+  PERFORM public.chat_assert_permission(v_msg.account_id, 'edit_own');
+  PERFORM public.chat_assert_window(v_msg, 'edit');
+  UPDATE public.internal_messages SET body = p_body WHERE id = p_message;
+  -- The bell rows keep a copy of the body: rebuild it from the new text,
+  -- or a recipient keeps reading what was edited away (the edit history
+  -- is owner/admin only).
+  UPDATE public.notifications
+     SET body = public.chat_bell_body(p_body, v_msg.account_id)
+   WHERE account_id = v_msg.account_id
+     AND type IN ('chat_mention','chat_dm','chat_thread_reply','chat_broadcast')
+     AND meta->>'message_id' = p_message::text;
+
+  -- 277: the mentions are those of the new text, by chat_post_message's
+  -- rules. @channel / @here are not recalculated: an edit notifies nobody
+  -- but the people it names.
+  SELECT coalesce(array_agg(DISTINCT (t[1])::uuid), '{}') INTO v_mentions
+    FROM regexp_matches(p_body, '<@([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})>', 'g') t;
+  DELETE FROM public.message_mentions
+   WHERE message_id = p_message AND user_id <> ALL (v_mentions);
+  -- Only a mention this edit added rings, and nobody this message has
+  -- already rung (as a mention, a DM, a thread reply or a broadcast).
+  WITH added AS (
+    INSERT INTO public.message_mentions (message_id, user_id)
+    SELECT p_message, u FROM unnest(v_mentions) u
+     WHERE public.chat_user_can_read_channel(v_msg.channel_id, u, true)
+    ON CONFLICT DO NOTHING
+    RETURNING user_id)
+  INSERT INTO public.chat_notifications (user_id, account_id, message_id, kind)
+  SELECT a.user_id, v_msg.account_id, p_message, 'mention'
+    FROM added a WHERE a.user_id <> v_msg.author_id
+  ON CONFLICT (user_id, message_id) DO NOTHING;
+END $$;
+-- 087's grants: the browser's signed-in user only.
+REVOKE ALL ON FUNCTION public.chat_edit_message(uuid, text) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.chat_edit_message(uuid, text) TO authenticated;
+
+-- ---------- end ----------
 
 NOTIFY pgrst, 'reload schema';

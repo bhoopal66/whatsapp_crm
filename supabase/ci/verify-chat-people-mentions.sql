@@ -4,6 +4,10 @@
 -- 1. chat_people lists a deactivated person, flagged; nobody removed from
 --    the workspace; to a bank guest only the people of shared channels;
 --    nothing to a deactivated caller. Its grants are 087's.
+-- 2. After chat_edit_message the mentions are those of the new text: one
+--    added rings once (never the author, someone who cannot read the
+--    channel or someone this message already rang), one taken out loses
+--    its badge, and the bells' text still follows.
 --
 -- ONE statement on purpose: `supabase db query --file` sends the file
 -- as a single prepared statement and rejects several. Failing checks
@@ -119,6 +123,45 @@ BEGIN
   n := n + 1; failed := failed || pg_temp.pm_eq('how many chat_people there are',
     (SELECT count(*)::text FROM pg_proc WHERE proname = 'chat_people' AND pronamespace = 'public'::regnamespace
         AND prosecdef AND proconfig = ARRAY['search_path=public, pg_temp']), '1');
+
+  -- ---------- 2. mentions follow an edit ----------
+  m := pg_temp.pm_try(u_one, format(post_sql, ch, format('ask <@%s>', u_two)))::uuid;
+  n := n + 1; failed := failed || pg_temp.pm_eq('fixture: the post rang', pg_temp.pm_bells(m), 'a:chat_mention');
+  n := n + 1; failed := failed || pg_temp.pm_eq('fixture: the post badged', pg_temp.pm_try(u_two, format(badge_sql, a_acct, ch)), '1');
+  -- an upper-case token, twice; the author; someone deactivated; a stranger
+  r := pg_temp.pm_try(u_one, format(edit_sql, m,
+    format('ask <@%s> <@%s> <@%s> <@%s> <@%s>', upper(u_three::text), u_three, u_one, u_gone, u_away)));
+  n := n + 1; failed := failed || pg_temp.pm_eq('the edit', r, '');
+  n := n + 1; failed := failed || pg_temp.pm_eq('the mentions of the edited text', pg_temp.pm_mentions(m), '2,b');
+  n := n + 1; failed := failed || pg_temp.pm_eq('an added mention rings, the author does not', pg_temp.pm_bells(m), 'a:chat_mention,b:chat_mention');
+  n := n + 1; failed := failed || pg_temp.pm_eq('a mention taken out keeps no badge', pg_temp.pm_try(u_two, format(badge_sql, a_acct, ch)), '0');
+  n := n + 1; failed := failed || pg_temp.pm_eq('an added mention badges', pg_temp.pm_try(u_three, format(badge_sql, a_acct, ch)), '1');
+  -- the same text again, then out and back in: nobody rings twice
+  PERFORM pg_temp.pm_try(u_one, format(edit_sql, m, format('ask again <@%s>', u_three)));
+  PERFORM pg_temp.pm_try(u_one, format(edit_sql, m, 'ask nobody'));
+  n := n + 1; failed := failed || pg_temp.pm_eq('no mention left', pg_temp.pm_mentions(m), '');
+  PERFORM pg_temp.pm_try(u_one, format(edit_sql, m, format('back <@%s> <@%s>', u_two, u_three)));
+  n := n + 1; failed := failed || pg_temp.pm_eq('both mentions back', pg_temp.pm_mentions(m), 'a,b');
+  n := n + 1; failed := failed || pg_temp.pm_eq('nobody rang twice', pg_temp.pm_bells(m), 'a:chat_mention,b:chat_mention');
+  n := n + 1; failed := failed || pg_temp.pm_eq('every bell carries the new text',
+    (SELECT count(*)::text FROM notifications WHERE meta->>'message_id' = m::text AND body LIKE 'back %'), '2');
+
+  -- a DM's bell stands for its mention
+  md := pg_temp.pm_try(u_one, format(post_sql, dm, 'hello'))::uuid;
+  PERFORM pg_temp.pm_try(u_one, format(edit_sql, md, format('hello <@%s>', u_two)));
+  n := n + 1; failed := failed || pg_temp.pm_eq('a mention added in a DM', pg_temp.pm_mentions(md), 'a');
+  n := n + 1; failed := failed || pg_temp.pm_eq('a DM rang once', pg_temp.pm_bells(md), 'a:chat_dm');
+  -- a thread's root author, rung by the reply, is not rung by its edit
+  md := pg_temp.pm_try(u_two, format('SELECT public.chat_post_message(%L, %L, %L)::text', ch, 'a reply', m))::uuid;
+  PERFORM pg_temp.pm_try(u_two, format(edit_sql, md, format('a reply <@%s>', u_one)));
+  n := n + 1; failed := failed || pg_temp.pm_eq('a thread reply rang once', pg_temp.pm_bells(md), '2:chat_thread_reply');
+  -- someone outside a private channel is neither mentioned nor told
+  mp := pg_temp.pm_try(u_one, format(post_sql, priv, 'secret'))::uuid;
+  PERFORM pg_temp.pm_try(u_one, format(edit_sql, mp, format('secret <@%s> <@%s>', u_three, u_two)));
+  n := n + 1; failed := failed || pg_temp.pm_eq('mentions in a private channel', pg_temp.pm_mentions(mp) || ' ' || pg_temp.pm_bells(mp), 'a a:chat_mention');
+  n := n + 1; failed := failed || pg_temp.pm_eq('the grants of chat_edit_message',
+    (SELECT string_agg(a, ',') FROM unnest(ARRAY['anon','authenticated','service_role']) a
+      WHERE has_function_privilege(a, 'public.chat_edit_message(uuid,text)', 'EXECUTE')), 'authenticated');
 
   -- Undo every fixture; `failed` and `n` survive the rollback.
   RAISE EXCEPTION USING ERRCODE = 'ZT277', MESSAGE = 'verify-chat-people-mentions rollback';

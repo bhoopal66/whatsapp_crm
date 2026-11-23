@@ -28,6 +28,10 @@ only). `docs/internal-chat.md` is the contract.
   `deactivated`, so their names stay; anything that offers people leaves
   them out, and "not in the list" no longer means "left" (`otherAdmins`).
   `verify-chat-people-mentions.sql`, `deactivated.test.ts`.
+- **An edit's mentions (277).** `chat_edit_message` makes
+  `message_mentions` those of the new text and rings only a mention it
+  added, never who the message already rang; broadcasts are not
+  recalculated. Re-apply 277 after 157.
 - **Writes are RPCs.** The tables are RLS-forced and grant SELECT only, even
   to the service role; every write is a SECURITY DEFINER `chat_*` function the
   browser calls directly (`lib/chat/api.ts`). The exceptions: a file upload is
