@@ -12,6 +12,14 @@
 
 import type { Message } from '@/types';
 
+let tempCount = 0;
+
+/** A new bubble's id: the counter keeps two in one millisecond apart. */
+export function nextTempId(now: number = Date.now()): string {
+  tempCount += 1;
+  return `temp-${now}-${tempCount}`;
+}
+
 export function isTempId(id: string): boolean {
   return id.startsWith('temp-');
 }

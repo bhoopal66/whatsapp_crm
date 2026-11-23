@@ -19,6 +19,18 @@ No migration.
   (up to 2 hours) rings once when it is back, with the time it was for.
   One already shown or dismissed does not come back.
 - A missed meeting invite rings only if someone is in the meeting now.
+### Inbox on a bad connection
+
+No migration.
+- A reply that was not sent stays in its chat, also after leaving the
+  Inbox: "Not sent" with Retry, Copy and Discard when it certainly did
+  not go out (offline included), "May have been sent" with Copy and
+  Discard when it may have. One that turns out to have arrived goes by
+  itself. Leaving the Inbox during a send that then fails puts the words
+  back as that chat's draft.
+- A chat whose messages could not be read says so with Retry, instead of
+  "No messages yet" and the new-chat notices; a failed "load older" has
+  a Retry too.
 
 ### Server log with times
 

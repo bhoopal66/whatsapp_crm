@@ -148,6 +148,7 @@ describe('sendFailureReason', () => {
 
 const failedText = (over: Partial<FailedSend> = {}): FailedSend => ({
   conversationId: 'conv-1',
+  kind: 'refused',
   reason: 'WhatsApp API error: refused',
   message: {
     id: 'temp-1',

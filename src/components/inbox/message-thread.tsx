@@ -8,6 +8,7 @@ import {
   useCallback,
   useRef,
   useMemo,
+  useSyncExternalStore,
 } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { isSendOrigin, type SendOrigin } from '@/lib/whatsapp/send-origin';
@@ -67,6 +68,7 @@ import {
   CHAT_MEDIA_BUCKET,
   type ComposerDraftHandle,
   type SendMediaPayload,
+  parkUnsentText,
 } from './message-composer';
 import { FailedSendRow } from './failed-send-row';
 import { NewMessagesButton } from './new-messages-button';
@@ -122,7 +124,13 @@ import { MessageSkeleton } from './message-skeleton';
 import {
   forgetKeptUpload,
   hasExpiredUpload,
-  isRetryableSendFailure,
+  answeredSendKind,
+  arrivedSends,
+  failedSendPlace,
+  newestSavedAt,
+  ownsUpload,
+  thrownSendKind,
+  type FailedSendKind,
   consentRefusalOf,
   rememberKeptUpload,
   retryAttempt,
@@ -191,6 +199,20 @@ import {
   toChronological,
   type MessageWithReactions,
 } from '@/lib/inbox/pagination';
+
+import { nextTempId } from '@/lib/inbox/optimistic';
+import { failedSendStore } from '@/lib/inbox/failed-send-store';
+import {
+  NO_THREAD,
+  isFailed,
+  isKnown,
+  loadFailed,
+  loadStarted,
+  loadSucceeded,
+  readTwice,
+  threadView,
+  type ThreadLoad,
+} from '@/lib/inbox/thread-load';
 
 interface ReplyDraft {
   id: string;
@@ -315,6 +337,11 @@ function tabStorage(): Storage | null {
   }
 }
 
+/** The device says it has no network: the one answer that is reliable. */
+function isOffline(): boolean {
+  return typeof navigator !== 'undefined' && navigator.onLine === false;
+}
+
 /**
  * Delete an upload that no failed send will use any more, and take it
  * off the tab's kept list (lib/inbox/failed-send.ts). Best effort.
@@ -372,6 +399,13 @@ export function MessageThread({
   // The session cache's key half (lib/inbox/message-cache.ts).
   const viewerId = user?.id ?? null;
   const [loading, setLoading] = useState(false);
+  // Whether the open chat's history is known (lib/inbox/thread-load.ts).
+  const [threadLoad, setThreadLoad] = useState<ThreadLoad>(NO_THREAD);
+  const [reloadToken, setReloadToken] = useState(0);
+  const threadLoadRef = useRef(threadLoad);
+  useEffect(() => {
+    threadLoadRef.current = threadLoad;
+  }, [threadLoad]);
   const scrollRef = useRef<HTMLDivElement>(null);
   // Older-page state. The thread opens on its latest page; scrolling to
   // the top pulls the page before it.
@@ -383,6 +417,8 @@ export function MessageThread({
     hasOlder: boolean;
   } | null>(null);
   const [loadingOlder, setLoadingOlder] = useState(false);
+  // The chat whose last older page could not be read.
+  const [olderFailedFor, setOlderFailedFor] = useState<string | null>(null);
   const loadingOlderRef = useRef(false);
   // Bumped per older page so the top sentinel re-observes (see below).
   const [olderPageCount, setOlderPageCount] = useState(0);
@@ -439,10 +475,14 @@ export function MessageThread({
     messageId: string;
   } | null>(null);
 
-  // Replies that certainly did not go out, kept for every chat opened
-  // since the inbox loaded, so switching away and back does not lose
-  // them. They live only in the browser (lib/inbox/failed-send.ts).
-  const [failedSends, setFailedSends] = useState<FailedSend[]>([]);
+  // Replies that did not certainly go out, kept for every chat until the
+  // person acts: a chat switch, a resync or leaving the inbox does not
+  // lose them. Memory only (lib/inbox/failed-send-store.ts).
+  const failedSends = useSyncExternalStore(
+    failedSendStore.subscribe,
+    failedSendStore.get,
+    failedSendStore.get
+  );
   // A send a team-activity rule refused (204-205), per chat: switching
   // chats shows that chat's card, never another's.
   const [blockedCards, setBlockedCards] = useState<BlockedCards>({});
@@ -480,25 +520,34 @@ export function MessageThread({
   const composerDraftRef = useRef<ComposerDraftHandle>(null);
 
   // A media send that failed for certain keeps its upload for a Retry.
-  // Once nobody can send it, it is deleted: on Discard, when the inbox
-  // unmounts, and when a failure lands after that. React runs no
-  // cleanup when the page unloads, so a reload is covered by the tab's
-  // kept list instead: this mount deletes what the last page left on it.
-  const failedSendsRef = useRef(failedSends);
-  const mountedRef = useRef(false);
+  // Once nobody can send it, it is deleted: on Discard, or when another
+  // login takes the tab over. React runs no cleanup when the page
+  // unloads, so a reload is covered by the tab's kept list instead: this
+  // mount deletes what the last page left on it, except the uploads of
+  // rows that survived (the inbox was only left).
+  // A layout effect, so another login's rows are gone before a paint.
+  useLayoutEffect(() => {
+    if (!viewerId) return;
+    for (const f of failedSendStore.claim(viewerId)) {
+      if (f.uploadPath && ownsUpload(f.kind)) deleteKeptUpload(f.uploadPath);
+    }
+  }, [viewerId]);
   useEffect(() => {
-    failedSendsRef.current = failedSends;
-  });
-  useEffect(() => {
-    mountedRef.current = true;
-    for (const path of takeKeptUploads(tabStorage())) deleteKeptUpload(path);
-    return () => {
-      mountedRef.current = false;
-      for (const f of failedSendsRef.current) {
-        if (f.uploadPath) deleteKeptUpload(f.uploadPath);
-      }
-    };
+    const held = new Set(failedSendStore.get().map((f) => f.uploadPath));
+    for (const path of takeKeptUploads(tabStorage())) {
+      if (held.has(path)) rememberKeptUpload(tabStorage(), path);
+      else deleteKeptUpload(path);
+    }
+    return failedSendStore.enter();
   }, []);
+  // A row whose message turns out to be in the chat removes itself.
+  useEffect(() => {
+    const arrived = arrivedSends(failedSends, messages, viewerId);
+    for (const f of arrived) {
+      if (f.uploadPath) forgetKeptUpload(tabStorage(), f.uploadPath);
+    }
+    failedSendStore.remove(arrived);
+  }, [failedSends, messages, viewerId]);
 
   // Bumped after a failed send so the numbers are re-read at once. The
   // number's `status` drives the warning above the composer.
@@ -617,6 +666,8 @@ export function MessageThread({
   });
 
   const conversationId = conversation?.id;
+  const threadKnown = isKnown(threadLoad, conversationId);
+  const threadFailed = isFailed(threadLoad, conversationId);
   const hasUnread = (conversation?.unread_count ?? 0) > 0;
   const hasOlder =
     !!conversationId &&
@@ -718,10 +769,12 @@ export function MessageThread({
   // otherwise make every send look like a reply.
   const outreachStartingRef = useRef(false);
   useEffect(() => {
-    outreachStartingRef.current = wouldStartChat(messages, outreachNow);
-  }, [messages, outreachNow]);
+    outreachStartingRef.current =
+      threadKnown && wouldStartChat(messages, outreachNow);
+  }, [messages, outreachNow, threadKnown]);
   const guardNotices = useMemo(() => {
     if (
+      !threadKnown ||
       !accountNumbers ||
       !conversationId ||
       !accountRole ||
@@ -746,6 +799,7 @@ export function MessageThread({
       now: outreachNow,
     });
   }, [
+    threadKnown,
     accountNumbers,
     conversationId,
     accountRole,
@@ -827,8 +881,8 @@ export function MessageThread({
   const newChatNotice = useNewChatNotice();
   const numberAllocations = useAllNumberAllocations();
   const startsNewChat = useMemo(
-    () => wouldStartChat(messages, outreachNow),
-    [messages, outreachNow]
+    () => threadKnown && wouldStartChat(messages, outreachNow),
+    [messages, outreachNow, threadKnown]
   );
   const showNewChatNotice =
     !!newChatNotice &&
@@ -915,6 +969,7 @@ export function MessageThread({
       );
 
     (async () => {
+      setThreadLoad((prev) => loadStarted(prev, conversationId, !!cached));
       if (cached) {
         setOlderState({ conversationId, hasOlder: cached.hasOlder });
         setReactions(cached.reactions);
@@ -935,10 +990,12 @@ export function MessageThread({
       } catch (error) {
         if (cancelled) return;
         console.error('Failed to fetch messages:', error);
+        setThreadLoad((prev) => loadFailed(prev, conversationId));
         setLoading(false);
         return;
       }
       if (cancelled) return;
+      setThreadLoad(loadSucceeded(conversationId));
 
       if (cached) {
         // Folded into what is shown, which realtime and the composer may
@@ -982,29 +1039,36 @@ export function MessageThread({
       cancelled = true;
     };
     // `resyncToken` is included so the parent can force a full reload
-    // (the manual refresh button).
-  }, [conversationId, resyncToken, accountId, viewerId]);
+    // (the manual refresh button), `reloadToken` a failed load's Retry.
+  }, [conversationId, resyncToken, reloadToken, accountId, viewerId]);
 
   // Delta resync: re-read the latest page and merge it in, keeping the
   // older pages the user scrolled back through and not flashing the
   // spinner. Keyed on the token alone; the ref remembers which one was
   // handled so a remount-free re-render never re-sends it.
-  const handledDeltaTokenRef = useRef(deltaSyncToken);
-  useEffect(() => {
-    if (deltaSyncToken === handledDeltaTokenRef.current) return;
-    handledDeltaTokenRef.current = deltaSyncToken;
+  const resync = useCallback(() => {
     const convId = conversationIdRef.current;
     if (!convId) return;
 
+    // Nothing to merge into: the first read failed, so read it again.
+    const load = threadLoadRef.current;
+    if (isFailed(load, convId) && !isKnown(load, convId)) {
+      setReloadToken((n) => n + 1);
+      return;
+    }
+
     (async () => {
-      const { data, error } = await messagesPageQuery(convId);
-      if (conversationIdRef.current !== convId) return;
-      if (error) {
-        console.error('Failed to resync messages:', error);
-        return;
-      }
+      // Retried once; after that what is shown stays.
+      const answer = await readTwice(
+        () => messagesPageQuery(convId),
+        () => conversationIdRef.current === convId
+      );
+      if (!answer || conversationIdRef.current !== convId) return;
+      setThreadLoad((prev) =>
+        isFailed(prev, convId) ? loadSucceeded(convId) : prev
+      );
       const { messages: pageDesc, reactions: pageReactions } =
-        splitEmbeddedReactions((data ?? []) as MessageWithReactions[]);
+        splitEmbeddedReactions((answer.data ?? []) as MessageWithReactions[]);
       const page = toChronological(pageDesc);
       // More arrived than one page: the merge replaces the thread with
       // the page, so there is history above it again.
@@ -1023,7 +1087,13 @@ export function MessageThread({
         )
       );
     })();
-  }, [deltaSyncToken, viewerId]);
+  }, [viewerId]);
+  const handledDeltaTokenRef = useRef(deltaSyncToken);
+  useEffect(() => {
+    if (deltaSyncToken === handledDeltaTokenRef.current) return;
+    handledDeltaTokenRef.current = deltaSyncToken;
+    resync();
+  }, [deltaSyncToken, resync]);
 
   // Pull the page before the oldest message held.
   const loadOlder = useCallback(async () => {
@@ -1033,6 +1103,7 @@ export function MessageThread({
     if (!oldest) return;
     loadingOlderRef.current = true;
     setLoadingOlder(true);
+    setOlderFailedFor(null);
     try {
       const { data, error } = await createClient()
         .from('messages')
@@ -1045,6 +1116,7 @@ export function MessageThread({
       if (conversationIdRef.current !== convId) return;
       if (error) {
         console.error('Failed to fetch older messages:', error);
+        setOlderFailedFor(convId);
         return;
       }
       const { messages: pageDesc, reactions: pageReactions } =
@@ -1558,11 +1630,55 @@ export function MessageThread({
           : 'Failed to send';
       const startsChat = outreachStartingRef.current;
 
+      const conversationId = message.conversation_id;
+      const sentAfter = newestSavedAt(messagesRef.current, conversationId);
+      // Every send that did not certainly succeed ends here: its row, and
+      // its words back where the person will look for them.
+      const keep = (kind: FailedSendKind, reason: string) => {
+        const row: FailedSend = {
+          ...attempt,
+          sentAfter,
+          message: { ...message, status: 'failed' },
+          conversationId,
+          kind,
+          reason,
+        };
+        // Mark the optimistic bubble as failed; the row is drawn instead.
+        onUpdateMessage(message.id, { status: 'failed' });
+        setHiddenTempIds((prev) => new Set(prev).add(message.id));
+        // Not after a `maybe`: the delivered message may link to it.
+        const upload = ownsUpload(kind) ? row.uploadPath : undefined;
+        if (!failedSendStore.add(viewerId, row)) {
+          // Another login has the tab: nobody can send it any more.
+          if (upload) deleteKeptUpload(upload);
+          return;
+        }
+        if (upload) rememberKeptUpload(tabStorage(), upload);
+        const place = failedSendPlace(row, {
+          leftInbox: failedSendStore.left(),
+          openConversationId: conversationIdRef.current,
+        });
+        if (place === 'row' || !row.restoreText) return;
+        // With its origin: a restored missed-call draft is re-checked
+        // against the consent register when it is sent again.
+        const origin = isSendOrigin(row.body.origin) ? row.body.origin : null;
+        if (place === 'parked') {
+          parkUnsentText(viewerId, conversationId, {
+            text: row.restoreText,
+            origin,
+            reply: row.quote ?? null,
+          });
+        } else {
+          composerDraftRef.current?.restore(row.restoreText, origin);
+        }
+      };
+
       // Optimistic update — shows the message immediately with "sending" status
       onNewMessage(message);
 
       let res: Response;
       let payload: unknown;
+      const offlineBefore = isOffline();
       try {
         res = await fetch('/api/whatsapp/send', {
           method: 'POST',
@@ -1571,15 +1687,19 @@ export function MessageThread({
         });
         payload = await res.json().catch(() => null);
       } catch (err) {
-        // No answer at all: the send may still have gone out, so there
-        // is no Retry. It could reach the customer twice. The upload is
-        // kept too, since a delivered message may link to it.
+        // No answer at all: unless the device was offline, the send may
+        // still have gone out, so there is no Retry. It could reach the
+        // customer twice.
         console.error(`Failed to send ${message.content_type}:`, err);
-        const reason = err instanceof Error ? err.message : 'network error';
-        toast.error(`${toastPrefix}: ${reason}`, {
-          description: tFailedSend('maybeSent'),
-        });
-        onUpdateMessage(message.id, { status: 'failed' });
+        const kind = thrownSendKind(offlineBefore, isOffline());
+        const reason = tFailedSend(kind === 'offline' ? 'offline' : 'noAnswer');
+        toast.error(
+          `${toastPrefix}: ${reason}`,
+          kind === 'maybe'
+            ? { description: tFailedSend('maybeSent') }
+            : undefined
+        );
+        keep(kind, reason);
         return;
       }
 
@@ -1631,64 +1751,20 @@ export function MessageThread({
             : undefined
         );
       }
-      // Mark the optimistic bubble as failed so the user sees what happened
-      onUpdateMessage(message.id, { status: 'failed' });
       // The usual cause is a dropped number. Re-read the numbers now
       // rather than a minute from now, so the warning shows.
       invalidateCached('whatsapp-channels:');
       setNumbersRefresh((n) => n + 1);
-
-      if (!isRetryableSendFailure(res.status, payload)) {
-        // It may have gone out: a timeout, a gateway 5xx, a proxy page,
-        // or db_error, where it certainly did. So there is no Retry, the
-        // text does not go back into the composer, and the upload is
-        // kept. On Meta the gateway fetches the link after it answers,
-        // and a leaked file costs less than a broken attachment.
-        return;
-      }
-
-      if (!mountedRef.current) {
-        // It certainly did not go out, but the inbox is gone and nobody
-        // can Retry it, so its upload is garbage now.
-        if (attempt.uploadPath) deleteKeptUpload(attempt.uploadPath);
-        return;
-      }
-
-      const conversationId = message.conversation_id;
-      setHiddenTempIds((prev) => new Set(prev).add(message.id));
-      setFailedSends((prev) => [
-        ...prev,
-        {
-          ...attempt,
-          message: { ...message, status: 'failed' },
-          conversationId,
-          reason,
-        },
-      ]);
-      if (attempt.uploadPath) {
-        rememberKeptUpload(tabStorage(), attempt.uploadPath);
-      }
-      // The send cleared the composer, and the words are saved nowhere.
-      // Give them back, but only in the chat they were written for: the
-      // composer is shared by every chat, and the agent may have moved on.
-      if (attempt.restoreText && conversationIdRef.current === conversationId) {
-        // With its origin: a restored missed-call draft is re-checked
-        // against the consent register when it is sent again.
-        const origin = attempt.body.origin;
-        composerDraftRef.current?.restore(
-          attempt.restoreText,
-          isSendOrigin(origin) ? origin : null
-        );
-      }
+      keep(answeredSendKind(res.status, payload), reason);
     },
-    [onNewMessage, onUpdateMessage, tFailedSend]
+    [onNewMessage, onUpdateMessage, tFailedSend, viewerId]
   );
 
   const handleRetry = useCallback(
     (failed: FailedSend) => {
       if (retriedRef.current.has(failed)) return;
       retriedRef.current.add(failed);
-      setFailedSends((prev) => prev.filter((f) => f !== failed));
+      failedSendStore.remove([failed]);
       // Kept past the server's sweep age, the upload may be gone, and a
       // Retry would send a dead link. Dropped instead, like a Discard.
       if (hasExpiredUpload(failed)) {
@@ -1705,17 +1781,31 @@ export function MessageThread({
       // is in flight must not sweep an upload it may be delivering. A
       // definite failure lists it again.
       if (failed.uploadPath) forgetKeptUpload(tabStorage(), failed.uploadPath);
-      void deliver(retryAttempt(failed, `temp-${Date.now()}`));
+      void deliver(retryAttempt(failed, nextTempId()));
     },
     [deliver, tFailedSend]
+  );
+
+  const handleCopyFailed = useCallback(
+    async (text: string) => {
+      try {
+        await navigator.clipboard.writeText(text);
+        toast.success(tFailedSend('copied'));
+      } catch {
+        toast.error(tFailedSend('copyFailed'));
+      }
+    },
+    [tFailedSend]
   );
 
   const handleDiscard = useCallback((failed: FailedSend) => {
     if (retriedRef.current.has(failed)) return;
     retriedRef.current.add(failed);
-    setFailedSends((prev) => prev.filter((f) => f !== failed));
+    failedSendStore.remove([failed]);
     // It never went out, and now nobody will send it.
-    if (failed.uploadPath) deleteKeptUpload(failed.uploadPath);
+    if (failed.uploadPath && ownsUpload(failed.kind)) {
+      deleteKeptUpload(failed.uploadPath);
+    }
   }, []);
 
   const handleSend = useCallback(
@@ -1725,12 +1815,9 @@ export function MessageThread({
       // The same words sent again (usually the restored draft) replace
       // a failed attempt. Its Retry would send them a second time.
       const convId = conversation.id;
-      setFailedSends((prev) => {
-        const stale = supersededBy(prev, convId, text);
-        return stale.length ? prev.filter((f) => !stale.includes(f)) : prev;
-      });
+      failedSendStore.remove(supersededBy(failedSendStore.get(), convId, text));
 
-      const tempId = `temp-${Date.now()}`;
+      const tempId = nextTempId();
       const optimisticMsg: Message = {
         id: tempId,
         conversation_id: conversation.id,
@@ -1754,9 +1841,10 @@ export function MessageThread({
           ...(origin ? { origin } : {}),
         },
         restoreText: text,
+        quote: replyTo && replyTo.id === replyToId ? replyTo : null,
       });
     },
-    [conversation, deliver]
+    [conversation, deliver, replyTo]
   );
 
   const handleSendMedia = useCallback(
@@ -1771,7 +1859,7 @@ export function MessageThread({
           ? payload.caption || payload.filename || 'Document'
           : payload.caption;
 
-      const tempId = `temp-${Date.now()}`;
+      const tempId = nextTempId();
       const optimisticMsg: Message = {
         id: tempId,
         conversation_id: conversation.id,
@@ -1808,7 +1896,7 @@ export function MessageThread({
     async (payload: InteractiveMessagePayload, replyToId?: string) => {
       if (!conversation) return;
 
-      const tempId = `temp-${Date.now()}`;
+      const tempId = nextTempId();
       // Optimistic bubble — renders the buttons/list immediately via the
       // interactive_payload, same as the persisted row will.
       const optimisticMsg: Message = {
@@ -1852,7 +1940,7 @@ export function MessageThread({
       if (!conversation) return;
 
       const renderedBody = renderTemplateBody(template.body_text, values.body);
-      const tempId = `temp-${Date.now()}`;
+      const tempId = nextTempId();
 
       const optimisticMsg: Message = {
         id: tempId,
@@ -1997,7 +2085,7 @@ export function MessageThread({
         return [
           ...prev,
           {
-            id: `temp-${Date.now()}`,
+            id: nextTempId(),
             message_id: messageId,
             conversation_id: convId,
             actor_type: 'agent',
@@ -2154,6 +2242,13 @@ export function MessageThread({
   }
 
   const displayName = contact.name || contact.phone;
+  const view = threadView(threadLoad, conversation.id, {
+    loading,
+    hasContent:
+      visibleMessages.length > 0 ||
+      threadEvents.length > 0 ||
+      failedHere.length > 0,
+  });
   // This chat's "N unread messages" divider, if it was opened unread.
   const unreadDivider =
     unreadMarker?.conversationId === conversation.id && unreadMarker.messageId
@@ -2285,11 +2380,27 @@ export function MessageThread({
           onLoadedMetadataCapture={handleMediaLoaded}
           className={cn('flex-1 overflow-y-auto pt-1 pb-3', THREAD_GUTTER)}
         >
-          {loading ? (
+          {view === 'loading' ? (
             <MessageSkeleton label={t('loadingMessages')} />
-          ) : visibleMessages.length === 0 &&
-            threadEvents.length === 0 &&
-            failedHere.length === 0 ? (
+          ) : view === 'error' ? (
+            <div className="flex justify-center py-12" role="alert">
+              <div
+                className={cn(
+                  'bg-wa-date-chip flex max-w-sm flex-col items-center gap-2 rounded-lg px-4 py-3 text-center',
+                  CHIP_SHADOW
+                )}
+              >
+                <p className="text-wa-text text-sm">{t('loadFailed')}</p>
+                <button
+                  type="button"
+                  onClick={resync}
+                  className="border-border bg-card text-foreground hover:bg-muted rounded-md border px-3 py-1 text-xs font-medium"
+                >
+                  {t('loadRetry')}
+                </button>
+              </div>
+            </div>
+          ) : view === 'empty' ? (
             <div className="flex justify-center py-12">
               <div
                 className={cn(
@@ -2312,6 +2423,18 @@ export function MessageThread({
                   role="status"
                   aria-busy={loadingOlder}
                 >
+                  {!loadingOlder && olderFailedFor === conversation.id && (
+                    <p className="text-wa-text-secondary text-xs">
+                      {t('olderFailed')}{' '}
+                      <button
+                        type="button"
+                        onClick={() => void loadOlder()}
+                        className="text-wa-text underline underline-offset-2 hover:no-underline"
+                      >
+                        {t('loadRetry')}
+                      </button>
+                    </p>
+                  )}
                   {loadingOlder && (
                     <div className="border-wa-green h-4 w-4 animate-spin rounded-full border-2 border-t-transparent" />
                   )}
@@ -2454,6 +2577,7 @@ export function MessageThread({
                       }
                       senderLabel={senderLabel}
                       onRetry={handleRetry}
+                      onCopy={handleCopyFailed}
                       onDiscard={handleDiscard}
                     />
                   ))}
@@ -2471,6 +2595,23 @@ export function MessageThread({
           }
           onClick={scrollToBottom}
         />
+
+        {/* What is shown may be behind: the last full read failed. */}
+        {threadFailed && view === 'messages' && (
+          <p
+            role="status"
+            className="bg-wa-panel text-muted-foreground px-4 py-1.5 text-xs"
+          >
+            {t('refreshFailed')}{' '}
+            <button
+              type="button"
+              onClick={resync}
+              className="text-foreground underline underline-offset-2 hover:no-underline"
+            >
+              {t('loadRetry')}
+            </button>
+          </p>
+        )}
 
         {/* AI auto-reply banner (AI agent v2) — a held draft to send,
           edit or discard; why the bot is paused, with Resume; take over

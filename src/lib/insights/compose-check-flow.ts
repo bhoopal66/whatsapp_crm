@@ -355,6 +355,20 @@ export function parkDraft<R, A>(
 }
 
 /**
+ * Park a send that failed after its composer went away, unless a newer
+ * draft of that chat is parked already. Whether it was parked.
+ */
+export function parkIfFree<R, A>(
+  stash: ParkedDrafts<R, A>,
+  conversationId: string,
+  draft: ParkedDraft<R, A>
+): boolean {
+  if (stash.has(conversationId)) return false;
+  stash.set(conversationId, draft);
+  return true;
+}
+
+/**
  * Empty the stash and return the attachments it held, which nothing owns
  * any more (the caller deletes their objects).
  */

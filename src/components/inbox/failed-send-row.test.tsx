@@ -22,6 +22,7 @@ const senderLabel = (m: Message): SenderLabel =>
 
 const failed: FailedSend = {
   conversationId: 'conv-1',
+  kind: 'refused',
   reason:
     'WhatsApp API error: This number (971500001234) is not connected to WhatsApp: waiting for a QR scan.',
   message: {
@@ -53,6 +54,7 @@ function render(
         parent={undefined}
         senderLabel={senderLabel}
         onRetry={vi.fn()}
+        onCopy={vi.fn()}
         onDiscard={vi.fn()}
         {...props}
       />
@@ -76,6 +78,15 @@ describe('FailedSendRow', () => {
     expect(html).toContain('전송되지 않음');
     expect(html).toContain('다시 시도');
     expect(html).toContain('버리기');
+  });
+
+  it('offers Copy and Discard but no Retry when it may have been sent', () => {
+    const html = render(en, 'en', { failed: { ...failed, kind: 'maybe' } });
+    expect(html).toContain('May have been sent: check the chat');
+    expect(html).toContain('Copy');
+    expect(html).toContain('Discard');
+    expect(html).not.toContain('Send this message again');
+    expect(html).not.toContain('Not sent');
   });
 
   it('quotes the message it replied to when that is loaded', () => {

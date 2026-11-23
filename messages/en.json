@@ -574,6 +574,10 @@
       "me": " (me)",
       "meShort": "Me",
       "noMessagesYet": "No messages yet",
+      "loadFailed": "The messages of this chat could not be loaded.",
+      "refreshFailed": "The latest messages could not be loaded.",
+      "olderFailed": "Older messages could not be loaded.",
+      "loadRetry": "Retry",
       "sendTemplateHint": "Send a template to start the conversation",
       "selectConversation": "Select a conversation",
       "selectConversationHint": "Choose a conversation from the left to start messaging",
@@ -610,7 +614,15 @@
       "optedOut": "This customer has opted out of messages, so the missed-call draft was not sent.",
       "sharedChatNumber": "This chat was shared with you, so you can reply only on the chat's own WhatsApp number.",
       "personalNumber": "You can't send from this colleague's own WhatsApp number. Switch the chat to a company number.",
-      "attachmentExpired": "This attachment is too old to send again and has been removed. Attach the file again."
+      "attachmentExpired": "This attachment is too old to send again and has been removed. Attach the file again.",
+      "maybeSentTitle": "May have been sent: check the chat before sending again",
+      "copy": "Copy",
+      "copyTitle": "Copy this message's text",
+      "copied": "Copied",
+      "copyFailed": "Could not copy. Select the text and copy it yourself.",
+      "discardMaybeTitle": "Remove this message from the list",
+      "offline": "You are offline.",
+      "noAnswer": "The connection was lost before an answer came back."
     },
     "composer": {
       "templates": "Templates",
