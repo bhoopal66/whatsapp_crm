@@ -202,7 +202,11 @@ describe('request shape', () => {
     fetchMock.mockResolvedValue(
       new Response('bytes', { headers: { 'content-type': 'image/jpeg' } })
     );
-    const out = await downloadMedia({ ...creds, downloadUrl: url });
+    const out = await downloadMedia({
+      ...creds,
+      downloadUrl: url,
+      maxBytes: 1024,
+    });
     expect(out.contentType).toBe('image/jpeg');
     expect(new Headers(lastCall().init.headers).get('x-api-key')).toBe('key-1');
 
@@ -212,6 +216,7 @@ describe('request shape', () => {
       downloadMedia({
         ...creds,
         downloadUrl: 'http://openwa.test:2785/api/sessions/sess-1/config',
+        maxBytes: 1024,
       })
     ).rejects.toBeInstanceOf(OpenWAError);
   });
@@ -357,6 +362,7 @@ describe('error mapping', () => {
     fetchMock.mockResolvedValue(json(404, {}));
     const err = await downloadMedia({
       ...creds,
+      maxBytes: 1024,
       downloadUrl: getMediaUrl({ sessionId: 'sess-1', mediaId: 'c@c.us/m' })
         .url,
     }).then(unexpected, asOpenWAError);

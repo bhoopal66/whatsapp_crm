@@ -18,6 +18,7 @@ const META_API_VERSION = process.env.META_API_VERSION || 'v23.0'
 export const META_API_BASE = `https://graph.facebook.com/${META_API_VERSION}`
 
 import { fetchPublicUrl, UnsafeUrlError } from '@/lib/webhooks/ssrf'
+import { readCapped } from '@/lib/media/capped-body'
 
 /**
  * Per-request ceiling, mirroring `WHAPI_TIMEOUT_MS` in the Whapi client.
@@ -1308,6 +1309,10 @@ export async function getMediaUrl(
 export interface DownloadMediaArgs {
   downloadUrl: string
   accessToken: string
+  /** Past this many bytes the body is left unread (`BodyTooLargeError`). */
+  maxBytes: number
+  /** Replaces the default timeout, for a body that is streamed on. */
+  signal?: AbortSignal
 }
 
 /**
@@ -1327,24 +1332,23 @@ export function isMetaMediaHost(url: URL): boolean {
 }
 
 /**
- * Fetch the binary bytes for a media URL obtained from getMediaUrl.
- * Step two of the media-proxy flow.
+ * Ask for the bytes behind a media URL obtained from getMediaUrl; the
+ * body is unread and must be read through a cap. Step two of the media-proxy flow.
  *
  * `downloadUrl` is not always Meta-issued — forwarding re-hosts a
  * message's stored `media_url`, which a sender controls — so the token
  * goes only to a Meta host (`isMetaMediaHost`). Anything else is fetched
  * without credentials, behind the SSRF guard, redirects re-checked.
  */
-export async function downloadMedia(
-  args: DownloadMediaArgs
-): Promise<{ buffer: Buffer; contentType: string }> {
-  const { downloadUrl, accessToken } = args
+export async function openMedia(args: DownloadMediaArgs): Promise<Response> {
+  const { downloadUrl, accessToken, maxBytes } = args
   let response: Response
   try {
     response = await fetchPublicUrl(
       downloadUrl,
-      { signal: AbortSignal.timeout(META_TIMEOUT_MS) },
+      { signal: args.signal ?? AbortSignal.timeout(META_TIMEOUT_MS) },
       {
+        maxDecodedBytes: maxBytes,
         isTrusted: isMetaMediaHost,
         trustedHeaders: { Authorization: `Bearer ${accessToken}` },
       },
@@ -1365,8 +1369,15 @@ export async function downloadMedia(
     await response.body?.cancel().catch(() => {})
     throw new Error(`Media download failed: ${response.status}`)
   }
+  return response
+}
+
+/** The bytes behind a media URL, at most `maxBytes` of them. */
+export async function downloadMedia(
+  args: DownloadMediaArgs
+): Promise<{ buffer: Buffer; contentType: string }> {
+  const response = await openMedia(args)
   const contentType =
     response.headers.get('content-type') || 'application/octet-stream'
-  const buffer = Buffer.from(await response.arrayBuffer())
-  return { buffer, contentType }
+  return { buffer: await readCapped(response, args.maxBytes), contentType }
 }

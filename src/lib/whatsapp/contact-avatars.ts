@@ -18,6 +18,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+import { BodyTooLargeError } from '@/lib/media/capped-body';
 import { toPublicSupabaseUrl } from '@/lib/supabase/urls';
 
 import type { WhatsAppChannel } from './channels';
@@ -318,6 +319,7 @@ export async function refreshContactAvatar(
     const { buffer, contentType } = await download({
       channel,
       downloadUrl: pictureUrl,
+      maxBytes: AVATAR_MAX_BYTES,
     });
     const mime = normalizeMimeType(contentType);
     if (
@@ -360,8 +362,8 @@ export async function refreshContactAvatar(
     if (isChannelLookupFailure(err)) {
       return { contactId, avatarUrl: null, status: 'unavailable' };
     }
-    if (isRefusedRequest(err)) {
-      // The same id would be refused on every load: wait the week.
+    if (isRefusedRequest(err) || err instanceof BodyTooLargeError) {
+      // The same answer would come on every load: wait the week.
       try {
         await save({ avatar_checked_at: now().toISOString() });
       } catch {

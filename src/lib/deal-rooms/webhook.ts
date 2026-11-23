@@ -19,6 +19,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { markOptedOut } from '@/lib/ai/opt-out';
 import { safeStoredMime } from '@/lib/storage/safe-mime';
+import { WHATSAPP_MAX_FILE_BYTES } from '@/lib/media/capped-body';
 import { downloadMedia, getMediaUrl } from '@/lib/whatsapp/meta-api';
 import { MetaError } from '@/lib/whatsapp/meta-api';
 import { findExistingContact } from '@/lib/contacts/dedupe';
@@ -625,6 +626,7 @@ export async function handleGroupWebhook(
       const { buffer } = await downloadMedia({
         downloadUrl: url,
         accessToken: args.accessToken,
+        maxBytes: WHATSAPP_MAX_FILE_BYTES,
       });
       // The participant chose this type: never store it as such (164).
       const mimeType = safeStoredMime(reported);

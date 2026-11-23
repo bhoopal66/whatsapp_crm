@@ -37,6 +37,7 @@
 //     from the same `message_templates` row. OpenWA is Whapi's case.
 // ============================================================
 
+import { streamCapped, streamDeadline } from '@/lib/media/capped-body';
 import type { MessageTemplate } from '@/types';
 
 import {
@@ -556,24 +557,78 @@ export async function getMediaUrl(args: {
 export async function downloadMedia(args: {
   channel: WhatsAppChannel;
   downloadUrl: string;
+  /** The caller's own limit: past it, `BodyTooLargeError`. */
+  maxBytes: number;
 }): Promise<{ buffer: Buffer; contentType: string }> {
-  const { channel, downloadUrl } = args;
+  const { channel, downloadUrl, maxBytes } = args;
 
   switch (channel.provider) {
     case 'whapi':
-      return whapi.downloadMedia({ downloadUrl, token: channel.accessToken });
+      return whapi.downloadMedia({
+        downloadUrl,
+        token: channel.accessToken,
+        maxBytes,
+      });
     case 'meta':
       return meta.downloadMedia({
         downloadUrl,
         accessToken: channel.accessToken,
+        maxBytes,
       });
     case 'openwa':
       return openwa.downloadMedia({
         ...openwaCredentials(channel),
         downloadUrl,
+        maxBytes,
       });
     default:
       return unknownProvider(channel.provider);
+  }
+}
+
+/** How long a streamed attachment may take, start to end. */
+const STREAM_HEADERS_MS = 30_000;
+const STREAM_TOTAL_MS = 5 * 60_000;
+
+/**
+ * `downloadMedia` for bytes that are passed straight on: nothing is held
+ * in memory, and the stream errors past `maxBytes`.
+ */
+export async function streamMedia(args: {
+  channel: WhatsAppChannel;
+  downloadUrl: string;
+  maxBytes: number;
+}): Promise<{
+  body: ReadableStream<Uint8Array> | null;
+  contentType: string | null;
+  contentLength: number | null;
+}> {
+  const { channel, downloadUrl, maxBytes } = args;
+  const { signal, started } = streamDeadline(
+    STREAM_HEADERS_MS,
+    STREAM_TOTAL_MS
+  );
+  const common = { downloadUrl, maxBytes, signal };
+  const open = (): Promise<Response> => {
+    switch (channel.provider) {
+      case 'whapi':
+        return whapi.openMedia({ ...common, token: channel.accessToken });
+      case 'meta':
+        return meta.openMedia({ ...common, accessToken: channel.accessToken });
+      case 'openwa':
+        return openwa.openMedia({ ...common, ...openwaCredentials(channel) });
+      default:
+        return unknownProvider(channel.provider);
+    }
+  };
+  try {
+    const response = await open();
+    return {
+      ...(await streamCapped(response, maxBytes)),
+      contentType: response.headers.get('content-type'),
+    };
+  } finally {
+    started();
   }
 }
 

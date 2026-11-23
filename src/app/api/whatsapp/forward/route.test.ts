@@ -266,11 +266,15 @@ describe('POST /api/whatsapp/forward', () => {
       media_url: '/api/whatsapp/media/42',
       media_type: 'image/jpeg',
       provider: 'meta',
+      sender_type: 'customer',
     };
     const whapi = { provider: 'whapi', isPrimary: true };
     const meta = { provider: 'meta', isPrimary: false };
     loadChannels.mockResolvedValue([whapi, meta]);
-    resolveForwardMediaUrl.mockResolvedValue('https://public/fwd.jpg');
+    resolveForwardMediaUrl.mockResolvedValue({
+      ok: true,
+      url: 'https://public/fwd.jpg',
+    });
 
     await post({
       message_id: 'msg-src',
@@ -282,6 +286,7 @@ describe('POST /api/whatsapp/forward', () => {
       expect.objectContaining({
         channel: meta,
         mediaUrl: '/api/whatsapp/media/42',
+        fromCustomer: true,
       })
     );
     expect(sendMessageToConversation).toHaveBeenCalledWith(
@@ -301,13 +306,36 @@ describe('POST /api/whatsapp/forward', () => {
       media_url: '/api/whatsapp/media/42',
     };
     loadChannels.mockResolvedValue([{ provider: 'whapi', isPrimary: true }]);
-    resolveForwardMediaUrl.mockResolvedValue(null);
+    resolveForwardMediaUrl.mockResolvedValue({
+      ok: false,
+      reason: 'unavailable',
+    });
 
     const res = await post({
       message_id: 'msg-src',
       conversation_ids: ['conv-a'],
     });
     expect(res.status).toBe(502);
+    expect(sendMessageToConversation).not.toHaveBeenCalled();
+  });
+
+  it('answers "cannot be forwarded" for a place attachments do not live in', async () => {
+    sourceRow = {
+      ...TEXT_SOURCE,
+      content_type: 'image',
+      media_url: 'https://attacker.example/a.jpg',
+    };
+    loadChannels.mockResolvedValue([{ provider: 'whapi', isPrimary: true }]);
+    resolveForwardMediaUrl.mockResolvedValue({ ok: false, reason: 'refused' });
+
+    const res = await post({
+      message_id: 'msg-src',
+      conversation_ids: ['conv-a'],
+    });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: 'This kind of message cannot be forwarded',
+    });
     expect(sendMessageToConversation).not.toHaveBeenCalled();
   });
 });
