@@ -10,7 +10,7 @@
 
 import { NextResponse } from 'next/server';
 
-import { getCurrentAccount } from '@/lib/auth/account';
+import { assertSalesAccess, getCurrentAccount } from '@/lib/auth/account';
 import {
   INVITE_STOP_ON,
   isFreshInvite,
@@ -86,7 +86,7 @@ async function currentInvite(
 
 export async function GET(_request: Request, { params }: Params) {
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     const { id } = await params;
     const group = await loadGroupForCaller(ctx, id, { manage: true });
     requireGroupAdmin(group);
@@ -111,7 +111,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export async function POST(request: Request, { params }: Params) {
   const budget = { deadline: groupDeadline() };
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     const { id } = await params;
     const action = parseInviteAction(await request.json().catch(() => null));
     const group = await loadGroupForCaller(ctx, id, { manage: true });

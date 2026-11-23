@@ -48,6 +48,8 @@ vi.mock('@/lib/groups/recipients', async (importOriginal) => {
   return { ...real, screenRecipients: mocks.screenRecipients };
 });
 
+import { __resetRateLimitForTests } from '@/lib/rate-limit';
+
 import { DELETE, PATCH, POST } from './route';
 
 const G = '22222222-2222-4222-8222-222222222222';
@@ -66,6 +68,7 @@ const call = (fn: typeof POST, body: unknown) =>
 
 beforeEach(() => {
   vi.clearAllMocks();
+  __resetRateLimitForTests();
   vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'http://supabase.test');
   vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'service-key');
   vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -262,6 +265,38 @@ describe('POST participants', () => {
       { waId: '971502222222', contactId: C2, reason: 'opted_out' },
     ]);
     expect(mocks.persistGroupSnapshot).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops one person at 60 people an hour and a number at 120', async () => {
+    const add = (n: number) => {
+      mocks.screenRecipients.mockResolvedValueOnce({
+        recipients: Array.from({ length: n }, (_, i) => ({
+          waId: `9715000${String(i).padStart(5, '0')}`,
+        })),
+        invalid: [],
+        notFound: [],
+        skipped: [],
+        overridden: [],
+      });
+      return call(POST, { contactIds: [C1] });
+    };
+    const as = (userId: string) =>
+      mocks.getCurrentAccount.mockImplementation(async () => ({
+        supabase: fakeSupabase(mocks.rls),
+        userId,
+        accountId: 'acct-1',
+        role: 'agent',
+      }));
+    expect((await add(50)).status).toBe(200);
+    expect((await add(10)).status).toBe(200);
+    const over = await add(1);
+    expect(over.status).toBe(429);
+    expect((await over.json()).code).toBe('too_many_adds');
+    as('agent-2');
+    expect((await add(50)).status).toBe(200);
+    as('agent-3');
+    expect((await add(50)).status).toBe(429);
+    expect(mocks.addParticipants).toHaveBeenCalledTimes(3);
   });
 
   it('does not call Whapi when everyone is skipped', async () => {

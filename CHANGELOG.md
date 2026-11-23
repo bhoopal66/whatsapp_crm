@@ -20,6 +20,9 @@ No migration.
   limited to 30 a minute per person and 60 per room.
 - Submission groups: a message nobody answered for is looked up before
   the words are given back, so it is not sent twice.
+- WhatsApp groups: at most 60 people an hour added per person and 120 per
+  number, and every group action refuses a department kept out of the
+  sales areas (some only checked on the screen).
 - Case desk: an upload is refused to anyone below agent before the file
   is stored, is limited to 60 a minute, and leaves no file behind when it
   is refused.

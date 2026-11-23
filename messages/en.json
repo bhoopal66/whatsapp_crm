@@ -8510,6 +8510,7 @@
         "unavailable": "Something went wrong on our side. Try again in a moment.",
         "invalid_body": "That message couldn't be sent. Check the text and try again.",
         "time_budget": "Stopped before the time limit. Try the rest again, or send them the invite link.",
+        "too_many_adds": "Too many people were added in the last hour. Share the invite link instead, or wait.",
         "create_unsupported": "This number's WhatsApp gateway can't create groups. Create the group on a Whapi number; this number can still join, chat in and manage groups.",
         "unsupported": "This number's WhatsApp gateway doesn't support that action.",
         "unknown": "Something went wrong. Try again.",

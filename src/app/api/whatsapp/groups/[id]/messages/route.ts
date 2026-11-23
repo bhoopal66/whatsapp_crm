@@ -14,7 +14,7 @@
 
 import { NextResponse } from 'next/server';
 
-import { getCurrentAccount } from '@/lib/auth/account';
+import { assertSalesAccess, getCurrentAccount } from '@/lib/auth/account';
 import {
   GROUP_SEND_LIMIT,
   parseGroupText,
@@ -71,7 +71,7 @@ function sendFailure(err: unknown): unknown {
 
 export async function GET(request: Request, { params }: Params) {
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     const { id } = await params;
     const { before, limit } = parseMessagePage(
       new URL(request.url).searchParams
@@ -102,7 +102,7 @@ export async function GET(request: Request, { params }: Params) {
 
 export async function POST(request: Request, { params }: Params) {
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     const { id } = await params;
     const raw = (await request.json().catch(() => null)) as {
       media?: unknown;

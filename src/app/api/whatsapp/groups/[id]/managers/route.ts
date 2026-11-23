@@ -21,7 +21,7 @@
 
 import { NextResponse } from 'next/server';
 
-import { getCurrentAccount } from '@/lib/auth/account';
+import { assertSalesAccess, getCurrentAccount } from '@/lib/auth/account';
 import { canViewAllGroups } from '@/lib/auth/roles';
 import {
   diffManagers,
@@ -105,7 +105,7 @@ async function readManagers(
 
 export async function GET(_request: Request, { params }: Params) {
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     const { id } = await params;
     const group = await loadGroupForCaller(ctx, id);
     const managers = await readManagers(
@@ -281,7 +281,7 @@ async function syncManagerNumbers(
 export async function PUT(request: Request, { params }: Params) {
   const deadline = groupDeadline();
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     const { id } = await params;
     const { userIds } = parseManagerSet(await request.json().catch(() => null));
     const group = await loadGroupForCaller(ctx, id);

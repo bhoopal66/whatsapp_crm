@@ -144,6 +144,10 @@ export const RATE_LIMITS = {
    *  from the company number. */
   dealRoomSend: { limit: 30, windowMs: 60_000 },
   dealRoomTotal: { limit: 60, windowMs: 60_000 },
+  /** People added to WhatsApp groups, per person adding and per number:
+   *  WhatsApp restricts numbers that mass-add. */
+  groupAddPerson: { limit: 60, windowMs: 3_600_000 },
+  groupAddNumber: { limit: 120, windowMs: 3_600_000 },
   /** Case desk uploads, per person: each one stores a file. */
   deskUpload: { limit: 60, windowMs: 60_000 },
   /** Invitation peek (public, per-IP). 30/min lets a forwarded link

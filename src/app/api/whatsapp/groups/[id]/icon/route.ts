@@ -8,7 +8,7 @@
 
 import { NextResponse } from 'next/server';
 
-import { getCurrentAccount } from '@/lib/auth/account';
+import { assertSalesAccess, getCurrentAccount } from '@/lib/auth/account';
 import {
   checkIconUpload,
   requireGroupAdmin,
@@ -29,7 +29,7 @@ const noIcon = () => new GroupHttpError(404, 'no_icon', 'No group picture');
 
 export async function GET(_request: Request, { params }: Params) {
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     const { id } = await params;
     const group = await loadGroupForCaller(ctx, id);
     if (!group.channel_id) throw noIcon();
@@ -52,7 +52,7 @@ export async function GET(_request: Request, { params }: Params) {
 
 export async function PUT(request: Request, { params }: Params) {
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     const { id } = await params;
     const form = await request.formData().catch(() => null);
     const { mimeType } = checkIconUpload(form?.get('file') ?? null);
@@ -75,7 +75,7 @@ export async function PUT(request: Request, { params }: Params) {
 
 export async function DELETE(_request: Request, { params }: Params) {
   try {
-    const ctx = await getCurrentAccount();
+    const ctx = assertSalesAccess(await getCurrentAccount());
     const { id } = await params;
     const group = await loadGroupForCaller(ctx, id, { manage: true });
     requireGroupAdmin(group);

@@ -8510,6 +8510,7 @@
         "unavailable": "문제가 발생했습니다. 잠시 후 다시 시도하세요.",
         "invalid_body": "메시지를 보낼 수 없습니다. 내용을 확인하고 다시 시도하세요.",
         "time_budget": "시간 제한 전에 중단했습니다. 나머지는 다시 시도하거나 초대 링크를 보내세요.",
+        "too_many_adds": "지난 한 시간 동안 너무 많은 사람을 추가했습니다. 대신 초대 링크를 공유하거나 잠시 기다리세요.",
         "create_unsupported": "This number's WhatsApp gateway can't create groups. Create the group on a Whapi number; this number can still join, chat in and manage groups.",
         "unsupported": "This number's WhatsApp gateway doesn't support that action.",
         "unknown": "문제가 발생했습니다. 다시 시도하세요.",

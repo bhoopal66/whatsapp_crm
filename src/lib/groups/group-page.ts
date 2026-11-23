@@ -40,6 +40,7 @@ export const GROUP_REASON_CODES = [
   'unavailable',
   'invalid_body',
   'time_budget',
+  'too_many_adds',
   'create_unsupported',
   'unsupported',
   'no_participants',
