@@ -12,6 +12,14 @@ and polish.
 
 ## [Unreleased]
 
+### Compass notifications and cases: five fixes
+
+No migration.
+- A Compass notification is no longer sent 1:1 to a customer who opted out
+  or is marked do-not-contact: it answers 422 `customer_opted_out`, as in
+  the group. When the contact cannot be read it answers 503
+  `contact_lookup_failed` and sends nothing.
+
 ### Voice notes: one tap to record, one tap to send
 
 No migration.

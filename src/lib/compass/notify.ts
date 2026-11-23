@@ -40,7 +40,12 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe';
+import {
+  ContactLookupError,
+  findExistingContact,
+  isUniqueViolation,
+  type ExistingContact,
+} from '@/lib/contacts/dedupe';
 import { parseCompassId, normalizeCompassPhone } from '@/lib/compass/contacts';
 import {
   ChannelError,
@@ -50,6 +55,7 @@ import {
 } from '@/lib/whatsapp/channels';
 import { setLeadSourceIfEmpty } from '@/lib/leads/lead-source';
 import { sanitizePhoneForMeta } from '@/lib/whatsapp/phone-utils';
+import { consentRefusal } from '@/lib/whatsapp/send-origin';
 import { resolveTemplateRow } from '@/lib/whatsapp/template-body';
 import {
   compassTemplateFor,
@@ -417,29 +423,63 @@ async function claim(
   );
 }
 
+const customerOptedOut = () =>
+  new NotifyError(
+    'customer_opted_out',
+    'The customer has opted out of WhatsApp messages. Nothing was sent.',
+    422
+  );
+
+/**
+ * The CRM contact a 1:1 update would reach, found the way
+ * `resolveConversationByPhone` finds it, or null when this phone has
+ * none. Throws the group path's 422 when the contact opted out or is
+ * do-not-contact, and a retryable 503 when that cannot be read.
+ */
+async function consentingContact(
+  db: SupabaseClient,
+  accountId: string,
+  phone: string
+): Promise<ExistingContact | null> {
+  let contact: ExistingContact | null;
+  try {
+    contact = await findExistingContact(
+      db,
+      accountId,
+      sanitizePhoneForMeta(`+${phone}`)
+    );
+  } catch (err) {
+    if (!(err instanceof ContactLookupError)) throw err;
+    throw new NotifyError(
+      'contact_lookup_failed',
+      'The customer could not be looked up. Nothing was sent — retry later with the same idempotency_key.',
+      503
+    );
+  }
+  const register = contact as {
+    opted_out_at?: string | null;
+    do_not_contact_at?: string | null;
+  } | null;
+  if (consentRefusal(register)) throw customerOptedOut();
+  return contact;
+}
+
 /**
  * The Meta number this notification would go out on, and the chat this
- * phone already has, or null when the account has no Meta number.
+ * contact already has, or null when the account has no Meta number.
  * Read-only: nothing is created.
  *
  * It asks `resolveSendChannel` exactly what the send core will ask it
- * (surface 'api', provider 'meta', the chat's own numbers), for the
- * chat this phone already has — found the way `resolveConversationByPhone`
- * finds it. A provider pin outranks a chat pinned to a linked-device
+ * (surface 'api', provider 'meta', the chat's own numbers). A provider pin outranks a chat pinned to a linked-device
  * number, so the answer is the account's one Meta number.
  */
 async function metaNumberFor(
   db: SupabaseClient,
   accountId: string,
-  phone: string
+  contact: ExistingContact | null
 ): Promise<{ channel: WhatsAppChannel; conversationId: string | null } | null> {
   let conversationId: string | null = null;
   let numbers: ConversationNumbers | undefined;
-  const contact = await findExistingContact(
-    db,
-    accountId,
-    sanitizePhoneForMeta(`+${phone}`)
-  );
   if (contact) {
     const { data } = await db
       .from('conversations')
@@ -667,12 +707,6 @@ async function sendToGroup(
     contactId: group.contact_id,
     messageId,
   });
-  const optedOut = () =>
-    new NotifyError(
-      'customer_opted_out',
-      'The customer has opted out of WhatsApp messages. Nothing was sent.',
-      422
-    );
   const failed = (message: string) =>
     new NotifyError('group_send_failed', message, 502);
   const base = baseKey.slice(0, MAX_SYSTEM_KEY_LENGTH - 2);
@@ -699,7 +733,7 @@ async function sendToGroup(
       case 'sent':
         return delivered(result.messageId);
       case 'blocked':
-        throw optedOut();
+        throw customerOptedOut();
       case 'refused':
         // A first attempt the group refused never reached WhatsApp: 1:1 is
         // safe. After a failed attempt it may have, so report instead.
@@ -718,7 +752,7 @@ async function sendToGroup(
             409
           );
         }
-        if (result.sendStatus === 'blocked') throw optedOut();
+        if (result.sendStatus === 'blocked') throw customerOptedOut();
         continue; // failed: try the next attempt key
     }
   }
@@ -856,9 +890,11 @@ export async function sendCompassNotification(
       }
     }
 
+    const contact = await consentingContact(db, accountId, phone);
+
     // Checked before a contact or chat is created, so a missing channel
     // leaves nothing behind. The send core re-checks (requireProvider).
-    const meta = await metaNumberFor(db, accountId, phone);
+    const meta = await metaNumberFor(db, accountId, contact);
     if (!meta) {
       throw new NotifyError(
         'meta_not_connected',

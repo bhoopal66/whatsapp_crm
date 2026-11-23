@@ -37,6 +37,7 @@ import {
 } from './notify';
 import { SendMessageError } from '@/lib/whatsapp/send-message';
 import { ChannelError } from '@/lib/whatsapp/channels';
+import { ContactLookupError } from '@/lib/contacts/dedupe';
 import { SubmissionGroupSentNotRecordedError } from '@/lib/submission-groups/service';
 import { COMPASS_TEMPLATES } from './meta-template';
 import { APPROVED_TEXT, SUBMITTED_TEXT } from './compass-messages.fixture';
@@ -358,7 +359,10 @@ describe('sendCompassNotification', () => {
       messageType: 'template',
       templateName: 'compass_case_approved',
       templateLanguage: 'en',
-      templateParams: ['SILVER DUNE FURNITURE & DECOR IND. FACTORY LLC.', 'NBF'],
+      templateParams: [
+        'SILVER DUNE FURNITURE & DECOR IND. FACTORY LLC.',
+        'NBF',
+      ],
       surface: 'api',
       provider: 'meta',
       requireProvider: true,
@@ -606,6 +610,47 @@ describe('sendCompassNotification', () => {
     const found = makeDb({ ...chatOnMeta(48 * HOUR), rpc: () => true });
     await sendCompassNotification(found.db, 'acct', baseRequest());
     expect(found.rpcs).toEqual([]);
+  });
+
+  it.each(['opted_out_at', 'do_not_contact_at'])(
+    'refuses 1:1 a customer with %s set, in or out of the window; the key works after an opt-in',
+    async (col) => {
+      const { db, tables } = makeDb(chatOnMeta(HOUR));
+      const customer = (at: string | null) => ({
+        id: 'contact-1',
+        phone: '971501234567',
+        [col]: at,
+      });
+      findExistingContact.mockResolvedValue(customer('2026-11-23T08:00:00Z'));
+      for (const req of [
+        baseRequest(),
+        baseRequest({ idempotency_key: 'APP-2', text: 'hello' }),
+      ]) {
+        await expect(
+          sendCompassNotification(db, 'acct', req)
+        ).rejects.toMatchObject({ code: 'customer_opted_out', status: 422 });
+      }
+      expect(resolveConversationByPhone).not.toHaveBeenCalled();
+      expect(sendMessageToConversation).not.toHaveBeenCalled();
+      expect(tables.compass_notifications[0]).toMatchObject({
+        status: 'failed',
+        error_code: 'customer_opted_out',
+      });
+
+      findExistingContact.mockResolvedValue(customer(null));
+      const out = await sendCompassNotification(db, 'acct', baseRequest());
+      expect(out.notification.status).toBe('sent');
+    }
+  );
+
+  it('refuses, retryable and sending nothing, when the contact cannot be read', async () => {
+    const { db, tables } = makeDb();
+    findExistingContact.mockRejectedValue(new ContactLookupError('down'));
+    await expect(
+      sendCompassNotification(db, 'acct', baseRequest())
+    ).rejects.toMatchObject({ code: 'contact_lookup_failed', status: 503 });
+    expect(sendMessageToConversation).not.toHaveBeenCalled();
+    expect(tables.compass_notifications[0].status).toBe('failed');
   });
 
   it('never touches conversation ownership', async () => {
