@@ -22,6 +22,7 @@ vi.mock('@/lib/pbx/connection', async (orig) => ({
 }));
 
 import { PbxConnectionError } from '@/lib/pbx/connection';
+import { __resetRateLimitForTests, RATE_LIMITS } from '@/lib/rate-limit';
 import { POST } from './route';
 
 const A = '00000000-0000-4000-8000-00000000000a';
@@ -70,6 +71,7 @@ function as(role: string, visible = [contact(C1, '971501234567')]) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  __resetRateLimitForTests();
   service = createFakeDb({
     contacts: [contact(C1, '971501234567'), contact(C2, '971509999999', 'x')],
     pbx_audit: [],
@@ -235,6 +237,55 @@ describe('POST /api/pbx/calls/dial', () => {
     });
   });
 
+  describe('too many, too fast', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('allows 20 calls a minute per person', async () => {
+      const to = (n: number) =>
+        post({ number: `05012300${String(n).padStart(2, '0')}` });
+      for (let n = 0; n < RATE_LIMITS.pbxDial.limit; n++)
+        expect((await to(n)).status).toBe(200);
+      const res = await to(99);
+      expect(res.status).toBe(429);
+      expect(Number(res.headers.get('Retry-After'))).toBeGreaterThan(0);
+      expect(dial).toHaveBeenCalledTimes(20);
+      mocks.requireRole.mockResolvedValue({
+        ...(await mocks.requireRole()),
+        userId: 'user-2',
+      });
+      expect((await to(99)).status).toBe(200);
+    });
+
+    it('does not dial one number twice within 10 seconds, however it is asked for', async () => {
+      vi.useFakeTimers({ toFake: ['Date'], now: Date.now() });
+      expect((await post({ contactId: C1 })).status).toBe(200);
+      const res = await post({ number: '050 123 4567' });
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual({
+        error: expect.stringContaining('a few seconds ago'),
+        code: 'dialled_just_now',
+      });
+      expect((await post({ number: '0501234568' })).status).toBe(200);
+      vi.setSystemTime(Date.now() + 10_000);
+      expect((await post({ contactId: C1 })).status).toBe(200);
+      expect(dial).toHaveBeenCalledTimes(3);
+    });
+
+    it('a do-not-contact refusal does not hold up the override that follows', async () => {
+      as('admin', [contact(C2, '971509999999', 'x')]);
+      expect((await post({ contactId: C2 })).status).toBe(409);
+      const override = { contactId: C2, overrideReason: 'Customer rang back' };
+      expect((await post(override)).status).toBe(200);
+      // A repeat is refused before it is logged as another override.
+      expect((await (await post(override)).json()).code).toBe(
+        'dialled_just_now'
+      );
+      expect(service.tables.pbx_audit).toHaveLength(1);
+    });
+  });
+
   it('answers the phone system’s failures rather than crashing', async () => {
     mocks.pbxApiFor.mockRejectedValue(
       new PbxConnectionError('no_sdk_credentials', 'no SDK')
@@ -377,6 +428,7 @@ describe('POST /api/pbx/calls/dial', () => {
         expect(service.tables.pbx_bank_numbers).toHaveLength(2);
 
         // An admin's own listing of the number keeps its bank code.
+        __resetRateLimitForTests();
         dial.mockResolvedValue({ callId: 'pbx-80' });
         service.tables.pbx_settings = [
           { account_id: A, exclude_bank_numbers: true },

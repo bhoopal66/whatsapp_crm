@@ -184,6 +184,9 @@ export const RATE_LIMITS = {
   // Changing one's own password. Per-user, ahead of the sign-in lockout
   // that counts the wrong ones.
   passwordChange: { limit: 10, windowMs: 60_000 },
+  /** Click-to-call, per person: each one rings a real phone. 20/min is
+   *  well above someone working a call list. */
+  pbxDial: { limit: 20, windowMs: 60_000 },
   /** Public REST API (`/api/v1/*`), keyed per API key. 120/min ≈ 2
    *  req/s sustained — comfortable for a polling integration or an
    *  automation firing on inbound events, while bounding a runaway

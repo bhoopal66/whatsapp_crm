@@ -15,6 +15,8 @@ and polish.
 ### Phone
 
 No migration.
+- Calling from the CRM: at most 20 calls a minute per person, and the same
+  number is not dialled twice by one person within 10 seconds.
 - Call-backs, before they are switched on: an unanswered one is tried again
   after 30 minutes, then after 2 hours (it was tried again at once); a
   customer is not rung twice within half an hour, also when they asked twice
