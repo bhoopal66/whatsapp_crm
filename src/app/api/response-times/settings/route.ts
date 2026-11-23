@@ -81,6 +81,11 @@ export async function PUT(request: Request) {
     if (!body || typeof body !== 'object') {
       return NextResponse.json({ error: 'invalid_body' }, { status: 400 });
     }
+    // A page loaded before the partial saves sends the whole form and
+    // would overwrite another admin's changes: refuse it unread.
+    if (body.partial !== true) {
+      return NextResponse.json({ error: 'reload' }, { status: 409 });
+    }
     const { enabled, timezone, hours, targetMinutes } = body;
     const patch: {
       enabled?: boolean;

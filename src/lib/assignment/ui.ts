@@ -127,6 +127,8 @@ export function applyPoolChange(
 /** The fields a settings save may carry besides the pool's change. */
 export type AssignmentSettingsPatch = Partial<AssignmentSettings> & {
   broadcastPoolChange?: PoolChange;
+  /** The pool the form was loaded with; sent with `broadcastPool: []`. */
+  broadcastPoolExpected?: string[];
 };
 
 /**
@@ -150,8 +152,10 @@ export function assignmentSettingsDiff(
     patch.defaultChatLimit = form.defaultChatLimit;
   }
   if (form.broadcastPool.join() !== saved.broadcastPool.join()) {
-    if (form.broadcastPool.length === 0) patch.broadcastPool = [];
-    else {
+    if (form.broadcastPool.length === 0) {
+      patch.broadcastPool = [];
+      patch.broadcastPoolExpected = [...saved.broadcastPool];
+    } else {
       patch.broadcastPoolChange = poolChange(
         saved.broadcastPool,
         form.broadcastPool
@@ -186,6 +190,7 @@ export const ASSIGNMENT_ERRORS = [
   'not_allowed',
   'not_available',
   'invalid_body',
+  'reload',
 ] as const;
 
 export type AssignmentError = (typeof ASSIGNMENT_ERRORS)[number];

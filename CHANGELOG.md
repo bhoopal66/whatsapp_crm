@@ -121,6 +121,13 @@ No migration.
   and removed, so two admins' changes both stay. Where they cannot (the list
   has since become "everyone", or would), nothing is saved and the page says
   so.
+- **Response times and Chat assignment**: a page opened before this update
+  no longer saves at all. It sent its whole old form and overwrote another
+  admin's changes. It is told to reload; the new page says "This page is out
+  of date. Reload it and try again."
+- **Chat assignment**: choosing "everyone" (untick the last name) is saved
+  only when nobody else has changed who takes turns since the page loaded.
+  It replaced whatever was stored.
 - **Chat assignment**: when the personal limits cannot be read, the page says
   it did not load. It showed nobody as having one. When the open chats cannot
   be read, it says "not available" instead of 0, and the **Assign** menu shows

@@ -181,7 +181,7 @@ export function ChatAssignmentPanel() {
       const res = await fetch('/api/assignment/settings', {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(changes),
+        body: JSON.stringify({ ...changes, partial: true }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {

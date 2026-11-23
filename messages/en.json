@@ -6605,7 +6605,8 @@
       "no_such_member": "That person is no longer in this workspace.",
       "not_allowed": "Only an owner or admin can change chat assignment.",
       "not_available": "Chat assignment needs a database update (migration 236).",
-      "invalid_body": "Something in the form was not valid. Refresh and try again."
+      "invalid_body": "Something in the form was not valid. Refresh and try again.",
+      "reload": "This page is out of date. Reload it and try again."
     }
   },
   "Workspaces": {
@@ -11734,7 +11735,8 @@
       "invalid_timezone": "Pick a time zone from the list.",
       "invalid_hours": "Check the business hours: each start must be before its end, and hours in one day must not overlap.",
       "invalid_target": "The target must be a whole number of minutes from 1 to 1440.",
-      "not_allowed": "Only owners and admins can change response times."
+      "not_allowed": "Only owners and admins can change response times.",
+      "reload": "This page is out of date. Reload it and try again."
     }
   },
   "CommandBar": {

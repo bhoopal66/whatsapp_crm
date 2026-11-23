@@ -24,13 +24,16 @@ function supabase() {
 }
 
 const HOURS = { mon: [['09:00', '17:00']] };
-const put = (body: unknown) =>
+const putRaw = (body: unknown) =>
   PUT(
     new Request('http://localhost/api/response-times/settings', {
       method: 'PUT',
       body: JSON.stringify(body),
     })
   );
+// The panel sends only changed keys, marked partial.
+const put = (body: Record<string, unknown>) =>
+  putRaw({ partial: true, ...body });
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -47,6 +50,15 @@ beforeEach(() => {
       target_minutes: 20,
     },
     error: null,
+  });
+});
+
+describe('PUT without partial', () => {
+  it('answers 409 reload before reading or writing', async () => {
+    const res = await putRaw({ enabled: true, timezone: 'UTC', hours: HOURS });
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toBe('reload');
+    expect(h.rpc).not.toHaveBeenCalled();
   });
 });
 
