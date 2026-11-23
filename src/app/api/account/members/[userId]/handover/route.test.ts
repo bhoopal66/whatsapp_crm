@@ -26,7 +26,8 @@ const TO = '22222222-2222-4222-8222-222222222222';
 const COUNTS = { chats: 3, tasks: 2, deals: 1, contacts: 0 };
 
 const at = (userId: string) => ({ params: Promise.resolve({ userId }) });
-const get = (userId = FROM) => GET(new Request('http://localhost/x'), at(userId));
+const get = (userId = FROM) =>
+  GET(new Request('http://localhost/x'), at(userId));
 const post = (body: unknown, userId = FROM) =>
   POST(
     new Request('http://localhost/x', {
@@ -53,7 +54,11 @@ describe('members/[userId]/handover', () => {
     for (const res of [await get(), await post({}), await LEFT()]) {
       expect(res.status).toBe(403);
     }
-    expect(mocks.requireRole.mock.calls).toEqual([['admin'], ['admin'], ['admin']]);
+    expect(mocks.requireRole.mock.calls).toEqual([
+      ['admin'],
+      ['admin'],
+      ['admin'],
+    ]);
     expect(mocks.rpc).not.toHaveBeenCalled();
   });
 
@@ -61,7 +66,9 @@ describe('members/[userId]/handover', () => {
     mocks.rpc.mockResolvedValue({ data: COUNTS, error: null });
     const res = await get();
     expect(await res.json()).toEqual({ counts: COUNTS });
-    expect(mocks.rpc).toHaveBeenCalledWith('member_work_counts', { p_user: FROM });
+    expect(mocks.rpc).toHaveBeenCalledWith('member_work_counts', {
+      p_user: FROM,
+    });
     expect((await get('x')).status).toBe(400);
   });
 
@@ -113,8 +120,14 @@ describe('members/[userId]/handover', () => {
       ['22023', 400],
       ['XX000', 500],
     ] as const) {
-      mocks.rpc.mockResolvedValue({ data: null, error: { code, message: 'why' } });
-      for (const res of [await get(), await post({ to: TO, what: ['chats'] })]) {
+      mocks.rpc.mockResolvedValue({
+        data: null,
+        error: { code, message: 'why' },
+      });
+      for (const res of [
+        await get(),
+        await post({ to: TO, what: ['chats'] }),
+      ]) {
         expect(res.status).toBe(status);
         const { error } = await res.json();
         if (status === 500) expect(error).not.toMatch(/why/);
@@ -132,15 +145,23 @@ describe('members/left-work', () => {
       error: null,
     });
     const res = await LEFT();
-    expect(await res.json()).toEqual({ members: [{ userId: FROM, ...COUNTS }] });
+    expect(await res.json()).toEqual({
+      members: [{ userId: FROM, ...COUNTS }],
+    });
     expect(mocks.rpc).toHaveBeenCalledWith('members_left_work');
   });
 
   it('maps the RPC errors', async () => {
     const quiet = vi.spyOn(console, 'error').mockImplementation(() => {});
-    mocks.rpc.mockResolvedValue({ data: null, error: { code: '42501', message: 'why' } });
+    mocks.rpc.mockResolvedValue({
+      data: null,
+      error: { code: '42501', message: 'why' },
+    });
     expect((await LEFT()).status).toBe(403);
-    mocks.rpc.mockResolvedValue({ data: null, error: { code: 'XX000', message: 'why' } });
+    mocks.rpc.mockResolvedValue({
+      data: null,
+      error: { code: 'XX000', message: 'why' },
+    });
     expect((await LEFT()).status).toBe(500);
     quiet.mockRestore();
   });

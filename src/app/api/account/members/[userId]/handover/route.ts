@@ -10,7 +10,10 @@ import { NextResponse } from 'next/server';
 import type { PostgrestError } from '@supabase/supabase-js';
 
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
-import { parseHandoverKinds, parseWorkCounts } from '@/lib/auth/member-handover';
+import {
+  parseHandoverKinds,
+  parseWorkCounts,
+} from '@/lib/auth/member-handover';
 import { isUuid } from '@/lib/coordinators/errors';
 import {
   checkRateLimit,
@@ -74,7 +77,9 @@ export async function POST(request: Request, { params }: Params) {
     }
     const what = parseHandoverKinds(body?.what);
     if (!what) {
-      return bad("'what' must list one or more of chats, tasks, deals, contacts");
+      return bad(
+        "'what' must list one or more of chats, tasks, deals, contacts"
+      );
     }
 
     const { data, error } = await ctx.supabase.rpc('member_handover', {
