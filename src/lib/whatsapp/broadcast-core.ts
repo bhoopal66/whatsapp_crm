@@ -486,7 +486,11 @@ export async function createBroadcast(
  */
 export async function deliverBroadcast(
   db: SupabaseClient,
-  plan: BroadcastPlan
+  plan: BroadcastPlan,
+  opts: {
+    /** Refresh the delivery lock; false when it may be another pass's. */
+    keepLock?: () => Promise<boolean>;
+  } = {}
 ): Promise<void> {
   // Set when the NUMBER failed rather than the recipient (logged-out
   // phone, revoked token, lapsed subscription). Every later send would
@@ -504,9 +508,28 @@ export async function deliverBroadcast(
   // stopped answering the reads and writes that keep a send safe. Both
   // stop it the same way.
   let stopped: string | null = null;
+  // Set when the delivery lock is no longer certainly this pass's: the
+  // campaign is then another pass's to send and to settle.
+  let lockLost = false;
   let attempted = 0;
+  let refreshedAt = Date.now();
+  let refreshedAtAttempt = 0;
 
   for (const recipient of plan.planned) {
+    if (
+      opts.keepLock &&
+      (attempted - refreshedAtAttempt >= LOCK_REFRESH_SENDS ||
+        Date.now() - refreshedAt >= LOCK_REFRESH_MS)
+    ) {
+      if (!(await opts.keepLock())) {
+        lockLost = true;
+        stopped = 'the delivery lock could not be kept';
+        break;
+      }
+      refreshedAt = Date.now();
+      refreshedAtAttempt = attempted;
+    }
+
     // A pass of hundreds of sends outlives the moment it was planned, so
     // both of these are asked again for every recipient.
     if (plan.quietHours && isInQuietHours(new Date(), plan.quietHours)) {
@@ -686,8 +709,16 @@ export async function deliverBroadcast(
 
   // Receipts that beat a wamid stamp above were matched to nothing.
   await reconcileBroadcastStatuses({ broadcastId: plan.broadcastId });
-  await finalizeBroadcastStatus(db, plan.broadcastId);
+  if (!lockLost) await finalizeBroadcastStatus(db, plan.broadcastId);
 }
+
+/**
+ * A pass refreshes its lock after this many sends or this long, whichever
+ * comes first: both well inside DELIVERY_LOCK_STALE_MS, even when every
+ * send waits out the gateway's timeout.
+ */
+const LOCK_REFRESH_SENDS = 20;
+const LOCK_REFRESH_MS = 5 * 60 * 1000;
 
 const SENT_STAMP_ATTEMPTS = 3;
 

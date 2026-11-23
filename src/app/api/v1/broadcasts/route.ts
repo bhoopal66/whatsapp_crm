@@ -38,11 +38,9 @@ import { requireApiKey } from '@/lib/auth/api-context';
 export const maxDuration = 60;
 import { ok, fail, toApiErrorResponse } from '@/lib/api/v1/respond';
 import { resolveAuditUserId, ContactError } from '@/lib/api/v1/contacts';
-import {
-  createBroadcast,
-  deliverBroadcast,
-  BroadcastError,
-} from '@/lib/whatsapp/broadcast-core';
+import { createBroadcast, BroadcastError } from '@/lib/whatsapp/broadcast-core';
+import { runBroadcastPass } from '@/lib/whatsapp/broadcast-pass';
+import { claimBroadcastDelivery } from '@/lib/whatsapp/broadcast-resume';
 
 export async function POST(request: Request) {
   try {
@@ -83,8 +81,29 @@ export async function POST(request: Request) {
 
     // Fan out after the response is sent. Uses the same service-role
     // client — no request-scoped auth needed for the Meta calls or
-    // the account-scoped row updates.
-    after(() => deliverBroadcast(ctx.supabase, plan));
+    // the account-scoped row updates. Under the delivery lock, like every
+    // other pass: the campaign is on the page from here on, and a Resume
+    // clicked during the fan-out would send to the same people.
+    const claimedAt = new Date();
+    const claimed = await claimBroadcastDelivery(
+      ctx.supabase,
+      ctx.accountId,
+      plan.broadcastId,
+      claimedAt
+    );
+    if (claimed) {
+      after(() =>
+        runBroadcastPass(ctx.supabase, plan, claimedAt.toISOString())
+      );
+    } else {
+      // Either a Resume already holds the lock and delivers, or the claim
+      // failed and every row waits, pending, for one. The broadcast
+      // exists, so the answer is the same: an error here would have the
+      // caller create it again.
+      console.error(
+        `[api/v1/broadcasts] ${plan.broadcastId}: delivery lock not taken; not delivered by this request`
+      );
+    }
 
     return ok(
       {

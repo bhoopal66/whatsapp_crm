@@ -95,11 +95,12 @@ describe('claimBroadcastDelivery', () => {
 });
 
 describe('releaseBroadcastDelivery', () => {
-  it('clears the lock', async () => {
+  it('clears the lock, only while it is still the token named', async () => {
     const calls: ClaimCall[] = [];
-    await releaseBroadcastDelivery(claimDb([], calls), 'bc-1');
+    const token = '2026-11-23T08:00:00.000Z';
+    await releaseBroadcastDelivery(claimDb([], calls), 'bc-1', token);
     expect(calls[0].update).toEqual({ delivery_locked_at: null });
-    expect(calls[0].filters).toEqual({ id: 'bc-1' });
+    expect(calls[0].filters).toEqual({ id: 'bc-1', delivery_locked_at: token });
   });
 });
 

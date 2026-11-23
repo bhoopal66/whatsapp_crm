@@ -78,6 +78,9 @@ function scopeStatuses(scope: ResumeScope): string[] {
  * WHERE no longer matches and it gets `false`. Returns false when the
  * broadcast doesn't exist on this account, too — the caller treats both
  * as "not yours to run".
+ *
+ * The stored timestamp is the owner's token: pass your own `now` and
+ * keep `now.toISOString()` for the refresh and the release.
  */
 export async function claimBroadcastDelivery(
   db: SupabaseClient,
@@ -104,15 +107,46 @@ export async function claimBroadcastDelivery(
   return Array.isArray(data) && data.length > 0;
 }
 
-/** Release the delivery lock. Best-effort; a stale lock self-expires. */
+/**
+ * Keep a lock this pass holds from going stale. `token` is the lock's
+ * current timestamp: the claim's `now.toISOString()`, then whatever the
+ * last refresh returned. Null when the lock is no longer provably this
+ * pass's own — taken over as stale, or the write failed.
+ */
+export async function refreshBroadcastDelivery(
+  db: SupabaseClient,
+  broadcastId: string,
+  token: string
+): Promise<string | null> {
+  const next = new Date().toISOString();
+  const { data, error } = await db
+    .from('broadcasts')
+    .update({ delivery_locked_at: next })
+    .eq('id', broadcastId)
+    .eq('delivery_locked_at', token)
+    .select('id');
+  if (error) {
+    console.error('[broadcast-resume] refresh failed:', error.message);
+    return null;
+  }
+  return Array.isArray(data) && data.length > 0 ? next : null;
+}
+
+/**
+ * Release the delivery lock, if it is still the one `token` names: a
+ * pass that outlived its lock must not free another pass's. Best-effort;
+ * a stale lock self-expires.
+ */
 export async function releaseBroadcastDelivery(
   db: SupabaseClient,
-  broadcastId: string
+  broadcastId: string,
+  token: string
 ): Promise<void> {
   const { error } = await db
     .from('broadcasts')
     .update({ delivery_locked_at: null })
-    .eq('id', broadcastId);
+    .eq('id', broadcastId)
+    .eq('delivery_locked_at', token);
   if (error) {
     console.error('[broadcast-resume] release failed:', error.message);
   }
@@ -207,7 +241,11 @@ export async function planBroadcastResume(
     .eq('account_id', accountId)
     .maybeSingle();
 
-  if (bcError || !broadcast) {
+  if (bcError) {
+    console.error('[broadcast-resume] broadcast load failed:', bcError.message);
+    throw new BroadcastError('internal', 'Failed to load the broadcast', 500);
+  }
+  if (!broadcast) {
     throw new BroadcastError('not_found', 'Broadcast not found', 404);
   }
 
@@ -337,7 +375,12 @@ export async function planBroadcastResume(
     channel = await resolveChannelForSurface(db, accountId, 'broadcast');
   } catch (err) {
     if (err instanceof ChannelError) {
-      throw new BroadcastError(err.code, err.message, err.status);
+      throw new BroadcastError(
+        // Unreadable is not "no number": the cron keeps the campaign due.
+        err.code === 'channel_lookup_failed' ? 'internal' : err.code,
+        err.message,
+        err.status
+      );
     }
     throw err;
   }

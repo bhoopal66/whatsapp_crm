@@ -159,14 +159,30 @@ No migration.
 - When the video service could not be reached, the room says so instead of
   blaming the microphone or camera, and offers **Rejoin**.
 - The server log names Cloudflare's reason for a refused call.
-### Campaigns check opt-outs and quiet hours while they send
+### Campaigns check opt-outs and quiet hours, finish, and never send twice
 
 No migration.
+- **A scheduled campaign continues by itself**, for 7 days after its
+  appointment: past 1,000 recipients, after a restart, after quiet hours,
+  when its number is connected again, and when the number's daily limit
+  has room. The reason it waits is on the campaign page. One older than
+  that, or sent straight from the wizard, still needs Resume. **On
+  updating, a scheduled campaign of the last 7 days that is still
+  "sending" goes on within minutes.**
+- A send whose outcome is unknown (a timeout, a restart half way) is
+  marked "May have been sent" and is never repeated, by Resume, Retry
+  failed or the schedule.
+- A campaign with more than 1,000 people is counted and sent to the end;
+  it could be closed early, with people left out.
+- Only one delivery runs per campaign, however long it takes. A Resume
+  pressed while a `POST /api/v1/broadcasts` campaign goes out is refused.
+- A database that does not answer no longer marks a scheduled campaign
+  failed; it stays due.
 - A customer who opts out while a campaign is going out is skipped, and the
   row says why. If the opt-out cannot be checked, the campaign stops with
   the rest still pending.
 - A campaign that reaches its quiet hours stops there, with the rest
-  pending for Resume. **Resume, Retry failed and Send now are refused
+  pending. **Resume, Retry failed and Send now are refused
   inside the campaign's quiet hours.**
 
 ### Screen readers and keyboard: names for every control

@@ -130,14 +130,18 @@ export function numberDailyLimitMessage(check: AutoStartCheck): string {
   return `This WhatsApp number ${reached}. New chats on it can start again tomorrow; replies to existing chats still go out.`;
 }
 
+/** What the campaign cron recognises a daily-limit stop by. */
+export const CAMPAIGN_DAILY_LIMIT_PREFIX =
+  'This number reached its daily limit';
+
 /**
  * Stored on the broadcast recipient a campaign stopped at. The rest stay
- * pending and nothing resumes them on its own, so it says to press
- * Resume once the day turns.
+ * pending, and only a scheduled campaign is continued on its own, so it
+ * says to press Resume once the day turns.
  */
 export function campaignDailyLimitMessage(check: AutoStartCheck): string {
   const limit = check.limit ?? check.started;
-  return `This number reached its daily limit of${limit === undefined ? '' : ` ${limit}`} new chats${check.warmingUp ? ' while it warms up' : ''}. Press Resume tomorrow to send the rest.`;
+  return `${CAMPAIGN_DAILY_LIMIT_PREFIX} of${limit === undefined ? '' : ` ${limit}`} new chats${check.warmingUp ? ' while it warms up' : ''}. Press Resume tomorrow to send the rest.`;
 }
 
 /** Thrown by {@link assertAutoStartAllowed}; the engines record it as a failed step. */

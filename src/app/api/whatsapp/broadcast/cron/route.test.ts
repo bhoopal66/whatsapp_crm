@@ -32,6 +32,14 @@ vi.mock('@/lib/flows/admin-client', () => ({
             order: () => ({
               limit: () => Promise.resolve({ data: h.due, error: null }),
             }),
+            // Unfinished campaigns: cron-continue.test.ts.
+            gte: () => ({
+              or: () => ({
+                order: () => ({
+                  limit: () => Promise.resolve({ data: [], error: null }),
+                }),
+              }),
+            }),
           }),
         }),
       }),
@@ -49,10 +57,12 @@ vi.mock('@/lib/flows/admin-client', () => ({
 }));
 
 vi.mock('@/lib/whatsapp/broadcast-resume', () => ({
+  DELIVERY_LOCK_STALE_MS: 30 * 60 * 1000,
   claimBroadcastDelivery: h.claim,
   planBroadcastResume: h.plan,
   markBroadcastSending: h.markSending,
   releaseBroadcastDelivery: h.release,
+  refreshBroadcastDelivery: async () => null,
 }));
 
 vi.mock('@/lib/whatsapp/broadcast-core', async (importOriginal) => {
@@ -152,7 +162,12 @@ describe('GET /api/whatsapp/broadcast/cron — delivery', () => {
       skipped: 0,
       reconciled: 0,
     });
-    expect(h.claim).toHaveBeenCalledWith(expect.anything(), 'acct-1', 'bc-1');
+    expect(h.claim).toHaveBeenCalledWith(
+      expect.anything(),
+      'acct-1',
+      'bc-1',
+      expect.any(Date)
+    );
     expect(h.plan).toHaveBeenCalledWith(
       expect.anything(),
       'acct-1',
@@ -165,7 +180,12 @@ describe('GET /api/whatsapp/broadcast/cron — delivery', () => {
     expect(h.deliver).not.toHaveBeenCalled();
     for (const cb of h.afterCallbacks) await cb();
     expect(h.deliver).toHaveBeenCalledTimes(1);
-    expect(h.release).toHaveBeenCalledWith(expect.anything(), 'bc-1');
+    // Released with the claim's own token.
+    expect(h.release).toHaveBeenCalledWith(
+      expect.anything(),
+      'bc-1',
+      h.claim.mock.calls[0][3].toISOString()
+    );
   });
 
   it('skips a campaign another tick already claimed', async () => {
@@ -232,8 +252,23 @@ describe('GET /api/whatsapp/broadcast/cron — delivery', () => {
       reconciled: 0,
     });
     expect(h.finalize).toHaveBeenCalledWith(expect.anything(), 'bc-1');
-    expect(h.release).toHaveBeenCalledWith(expect.anything(), 'bc-1');
+    expect(h.release).toHaveBeenCalledWith(
+      expect.anything(),
+      'bc-1',
+      expect.any(String)
+    );
     expect(h.updates).toEqual([]);
+  });
+
+  it('keeps a campaign due when the database did not answer', async () => {
+    h.due = [DUE];
+    h.plan.mockRejectedValue(new BroadcastError('internal', 'load', 500));
+    expect(await (await GET(req('s3cret'))).json()).toMatchObject({
+      started: 0,
+      skipped: 1,
+    });
+    expect(h.updates).toEqual([]);
+    expect(h.release).toHaveBeenCalledTimes(1);
   });
 
   it('marks a campaign failed when planning fails for a config reason', async () => {
