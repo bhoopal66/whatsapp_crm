@@ -24,9 +24,9 @@ import {
 } from '@/lib/auth/account';
 import {
   BroadcastError,
-  deliverBroadcast,
   finalizeBroadcastStatus,
 } from '@/lib/whatsapp/broadcast-core';
+import { runBroadcastPass } from '@/lib/whatsapp/broadcast-pass';
 import {
   claimBroadcastDelivery,
   markBroadcastSending,
@@ -67,6 +67,9 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   let claimedId: string | null = null;
+  // The lock's token: the claim, the pass and the release below name it.
+  const claimedAt = new Date();
+  const token = claimedAt.toISOString();
   let settleId: string | null = null;
 
   try {
@@ -94,7 +97,12 @@ export async function POST(
     // from the same 'pending' rows and message everyone twice — and a
     // WhatsApp message cannot be recalled. The claim is one conditional
     // UPDATE, so exactly one caller wins.
-    const claimed = await claimBroadcastDelivery(supabase, accountId, id);
+    const claimed = await claimBroadcastDelivery(
+      supabase,
+      accountId,
+      id,
+      claimedAt
+    );
     if (!claimed) {
       return NextResponse.json(
         {
@@ -121,20 +129,7 @@ export async function POST(
     // every id in the plan was already resolved through an
     // account-scoped read above.
     const admin = supabaseAdmin();
-    after(async () => {
-      try {
-        await deliverBroadcast(admin, plan);
-      } catch (err) {
-        console.error(
-          '[broadcast-resume] delivery threw:',
-          err instanceof Error ? err.message : err
-        );
-        // Don't leave it mid-flight — settle whatever did land.
-        await finalizeBroadcastStatus(admin, id).catch(() => {});
-      } finally {
-        await releaseBroadcastDelivery(admin, id);
-      }
-    });
+    after(() => runBroadcastPass(admin, plan, token));
 
     return NextResponse.json(
       {
@@ -154,7 +149,7 @@ export async function POST(
     // Planning failed after the claim — release it, or the campaign is
     // locked out of resuming until the staleness window expires.
     if (claimedId) {
-      await releaseBroadcastDelivery(supabaseAdmin(), claimedId).catch(
+      await releaseBroadcastDelivery(supabaseAdmin(), claimedId, token).catch(
         () => {}
       );
     }

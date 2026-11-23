@@ -43,10 +43,14 @@ Cron / GitHub Actions / any pinger):
   third fan-out: claim the delivery lock, plan from the frozen
   `broadcast_recipients`, deliver in `after()`. Quiet hours
   (`lib/broadcasts/quiet-hours.ts`, jsonb `{start, end, tz}`) defer a due
-  campaign to the end of its window. The tick only selects `scheduled`,
-  so a large campaign left `sending` is finished by the detail page's
-  Resume, not by the next tick. Every tick also runs migration 066's
-  recipient reconcile.
+  campaign to the end of its window. A tick also continues at most one
+  scheduled campaign left `sending` with recipients pending
+  (`broadcast-continue.ts`: lock free, appointment at most 7 days old,
+  the reason its pass stopped no longer true); one sent from the wizard
+  has no appointment and is finished by the detail page's Resume. Every
+  pass runs through `broadcast-pass.ts`: the lock's timestamp is its
+  owner's token. Every tick also runs migration 066's recipient
+  reconcile.
 - `GET /api/whatsapp/health/cron` (migration 065) — the channel health
   sweep. The automation cron also runs it, throttled to once per 5
   minutes per process, so an install that pings only that one is

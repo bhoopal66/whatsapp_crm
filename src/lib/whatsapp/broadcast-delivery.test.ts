@@ -22,6 +22,7 @@ import {
   OPTED_OUT_REASON,
   type BroadcastPlan,
 } from './broadcast-core';
+import { runBroadcastPass } from './broadcast-pass';
 import { planBroadcastResume } from './broadcast-resume';
 import { MetaError } from './meta-api';
 import {
@@ -397,4 +398,107 @@ describe('more than 1,000 recipients', () => {
     });
     await expect(resume(db)).rejects.toMatchObject({ code: 'internal' });
   });
+});
+
+describe('keeping the delivery lock', () => {
+  const TOKEN = '2026-11-23T07:59:59.000Z';
+  const OTHER = '2026-11-23T08:00:00.500Z';
+
+  /** Runs a pass holding TOKEN; the sends made when the lock was written. */
+  async function pass(
+    w: ReturnType<typeof world>,
+    fail?: (patch: Row | null) => string | null
+  ) {
+    const lockWrites: [sends: number, value: unknown][] = [];
+    const db = fakeDb(w, {
+      fail: ({ patch }) => fail?.(patch) ?? null,
+      onUpdate: (table, patch) => {
+        if (table === 'broadcasts' && 'delivery_locked_at' in patch) {
+          lockWrites.push([
+            sendTemplate.mock.calls.length,
+            patch.delivery_locked_at,
+          ]);
+        }
+      },
+    });
+    await runBroadcastPass(db, planFor(w), TOKEN);
+    return lockWrites;
+  }
+  const held = (n: number) => world(n, { delivery_locked_at: TOKEN });
+
+  it('refreshes it every 20 sends, and releases what it last wrote', async () => {
+    const w = held(45);
+    const writes = await pass(w);
+
+    expect(writes.map(([sends]) => sends)).toEqual([20, 40, 45]);
+    expect(writes.map(([, value]) => value)).toEqual([
+      expect.any(String),
+      expect.any(String),
+      null,
+    ]);
+    expect(w.broadcasts[0]).toMatchObject({
+      status: 'sent',
+      delivery_locked_at: null,
+    });
+  });
+
+  it('refreshes it after 5 minutes, however few were sent', async () => {
+    const w = held(3);
+    sendTemplate.mockImplementationOnce(async () => {
+      vi.setSystemTime(new Date(Date.now() + 5 * 60 * 1000));
+      return { messageId: 'wamid.1' };
+    });
+    const writes = await pass(w);
+    expect(writes.map(([sends]) => sends)).toEqual([1, 3]);
+  });
+
+  it('stops at a lock another pass took, and leaves it the campaign', async () => {
+    const w = held(22);
+    sendTemplate.mockImplementation(async () => {
+      if (sendTemplate.mock.calls.length === 20) {
+        w.broadcasts[0].delivery_locked_at = OTHER;
+        // The other pass has sent the rest: finalizing would settle it.
+        for (const r of w.broadcast_recipients.slice(20)) r.status = 'sent';
+      }
+      return { messageId: 'wamid.1' };
+    });
+    expect(await pass(w)).toEqual([]);
+
+    expect(sendTemplate).toHaveBeenCalledTimes(20);
+    expect(w.broadcasts[0]).toMatchObject({
+      status: 'sending',
+      delivery_locked_at: OTHER,
+    });
+  });
+
+  it('stops when a refresh cannot be confirmed', async () => {
+    const w = held(22);
+    await pass(w, (patch) => (patch?.delivery_locked_at ? 'timeout' : null));
+
+    expect(sendTemplate).toHaveBeenCalledTimes(20);
+    expect(statuses(w).slice(20)).toEqual(['pending', 'pending']);
+    expect(w.broadcasts[0].status).toBe('sending');
+  });
+
+  it('never releases a lock another pass holds', async () => {
+    const w = held(1);
+    sendTemplate.mockImplementationOnce(async () => {
+      w.broadcasts[0].delivery_locked_at = OTHER;
+      return { messageId: 'wamid.1' };
+    });
+    await pass(w);
+    expect(w.broadcasts[0].delivery_locked_at).toBe(OTHER);
+  });
+});
+
+describe('planning while the database does not answer', () => {
+  it.each(['broadcasts', 'whatsapp_config'])(
+    'says internal when %s cannot be read',
+    async (broken) => {
+      const db = fakeDb(world(1), {
+        fail: ({ table }) => (table === broken ? 'timeout' : null),
+      });
+      await expect(resume(db)).rejects.toMatchObject({ code: 'internal' });
+    }
+  );
 });
