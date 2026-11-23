@@ -49,6 +49,19 @@ No migration.
   answers during it.
 - A flow sends nothing to a customer who opted out or is marked
   do-not-contact: its run ends and no new one starts.
+### Reminders that were missed, and figures without personal chats
+
+**Migration required:** apply
+`supabase/migrations/268_reminders_and_numbers.sql` before the build.
+Additive for the previous build; nothing already late rings on applying it.
+- A reminder the server missed (a restart, a database stall) still rings:
+  a task up to 12 hours late ("Overdue"), an event or meeting up to 30
+  minutes late and never after its end. Never twice.
+- A phone reminder held through quiet hours is dropped when the task has
+  been finished or handed to someone else by the morning.
+- Team activity and the home dashboard no longer count personal (HR)
+  WhatsApp numbers and chats, and the dashboard's response time counts
+  only replies by a person, not a bot's or an automation's.
 
 ### Forwarding and reactions that match WhatsApp
 

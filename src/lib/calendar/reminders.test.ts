@@ -26,6 +26,7 @@ const series = (patch: Partial<ReminderEventRow> = {}): ReminderEventRow => ({
   exdates: [],
   reminders: [10],
   status: 'confirmed',
+  updated_at: '2026-10-01T00:00:00Z',
   ...patch,
 });
 
@@ -33,7 +34,13 @@ const attendee = (
   user_id: string,
   response: ReminderAttendeeRow['response'],
   reminders: number[] | null = null
-): ReminderAttendeeRow => ({ event_id: EV, user_id, response, reminders });
+): ReminderAttendeeRow => ({
+  event_id: EV,
+  user_id,
+  response,
+  reminders,
+  created_at: '2026-10-01T00:00:00Z',
+});
 
 const ROWS = [
   attendee('accepted-1', 'accepted'),
@@ -80,17 +87,57 @@ describe('dueRecurringReminders', () => {
     expect(due.map((d) => d.userId)).toEqual([ME]);
   });
 
-  it('uses the window (now - 5 min, now]', () => {
-    const run = (now: string) =>
+  it('rings up to 30 minutes late, and never after the end (268)', () => {
+    const run = (now: string, patch: Partial<ReminderEventRow> = {}) =>
       dueRecurringReminders({
-        events: [series()],
+        events: [series(patch)],
         attendeeRows: [],
         now: at(now),
       }).length;
     expect(run('2026-10-20T04:50:00Z')).toBe(1); // exactly due
     expect(run('2026-10-20T04:54:59Z')).toBe(1);
-    expect(run('2026-10-20T04:55:00Z')).toBe(0); // 5 minutes late: gone
+    expect(run('2026-10-20T04:55:00Z')).toBe(1); // a missed pass
+    expect(run('2026-10-20T05:19:59Z')).toBe(1);
+    expect(run('2026-10-20T05:20:00Z')).toBe(0); // 30 minutes late: gone
     expect(run('2026-10-20T04:49:59Z')).toBe(0); // not yet
+    // A 10-minute occurrence is over at 05:10.
+    const short = { end_at: '2026-10-01T05:10:00Z' };
+    expect(run('2026-10-20T05:09:59Z', short)).toBe(1);
+    expect(run('2026-10-20T05:10:00Z', short)).toBe(0);
+  });
+
+  it('does not call a reminder late that was set after its time', () => {
+    const run = (now: string, updated_at: string) =>
+      dueRecurringReminders({
+        events: [series({ updated_at })],
+        attendeeRows: [],
+        now: at(now),
+      }).length;
+    expect(run('2026-10-20T04:56:00Z', '2026-10-20T04:50:00Z')).toBe(1);
+    expect(run('2026-10-20T04:56:00Z', '2026-10-20T04:52:00Z')).toBe(0);
+    // Inside the first five minutes it rings as it always did.
+    expect(run('2026-10-20T04:53:00Z', '2026-10-20T04:52:00Z')).toBe(1);
+    // Someone invited after their reminder's time.
+    const late = {
+      ...attendee('late-1', 'pending'),
+      created_at: '2026-10-20T04:52:00Z',
+    };
+    expect(
+      dueRecurringReminders({
+        events: [series()],
+        attendeeRows: [late],
+        now: at('2026-10-20T04:56:00Z'),
+      }).map((d) => d.userId)
+    ).toEqual([ME]);
+  });
+
+  it('rings only the newest of several late reminders', () => {
+    const due = dueRecurringReminders({
+      events: [series({ reminders: [10, 0] })],
+      attendeeRows: [],
+      now: at('2026-10-20T05:08:00Z'),
+    });
+    expect(due.map((d) => d.offset)).toEqual([0]);
   });
 
   it('reaches 28 days ahead and skips exdates, one-offs and cancelled series', () => {
@@ -183,7 +230,8 @@ describe('runRecurringReminders', () => {
     ]);
     expect(query).toContainEqual([
       'or',
-      'series_end_at.is.null,series_end_at.gte.2026-10-20T04:45:00.000Z',
+      // 30 minutes back: a late reminder still rings (268).
+      'series_end_at.is.null,series_end_at.gte.2026-10-20T04:20:00.000Z',
     ]);
     expect(query).toContainEqual(['order', 'id']);
     expect(query).toContainEqual(['limit', RECURRING_PAGE_SIZE]);

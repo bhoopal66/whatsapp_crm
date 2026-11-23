@@ -5,9 +5,12 @@
 // once expanded, so this finds the due (occurrence, offset, person)
 // tuples and hands each to calendar_insert_reminder, which re-checks
 // everything and rings each key at most once. A reminder is due when
-// occurrence start - offset falls in (now - 5 min, now], the same
-// window as the SQL sweep. The cron must never fail on this: errors
-// are logged and the count of reminders rung is returned.
+// occurrence start - offset falls in (now - 30 min, now] and the
+// occurrence is not over, the same window as the SQL sweep (268: a
+// missed pass no longer loses it). Past the first 5 minutes it must
+// have been set before its time, and only the newest of one person's
+// late reminders rings. The cron must never fail on this: errors are
+// logged and the count of reminders rung is returned.
 // ============================================================
 
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -16,7 +19,10 @@ import { expandEvent } from './recurrence';
 import type { AttendeeResponse } from './feed';
 
 /** How far back a reminder is still rung, matching the SQL sweep. */
-export const REMINDER_WINDOW_MS = 5 * 60_000;
+export const REMINDER_WINDOW_MS = 30 * 60_000;
+/** Until here a reminder is on time; after it, late. */
+export const REMINDER_ON_TIME_MS = 5 * 60_000;
+const DAY_MS = 24 * 60 * 60_000;
 /** The longest reminder offset (28 days, 108's CHECK). */
 export const MAX_OFFSET_MINUTES = 40320;
 /** Series read per page (keyset on id). */
@@ -35,6 +41,8 @@ export interface ReminderEventRow {
   exdates: string[] | null;
   reminders: number[] | null;
   status: string;
+  /** When the series was last edited. */
+  updated_at: string;
 }
 
 export interface ReminderAttendeeRow {
@@ -43,6 +51,8 @@ export interface ReminderAttendeeRow {
   response: AttendeeResponse;
   /** NULL means the event's reminders. */
   reminders: number[] | null;
+  /** When they were invited. */
+  created_at: string;
 }
 
 export interface DueReminder {
@@ -80,14 +90,16 @@ export function dueRecurringReminders(input: {
   const out: DueReminder[] = [];
   for (const ev of input.events) {
     if (!ev.rrule || ev.status !== 'confirmed') continue;
-    const people: { userId: string; offsets: number[] }[] = [
-      { userId: ev.created_by, offsets: ev.reminders ?? [] },
+    const editedAt = Date.parse(ev.updated_at);
+    const people: { userId: string; offsets: number[]; setAt: number }[] = [
+      { userId: ev.created_by, offsets: ev.reminders ?? [], setAt: editedAt },
     ];
     for (const a of byEvent.get(ev.id) ?? []) {
       if (a.response === 'declined' || a.user_id === ev.created_by) continue;
       people.push({
         userId: a.user_id,
         offsets: a.reminders ?? ev.reminders ?? [],
+        setAt: Math.max(editedAt, Date.parse(a.created_at)),
       });
     }
     const maxOffset = Math.max(-1, ...people.flatMap((p) => p.offsets));
@@ -99,10 +111,19 @@ export function dueRecurringReminders(input: {
       now + maxOffset * 60_000 + 1
     );
     for (const o of occurrences) {
+      // An all-day single day may be stored with end = start (108).
+      const over = ev.all_day ? Math.max(o.end, o.start + DAY_MS) : o.end;
+      if (now >= over) continue;
       for (const p of people) {
         for (const offset of new Set(p.offsets)) {
           const ringAt = o.start - offset * 60_000;
           if (ringAt <= now - REMINDER_WINDOW_MS || ringAt > now) continue;
+          if (ringAt <= now - REMINDER_ON_TIME_MS) {
+            const superseded = p.offsets.some(
+              (n) => n < offset && o.start - n * 60_000 <= now
+            );
+            if (superseded || !(p.setAt <= ringAt)) continue;
+          }
           out.push({
             key: reminderKey(ev.id, o.start, offset, p.userId),
             userId: p.userId,
@@ -142,7 +163,7 @@ export async function runRecurringReminders(
       let q = admin
         .from('calendar_events')
         .select(
-          'id, created_by, start_at, end_at, all_day, time_zone, rrule, exdates, reminders, status, calendar_event_attendees(user_id, response, reminders)'
+          'id, created_by, start_at, end_at, all_day, time_zone, rrule, exdates, reminders, status, updated_at, calendar_event_attendees(user_id, response, reminders, created_at)'
         )
         .eq('status', 'confirmed')
         .not('rrule', 'is', null)
