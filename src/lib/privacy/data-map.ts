@@ -1042,6 +1042,11 @@ export const NOT_PERSONAL: Readonly<Record<string, string>> =
             'pbx_connection_secrets',
             'pbx_events_raw',
             'webhook_event_outbox',
+            // 264: inbound WhatsApp events waiting to be processed. Not
+            // erased by contact: a row exists before any contact does,
+            // so purge by age is the rule. The payload is emptied when
+            // the event is done; a dead row goes after 14 days.
+            'webhook_inbox',
             'workspace_audit',
             'privacy_requests',
             'privacy_retention_settings',
