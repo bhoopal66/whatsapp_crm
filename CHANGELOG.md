@@ -19,6 +19,10 @@ No migration.
   or is marked do-not-contact: it answers 422 `customer_opted_out`, as in
   the group. When the contact cannot be read it answers 503
   `contact_lookup_failed` and sends nothing.
+- A Compass notification that WhatsApp may already have is never sent
+  twice. After a timeout, a gateway error or a restart mid-send, the answer
+  is 409 `delivery_unconfirmed` (don't retry; check the chat). A definite
+  refusal can still be retried with the same key.
 
 ### Voice notes: one tap to record, one tap to send
 

@@ -35,7 +35,11 @@
 //      timeout; the customer must not hear "approved" twice. The key is
 //      claimed (row inserted as `sending`) before the gateway call.
 //      Only a `failed` claim, or a `sending` claim abandoned for longer
-//      than STALE_CLAIM_MS (the process died mid-send), may be retried.
+//      than STALE_CLAIM_MS (the process died mid-send), may be retried,
+//      and neither once DELIVERY_UNCONFIRMED is on the row: that is
+//      written right before the gateway call and removed only by a
+//      definite refusal or the `sent` record, so a row carrying it may
+//      already have reached the customer.
 // ============================================================
 
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -77,6 +81,11 @@ import {
 
 /** A `sending` claim older than this is presumed dead and may be retried. */
 export const STALE_CLAIM_MS = 2 * 60_000;
+
+/** `error_code` of a row handed to WhatsApp whose outcome is not known. */
+export const DELIVERY_UNCONFIRMED = 'delivery_unconfirmed';
+const DELIVERY_UNCONFIRMED_MESSAGE =
+  'The message was handed to WhatsApp and its outcome is not confirmed. The customer may have received it, so it is not sent again.';
 
 export const NOTIFICATION_TYPES = ['text', 'image', 'document'] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
@@ -236,6 +245,16 @@ export function parseNotificationRequest(input: unknown): NotificationRequest {
   };
 }
 
+const deliveryUnconfirmed = () =>
+  new NotifyError(DELIVERY_UNCONFIRMED, DELIVERY_UNCONFIRMED_MESSAGE, 409);
+
+const sendInProgress = () =>
+  new NotifyError(
+    'in_progress',
+    'A notification with this idempotency_key is being sent right now — check its status with GET before retrying',
+    409
+  );
+
 // ---------- the stored log row ----------
 
 export const NOTIFICATION_SELECT = '*, message:messages(status, message_id)';
@@ -303,12 +322,14 @@ export function serializeNotification(
 
 /**
  * May a stored claim be taken over by a retry? `sent` never; `failed`
- * always; `sending` only once it has been abandoned.
+ * always; `sending` only once it has been abandoned; neither when the
+ * message may already be with WhatsApp.
  */
 export function isClaimRetryable(
-  row: { status: string; updated_at: string },
+  row: { status: string; updated_at: string; error_code?: string | null },
   now = Date.now()
 ): boolean {
+  if (row.error_code === DELIVERY_UNCONFIRMED) return false;
   if (row.status === 'failed') return true;
   if (row.status === 'sending') {
     return now - new Date(row.updated_at).getTime() > STALE_CLAIM_MS;
@@ -399,10 +420,19 @@ async function claim(
   }
   if (existing.status === 'sent') return { duplicateOf: existing };
 
-  const retryable = isClaimRetryable(
-    existing as { status: string; updated_at: string }
-  );
-  if (retryable) {
+  const row = existing as {
+    status: string;
+    updated_at: string;
+    error_code: string | null;
+  };
+  // A marked `sending` row that is still fresh is a live send (below).
+  if (
+    row.error_code === DELIVERY_UNCONFIRMED &&
+    isClaimRetryable({ ...row, error_code: null })
+  ) {
+    throw deliveryUnconfirmed();
+  }
+  if (isClaimRetryable(row)) {
     // Compare-and-set on updated_at: of two retries racing for the same
     // failed/stale claim, exactly one matches the old timestamp.
     const { data: reclaimed } = await db
@@ -416,11 +446,7 @@ async function claim(
     }
   }
 
-  throw new NotifyError(
-    'in_progress',
-    'A notification with this idempotency_key is being sent right now — check its status with GET before retrying',
-    409
-  );
+  throw sendInProgress();
 }
 
 const customerOptedOut = () =>
@@ -784,13 +810,45 @@ export async function sendCompassNotification(
   }
   const notificationId = claimed.id;
 
-  const record = async (fields: Record<string, unknown>) => {
-    const { error } = await db
-      .from('compass_notifications')
-      .update({ ...fields, updated_at: new Date().toISOString() })
-      .eq('id', notificationId);
-    if (error) {
+  // Retried once: an outcome that is not stored leaves the row marked
+  // DELIVERY_UNCONFIRMED.
+  const record = async (fields: Record<string, unknown>): Promise<boolean> => {
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      const { error } = await db
+        .from('compass_notifications')
+        .update({ ...fields, updated_at: new Date().toISOString() })
+        .eq('id', notificationId);
+      if (!error) return true;
       console.error('[compass/notify] could not record outcome:', error);
+    }
+    return false;
+  };
+
+  // Compare-and-set: a claim another request took over after
+  // STALE_CLAIM_MS, or already handed over, is not handed over twice.
+  let claimLost = false;
+  const markHandedToGateway = async () => {
+    const { data, error } = await db
+      .from('compass_notifications')
+      .update({
+        error_code: DELIVERY_UNCONFIRMED,
+        error_message: DELIVERY_UNCONFIRMED_MESSAGE,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', notificationId)
+      .eq('status', 'sending')
+      .is('error_code', null)
+      .select('id');
+    if (error) {
+      throw new NotifyError(
+        'internal',
+        'Failed to record the notification. Nothing was sent.',
+        500
+      );
+    }
+    if (!data || data.length === 0) {
+      claimLost = true;
+      throw sendInProgress();
     }
   };
 
@@ -798,6 +856,7 @@ export async function sendCompassNotification(
   // not free the key for a retry — that would be the double send the
   // key exists to prevent.
   let handedToGateway = false;
+  let accepted = false;
   try {
     let phone = req.to;
     let name = req.name;
@@ -939,6 +998,7 @@ export async function sendCompassNotification(
       { renameExisting: false }
     );
 
+    await markHandedToGateway();
     handedToGateway = true;
     const sent = await sendMessageToConversation(db, accountId, {
       conversationId: resolved.conversationId,
@@ -961,12 +1021,16 @@ export async function sendCompassNotification(
       pauseActiveFlows: false,
     });
 
-    await record({
+    accepted = true;
+    const outcome = {
       status: 'sent',
+      error_code: null,
+      error_message: null,
       message_id: sent.messageId,
       conversation_id: resolved.conversationId,
       contact_id: resolved.contactId,
-    });
+    };
+    const recorded = await record(outcome);
 
     if (req.compassId) {
       await db
@@ -999,17 +1063,24 @@ export async function sendCompassNotification(
     const row = await loadNotification(db, accountId, { id: notificationId });
     return {
       notification: serializeNotification(
-        row ?? {
-          id: notificationId,
-          idempotency_key: req.idempotencyKey,
-          status: 'sent',
-        }
+        row
+          ? // Sent, even when the row could not be told so.
+            recorded
+            ? row
+            : { ...row, ...outcome }
+          : {
+              id: notificationId,
+              idempotency_key: req.idempotencyKey,
+              status: 'sent',
+            }
       ),
       duplicate: false,
       contactCreated: resolved.contactCreated,
       conversationCreated: resolved.conversationCreated,
     };
   } catch (err) {
+    // The row belongs to the request that took the claim over.
+    if (claimLost) throw err;
     const code =
       err instanceof NotifyError || err instanceof SendMessageError
         ? err.code
@@ -1022,9 +1093,24 @@ export async function sendCompassNotification(
     // the message (persisting it failed). The customer has it; keep
     // the key spent.
     const delivered =
+      accepted ||
+      (handedToGateway &&
+        err instanceof SendMessageError &&
+        err.code === 'db_error');
+    // A timeout or a gateway 5xx may have reached the customer.
+    if (
       handedToGateway &&
-      err instanceof SendMessageError &&
-      err.code === 'db_error';
+      !delivered &&
+      !(err instanceof SendMessageError && err.definite)
+    ) {
+      console.error('[compass/notify] send outcome unconfirmed:', code);
+      await record({
+        status: 'failed',
+        error_code: DELIVERY_UNCONFIRMED,
+        error_message: DELIVERY_UNCONFIRMED_MESSAGE,
+      });
+      throw deliveryUnconfirmed();
+    }
     await record({
       status: delivered ? 'sent' : 'failed',
       error_code: code,
