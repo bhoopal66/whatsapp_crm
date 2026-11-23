@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
+import { supabaseAdmin } from '@/lib/flows/admin-client';
 import { sendReaction, describeSendFailure } from '@/lib/whatsapp/provider';
 import {
   ChannelError,
@@ -27,6 +28,9 @@ import {
  * `message_reactions` (delete on empty emoji). Customer-side reactions
  * are handled by the webhook — this route only writes
  * `actor_type = 'agent'` rows.
+ *
+ * WhatsApp keeps one reaction per number and message, whoever of us sent
+ * it: a colleague's is replaced, or removed, together with ours.
  */
 export async function POST(request: Request) {
   try {
@@ -129,10 +133,22 @@ export async function POST(request: Request) {
     let channel;
     try {
       const channels = await loadChannels(supabase, accountId);
+      const carrier = targetMessage.channel_id
+        ? channels.find((c) => c.id === targetMessage.channel_id)
+        : undefined;
+      // The number is known and gone: another one never had this message.
+      if (targetMessage.channel_id && !carrier) {
+        return NextResponse.json(
+          {
+            error:
+              'The WhatsApp number this message was on is no longer connected, so it cannot be reacted to.',
+            code: 'number_removed',
+          },
+          { status: 409 },
+        );
+      }
       channel =
-        (targetMessage.channel_id
-          ? channels.find((c) => c.id === targetMessage.channel_id)
-          : undefined) ??
+        carrier ??
         (isWhatsAppProvider(targetMessage.provider)
           ? pickByProvider(channels, targetMessage.provider, [
               conversation.channel_id as string | null,
@@ -183,6 +199,20 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { error: `WhatsApp API error: ${message}` },
         { status: 502 },
+      );
+    }
+
+    // The customer now sees this number's one reaction (or none).
+    const { error: othersError } = await supabaseAdmin()
+      .from('message_reactions')
+      .delete()
+      .eq('message_id', targetMessage.id)
+      .eq('actor_type', 'agent')
+      .neq('actor_id', userId);
+    if (othersError) {
+      console.error(
+        "[whatsapp/react] a colleague's reaction stayed:",
+        othersError.message,
       );
     }
 

@@ -35,7 +35,7 @@ import {
   groupSendAnswerKind,
   unconfirmedSends,
 } from '@/lib/groups/unconfirmed-sends';
-import { thrownSendKind } from '@/lib/inbox/failed-send';
+import { isOffline, thrownSendKind } from '@/lib/inbox/failed-send';
 import { settleRead } from '@/lib/submission-groups/ui';
 import { createClient } from '@/lib/supabase/client';
 
@@ -44,10 +44,6 @@ import { GroupMessageLog, type GroupChatMessage as Msg } from './message-log';
 import { UnconfirmedSendFooter } from './unconfirmed-send';
 
 const PAGE = 50;
-
-function isOffline(): boolean {
-  return typeof navigator !== 'undefined' && navigator.onLine === false;
-}
 
 /** One group's chat log, live, with a composer for our number. */
 export function ChatTab({ groupId, detail }: GroupTabProps) {

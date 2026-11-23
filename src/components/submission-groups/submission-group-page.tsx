@@ -49,7 +49,7 @@ import {
 import { useAuth } from '@/hooks/use-auth';
 import { useMediaQuery } from '@/hooks/use-media-query';
 import { startChatCatchUp } from '@/lib/groups/live-chat';
-import { thrownSendKind } from '@/lib/inbox/failed-send';
+import { isOffline, thrownSendKind } from '@/lib/inbox/failed-send';
 import { DOCK_QUERY, relativeActivity } from '@/lib/groups/ui';
 import { markSubmissionGroupRead } from '@/lib/submission-groups/mark-read';
 import { createClient } from '@/lib/supabase/client';
@@ -86,10 +86,6 @@ import { PeoplePanel } from './people-panel';
 
 /** Realtime bursts (a send and its status update) collapse into one re-read. */
 const REFETCH_DEBOUNCE_MS = 400;
-
-function isOffline(): boolean {
-  return typeof navigator !== 'undefined' && navigator.onLine === false;
-}
 
 type State = 'loading' | 'ok' | 'gone' | 'forbidden' | 'error';
 type Confirm = 'end' | 'retry' | 'archive' | null;

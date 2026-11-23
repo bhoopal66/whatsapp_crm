@@ -149,6 +149,11 @@ export function thrownSendKind(
   return offlineBefore && offlineAfter ? 'offline' : 'maybe';
 }
 
+/** This device says it has no connection (unknown on the server: no). */
+export function isOffline(): boolean {
+  return typeof navigator !== 'undefined' && navigator.onLine === false;
+}
+
 /** Whether sending it again cannot reach the customer twice. */
 export function canRetry(kind: FailedSendKind): boolean {
   return kind === 'refused' || kind === 'offline';

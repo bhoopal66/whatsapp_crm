@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   sendReaction: vi.fn(),
   maySendFromPersonal: vi.fn(),
   channel: { id: 'ch1' } as Record<string, unknown>,
+  removed: [] as unknown[][],
 }));
 
 vi.mock('@/lib/auth/account', () => ({
@@ -13,6 +14,23 @@ vi.mock('@/lib/auth/account', () => ({
   toErrorResponse: vi.fn(() =>
     Response.json({ error: 'auth failed' }, { status: 403 })
   ),
+}));
+vi.mock('@/lib/flows/admin-client', () => ({
+  supabaseAdmin: () => ({
+    from: (table: string) => {
+      const filters: unknown[] = [table];
+      const q: Record<string, unknown> = {
+        delete: () => q,
+        eq: (c: string, v: unknown) => (filters.push(['eq', c, v]), q),
+        neq: (c: string, v: unknown) => (filters.push(['neq', c, v]), q),
+        then: (resolve: (r: unknown) => void) => {
+          mocks.removed.push(filters);
+          resolve({ error: null });
+        },
+      };
+      return q;
+    },
+  }),
 }));
 vi.mock('@/lib/rate-limit', () => ({
   checkRateLimit: () => ({ success: true }),
@@ -80,6 +98,7 @@ const req = () =>
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.removed = [];
   mocks.channel = { id: 'ch1' };
   setup();
 });
@@ -98,6 +117,36 @@ describe('POST /api/whatsapp/react', () => {
     const res = await POST(req());
     expect(res.status).toBe(200);
     expect(mocks.sendReaction).toHaveBeenCalledOnce();
+  });
+
+  it("replaces a colleague's reaction, as WhatsApp does", async () => {
+    mocks.reachesOnlyByShare.mockResolvedValue(false);
+    expect((await POST(req())).status).toBe(200);
+    expect(mocks.removed).toEqual([
+      [
+        'message_reactions',
+        ['eq', 'message_id', 'm1'],
+        ['eq', 'actor_type', 'agent'],
+        ['neq', 'actor_id', 'coord'],
+      ],
+    ]);
+  });
+
+  it('leaves every row alone when the gateway refused', async () => {
+    mocks.reachesOnlyByShare.mockResolvedValue(false);
+    mocks.sendReaction.mockRejectedValueOnce(new Error('no'));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect((await POST(req())).status).toBe(502);
+    expect(mocks.removed).toEqual([]);
+  });
+
+  it('refuses when the number that carried the message is gone', async () => {
+    mocks.reachesOnlyByShare.mockResolvedValue(false);
+    mocks.channel = { id: 'another-number' };
+    const res = await POST(req());
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe('number_removed');
+    expect(mocks.sendReaction).not.toHaveBeenCalled();
   });
 
   it('refuses a non-owner on a personal number before the gateway call', async () => {

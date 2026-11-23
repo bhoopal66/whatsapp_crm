@@ -765,7 +765,9 @@
       "send": "Forward",
       "sent": "{count, plural, one {Forwarded to # chat} other {Forwarded to # chats}}",
       "failed": "Forward failed: {reason}",
-      "failedFor": "Could not forward to {name}: {reason}"
+      "failedFor": "Could not forward to {name}: {reason}",
+      "maybeSentFor": "No answer from WhatsApp for {name}: it may have been forwarded. Check that chat before forwarding again.",
+      "maybeSent": "No answer: it may have been forwarded. Check the chats before forwarding again."
     },
     "templatePicker": {
       "sendTemplate": "Send template",

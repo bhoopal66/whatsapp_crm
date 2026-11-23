@@ -12,6 +12,15 @@ and polish.
 
 ## [Unreleased]
 
+### Forwarding and reactions that match WhatsApp
+
+No migration.
+- Forwarding to several chats reports each one: a chat that failed no
+  longer hides the ones already sent, and a copy whose outcome nobody
+  knows says so instead of "failed".
+- A reaction replaces a colleague's on the same number, as WhatsApp does,
+  and is refused when the number that carried the message is gone.
+
 ### Guards on roles, ownership, erased files and late messages
 
 **Migration required:** apply `supabase/migrations/265_guards.sql` before

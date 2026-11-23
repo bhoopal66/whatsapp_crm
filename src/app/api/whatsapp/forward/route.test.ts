@@ -207,6 +207,57 @@ describe('POST /api/whatsapp/forward', () => {
     expect(results[1]).toMatchObject({ ok: true });
   });
 
+  it('marks a copy that may have gone, and one that certainly did not', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    visibleTargets = ['conv-a', 'conv-b', 'conv-c', 'conv-d'];
+    sendMessageToConversation
+      .mockRejectedValueOnce(
+        new SendMessageError('whatsapp_error', 'timed out', 502)
+      )
+      .mockRejectedValueOnce(
+        new SendMessageError('whatsapp_error', 'refused', 502, true)
+      )
+      // Not one of ours: the batch goes on, and nobody knows about this one.
+      .mockRejectedValueOnce(new TypeError('boom'));
+    const res = await post({
+      message_id: 'msg-src',
+      conversation_ids: ['conv-a', 'conv-b', 'conv-c', 'conv-d'],
+    });
+    expect(res.status).toBe(200);
+    const { results } = await res.json();
+    expect(
+      results.map((r: { ok: boolean; maybeSent?: boolean }) => [
+        r.ok,
+        r.maybeSent ?? false,
+      ])
+    ).toEqual([
+      [false, true],
+      [false, false],
+      [false, true],
+      [true, false],
+    ]);
+    expect(results[2].error).toBe('The message could not be sent');
+  });
+
+  it('starts no further chat once WhatsApp has been slow', async () => {
+    let clock = 1_000_000;
+    const now = vi.spyOn(Date, 'now').mockImplementation(() => clock);
+    sendMessageToConversation.mockImplementation(async () => {
+      clock += 26_000;
+      return { messageId: 'm' };
+    });
+    const res = await post({
+      message_id: 'msg-src',
+      conversation_ids: ['conv-a', 'conv-b'],
+    });
+    now.mockRestore();
+    const { results } = await res.json();
+    expect(results[0].ok).toBe(true);
+    expect(results[1]).toMatchObject({ ok: false });
+    expect(results[1].maybeSent).toBeUndefined();
+    expect(sendMessageToConversation).toHaveBeenCalledTimes(1);
+  });
+
   it('re-hosts an attachment once through the channel it arrived on', async () => {
     sourceRow = {
       ...TEXT_SOURCE,

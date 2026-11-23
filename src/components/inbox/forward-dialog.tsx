@@ -8,6 +8,7 @@ import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
 import { cn } from '@/lib/utils';
 import type { Message } from '@/types';
+import { isOffline, thrownSendKind } from '@/lib/inbox/failed-send';
 import {
   MAX_FORWARD_TARGETS,
   type ForwardTargetResult,
@@ -148,6 +149,7 @@ export function ForwardDialog({
   const handleSend = async () => {
     if (!message || selected.length === 0 || sending) return;
     setSending(true);
+    const offlineBefore = isOffline();
     try {
       const res = await fetch('/api/whatsapp/forward', {
         method: 'POST',
@@ -159,7 +161,12 @@ export function ForwardDialog({
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        toast.error(t('failed', { reason: body.error ?? res.statusText }));
+        // A proxy's 5xx hides what was sent before it gave up.
+        toast.error(
+          res.status >= 500 && !body.error
+            ? t('maybeSent')
+            : t('failed', { reason: body.error ?? res.statusText })
+        );
         setSending(false);
         return;
       }
@@ -170,11 +177,11 @@ export function ForwardDialog({
       const sent = results.filter((r) => r.ok).length;
       for (const r of results) {
         if (!r.ok) {
+          const name = nameOf(r.conversation_id);
           toast.error(
-            t('failedFor', {
-              name: nameOf(r.conversation_id),
-              reason: r.error ?? '',
-            })
+            r.maybeSent
+              ? t('maybeSentFor', { name })
+              : t('failedFor', { name, reason: r.error ?? '' })
           );
         }
       }
@@ -186,13 +193,22 @@ export function ForwardDialog({
         reset();
         onClose();
       } else {
+        // One that may have gone is not offered again by default.
+        setSelected((ids) =>
+          ids.filter(
+            (id) =>
+              !results.some((r) => r.conversation_id === id && r.maybeSent)
+          )
+        );
         setSending(false);
       }
     } catch (err) {
       toast.error(
-        t('failed', {
-          reason: err instanceof Error ? err.message : 'network error',
-        })
+        thrownSendKind(offlineBefore, isOffline()) === 'offline'
+          ? t('failed', {
+              reason: err instanceof Error ? err.message : 'network error',
+            })
+          : t('maybeSent')
       );
       setSending(false);
     }
@@ -216,7 +232,7 @@ export function ForwardDialog({
         )}
 
         <div className="relative">
-          <Search className="text-muted-foreground pointer-events-none absolute top-1/2 start-2.5 h-4 w-4 -translate-y-1/2" />
+          <Search className="text-muted-foreground pointer-events-none absolute start-2.5 top-1/2 h-4 w-4 -translate-y-1/2" />
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}

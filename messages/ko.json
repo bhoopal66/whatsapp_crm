@@ -765,7 +765,9 @@
       "send": "전달",
       "sent": "{count, plural, other {#개 채팅으로 전달했습니다}}",
       "failed": "전달 실패: {reason}",
-      "failedFor": "{name}에게 전달하지 못했습니다: {reason}"
+      "failedFor": "{name}에게 전달하지 못했습니다: {reason}",
+      "maybeSentFor": "{name} 대화에 대해 WhatsApp의 응답이 없습니다. 이미 전달되었을 수 있으니 다시 전달하기 전에 대화를 확인하세요.",
+      "maybeSent": "응답이 없습니다. 이미 전달되었을 수 있으니 다시 전달하기 전에 대화를 확인하세요."
     },
     "templatePicker": {
       "sendTemplate": "템플릿 보내기",

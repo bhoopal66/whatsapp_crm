@@ -24,6 +24,9 @@ import { resolveForwardMediaUrl } from '@/lib/whatsapp/forward-media';
 // send; give it the same headroom as the webhook routes.
 export const maxDuration = 60;
 
+/** When no further chat is started: five sends can each wait 30 s. */
+const FORWARD_BUDGET_MS = 25_000;
+
 const REASON_TEXT = {
   unsupported_type: 'This kind of message cannot be forwarded',
   empty: 'This message has no content to forward',
@@ -174,7 +177,18 @@ export async function POST(request: Request) {
     // Sequential on purpose: at most five sends, and each draws on the
     // same per-user budget as the composer so Forward can't be used to
     // out-send it.
+    const stopAt = Date.now() + FORWARD_BUDGET_MS;
     for (const conversationId of sendable) {
+      // A slow gateway must not run into the proxy's timeout, which would
+      // hide what was already sent.
+      if (Date.now() > stopAt) {
+        results.push({
+          conversation_id: conversationId,
+          ok: false,
+          error: 'Not sent: WhatsApp is answering slowly. Try again.',
+        });
+        continue;
+      }
       const limit = checkRateLimit(`send:${userId}`, RATE_LIMITS.send);
       if (!limit.success) {
         results.push({
@@ -200,14 +214,26 @@ export async function POST(request: Request) {
           message_id: sent.messageId,
         });
       } catch (err) {
-        if (!(err instanceof SendMessageError)) throw err;
-        // A hard restriction (204) refuses one target, not the batch:
-        // the per-target result carries what the composer's card needs.
-        results.push(
-          err instanceof RestrictedSendError
-            ? { conversation_id: conversationId, ok: false, ...err.toBody() }
-            : { conversation_id: conversationId, ok: false, error: err.message }
-        );
+        // One target never fails the batch: the answer for the others
+        // would be lost, and forwarding again would reach them twice. A
+        // hard restriction (204) carries what the composer's card needs.
+        if (err instanceof RestrictedSendError) {
+          results.push({
+            conversation_id: conversationId,
+            ok: false,
+            ...err.toBody(),
+          });
+          continue;
+        }
+        const known = err instanceof SendMessageError;
+        if (!known) console.error('[whatsapp/forward] target failed:', err);
+        results.push({
+          conversation_id: conversationId,
+          ok: false,
+          error: known ? err.message : 'The message could not be sent',
+          // A timeout, or anything unexpected: it may be in the chat.
+          ...(known && err.definite ? {} : { maybeSent: true }),
+        });
       }
     }
 

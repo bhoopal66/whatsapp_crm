@@ -56,6 +56,8 @@ export interface ForwardTargetResult {
   /** Our `messages.id` for the new row, on success. */
   message_id?: string;
   error?: string;
+  /** Nobody knows whether this copy reached the chat: look before repeating. */
+  maybeSent?: boolean;
   /** A Team activity hard restriction (204) refused this target. */
   code?: string;
   rule?: string;
