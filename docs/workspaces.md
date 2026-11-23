@@ -327,3 +327,11 @@ first; a refusal names its reason there. The same panel, in another
 workspace where they are an admin or owner, lists the archived
 workspaces they own, each with Restore. In Settings → Workspaces an
 archived workspace is listed, marked Archived, with no Switch button.
+
+## Removing an admin
+
+Only the owner of a workspace removes one of its admins (migration 287). An
+admin removes everyone below admin, except a person who was an admin there
+until a few days ago. Being the owner of another workspace gives no extra
+reach over such a person's login: for 7 days only the owner of the workspace
+where they were an admin can set their password or edit their details.

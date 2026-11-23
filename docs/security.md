@@ -233,3 +233,14 @@ never a wrong answer.
   `GRANT SELECT`; `verify-read-rules.sql` fails until it has one.
 - `contact_notes`: a note is inserted and changed by its writer only, on a
   customer the writer can see.
+## Invitations and API keys (migration 287)
+
+Both are made only in the name of the signed-in owner or admin who makes
+them. An invitation is for an assignable role, lasts at most 365 days and
+cannot be edited, only deleted. It opens with its token, which the database
+hashes; the stored hash is not a link. The older calls that take the hash
+(`redeem_invitation`, `peek_invitation`) stay callable only until the build
+that uses the token is out; then revoke them from `anon` and
+`authenticated`. An API key can be revoked but not otherwise changed by a
+session, and it keeps working after its maker leaves until someone revokes it
+in Settings → API keys.

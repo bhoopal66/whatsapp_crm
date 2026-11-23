@@ -99,6 +99,7 @@ import { usePresence } from '@/hooks/use-presence';
 import {
   ASSIGNABLE_ROLES,
   canChangePasswordOf,
+  canRemoveMember,
   canEditDetailsOf,
   canHavePersonalWhatsapp,
   canManageMembers,
@@ -1108,20 +1109,22 @@ export function MembersTab() {
                         user moused over. Now red is the default
                         state with a darker shade on hover so the
                         affordance reads at-a-glance. */}
-                    {!isOwnerRow && !isSelf && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setRemovingMember(member)}
-                        disabled={isBusy}
-                        aria-label={tPeople('removeMember', {
-                          name: member.full_name || t('unnamed'),
-                        })}
-                        className="border-destructive/30 bg-destructive-soft text-destructive hover:border-destructive/50 hover:bg-destructive/15 hover:text-destructive"
-                      >
-                        <Trash2 className="size-4" />
-                      </Button>
-                    )}
+                    {!isSelf &&
+                      !!accountRole &&
+                      canRemoveMember(accountRole, member.role) && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setRemovingMember(member)}
+                          disabled={isBusy}
+                          aria-label={tPeople('removeMember', {
+                            name: member.full_name || t('unnamed'),
+                          })}
+                          className="border-destructive/30 bg-destructive-soft text-destructive hover:border-destructive/50 hover:bg-destructive/15 hover:text-destructive"
+                        >
+                          <Trash2 className="size-4" />
+                        </Button>
+                      )}
                   </div>
                 </li>
               );

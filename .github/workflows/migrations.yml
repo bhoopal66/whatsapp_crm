@@ -1484,3 +1484,9 @@ jobs:
       # does (each caller by role, and every other write refused).
       - name: Verify chat integrity
         run: supabase db query --local --file supabase/ci/verify-chat-integrity.sql
+
+      # Migration 287: only the owner removes an admin, a removed or lowered
+      # admin's login is out of reach in every workspace, and invitations and
+      # API keys are made only in one's own name.
+      - name: Verify the admin rules
+        run: supabase db query --local --file supabase/ci/verify-admin-rules.sql

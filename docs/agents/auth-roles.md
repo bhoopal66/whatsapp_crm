@@ -65,6 +65,18 @@
   personal-number and department grants when a profile row moves to
   another workspace: a new per-workspace grant on `profiles` joins it.
   `verify-guards.sql`.
+- **Admin rules (migration 287).** `remove_account_member` refuses an admin
+  (or someone lowered from admin in the last 7 days) to anyone but the owner;
+  `canRemoveMember` mirrors the first half. `member_lately_admin_in(person)`
+  lists the workspaces where someone else lowered *or removed* them as admin;
+  `member_login_held(person, caller)` is what both login checks ask, and only
+  the owner of each such workspace is exempt. Never ask it of one workspace.
+  A session inserts an `account_invitations` / `api_keys` row only with itself
+  as the creator; no UPDATE on the first, only `revoked_at` on the second (a
+  column grant: a new session-writable column joins it). The app calls
+  `redeem_invitation_token` / `peek_invitation_token`; the hash-taking pair is
+  for the previous build and loses its grants once that is gone.
+  `verify-admin-rules.sql`.
 - **Handing over a leaver's work (migration 266)** is
   `/api/account/members/[id]/handover` (GET counts, POST `{ to, what }`) and
   `/api/account/members/left-work`, on `member_work_counts`,
