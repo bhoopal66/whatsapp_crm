@@ -47,7 +47,20 @@ const h = vi.hoisted(() => ({
     convLive: null as Record<string, unknown> | null,
     convReads: 0,
     profiles: [] as Record<string, unknown>[],
-    contact: null as { name: string | null; phone: string | null } | null,
+    contact: null as {
+      name?: string | null;
+      phone?: string | null;
+      do_not_contact_at?: string | null;
+      opted_out_at?: string | null;
+    } | null,
+    /** Fail every contacts read with this message. */
+    contactError: null as string | null,
+    /** Fail the reply-slot claim with this message. */
+    claimError: null as string | null,
+    /** "Nobody answered" flags that landed (`ai_attention_at` alone). */
+    flags: [] as Record<string, unknown>[],
+    /** What the flag write does when it fails. */
+    flagFailure: null as 'error' | 'throw' | null,
     /** Rows the auto-resume compare-and-set updates. */
     resumeRows: [] as { id: string }[],
     resumes: [] as Record<string, unknown>[],
@@ -193,14 +206,17 @@ vi.mock('./admin-client', () => ({
       }
       if (table !== 'conversations') {
         // contacts: single reads
-        const row = h.state.contact;
+        const error = h.state.contactError
+          ? { message: h.state.contactError }
+          : null;
+        const row = error ? null : h.state.contact;
         const chain = {
           select: () => chain,
           eq: () => chain,
           in: () => chain,
           order: () => chain,
           limit: () => chain,
-          maybeSingle: () => Promise.resolve({ data: row, error: null }),
+          maybeSingle: () => Promise.resolve({ data: row, error }),
         };
         return chain;
       }
@@ -231,13 +247,15 @@ vi.mock('./admin-client', () => ({
         update: (payload: Record<string, unknown>) => {
           // recordOutcome's write is kept apart from the hand-off update.
           // So is auto-resume's compare-and-set.
-          // So is the held-draft write.
+          // So are the held-draft write and the "nobody answered" flag.
+          const flag = Object.keys(payload).join() === 'ai_attention_at';
           const resume = payload.ai_autoreply_disabled === false;
           const draft = 'ai_pending_draft' in payload;
           if ('ai_last_outcome' in payload) h.state.outcomes.push(payload);
           else if (resume) h.state.resumes.push(payload);
           else if (draft) h.state.drafts.push(payload);
-          const handoff = !('ai_last_outcome' in payload) && !resume && !draft;
+          const handoff =
+            !('ai_last_outcome' in payload) && !resume && !draft && !flag;
           // The hand-off update lands only where its filters match the
           // row as it is now (`convLive`, else `conv`).
           const filters: [string, unknown][] = [];
@@ -247,6 +265,11 @@ vi.mock('./admin-client', () => ({
               ([col, v]) => col === 'id' || (row[col] ?? null) === v
             );
             if (handoff && hit) h.state.updatePayload = payload;
+            if (flag && hit) {
+              h.state.flags.push(payload);
+              // The next flag write finds the stamp, as the row would.
+              h.state.conv = { ...h.state.conv, ...payload };
+            }
             return hit;
           };
           const result = () => ({
@@ -265,11 +288,20 @@ vi.mock('./admin-client', () => ({
               return chain;
             },
             select: () => {
+              if (flag && h.state.flagFailure === 'throw') {
+                throw new Error('connection reset');
+              }
+              if (flag && h.state.flagFailure === 'error') {
+                return Promise.resolve({
+                  data: null,
+                  error: { message: 'timeout' },
+                });
+              }
               const hit = apply();
               return Promise.resolve({
                 data: resume
                   ? h.state.resumeRows
-                  : handoff && hit
+                  : (handoff || flag) && hit
                     ? [{ id: 'conv-1' }]
                     : [],
                 error: null,
@@ -289,7 +321,11 @@ vi.mock('./admin-client', () => ({
     },
     rpc: (name: string, args: unknown) => {
       h.state.rpcCalls.push({ name, args });
-      return Promise.resolve({ data: h.state.claim, error: null });
+      return Promise.resolve(
+        h.state.claimError
+          ? { data: null, error: { message: h.state.claimError } }
+          : { data: h.state.claim, error: null }
+      );
     },
   }),
 }));
@@ -386,6 +422,10 @@ beforeEach(() => {
   h.state.convReads = 0;
   h.state.profiles = [];
   h.state.contact = null;
+  h.state.contactError = null;
+  h.state.claimError = null;
+  h.state.flags = [];
+  h.state.flagFailure = null;
   h.state.resumeRows = [];
   h.state.resumes = [];
   h.state.drafts = [];
@@ -2869,5 +2909,263 @@ describe('safety of what goes out', () => {
     expect(await dispatchInboundToAiReply(ARGS)).toBe('handed_off');
     expect(h.engineSendText).not.toHaveBeenCalled();
     expect(h.state.updatePayload?.ai_handoff_reason).toBe('model');
+  });
+});
+
+describe('dispatchInboundToAiReply — contacts who must not be messaged', () => {
+  const STAMP = '2026-11-20T08:00:00Z';
+
+  it.each([
+    ['do_not_contact_at', 'triage: contact is marked do not contact'],
+    ['opted_out_at', 'triage: contact opted out'],
+  ])('hands a chat over in silence for %s', async (column, detail) => {
+    h.loadAiConfig.mockResolvedValue(
+      aiConfig({ handoffMessage: 'A specialist will contact you.' })
+    );
+    h.state.contact = { [column]: STAMP };
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('handed_off');
+    expect(h.engineSendText).not.toHaveBeenCalled();
+    expect(h.generateReply).not.toHaveBeenCalled();
+    expect(h.state.updatePayload).toMatchObject({
+      ai_autoreply_disabled: true,
+      ai_handoff_reason: 'triage',
+    });
+    expect(h.state.outcomes).toHaveLength(1);
+    expect(h.state.outcomes[0]).toMatchObject({
+      ai_last_outcome: 'handed_off',
+      ai_last_outcome_detail: detail,
+    });
+  });
+
+  it('comes before the cap hand-off, the keyword one and the data warning', async () => {
+    h.loadAiConfig.mockResolvedValue(
+      aiConfig({
+        handoffMessage: 'A specialist will contact you.',
+        sensitiveDataReply: 'Please do not send IDs here.',
+        escalationKeywords: ['refund'],
+      })
+    );
+    h.state.contact = { opted_out_at: STAMP };
+    for (const [count, text] of [
+      [3, 'hi'],
+      [0, 'I want a refund'],
+      [0, 'My ID is 784-1990-1234567-1'],
+    ] as const) {
+      h.state.conv = { ...h.state.conv, ai_reply_count: count };
+      h.state.convReads = 0;
+      h.buildConversationContext.mockResolvedValue([
+        { role: 'user', content: text },
+      ]);
+      expect(await dispatchInboundToAiReply(ARGS)).toBe('handed_off');
+      expect(h.state.updatePayload).toMatchObject({
+        ai_handoff_reason: 'triage',
+      });
+    }
+    expect(h.engineSendText).not.toHaveBeenCalled();
+  });
+
+  it('does not send a reply whose contact opted out while it was written', async () => {
+    h.generateReply.mockImplementation(async () => {
+      h.state.contact = { opted_out_at: STAMP };
+      return { text: 'Hello!', handoff: false };
+    });
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('handed_off');
+    expect(h.engineSendText).not.toHaveBeenCalled();
+    expect(h.state.rpcCalls).toEqual([]);
+    expect(h.state.updatePayload).toMatchObject({
+      ai_handoff_reason: 'triage',
+    });
+  });
+
+  it('drops the farewell when the contact opted out during the dispatch', async () => {
+    h.generateReply.mockImplementation(async () => {
+      h.state.contact = { opted_out_at: STAMP };
+      return { text: 'A manager will call you.', handoff: true };
+    });
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('handed_off');
+    expect(h.engineSendText).not.toHaveBeenCalled();
+    expect(h.state.updatePayload).toMatchObject({ ai_handoff_reason: 'model' });
+  });
+
+  it('drops the farewell, and still hands off, when the contact cannot be read', async () => {
+    h.generateReply.mockImplementation(async () => {
+      h.state.contactError = 'timeout';
+      return { text: 'A manager will call you.', handoff: true };
+    });
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('handed_off');
+    expect(h.engineSendText).not.toHaveBeenCalled();
+    expect(h.state.updatePayload).toMatchObject({ ai_handoff_reason: 'model' });
+  });
+
+  it('treats an unreadable contact as an error, not as free to message', async () => {
+    h.state.contactError = 'timeout';
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('skipped');
+    expect(h.engineSendText).not.toHaveBeenCalled();
+    expect(h.state.outcomes[0]).toMatchObject({
+      ai_last_outcome: 'error',
+      ai_last_outcome_detail: 'contact lookup: timeout',
+    });
+  });
+
+  it('treats a contact that becomes unreadable before the send as an error', async () => {
+    h.generateReply.mockImplementation(async () => {
+      h.state.contactError = 'timeout';
+      return { text: 'Hello!', handoff: false };
+    });
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('skipped');
+    expect(h.engineSendText).not.toHaveBeenCalled();
+    expect(h.state.outcomes[0]).toMatchObject({ ai_last_outcome: 'error' });
+  });
+});
+
+describe('dispatchInboundToAiReply — a customer left unanswered is flagged', () => {
+  const bells = () =>
+    h.state.inserts.filter((i) => i.table === 'notifications');
+  const spendAccountLimit = () => {
+    for (let i = 0; i < RATE_LIMITS.aiAutoReplyAccount.limit; i++) {
+      checkRateLimit('ai-autoreply:acct-1', RATE_LIMITS.aiAutoReplyAccount);
+    }
+  };
+  // The thread read is not caught inside the dispatch.
+  const failDispatch = () =>
+    h.buildConversationContext.mockRejectedValue(new Error('db down'));
+  beforeEach(() => {
+    h.state.profiles = [
+      {
+        user_id: 'owner-1',
+        account_id: 'acct-1',
+        account_role: 'owner',
+        deactivated_at: null,
+      },
+    ];
+  });
+
+  const SILENCES: [string, string, () => void][] = [
+    ['the dispatch failed', 'error', failDispatch],
+    ['the account limit is spent', 'skipped_rate_limited', spendAccountLimit],
+    [
+      'the reply slot could not be claimed',
+      'error',
+      () => {
+        h.state.claimError = 'permission denied';
+      },
+    ],
+  ];
+
+  it.each(SILENCES)('flags once when %s', async (_why, outcome, arrange) => {
+    arrange();
+    for (let i = 0; i < 2; i++) {
+      h.state.convReads = 0;
+      expect(await dispatchInboundToAiReply(ARGS)).toBe('skipped');
+    }
+    expect(h.state.outcomes.map((o) => o.ai_last_outcome)).toEqual([
+      outcome,
+      outcome,
+    ]);
+    expect(h.state.flags).toHaveLength(1);
+    expect(bells()).toHaveLength(1);
+    expect(h.engineSendText).not.toHaveBeenCalled();
+    // The chat stays the bot's.
+    expect(h.state.updatePayload).toBeNull();
+  });
+
+  it.each(SILENCES)(
+    'leaves a chat a person took alone when %s',
+    async (_why, _outcome, arrange) => {
+      for (const taken of [
+        { assigned_agent_id: 'agent-1' },
+        { ai_autoreply_disabled: true },
+      ]) {
+        arrange();
+        h.state.convReads = 0;
+        h.state.convLive = { ...h.state.conv, ...taken };
+        expect(await dispatchInboundToAiReply(ARGS)).toBe('skipped');
+      }
+      expect(h.state.flags).toEqual([]);
+      expect(bells()).toEqual([]);
+    }
+  );
+
+  it('flags nothing while the chat is not known to be the bot’s', async () => {
+    // Not a campaign chat: the bot would not have answered it anyway.
+    h.loadAiConfig.mockResolvedValue(aiConfig({ autoReplyCampaignOnly: true }));
+    failDispatch();
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('skipped');
+    // Failed before the chat was read.
+    h.loadAiConfig.mockResolvedValue(aiConfig());
+    h.resolveChannelForSurface.mockRejectedValue(new Error('db down'));
+    h.state.convReads = 0;
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('skipped');
+    expect(h.state.outcomes.map((o) => o.ai_last_outcome)).toEqual([
+      'skipped_campaign_only',
+      'error',
+    ]);
+    expect(h.state.flags).toEqual([]);
+    expect(bells()).toEqual([]);
+  });
+
+  it.each(['error', 'throw'] as const)(
+    'never throws when the flag write fails (%s)',
+    async (failure) => {
+      h.state.flagFailure = failure;
+      failDispatch();
+      expect(await dispatchInboundToAiReply(ARGS)).toBe('skipped');
+      expect(bells()).toEqual([]);
+      expect(h.state.outcomes).toHaveLength(1);
+    }
+  );
+});
+
+describe('dispatchInboundToAiReply — a burst inside a flow', () => {
+  const FLOW_ARGS = {
+    ...ARGS,
+    flowContext: { flowName: 'Apply', promptText: 'Quote?', options: ['Yes'] },
+    inboundMessageId: 'wamid-1',
+    inboundText: 'how much?',
+  };
+  const message = (id: string) => ({
+    message_id: id,
+    created_at: '2026-11-23T08:00:00Z',
+    content_text: 'how much?',
+  });
+
+  it('drops the reply when a newer customer message arrived meanwhile', async () => {
+    h.state.customerMessages = [message('wamid-1')];
+    h.generateReply.mockImplementation(async () => {
+      h.state.customerMessages = [message('wamid-2'), message('wamid-1')];
+      return { text: 'Hello!', handoff: false };
+    });
+    expect(await dispatchInboundToAiReply(FLOW_ARGS)).toBe('superseded');
+    expect(h.engineSendText).not.toHaveBeenCalled();
+    expect(h.state.rpcCalls).toEqual([]);
+    expect(h.state.outcomes.map((o) => o.ai_last_outcome)).toEqual([
+      'skipped_superseded',
+    ]);
+  });
+
+  it('answers when its message is still the newest, or that cannot be read', async () => {
+    for (const rows of [[message('wamid-1')], []]) {
+      h.state.customerMessages = rows;
+      h.state.convReads = 0;
+      expect(await dispatchInboundToAiReply(FLOW_ARGS)).toBe('replied');
+    }
+    expect(h.engineSendText).toHaveBeenCalledTimes(2);
+  });
+
+  it('still warns about sensitive data in a superseded message', async () => {
+    h.loadAiConfig.mockResolvedValue(
+      aiConfig({ sensitiveDataReply: 'Please do not send IDs here.' })
+    );
+    h.state.customerMessages = [message('wamid-2'), message('wamid-1')];
+    h.buildConversationContext.mockResolvedValue([
+      { role: 'user', content: 'My ID is 784-1990-1234567-1' },
+    ]);
+    expect(
+      await dispatchInboundToAiReply({
+        ...FLOW_ARGS,
+        inboundText: 'My ID is 784-1990-1234567-1',
+      })
+    ).toBe('replied');
+    expect(h.engineSendText).toHaveBeenCalledTimes(1);
   });
 });

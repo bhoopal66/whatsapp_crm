@@ -5,6 +5,7 @@ import { aiContextMessageLimit } from './defaults';
 interface DbMessage {
   sender_type: 'customer' | 'agent' | 'bot';
   content_text: string | null;
+  status?: string | null;
   created_at?: string;
 }
 
@@ -15,7 +16,7 @@ interface DbMessage {
  * a customer's row holds the title of the button they tapped, and ours
  * holds the menu's body — both read as the exchange a human would see
  * in the inbox. Media and templates are excluded — they carry no text
- * to model.
+ * to model. So is a message of ours that failed to send.
  *
  * Ordered oldest-first (chronological) so the transcript reads
  * naturally and the most recent customer message lands last.
@@ -27,7 +28,7 @@ export async function buildConversationContext(
 ): Promise<ChatMessage[]> {
   const { data, error } = await db
     .from('messages')
-    .select('sender_type, content_text, created_at')
+    .select('sender_type, content_text, status, created_at')
     .eq('conversation_id', conversationId)
     .in('content_type', ['text', 'interactive'])
     .order('created_at', { ascending: false })
@@ -36,11 +37,16 @@ export async function buildConversationContext(
   if (error) throw error;
 
   const rows = ((data ?? []) as DbMessage[]).reverse();
-  return rows
-    .filter((m) => m.content_text && m.content_text.trim())
-    .map((m) => ({
-      role: m.sender_type === 'customer' ? 'user' : 'assistant',
-      content: m.content_text!.trim(),
-      ...(m.created_at ? { at: m.created_at } : {}),
-    }));
+  return (
+    rows
+      // A send of ours that failed never reached the customer: it must not
+      // read as our answer to the question before it.
+      .filter((m) => m.sender_type === 'customer' || m.status !== 'failed')
+      .filter((m) => m.content_text && m.content_text.trim())
+      .map((m) => ({
+        role: m.sender_type === 'customer' ? 'user' : 'assistant',
+        content: m.content_text!.trim(),
+        ...(m.created_at ? { at: m.created_at } : {}),
+      }))
+  );
 }
