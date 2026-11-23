@@ -4,7 +4,7 @@ import { after } from 'next/server';
 import { clientIp, RateLimiter, RpcRateStore } from '@/lib/edge';
 import { pbxServiceDb } from '@/lib/pbx/admin';
 import { loadPbxWebhookSecret, PbxConnectionError } from '@/lib/pbx/connection';
-import { ingestPbxEvent } from '@/lib/pbx/process';
+import { processStoredPbxEvent, storePbxEvents } from '@/lib/pbx/process';
 import { verifyYeastarWebhookSignature } from '@/lib/pbx/yeastar/webhook';
 
 // POST /api/pbx/yeastar/events/{token} — the Yeastar webhook push.
@@ -12,8 +12,9 @@ import { verifyYeastarWebhookSignature } from '@/lib/pbx/yeastar/webhook';
 // (HMAC of the raw body with the webhook secret) proves it; no secret
 // stored is a refusal (fail closed). PBX_WEBHOOK_ALLOWED_IPS (comma
 // list, read through EDGE_CLIENT_IP_HEADER) narrows the senders. The
-// body is one event or an array; each is processed in order inside
-// after(), awaited there, so the PBX gets its 200 at once.
+// body is one event or an array. Every frame is stored before the answer
+// (503 when one could not be, so it is not acknowledged and lost), and
+// the stored ones are processed in order inside after(), awaited there.
 
 export const maxDuration = 60;
 
@@ -91,20 +92,26 @@ export async function POST(
   }
   const events = Array.isArray(body) ? body : [body];
   const receivedAt = new Date().toISOString();
-  after(async () => {
-    for (const payload of events) {
-      try {
-        await ingestPbxEvent({
-          db,
-          connectionId,
-          payload,
-          receivedAt,
-          via: 'webhook',
-        });
-      } catch (err) {
-        console.error(`[pbx] ${connectionId}: event processing failed:`, err);
+  const { events: stored, lost } = await storePbxEvents(
+    events.map((payload) => ({
+      db,
+      connectionId,
+      payload,
+      receivedAt,
+      via: 'webhook',
+    }))
+  );
+  if (stored.length) {
+    after(async () => {
+      for (const event of stored) {
+        try {
+          await processStoredPbxEvent(event);
+        } catch (err) {
+          console.error(`[pbx] ${connectionId}: event processing failed:`, err);
+        }
       }
-    }
-  });
+    });
+  }
+  if (lost) return refuse(503, 'Temporarily unavailable');
   return Response.json({ ok: true, received: events.length });
 }

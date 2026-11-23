@@ -166,44 +166,117 @@ const unique = <T>(xs: (T | null | undefined)[]): T[] => [
   ...new Set(xs.filter((x): x is T => x !== null && x !== undefined)),
 ];
 
-export async function ingestPbxEvent(
-  input: IngestInput
-): Promise<IngestResult> {
+/** What storing one frame came to; `event` is there to process. */
+export type StoreResult =
+  | { stored: true; event: StoredEventInput }
+  | { stored: false; duplicate: true }
+  /**
+   * Not stored. `refused`: the database will never take this frame (its
+   * content, or its connection is gone), so a resend cannot help.
+   */
+  | { stored: false; duplicate: false; refused: boolean; error: string };
+
+/** SQLSTATE classes 22 (data) and 23 (constraint): the frame itself. */
+const REFUSED_SQLSTATE = /^2[23]/;
+
+/**
+ * The raw row of one frame: the dedupe, and what a retry reads back.
+ * Never throws.
+ */
+export async function storePbxEvent(input: IngestInput): Promise<StoreResult> {
   const { db, connectionId } = input;
   const receivedAt = new Date(input.receivedAt ?? Date.now()).toISOString();
   const frame = frameOf(input.payload);
   const rawType = isRecord(frame) ? Number(frame.type) : NaN;
-  const { data, error } = await db
-    .from('pbx_events_raw')
-    .upsert(
-      {
-        connection_id: connectionId,
-        event_type:
-          Number.isInteger(rawType) && rawType >= 0 && rawType < 2 ** 31
-            ? rawType
-            : null,
-        payload: frame ?? null,
-        hash: pbxEventHash(connectionId, input.payload),
-        received_at: receivedAt,
-      },
-      { onConflict: 'hash', ignoreDuplicates: true }
-    )
-    .select('id');
-  if (error) {
-    console.error(`[pbx] ${connectionId}: event not stored: ${error.message}`);
-    return { duplicate: false, error: `event not stored: ${error.message}` };
+  let failed: { message: string; code?: string } | null = null;
+  let rawId: unknown;
+  try {
+    const { data, error } = await db
+      .from('pbx_events_raw')
+      .upsert(
+        {
+          connection_id: connectionId,
+          event_type:
+            Number.isInteger(rawType) && rawType >= 0 && rawType < 2 ** 31
+              ? rawType
+              : null,
+          payload: frame ?? null,
+          hash: pbxEventHash(connectionId, input.payload),
+          received_at: receivedAt,
+        },
+        { onConflict: 'hash', ignoreDuplicates: true }
+      )
+      .select('id');
+    failed = error;
+    rawId = (data as { id: unknown }[] | null)?.[0]?.id;
+  } catch (err) {
+    failed = { message: message(err) };
   }
-  const rawId = (data as { id: unknown }[] | null)?.[0]?.id;
-  if (rawId === undefined) return { duplicate: true };
-  return processStoredPbxEvent({
-    db,
-    connectionId,
-    rawId,
-    frame,
-    receivedAt,
-    via: input.via,
-    historical: input.historical,
-  });
+  if (failed) {
+    console.error(`[pbx] ${connectionId}: event not stored: ${failed.message}`);
+    return {
+      stored: false,
+      duplicate: false,
+      refused: REFUSED_SQLSTATE.test(failed.code ?? ''),
+      error: `event not stored: ${failed.message}`,
+    };
+  }
+  if (rawId === undefined) return { stored: false, duplicate: true };
+  return {
+    stored: true,
+    event: {
+      db,
+      connectionId,
+      rawId,
+      frame,
+      receivedAt,
+      via: input.via,
+      historical: input.historical,
+    },
+  };
+}
+
+/** The wait before the second try at frames the first one lost. */
+export const STORE_RETRY_MS = 150;
+
+/**
+ * Stores every frame of one webhook POST, before it is answered. A frame
+ * that failed is tried once more; `lost` counts those still not stored
+ * that a resend could save, and the caller then answers 503. `events`
+ * (in the order sent) must be processed either way: the resend of a
+ * frame stored here is a duplicate, and runs nothing.
+ *
+ * The second try of an insert whose answer was lost finds its own row:
+ * a duplicate here, which the retry sweep processes.
+ */
+export async function storePbxEvents(
+  inputs: IngestInput[],
+  sleep: (ms: number) => Promise<void> = (ms) =>
+    new Promise((r) => setTimeout(r, ms))
+): Promise<{ events: StoredEventInput[]; lost: number }> {
+  const again = (r: StoreResult) =>
+    !r.stored && !r.duplicate && r.refused === false;
+  let results = await Promise.all(inputs.map(storePbxEvent));
+  if (results.some(again)) {
+    await sleep(STORE_RETRY_MS);
+    results = await Promise.all(
+      results.map((r, i) => (again(r) ? storePbxEvent(inputs[i]) : r))
+    );
+  }
+  return {
+    events: results.flatMap((r) => (r.stored ? [r.event] : [])),
+    lost: results.filter(again).length,
+  };
+}
+
+export async function ingestPbxEvent(
+  input: IngestInput
+): Promise<IngestResult> {
+  const r = await storePbxEvent(input);
+  if (r.stored) return processStoredPbxEvent(r.event);
+  return r.duplicate
+    ? { duplicate: true }
+    : { duplicate: false, error: r.error };
 }
 
 export interface StoredEventInput {
