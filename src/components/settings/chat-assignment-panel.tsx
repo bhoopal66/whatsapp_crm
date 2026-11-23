@@ -27,6 +27,7 @@ import {
 import {
   MAX_CHAT_LIMIT,
   MIN_CHAT_LIMIT,
+  assignmentSettingsDiff,
   knownAssignmentError,
   parseChatLimit,
   rotationPeople,
@@ -71,11 +72,13 @@ function parseSettings(raw: unknown): AssignmentSettings {
 export function ChatAssignmentPanel() {
   const t = useTranslations('ChatAssignment');
   const { accountId } = useAuth();
+  // What was loaded (or last saved), and the form over it: a save sends
+  // only the difference.
+  const [saved, setSaved] = useState<AssignmentSettings | null>(null);
   const [form, setForm] = useState<AssignmentSettings | null>(null);
   const [limitText, setLimitText] = useState('');
   const [members, setMembers] = useState<MemberRow[]>([]);
   const [available, setAvailable] = useState(true);
-  const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   // Per-person limits save on their own, one row at a time.
   const [rowText, setRowText] = useState<Record<string, string>>({});
@@ -95,11 +98,11 @@ export function ChatAssignmentPanel() {
         const body = await readSettings('/api/assignment/settings');
         if (cancelled) return;
         const s = parseSettings(body.settings);
+        setSaved(s);
         setForm(s);
         setLimitText(String(s.defaultChatLimit));
         setMembers(Array.isArray(body.members) ? body.members : []);
         setAvailable(body.available !== false);
-        setDirty(false);
         setFailed(false);
       } catch {
         if (cancelled) return;
@@ -150,7 +153,7 @@ export function ChatAssignmentPanel() {
       </div>
     );
   }
-  if (!form) {
+  if (!form || !saved) {
     return (
       <div>
         <SettingsPanelHead title={t('title')} description={t('description')} />
@@ -160,21 +163,24 @@ export function ChatAssignmentPanel() {
   }
 
   const defaultLimit = parseChatLimit(limitText);
+  const changes = assignmentSettingsDiff(saved, {
+    ...form,
+    defaultChatLimit: defaultLimit ?? saved.defaultChatLimit,
+  });
+  const dirty = Object.keys(changes).length > 0;
   const canSave = available && dirty && defaultLimit !== null && !saving;
 
-  const update = (patch: Partial<AssignmentSettings>) => {
+  const update = (patch: Partial<AssignmentSettings>) =>
     setForm({ ...form, ...patch });
-    setDirty(true);
-  };
 
   async function save() {
-    if (!form || !canSave || defaultLimit === null) return;
+    if (!canSave) return;
     setSaving(true);
     try {
       const res = await fetch('/api/assignment/settings', {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ ...form, defaultChatLimit: defaultLimit }),
+        body: JSON.stringify(changes),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -182,9 +188,9 @@ export function ChatAssignmentPanel() {
         return;
       }
       const s = parseSettings(body?.settings);
+      setSaved(s);
       setForm(s);
       setLimitText(String(s.defaultChatLimit));
-      setDirty(false);
       invalidateCached(MEMBER_LOADS_CACHE_PREFIX);
       toast.success(t('saved'));
     } catch {
@@ -320,10 +326,7 @@ export function ChatAssignmentPanel() {
               value={limitText}
               disabled={!available || saving}
               aria-invalid={defaultLimit === null}
-              onChange={(e) => {
-                setLimitText(e.target.value);
-                setDirty(true);
-              }}
+              onChange={(e) => setLimitText(e.target.value)}
             />
             <span className="text-muted-foreground text-sm">
               {t('limits.openChats')}

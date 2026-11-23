@@ -6584,6 +6584,7 @@
       "bad_limit": "A chat limit must be a whole number from 1 to 500.",
       "pool_member_invalid": "Everyone who takes turns must be an active agent or team leader here. Refresh and try again.",
       "pool_too_large": "At most 500 people can take turns.",
+      "pool_changed": "Someone else has changed who takes turns since this page was opened. Nothing was saved. Reload the page and try again.",
       "no_such_member": "That person is no longer in this workspace.",
       "not_allowed": "Only an owner or admin can change chat assignment.",
       "not_available": "Chat assignment needs a database update (migration 236).",

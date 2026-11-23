@@ -3,7 +3,7 @@
 // input and the error codes the API answers. Dependency-free so client
 // components and route handlers share them.
 
-import type { MemberLoad } from './types';
+import type { AssignmentSettings, MemberLoad } from './types';
 
 /** Bounds of a chat limit, as 236's CHECKs and writers hold them. */
 export const MIN_CHAT_LIMIT = 1;
@@ -80,6 +80,87 @@ export function rotationPeople(
   return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/**
+ * What a screen did to the broadcast pool it had loaded: the people it
+ * took out and the ones it put at the end. Someone taken out and put
+ * back is in both (they moved to the end).
+ */
+export interface PoolChange {
+  add: string[];
+  remove: string[];
+  /** The loaded pool was empty, which means everyone. */
+  fromEveryone: boolean;
+}
+
+/** How a picked list (people kept in order, then new ones) differs. */
+export function poolChange(
+  loaded: readonly string[],
+  next: readonly string[]
+): PoolChange {
+  let kept = 0;
+  for (const u of loaded) if (next[kept] === u) kept += 1;
+  const stay = new Set(next.slice(0, kept));
+  return {
+    add: next.slice(kept),
+    remove: loaded.filter((u) => !stay.has(u)),
+    fromEveryone: loaded.length === 0,
+  };
+}
+
+/**
+ * That change on the pool as it is stored now; null when it cannot be
+ * applied. Empty means everyone, so naming people and choosing everyone
+ * do not merge: a change to a list that has since become everyone would
+ * leave only the people it added, and one that empties a list nobody
+ * emptied would turn it into everyone.
+ */
+export function applyPoolChange(
+  stored: readonly string[],
+  change: PoolChange
+): string[] | null {
+  if (stored.length === 0 && !change.fromEveryone) return null;
+  const gone = new Set([...change.remove, ...change.add]);
+  const pool = [...stored.filter((u) => !gone.has(u)), ...change.add];
+  return pool.length === 0 ? null : pool;
+}
+
+/** The fields a settings save may carry besides the pool's change. */
+export type AssignmentSettingsPatch = Partial<AssignmentSettings> & {
+  broadcastPoolChange?: PoolChange;
+};
+
+/**
+ * What the form changed since it was loaded: all a save sends, so an old
+ * tab keeps what another admin saved. The pool goes as a change, except
+ * "everyone" (empty), which replaces whatever is stored.
+ */
+export function assignmentSettingsDiff(
+  saved: AssignmentSettings,
+  form: AssignmentSettings
+): AssignmentSettingsPatch {
+  const patch: AssignmentSettingsPatch = {};
+  for (const key of [
+    'broadcastRotationEnabled',
+    'compassAssignEnabled',
+    'limitsEnabled',
+  ] as const) {
+    if (form[key] !== saved[key]) patch[key] = form[key];
+  }
+  if (form.defaultChatLimit !== saved.defaultChatLimit) {
+    patch.defaultChatLimit = form.defaultChatLimit;
+  }
+  if (form.broadcastPool.join() !== saved.broadcastPool.join()) {
+    if (form.broadcastPool.length === 0) patch.broadcastPool = [];
+    else {
+      patch.broadcastPoolChange = poolChange(
+        saved.broadcastPool,
+        form.broadcastPool
+      );
+    }
+  }
+  return patch;
+}
+
 /** A typed limit: an integer 1-500, else null. */
 export function parseChatLimit(text: string | number): number | null {
   const s = String(text).trim();
@@ -100,6 +181,7 @@ export const ASSIGNMENT_ERRORS = [
   'bad_limit',
   'pool_member_invalid',
   'pool_too_large',
+  'pool_changed',
   'no_such_member',
   'not_allowed',
   'not_available',

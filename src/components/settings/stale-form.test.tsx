@@ -18,6 +18,8 @@ vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 
 import { Button } from '@/components/ui/button';
 import { findElements, render, resetHooks, settle } from '@/test/hook-renderer';
+import { AssignmentPeoplePicker } from '@/components/assignment/people-picker';
+import { ChatAssignmentPanel } from './chat-assignment-panel';
 import { ResponseTimesPanel } from './response-times-panel';
 
 const HOURS = { mon: [['09:00', '18:00']] };
@@ -84,5 +86,62 @@ describe('ResponseTimesPanel', () => {
     toggle(false);
     expect(saveButton(ResponseTimesPanel).props.disabled).toBe(true);
     expect(await save()).toBeUndefined();
+  });
+});
+
+describe('ChatAssignmentPanel', () => {
+  const stored = {
+    broadcastRotationEnabled: false,
+    broadcastPool: ['u1'],
+    compassAssignEnabled: true,
+    limitsEnabled: false,
+    defaultChatLimit: 42,
+  };
+  const member = (userId: string) => ({
+    userId,
+    name: userId,
+    role: 'agent',
+    deactivated: false,
+    openCount: 0,
+    limit: null,
+  });
+  const openPanel = () =>
+    open(ChatAssignmentPanel, stored, {
+      members: [member('u1'), member('u2')],
+    });
+
+  it('sends only the switch that was changed', async () => {
+    const save = await openPanel();
+    (
+      find(ChatAssignmentPanel, 'aria-labelledby', 'ca-limits').props
+        .onCheckedChange as (on: boolean) => void
+    )(true);
+    expect(await save()).toEqual({ limitsEnabled: true });
+  });
+
+  it('sends who joined the rotation, not the whole list', async () => {
+    const save = await openPanel();
+    const [picker] = findElements(
+      render(ChatAssignmentPanel),
+      (el) => el.type === AssignmentPeoplePicker
+    );
+    (picker.props.onChange as (next: string[]) => void)(['u1', 'u2']);
+    expect(await save()).toEqual({
+      broadcastPoolChange: { add: ['u2'], remove: [], fromEveryone: false },
+    });
+  });
+
+  it('a changed default limit goes alone; the same text is nothing to save', async () => {
+    const save = await openPanel();
+    const type = (value: string) =>
+      (
+        find(ChatAssignmentPanel, 'id', 'ca-default-limit').props.onChange as (
+          e: object
+        ) => void
+      )({ target: { value } });
+    type('42');
+    expect(saveButton(ChatAssignmentPanel).props.disabled).toBe(true);
+    type('7');
+    expect(await save()).toEqual({ defaultChatLimit: 7 });
   });
 });

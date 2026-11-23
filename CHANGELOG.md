@@ -23,6 +23,10 @@ No migration.
   what is stored at that moment. A page left open sent its whole old form,
   which could switch the feature off and lose another admin's hours. Undoing
   a change leaves nothing to save.
+- **Chat assignment**: the same. Who takes turns is saved as the people added
+  and removed, so two admins' changes both stay. Where they cannot (the list
+  has since become "everyone", or would), nothing is saved and the page says
+  so.
 
 ### Voice notes: one tap to record, one tap to send
 

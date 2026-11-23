@@ -177,8 +177,82 @@ describe('PUT /api/assignment/settings', () => {
     expect((await res.json()).settings.broadcastPool).toEqual([U1]);
   });
 
+  const poolSent = () =>
+    h.rpc.mock.calls.map(([, args]) => args.p_broadcast_pool);
+
+  it('applies a pool change to the pool stored now', async () => {
+    // Another admin added U2 since this screen loaded [].
+    h.tables.assignment_settings = {
+      data: { broadcast_pool: [U2] },
+      error: null,
+    };
+    const res = await PUT(
+      json({
+        broadcastPoolChange: { add: [U1], remove: [], fromEveryone: true },
+      })
+    );
+    expect(res.status).toBe(200);
+    expect(poolSent()).toEqual([[U2, U1]]);
+  });
+
+  it('refuses a change the stored pool cannot take', async () => {
+    h.tables.assignment_settings = {
+      data: { broadcast_pool: [U1] },
+      error: null,
+    };
+    const res = await PUT(
+      json({
+        broadcastPoolChange: { add: [], remove: [U1], fromEveryone: false },
+      })
+    );
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toBe('pool_changed');
+    expect(h.rpc).not.toHaveBeenCalled();
+  });
+
+  it('saves nothing when the stored pool cannot be read', async () => {
+    const change = { add: [U1], remove: [], fromEveryone: true };
+    h.tables.assignment_settings = {
+      data: null,
+      error: { code: '57014', message: 'timeout' },
+    };
+    const res = await PUT(json({ broadcastPoolChange: change }));
+    expect(res.status).toBe(500);
+    expect((await res.json()).error).toBe('load_failed');
+    h.tables.assignment_settings.error = { code: '42P01', message: 'missing' };
+    expect((await PUT(json({ broadcastPoolChange: change }))).status).toBe(503);
+    expect(h.rpc).not.toHaveBeenCalled();
+  });
+
+  it('does not read the pool for other fields', async () => {
+    h.tables.assignment_settings = {
+      data: null,
+      error: { code: '57014', message: 'timeout' },
+    };
+    expect((await PUT(json({ limitsEnabled: true }))).status).toBe(200);
+    expect(poolSent()).toEqual([null]);
+  });
+
   it('refuses a bad body before the database', async () => {
     expect((await PUT(json({}))).status).toBe(400);
+    for (const broadcastPoolChange of [
+      null,
+      { add: [U1] },
+      { add: ['x'], remove: [], fromEveryone: false },
+      { add: [], remove: [], fromEveryone: false },
+    ]) {
+      expect((await PUT(json({ broadcastPoolChange }))).status).toBe(400);
+    }
+    expect(
+      (
+        await PUT(
+          json({
+            broadcastPool: [U1],
+            broadcastPoolChange: { add: [U1], remove: [], fromEveryone: true },
+          })
+        )
+      ).status
+    ).toBe(400);
     expect((await PUT(json({ limitsEnabled: 'yes' }))).status).toBe(400);
     expect((await PUT(json({ broadcastPool: ['x'] }))).status).toBe(400);
     const bad = await PUT(json({ defaultChatLimit: 0 }));
