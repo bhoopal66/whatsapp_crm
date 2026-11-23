@@ -10,6 +10,8 @@
  *   `response_target_missed` / `response_escalated` /
  *   `response_unassigned` (237's `response_escalation_sweep`):
  *   `conversation_id` → the chat.
+ * - `work_handed_over` (266's `member_handover`): the inbox, where the
+ *   chats that moved are; the row names no customer.
  * - `task_assigned` (085 trigger): the task's `contact_id` /
  *   `conversation_id` columns, no meta. The customer page lists a
  *   contact's tasks; tasks have no screen of their own, so one without
@@ -98,6 +100,8 @@ function hrefFor(
     case 'response_unassigned':
     case 'chat_note_mention':
       return chat(n.conversation_id);
+    case 'work_handed_over':
+      return '/inbox';
     case 'task_assigned':
       return customer(n.contact_id) ?? chat(n.conversation_id) ?? '/calls';
     case 'task_due':

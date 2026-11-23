@@ -402,6 +402,10 @@ export type NotificationType =
   // Durable inbound queue (migration 264): WhatsApp events given up on
   // after every retry. Sent to owners and admins, no conversation.
   | 'inbound_message_failed'
+  // Handover (266): a person's chats, tasks, deals or customers moved to
+  // you in one go. No conversation; meta = {from, chats, tasks, deals,
+  // contacts}.
+  | 'work_handed_over'
   // Team activity (migration 068): a person went past their daily
   // new-chat limit, or a Whapi number reached its own. Sent to owners,
   // admins and the person concerned, no conversation.

@@ -65,5 +65,18 @@
   personal-number and department grants when a profile row moves to
   another workspace: a new per-workspace grant on `profiles` joins it.
   `verify-guards.sql`.
+- **Handing over a leaver's work (migration 266)** is
+  `/api/account/members/[id]/handover` (GET counts, POST `{ to, what }`) and
+  `/api/account/members/left-work`, on `member_work_counts`,
+  `member_handover` and `members_left_work` (owner/admin of the active
+  workspace, as the caller). `member_work` is the one definition of the
+  counts and `member_handover` moves the same rows: company chats of any
+  status (the contact follows, 169), open tasks, open deals (`assigned_to`;
+  the creator stays), and owned contacts with no assigned company chat.
+  Personal chats never move. The receiver is live agent and up, and outside
+  a restricted department unless only tasks move. The per-row bells are
+  silent under `app.member_handover`: a new bell on an assignment checks it
+  too. One `work_handed_over` bell (not to oneself) and one audit row, only
+  when something moved. `verify-member-handover.sql`.
 - Client side: `hooks/use-auth.tsx` (profile/account context),
   `hooks/use-can.ts` and `components/auth/require-role.tsx` for gating.

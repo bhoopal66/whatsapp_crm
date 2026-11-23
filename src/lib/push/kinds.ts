@@ -16,6 +16,7 @@ export const PUSH_KINDS = [
   'chat_message',
   'conversation_assigned',
   'conversation_shared',
+  'work_handed_over',
   'insight_attention',
   // Response times (237): waiting past the target / twice it / unassigned.
   'response_target_missed',

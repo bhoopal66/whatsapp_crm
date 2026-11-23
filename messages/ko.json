@@ -4541,7 +4541,8 @@
           "workspace_archived": "워크스페이스 보관",
           "workspace_restored": "워크스페이스 복원",
           "password_changed": "비밀번호 변경",
-          "details_changed": "멤버 정보 편집"
+          "details_changed": "멤버 정보 편집",
+          "work_handed_over": "담당자 업무 인계"
         },
         "team_chat": {
           "admin_read_private": "비공개 채널 열람",
@@ -8089,6 +8090,7 @@
       "chat_message": "팀 채팅 메시지",
       "conversation_assigned": "나에게 채팅이 배정됨",
       "conversation_shared": "나에게 채팅이 공유됨",
+      "work_handed_over": "업무를 인계받음",
       "insight_attention": "채팅에 내 확인이 필요함",
       "chat_note_mention": "채팅 메모에서 누군가 나를 언급함",
       "response_target_missed": "고객이 응답 목표를 넘겨 기다림",

@@ -4541,7 +4541,8 @@
           "workspace_archived": "أرشف مساحة العمل",
           "workspace_restored": "استعاد مساحة العمل",
           "password_changed": "غيّر كلمة مرور",
-          "details_changed": "عدّل بيانات عضو"
+          "details_changed": "عدّل بيانات عضو",
+          "work_handed_over": "سلّم عمل شخص إلى زميل"
         },
         "team_chat": {
           "admin_read_private": "قرأ قناة خاصة",
@@ -8089,6 +8090,7 @@
       "chat_message": "رسائل دردشة الفريق",
       "conversation_assigned": "إسناد محادثة إليّ",
       "conversation_shared": "مشاركة محادثة معي",
+      "work_handed_over": "تسليم عمل زميل إليّ",
       "insight_attention": "محادثة تحتاج إلى انتباهي",
       "chat_note_mention": "إشارة أحدهم إليّ في ملاحظة محادثة",
       "response_target_missed": "عميل ينتظر أكثر من هدف الرد",

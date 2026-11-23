@@ -180,6 +180,15 @@ describe('notificationTarget', () => {
     }
   );
 
+  it('work_handed_over opens the inbox', () => {
+    expect(
+      notificationTarget(
+        { type: 'work_handed_over', meta: { from: ROW, chats: 3 } },
+        'agent'
+      )
+    ).toBe('/inbox');
+  });
+
   it.each(['pbx_connection_silent', 'pbx_connection_restored'])(
     '%s opens Phone system settings for those who can edit settings',
     (type) => {
