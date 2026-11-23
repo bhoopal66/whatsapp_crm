@@ -18,7 +18,7 @@
 - `lib/auth/conversation-visibility.ts` — client-side mirror of the
   `can_view_conversation` / `can_view_contact` SQL functions (migrations 042 and
   043). It informs UI decisions only; the DB decides. Change one, change both.
-  Since 217, `conversations_select`, `messages_select` and `messages_modify`
+  Since 217, `conversations_select`, `messages_select` and `messages_insert`
   restate `can_view_conversation` / `can_view_personal_chat` as set
   membership over `contact_visibility_people()` and
   `personal_number_visible_ids()`, because the per-row calls timed out for
@@ -80,3 +80,12 @@
   when something moved. `verify-member-handover.sql`.
 - Client side: `hooks/use-auth.tsx` (profile/account context),
   `hooks/use-can.ts` and `components/auth/require-role.tsx` for gating.
+- **What a session writes to chats (284).** `messages_insert` (217's
+  `messages_modify`, now INSERT only) takes the caller's own `agent` /
+  `sent` row; no session updates or deletes a message or deletes a chat,
+  changes a chat's `contact_id` / `account_id`, or opens a personal chat
+  off its own number. The guards are SECURITY INVOKER triggers that read
+  `current_user`, so FK actions and definer functions pass: never make
+  them DEFINER. A new column the send core writes, or a new client write,
+  needs `messages_session_guard` changed too; other writes go through the
+  service role after the route's own check. Re-apply 284 after 062.

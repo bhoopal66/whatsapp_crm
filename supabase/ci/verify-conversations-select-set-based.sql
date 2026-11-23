@@ -18,13 +18,13 @@
 -- still returns it; an agent cannot read the other workspace's chat by
 -- id, not even one owned by their own login.
 --
--- Writes through messages_modify (FOR ALL, so its USING is also its
+-- Writes through messages_insert (284; messages_modify, FOR ALL, so its USING was also its
 -- WITH CHECK): every person INSERTs an agent message into every chat,
 -- and the chats where that is allowed (refused = 42501) equal 191's
 -- rule evaluated directly, which is the read rule AND
 -- current_role_rank() >= 2, and equal a hand-written set (a viewer
--- reads their own chat but cannot write in it). One UPDATE and one
--- DELETE are allowed, and one of each by the viewer touches no row.
+-- reads their own chat but cannot write in it). UPDATE and DELETE are
+-- refused to everybody (284).
 --
 -- ONE statement on purpose: `supabase db query --file` sends the file
 -- as a single prepared statement and rejects several. The CLI drops
@@ -353,7 +353,7 @@ BEGIN
       ('agent reads the other workspace''s chat: ' || coalesce(r, 'no fixture'))::text);
   END IF;
 
-  -- Writes through messages_modify. Every person INSERTs an agent
+  -- Writes through messages_insert. Every person INSERTs an agent
   -- message, as themselves, into every chat on the chat's own number;
   -- 42501 is a refusal, any other error is reported as a failure. The
   -- team: the leader leads agent and agent2, so 'teammate' (agent2's
@@ -403,48 +403,22 @@ BEGIN
     END IF;
   END LOOP;
 
-  -- UPDATE and DELETE of the fixture messages (text = the chat's label).
-  -- Allowed: the leader edits one in agent2's personal chat; agent2
-  -- deletes the one in 'pn-company'. Refused (no row touched, the row
-  -- stays readable): the viewer edits and deletes the one in their own.
-  r := pg_temp.cv_try(u_lead, format('WITH u AS (UPDATE public.messages SET content_text = ''edited'''
-    || ' WHERE conversation_id = %L AND content_text = ''personal'' RETURNING 1)'
-    || ' SELECT count(*)::text FROM u', ids[array_position(labels, 'personal')]));
-  n := n + 1;
-  IF r IS DISTINCT FROM '1' THEN
-    failed := array_append(failed, ('leader update in the personal chat: ' || coalesce(r, 'null'))::text);
-  END IF;
-  r := pg_temp.cv_try(u_viewer, format('WITH u AS (UPDATE public.messages SET content_text = ''edited'''
-    || ' WHERE conversation_id = %L AND content_text = ''viewer-own'' RETURNING 1)'
-    || ' SELECT count(*)::text FROM u', ids[array_position(labels, 'viewer-own')]));
-  n := n + 1;
-  IF r IS DISTINCT FROM '0' THEN
-    failed := array_append(failed, ('viewer update in their own chat: ' || coalesce(r, 'null'))::text);
-  END IF;
-  r := pg_temp.cv_try(u_agent2, format('WITH d AS (DELETE FROM public.messages'
-    || ' WHERE conversation_id = %L AND content_text = ''pn-company'' RETURNING 1)'
-    || ' SELECT count(*)::text FROM d', ids[array_position(labels, 'pn-company')]));
-  n := n + 1;
-  IF r IS DISTINCT FROM '1' THEN
-    failed := array_append(failed, ('agent2 delete in pn-company: ' || coalesce(r, 'null'))::text);
-  END IF;
-  r := pg_temp.cv_try(u_viewer, format('WITH d AS (DELETE FROM public.messages'
-    || ' WHERE conversation_id = %L AND content_text = ''viewer-own'' RETURNING 1)'
-    || ' SELECT count(*)::text FROM d', ids[array_position(labels, 'viewer-own')]));
-  n := n + 1;
-  IF r IS DISTINCT FROM '0' THEN
-    failed := array_append(failed, ('viewer delete in their own chat: ' || coalesce(r, 'null'))::text);
-  END IF;
-  SELECT format('%s/%s',
-           (SELECT count(*) FROM messages WHERE conversation_id = ids[array_position(labels, 'viewer-own')]
-              AND content_text = 'viewer-own'),
-           (SELECT count(*) FROM messages WHERE conversation_id = ids[array_position(labels, 'personal')]
-              AND content_text = 'edited'))
-    INTO r;
-  n := n + 1;
-  IF r IS DISTINCT FROM '1/1' THEN
-    failed := array_append(failed, ('after update/delete, viewer-own kept / personal edited: ' || r)::text);
-  END IF;
+  -- UPDATE and DELETE of a message: nobody, from a session (284).
+  FOR who IN
+    SELECT * FROM (VALUES ('leader', u_lead, 'personal'), ('viewer', u_viewer, 'viewer-own'),
+                          ('agent2', u_agent2, 'pn-company')) AS t(label, uid, chat)
+  LOOP
+    FOREACH kind IN ARRAY ARRAY['UPDATE public.messages SET content_text = ''edited''',
+                                'DELETE FROM public.messages'] LOOP
+      r := pg_temp.cv_try(who.uid, format('%s WHERE conversation_id = %L AND content_text = %L',
+        kind, ids[array_position(labels, who.chat)], who.chat));
+      n := n + 1;
+      IF r IS NULL OR r NOT LIKE 'ERROR 42501:%' THEN
+        failed := array_append(failed, format('%s %s in %s: %s', who.label,
+          split_part(kind, ' ', 1), who.chat, coalesce(r, 'null')));
+      END IF;
+    END LOOP;
+  END LOOP;
 
   -- Undo every fixture; `failed` and `n` survive the rollback.
   RAISE EXCEPTION USING ERRCODE = 'ZT218', MESSAGE = 'verify-conversations-select-set-based rollback';

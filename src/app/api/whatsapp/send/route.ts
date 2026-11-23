@@ -30,7 +30,7 @@ import { isSendOrigin } from '@/lib/whatsapp/send-origin';
 export async function POST(request: Request) {
   try {
     // Requires the 'agent' role, matching both `canSendMessages` and the
-    // `messages_modify` RLS policy (migration 017).
+    // `messages_insert` RLS policy (migration 284).
     //
     // Resolving `account_id` off the profile — which any 'viewer' has —
     // was previously the only gate. RLS did block the message INSERT, but

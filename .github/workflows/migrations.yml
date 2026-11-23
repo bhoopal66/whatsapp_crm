@@ -1479,3 +1479,8 @@ jobs:
       # session reads a WhatsApp number's secrets; a note is the writer's own.
       - name: Verify read rules
         run: supabase db query --local --file supabase/ci/verify-read-rules.sql
+
+      # Migration 284: a session writes chats and messages only as the app
+      # does (each caller by role, and every other write refused).
+      - name: Verify chat integrity
+        run: supabase db query --local --file supabase/ci/verify-chat-integrity.sql

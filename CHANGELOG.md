@@ -26,6 +26,14 @@ and polish.
   the session and cannot send after it.
 
 ### Security
+- **Chats and messages are written from a login only the way the app
+  writes them.** A chat never changes its contact or workspace; a personal
+  chat is started only by its owner on their own number; a person adds
+  only their own sent message, and nobody edits or deletes a message or
+  deletes a chat (a chat goes with its contact, with that deletion's
+  checks); taking a chat off its WhatsApp number needs an admin, like
+  moving it to another one. **Migration required: 284.** No setting to
+  change and no screen changes. `supabase/ci/verify-chat-integrity.sql`.
 
 **Migration required: 283** (`283_chat_media_owner.sql`, after 242). The app
 works before and after it; apply it as soon as you update.
