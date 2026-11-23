@@ -1,6 +1,7 @@
 // /api/account/members/[userId]/handover
 //
-//   GET  — what this person still holds: { counts }.             Admin+.
+//   GET  — what this person still holds: { counts, keys }.       Admin+.
+//          `keys` are the live API keys they made (null: not readable).
 //   POST — { to, what } moves it to a colleague: { moved }.      Admin+.
 //
 // `member_work_counts` and `member_handover` (migration 266) do the real
@@ -14,6 +15,7 @@ import {
   parseHandoverKinds,
   parseWorkCounts,
 } from '@/lib/auth/member-handover';
+import { listLiveKeys } from '@/lib/api-keys/made-by';
 import { isUuid } from '@/lib/coordinators/errors';
 import {
   checkRateLimit,
@@ -48,7 +50,11 @@ export async function GET(_request: Request, { params }: Params) {
     if (error) {
       return rpcErrorToResponse(error, "Failed to load this person's work");
     }
-    return NextResponse.json({ counts: parseWorkCounts(data) });
+    // Keys outlive their maker's role and are never revoked by themselves:
+    // listed here for the admin to decide. A failed read costs only them.
+    const live = await listLiveKeys(ctx.supabase, ctx.accountId);
+    const keys = live ? live.filter((k) => k.createdBy === userId) : null;
+    return NextResponse.json({ counts: parseWorkCounts(data), keys });
   } catch (err) {
     return toErrorResponse(err);
   }

@@ -90,5 +90,11 @@
   silent under `app.member_handover`: a new bell on an assignment checks it
   too. One `work_handed_over` bell (not to oneself) and one audit row, only
   when something moved. `verify-member-handover.sql`.
+  The same two routes also list the live API keys (`lib/api-keys/made-by.ts`:
+  not revoked, not expired) a person made, or those whose maker is deactivated,
+  no longer admin or owner, no longer a member, or NULL. The hand-over dialog
+  and a roster card show them with Revoke (`DELETE /api/account/api-keys/[id]`);
+  nothing revokes a key by itself, an integration may run on one. `keys: null`
+  is an unreadable list, not an empty one.
 - Client side: `hooks/use-auth.tsx` (profile/account context),
   `hooks/use-can.ts` and `components/auth/require-role.tsx` for gating.

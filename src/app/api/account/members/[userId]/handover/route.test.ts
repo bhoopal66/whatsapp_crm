@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   requireRole: vi.fn(),
   rpc: vi.fn(),
+  from: vi.fn(),
   checkRateLimit: vi.fn(),
 }));
 
@@ -37,11 +38,39 @@ const post = (body: unknown, userId = FROM) =>
     at(userId)
   );
 
+const KEY = (id: string, created_by: string | null, over = {}) => ({
+  id,
+  name: `key ${id}`,
+  last_used_at: null,
+  created_by,
+  expires_at: null,
+  revoked_at: null,
+  ...over,
+});
+
+/** `from(table)` answers each table with its rows (or a failure). */
+function tables(rows: Record<string, unknown[] | 'fail'>) {
+  mocks.from.mockImplementation((table: string) => {
+    const r = rows[table];
+    const result =
+      r === 'fail'
+        ? { data: null, error: { message: 'boom' } }
+        : { data: r ?? [], error: null };
+    const b: Record<string, unknown> = {};
+    b.select = () => b;
+    b.eq = () => b;
+    b.order = () => Promise.resolve(result);
+    b.then = (f: (v: unknown) => unknown) => Promise.resolve(result).then(f);
+    return b;
+  });
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
+  tables({});
   mocks.checkRateLimit.mockReturnValue({ success: true });
   mocks.requireRole.mockResolvedValue({
-    supabase: { rpc: mocks.rpc },
+    supabase: { rpc: mocks.rpc, from: mocks.from },
     accountId: 'a',
     userId: 'admin-1',
     role: 'admin',
@@ -62,14 +91,35 @@ describe('members/[userId]/handover', () => {
     expect(mocks.rpc).not.toHaveBeenCalled();
   });
 
-  it('returns the counts', async () => {
+  it('returns the counts and the live keys that person made', async () => {
+    tables({
+      api_keys: [
+        KEY('mine', FROM),
+        KEY('theirs', TO),
+        KEY('revoked', FROM, { revoked_at: '2026-01-01T00:00:00Z' }),
+        KEY('expired', FROM, { expires_at: '2020-01-01T00:00:00Z' }),
+      ],
+    });
     mocks.rpc.mockResolvedValue({ data: COUNTS, error: null });
     const res = await get();
-    expect(await res.json()).toEqual({ counts: COUNTS });
+    expect(await res.json()).toEqual({
+      counts: COUNTS,
+      keys: [
+        { id: 'mine', name: 'key mine', lastUsedAt: null, createdBy: FROM },
+      ],
+    });
     expect(mocks.rpc).toHaveBeenCalledWith('member_work_counts', {
       p_user: FROM,
     });
     expect((await get('x')).status).toBe(400);
+  });
+
+  it('answers keys: null when the keys cannot be read', async () => {
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => {});
+    tables({ api_keys: 'fail' });
+    mocks.rpc.mockResolvedValue({ data: COUNTS, error: null });
+    expect(await (await get()).json()).toEqual({ counts: COUNTS, keys: null });
+    quiet.mockRestore();
   });
 
   it('hands over and returns what moved', async () => {
@@ -147,8 +197,49 @@ describe('members/left-work', () => {
     const res = await LEFT();
     expect(await res.json()).toEqual({
       members: [{ userId: FROM, ...COUNTS }],
+      keys: [],
     });
     expect(mocks.rpc).toHaveBeenCalledWith('members_left_work');
+  });
+
+  it('lists live keys whose maker is gone, lowered, deactivated or unknown', async () => {
+    mocks.rpc.mockResolvedValue({ data: [], error: null });
+    tables({
+      api_keys: [
+        KEY('ok', 'admin-1'),
+        KEY('off', 'gone'),
+        KEY('low', 'agent-1'),
+        KEY('none', null),
+        KEY('stranger', 'nobody'),
+        KEY('revoked', 'gone', { revoked_at: '2026-01-01T00:00:00Z' }),
+      ],
+      profiles: [
+        { user_id: 'admin-1', account_role: 'admin', deactivated_at: null },
+        {
+          user_id: 'gone',
+          account_role: 'admin',
+          deactivated_at: '2026-01-01',
+        },
+        { user_id: 'agent-1', account_role: 'agent', deactivated_at: null },
+      ],
+    });
+    const { keys } = await (await LEFT()).json();
+    expect(keys.map((k: { id: string }) => k.id)).toEqual([
+      'off',
+      'low',
+      'none',
+      'stranger',
+    ]);
+  });
+
+  it('answers keys: null when the keys or the roster cannot be read', async () => {
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mocks.rpc.mockResolvedValue({ data: [], error: null });
+    tables({ api_keys: 'fail' });
+    expect((await (await LEFT()).json()).keys).toBeNull();
+    tables({ api_keys: [KEY('a', 'x')], profiles: 'fail' });
+    expect((await (await LEFT()).json()).keys).toBeNull();
+    quiet.mockRestore();
   });
 
   it('maps the RPC errors', async () => {

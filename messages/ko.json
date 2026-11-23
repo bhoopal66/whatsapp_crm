@@ -2494,7 +2494,20 @@
         "failed": "업무를 인계하지 못했습니다. 다시 시도하세요.",
         "later": "나중에",
         "removeWarning": "{name} 님이 아직 {what}을(를) 보유하고 있습니다. 제거하면 담당자가 없어지므로 먼저 인계하세요.",
-        "noPeople": "업무를 인계받을 다른 사람이 없습니다."
+        "noPeople": "업무를 인계받을 다른 사람이 없습니다.",
+        "holdsKeys": "만든 API 키 {count, plural, other {#개}}가 아직 유효합니다",
+        "keysTitle": "이 사람이 만든 API 키 {count, plural, other {#개}}",
+        "keysHint": "자동으로 취소되는 것은 없습니다. 연동이 키로 실행 중일 수 있으니, 아무도 쓰지 않는 키만 취소하세요.",
+        "keyLastUsed": "마지막 사용 {date}",
+        "keyNeverUsed": "사용 기록 없음",
+        "revoke": "취소",
+        "revokeConfirm": "\"{name}\" 키를 취소할까요? 이 키를 쓰는 모든 것이 즉시 멈춥니다.",
+        "revoked": "\"{name}\" 키를 취소했습니다.",
+        "revokeFailed": "키를 취소하지 못했습니다. 다시 시도하세요.",
+        "keysUnreadable": "API 키를 읽을 수 없습니다.",
+        "removeKeysWarning": "{name}님이 만든 API 키 {count, plural, other {#개}}는 제거 후에도 유효합니다. 아무도 쓰지 않는 키는 취소하세요.",
+        "strayTitle": "관리자가 없는 API 키 {count, plural, other {#개}}",
+        "strayHint": "이 워크스페이스를 떠난 사람이 만든 키입니다. 취소할 때까지 계속 작동합니다."
       }
     },
     "invite": {
