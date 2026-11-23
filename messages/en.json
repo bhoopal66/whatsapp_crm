@@ -8067,6 +8067,8 @@
     "sendTest": "Send test notification",
     "testSent": "Test notification sent",
     "testNone": "No device received it. Turn notifications on for this device first.",
+    "testQueued": "The test notification is on its way",
+    "testHeld": "Quiet hours are on, so the test notification is held back. Your notifications work outside quiet hours.",
     "testNotConfigured": "Push notifications aren't set up on this server yet.",
     "testFailed": "Couldn't send the test notification",
     "turnedOn": "Notifications turned on for this device",

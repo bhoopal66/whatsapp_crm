@@ -19,6 +19,15 @@ vi.mock('@/lib/flows/admin-client', () => ({
 
 import { POST } from './route';
 
+type Row = [user: string, kind: string, outcome: string];
+/** The dispatch pass reports these rows. */
+const pass = (rows: Row[]) =>
+  mocks.dispatchPush.mockImplementation(async (_admin, opts) => {
+    for (const [user_id, kind, outcome] of rows)
+      opts?.onRow?.({ user_id, kind }, outcome);
+    return { claimed: rows.length, sent: 9 };
+  });
+
 describe('POST /api/push/test', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -33,13 +42,7 @@ describe('POST /api/push/test', () => {
       subject: 'mailto:ops@example.com',
     });
     mocks.rpc.mockResolvedValue({ data: true, error: null });
-    mocks.dispatchPush.mockResolvedValue({
-      claimed: 1,
-      sent: 2,
-      held: 0,
-      skipped: 0,
-      failed: 0,
-    });
+    pass([['user-1', 'test', 'sent']]);
   });
 
   it('answers 503 push_not_configured with no VAPID keys', async () => {
@@ -54,7 +57,7 @@ describe('POST /api/push/test', () => {
   it('queues a test push for the caller and dispatches it now', async () => {
     const res = await POST();
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ queued: true, sent: 2 });
+    expect(await res.json()).toEqual({ outcome: 'sent' });
     expect(mocks.rpc).toHaveBeenCalledWith('push_enqueue', {
       p_user: 'user-1',
       p_account: 'acct-1',
@@ -67,9 +70,30 @@ describe('POST /api/push/test', () => {
     expect(mocks.dispatchPush).toHaveBeenCalledTimes(1);
   });
 
-  it('reports queued false when the RPC declines', async () => {
+  it.each([
+    ['held', 'held'],
+    ['skipped_quiet', 'held'],
+    ['skipped', 'no_device'],
+    ['failed', 'failed'],
+  ])('answers for its own row only: %s', async (outcome, answer) => {
+    pass([
+      ['user-2', 'test', 'sent'],
+      ['user-1', 'test', outcome],
+      ['user-1', 'chat_message', 'sent'],
+      ['user-2', 'chat_message', 'sent'],
+    ]);
+    expect(await (await POST()).json()).toEqual({ outcome: answer });
+  });
+
+  it('answers queued when another pass took the row', async () => {
+    pass([['user-2', 'test', 'sent']]);
+    expect(await (await POST()).json()).toEqual({ outcome: 'queued' });
+  });
+
+  it('answers no_device, and sends nothing, when the RPC declines', async () => {
     mocks.rpc.mockResolvedValue({ data: false, error: null });
-    expect(await (await POST()).json()).toEqual({ queued: false, sent: 2 });
+    expect(await (await POST()).json()).toEqual({ outcome: 'no_device' });
+    expect(mocks.dispatchPush).not.toHaveBeenCalled();
   });
 
   it('answers 500 without dispatching when the enqueue fails', async () => {

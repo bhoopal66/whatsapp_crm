@@ -151,7 +151,9 @@ export function NotificationsSettings() {
   const sendTest = async () => {
     const result = await push.sendTest();
     if (result === 'sent') toast.success(t('testSent'));
-    else if (result === 'none') toast.error(t('testNone'));
+    else if (result === 'queued') toast.success(t('testQueued'));
+    else if (result === 'held') toast.info(t('testHeld'));
+    else if (result === 'no_device') toast.error(t('testNone'));
     else if (result === 'not_configured') toast.error(t('testNotConfigured'));
     else toast.error(t('testFailed'));
   };

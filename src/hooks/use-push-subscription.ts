@@ -19,6 +19,7 @@ import {
   writePushEnabledBy,
 } from '@/lib/push/repair';
 import { pendingPushRelease } from '@/lib/push/sign-out';
+import type { PushTestOutcome } from '@/lib/push/test-outcome';
 import { createClient } from '@/lib/supabase/client';
 
 /**
@@ -131,7 +132,7 @@ function repairOnce(
 }
 
 export type SubscribeResult = 'on' | 'denied' | 'not_configured' | 'error';
-export type TestResult = 'sent' | 'none' | 'not_configured' | 'error';
+export type TestResult = PushTestOutcome | 'not_configured' | 'error';
 
 export function usePushSubscription() {
   const { user, accountId, profileLoading } = useAuth();
@@ -240,8 +241,8 @@ export function usePushSubscription() {
       const res = await fetch('/api/push/test', { method: 'POST' });
       if (res.status === 503) return 'not_configured';
       if (!res.ok) return 'error';
-      const body = (await res.json()) as { sent?: number };
-      return (body.sent ?? 0) > 0 ? 'sent' : 'none';
+      const body = (await res.json()) as { outcome?: PushTestOutcome };
+      return body.outcome ?? 'error';
     } catch {
       return 'error';
     }

@@ -51,6 +51,10 @@ export interface DispatchSummary {
   released: number;
 }
 
+/** 'skipped_quiet': too old by the end of quiet hours (counted as skipped). */
+export type RowOutcome =
+  'sent' | 'held' | 'skipped' | 'skipped_quiet' | 'failed';
+
 interface OutboxRow {
   id: number;
   user_id: string;
@@ -108,7 +112,17 @@ export async function dispatchPush(
     limit = 50,
     budgetMs = PASS_BUDGET_MS,
     clock = Date.now,
-  }: { limit?: number; budgetMs?: number; clock?: () => number } = {}
+    onRow,
+  }: {
+    limit?: number;
+    budgetMs?: number;
+    clock?: () => number;
+    /** Told what became of each row of this pass, whoever's it is. */
+    onRow?: (
+      row: { user_id: string; kind: string },
+      outcome: RowOutcome
+    ) => void;
+  } = {}
 ): Promise<DispatchSummary> {
   const deadline = clock() + budgetMs;
   const summary: DispatchSummary = {
@@ -177,7 +191,8 @@ export async function dispatchPush(
           gone,
           counted
         );
-        summary[outcome] += 1;
+        summary[outcome === 'skipped_quiet' ? 'skipped' : outcome] += 1;
+        onRow?.(row, outcome);
       } catch (err) {
         console.error(
           '[push] row',
@@ -205,7 +220,7 @@ async function deliverRow(
   prefs: Prefs | null,
   gone: Set<string>,
   counted: Set<string>
-): Promise<'sent' | 'held' | 'skipped' | 'failed'> {
+): Promise<RowOutcome> {
   if (prefs && (!prefs.enabled || prefs.kinds?.[row.kind] === false)) {
     await skip(admin, row, 'push switched off');
     return 'skipped';
@@ -219,7 +234,7 @@ async function deliverRow(
   });
   if (decision.action === 'skip') {
     await skip(admin, row, decision.reason);
-    return 'skipped';
+    return 'skipped_quiet';
   }
   if (decision.action === 'hold') {
     // push_claim takes a row whose claim is over 2 minutes old: date the

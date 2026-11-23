@@ -10,6 +10,7 @@ import { getCurrentAccount, toErrorResponse } from '@/lib/auth/account';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
 import { pushConfig } from '@/lib/push/config';
 import { dispatchPush } from '@/lib/push/dispatch';
+import { testOutcome, type PushTestOutcome } from '@/lib/push/test-outcome';
 
 export async function POST() {
   try {
@@ -37,8 +38,19 @@ export async function POST() {
         { status: 500 }
       );
     }
-    const summary = await dispatchPush(admin);
-    return NextResponse.json({ queued: data === true, sent: summary.sent });
+    // The pass also carries other people's rows: answer for the caller's
+    // own test only. Not seen at all: the delivery loop took it first.
+    let outcome: PushTestOutcome = data === true ? 'queued' : 'no_device';
+    if (data === true) {
+      await dispatchPush(admin, {
+        onRow: (row, result) => {
+          if (row.user_id === userId && row.kind === 'test') {
+            outcome = testOutcome(result);
+          }
+        },
+      });
+    }
+    return NextResponse.json({ outcome });
   } catch (err) {
     return toErrorResponse(err);
   }
