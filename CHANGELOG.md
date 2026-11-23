@@ -67,6 +67,16 @@ No migration.
 - Operators: the retries run in `GET /api/automations/cron`, so that cron
   must be scheduled. `/api/metrics` has `wacrm_inbound_queue_*`
   (`docs/monitoring.md`).
+### Submission groups: nothing lost between Compass and the CRM
+
+No migration.
+- A status Compass reports that the case could not take now answers an error,
+  so Compass sends it again; before, a final status could be lost for good.
+- A submission whose case could not be opened gets it with Compass's next
+  update, or within minutes by itself; before, it stayed without a case.
+- One broken WhatsApp number no longer holds up the groups of the others, and
+  closing a group waits while its number is disconnected.
+
 ### Submission groups: no second WhatsApp group
 
 No migration.

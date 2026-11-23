@@ -590,13 +590,17 @@ On a `whatsapp.mode: "none"` submission a final status ends it and closes
 its case, with nothing to close on WhatsApp: `closed: false`,
 `close_deferred: false`.
 
-`close_deferred: true` means a message was still being sent; the close is
+`close_deferred: true` means a message was still being sent, the group is
+held open for the closing update, or the number is disconnected; the close is
 retried by the next call or the cron. On an already ENDED group nothing is
 recorded and the call reports its state with `ended: false`. `404` for an
 unknown submission.
 
 The answer also carries the group's case, `case: { "id", "stage",
-"outcome" }`, or `null` when the group has no case or the case step failed.
+"outcome" }`, or `null` when the group has no case or it could not be read
+back. A group whose case could not be opened by the `POST` gets it here, with
+the body's bank, product and amount; `500` when that fails again. A status the case could not take answers `500`: send it again (repeats
+are safe, on an ENDED group too).
 A final status moves a case not yet at a final stage to **Approved**,
 **Declined**, **Withdrawn** or **Closed**; this also happens on an ENDED
 group. `GET` carries no `case`.

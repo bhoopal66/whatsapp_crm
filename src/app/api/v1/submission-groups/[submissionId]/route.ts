@@ -11,6 +11,11 @@
 // group's state (`ended: false` — this call did not end it).
 // Account-scoped: a submission of another workspace → 404.
 //
+// A group without a case (the POST could not open it) gets one first, with
+// the body's bank, product and amount; a failure there is a 500 and writes
+// nothing else, so the submission app sends the PATCH again. Only a group
+// with no agent left (an ENDED one) goes on without a case: `case: null`.
+//
 // PATCH also moves the group's case (module 018c): a final status sets
 // its stage (case_apply_submission_status), and since 137 any other
 // status moves the case to the stage of the same name (UNDER_REVIEW ->
@@ -19,8 +24,11 @@
 // `case: { id, stage, outcome }`. That holds on an ENDED group too (staff
 // may have ended it before the bank decided): the submission app's final
 // status is the case's outcome, and a case already at a final stage is
-// left alone by the SQL. Best effort: a case failure is logged and
-// answers `case: null`, never an error; a group without a case too.
+// left alone by the SQL. A status the case could not take answers 500, so
+// the submission app sends it again: a repeat on the group this call
+// ended re-applies the status (a repeated changed_at is not stale: only
+// an older one is). Reading the case back for the answer is best effort
+// (`case: null`).
 //
 // Case sync (migration 134): a body with changed_at, stage,
 // outcome_reason, bank, product, amount, compass_url or documents
@@ -54,6 +62,10 @@ import {
   syncCaseFromSubmission,
   syncWire,
 } from '@/lib/submission-groups/case-sync';
+import {
+  caseErrorText,
+  ensureGroupCase,
+} from '@/lib/submission-groups/open-case';
 import { isFinalStatus } from '@/lib/submission-groups/rules';
 import type {
   SubmissionGroup,
@@ -68,27 +80,48 @@ async function wire(store: SubmissionGroupStore, group: SubmissionGroup) {
   return serializeGroup(group, await store.listAccess(group));
 }
 
-/** Applies the status to the group's case (when given) and reads it back; null on any failure. */
-async function patchCase(
-  accountId: string,
-  groupId: string,
-  status: string | null
-) {
+/** The group's case as the answer carries it; null without one, or on any failure (best effort). */
+async function readCase(accountId: string, groupId: string) {
   try {
     const cases = caseStore(accountId);
     const caseId = await cases.idForGroup(groupId);
-    if (!caseId) return null;
-    if (status !== null) await cases.applySubmissionStatus(groupId, status);
-    const c = await cases.get(caseId);
+    const c = caseId ? await cases.get(caseId) : null;
     return c ? { id: c.id, stage: c.stage, outcome: c.outcome } : null;
   } catch (err) {
     console.error(
-      `[api/v1/submission-groups] case status for group ${groupId}:`,
-      err instanceof Error ? err.message : 'unknown error'
+      `[api/v1/submission-groups] case read for group ${groupId}:`,
+      caseErrorText(err)
     );
     return null;
   }
 }
+
+/**
+ * Applies the status (when given) to the group's case. False when that
+ * failed, logged: the caller answers 500 so the submission app sends the
+ * status again, which is safe (a case already at a final stage, or at the
+ * status's stage, is left alone by the SQL).
+ */
+async function applyCaseStatus(
+  accountId: string,
+  groupId: string,
+  status: string | null
+): Promise<boolean> {
+  if (status === null) return true;
+  try {
+    await caseStore(accountId).applySubmissionStatus(groupId, status);
+    return true;
+  } catch (err) {
+    console.error(
+      `[api/v1/submission-groups] case status for group ${groupId}:`,
+      caseErrorText(err)
+    );
+    return false;
+  }
+}
+
+const caseStatusFailed = () =>
+  fail('internal', "Failed to apply the status to the submission's case", 500);
 
 export async function GET(request: Request, { params }: Params) {
   try {
@@ -124,6 +157,26 @@ export async function PATCH(request: Request, { params }: Params) {
     let group = await store.findByRef(ctx.accountId, submissionId.trim());
     if (!group) return fail('not_found', 'Submission group not found', 404);
 
+    // The case the POST could not open: the sync and the status below have
+    // nothing to act on without it.
+    try {
+      const has = await ensureGroupCase(caseStore(ctx.accountId), group.id, {
+        bankCode: sync?.patch.bank,
+        product: sync?.patch.product,
+        amount: sync?.patch.amount,
+      });
+      if (!has)
+        console.warn(
+          `[api/v1/submission-groups] no agent to open the case of group ${group.id} for`
+        );
+    } catch (err) {
+      console.error(
+        `[api/v1/submission-groups] case open for group ${group.id}:`,
+        caseErrorText(err)
+      );
+      return fail('internal', "Failed to open the submission's case", 500);
+    }
+
     // ctx.supabase is the service-role client (requireApiKey).
     let synced: Awaited<ReturnType<typeof syncCaseFromSubmission>> | null =
       null;
@@ -152,19 +205,22 @@ export async function PATCH(request: Request, { params }: Params) {
         ended: false,
         closed: group.waClosedAt !== null,
         close_deferred: false,
-        case: await patchCase(ctx.accountId, group.id, null),
+        case: await readCase(ctx.accountId, group.id),
         ...syncBlock,
       });
 
-    if (group.status !== 'ACTIVE')
+    if (group.status !== 'ACTIVE') {
+      if (!(await applyCaseStatus(ctx.accountId, group.id, caseStatus)))
+        return caseStatusFailed();
       return ok({
         ...(await wire(store, group)),
         ended: false,
         closed: group.waClosedAt !== null,
         close_deferred: false,
-        case: await patchCase(ctx.accountId, group.id, caseStatus),
+        case: await readCase(ctx.accountId, group.id),
         ...syncBlock,
       });
+    }
 
     if (status !== null) {
       const { error } = await ctx.supabase.rpc('sg_note_submission_status', {
@@ -209,13 +265,15 @@ export async function PATCH(request: Request, { params }: Params) {
       });
     }
     group = (await store.get(group.id)) ?? group;
-    const caseWire = await patchCase(ctx.accountId, group.id, caseStatus);
+    // After the end: a retry finds the group ENDED and re-applies it there.
+    if (!(await applyCaseStatus(ctx.accountId, group.id, caseStatus)))
+      return caseStatusFailed();
     return ok({
       ...(await wire(store, group)),
       ended: end.ended,
       closed: end.closed || group.waClosedAt !== null,
       close_deferred: end.closeDeferred,
-      case: caseWire,
+      case: await readCase(ctx.accountId, group.id),
       ...syncBlock,
     });
   } catch (err) {

@@ -15,6 +15,7 @@ import { WhapiError } from '@/lib/whatsapp/whapi-api';
 import {
   SubmissionGroupChannelError,
   SubmissionGroupNotAttemptedError,
+  SubmissionGroupNumberDisconnectedError,
   type FoundGroup,
   type GroupsApi,
 } from './service';
@@ -37,6 +38,10 @@ export const LOOKUP_BUDGET_MS = 20_000;
 
 const isGroupGone = (err: unknown): boolean =>
   err instanceof WhapiError && err.isGroupNotFound;
+
+/** A close's read of the group, and each of its two calls that change it. */
+export const CLOSE_READ_TIMEOUT_MS = 8_000;
+export const CLOSE_CALL_TIMEOUT_MS = 15_000;
 
 /** The cron's read of who is in a group (174). */
 export interface ParticipantsApi {
@@ -250,14 +255,24 @@ export function createWhapiGroupsApi(
 
     /**
      * Remove everyone but our own number, then leave. A group WhatsApp
-     * no longer knows on this number (404) is already closed.
+     * no longer knows on this number (404) is already closed; a number
+     * marked disconnected is never asked, its 404 would say the same.
      */
     async closeGroup(channelId, waGroupId) {
       const channel = await channelFor(channelId);
-      const ref = { channel, groupId: waGroupId };
+      if (channel.status === 'disconnected')
+        throw new SubmissionGroupNumberDisconnectedError(channelId);
+      const ref = {
+        channel,
+        groupId: waGroupId,
+        timeoutMs: CLOSE_CALL_TIMEOUT_MS,
+      };
       let group: groups.Group;
       try {
-        group = await groups.getGroup(ref);
+        group = await groups.getGroup({
+          ...ref,
+          timeoutMs: CLOSE_READ_TIMEOUT_MS,
+        });
       } catch (err) {
         if (isGroupGone(err)) return;
         throw err;

@@ -7,6 +7,7 @@ const m = vi.hoisted(() => ({
   service: { endIfDue: vi.fn() },
   cases: {
     idForGroup: vi.fn(),
+    open: vi.fn(),
     applySubmissionStatus: vi.fn(),
     get: vi.fn(),
     endClaimedGroup: vi.fn(),
@@ -74,6 +75,7 @@ beforeEach(() => {
     closeDeferred: false,
   });
   m.cases.idForGroup.mockResolvedValue('case-1');
+  m.cases.open.mockResolvedValue({ caseId: 'case-1', created: true });
   m.cases.applySubmissionStatus.mockResolvedValue(true);
   m.cases.get.mockResolvedValue({
     id: 'case-1',
@@ -239,6 +241,63 @@ describe('PATCH case sync (migration 134)', () => {
       'g1',
       'UNDER_REVIEW'
     );
+  });
+
+  it('opens a missing case with the sync details before the sync', async () => {
+    m.cases.idForGroup.mockResolvedValueOnce(null);
+    m.rpc.mockResolvedValueOnce(syncOk({ case_id: 'case-1' }));
+    const res = await patch({
+      changed_at: '2026-10-21T10:00:00Z',
+      bank: 'mashreq',
+      product: 'SME loan',
+      amount: 250000,
+    });
+    expect(res.status).toBe(200);
+    expect(m.cases.open).toHaveBeenCalledWith(
+      'g1',
+      expect.objectContaining({
+        bankCode: 'MASHREQ',
+        product: 'SME loan',
+        amount: '250000',
+      }),
+      null
+    );
+    expect(m.cases.open.mock.invocationCallOrder[0]).toBeLessThan(
+      m.rpc.mock.invocationCallOrder[0]
+    );
+  });
+
+  it('a final status the case could not take is applied by the repeat, the group ended by then', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const body = {
+      status: 'DECLINED',
+      stage: 'Declined',
+      changed_at: '2026-10-21T10:00:00Z',
+    };
+    m.rpc
+      .mockResolvedValueOnce(
+        syncOk({
+          case_id: 'case-1',
+          stage: 'Declined',
+          final: true,
+          group_end_token: TOKEN,
+        })
+      )
+      .mockResolvedValueOnce({ data: null, error: null });
+    m.cases.applySubmissionStatus.mockRejectedValueOnce(new Error('db down'));
+    expect((await patch(body)).status).toBe(500);
+    expect(m.cases.endClaimedGroup).toHaveBeenCalledTimes(1);
+
+    // The same changed_at again is applied (not stale), with no new claim.
+    m.store.findByRef.mockResolvedValue(group({ status: 'ENDED' }));
+    m.rpc.mockResolvedValueOnce(
+      syncOk({ case_id: 'case-1', stage: 'Declined' })
+    );
+    const again = await patch(body);
+    err.mockRestore();
+    expect(again.status).toBe(200);
+    expect(m.cases.endClaimedGroup).toHaveBeenCalledTimes(1);
+    expect(m.cases.applySubmissionStatus).toHaveBeenCalledTimes(2);
   });
 
   it('a failed status note still settles the claim the sync took', async () => {

@@ -30,7 +30,8 @@
 // The case (module 018c): every answer that returns a group (new, repeat
 // or pending) opens its case — once per group; a repeat call fills only
 // the details still empty — and returns it as `case`. The case step never
-// fails the request: on any error it is logged and `case` is null.
+// fails the request: on any error it is logged and `case` is null, and the
+// next PATCH, or the cron, opens it.
 // ============================================================
 
 import { requireApiKey } from '@/lib/auth/api-context';
@@ -61,7 +62,10 @@ import {
 import type { SubmissionGroup } from '@/lib/submission-groups/store';
 import { caseStore } from '@/lib/cases/server';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { BANKS } from '@/lib/typesafe/banks';
+import {
+  caseErrorText,
+  openGroupCase,
+} from '@/lib/submission-groups/open-case';
 
 export const maxDuration = 60;
 
@@ -77,18 +81,7 @@ async function openCase(
 ): Promise<CaseWire> {
   try {
     const cases = caseStore(accountId);
-    const opened = await cases.open(
-      groupId,
-      {
-        bankCode: input.bankCode,
-        bankName: input.bankCode
-          ? (BANKS.find((b) => b.code === input.bankCode)?.displayName ?? null)
-          : null,
-        product: input.product,
-        amount: input.amount,
-      },
-      null
-    );
+    const opened = await openGroupCase(cases, groupId, input);
     const c = await cases.get(opened.caseId);
     if (!c) return null;
     return {
@@ -100,10 +93,10 @@ async function openCase(
       amount: c.amount,
     };
   } catch (err) {
-    // The error names only the function and SQLSTATE (CaseStoreError); no case data.
+    // The one log line of it; the next PATCH or the cron opens the case.
     console.error(
       `[api/v1/submission-groups] case open for group ${groupId}:`,
-      err instanceof Error ? err.message : 'unknown error'
+      caseErrorText(err)
     );
     return null;
   }

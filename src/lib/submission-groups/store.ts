@@ -402,6 +402,34 @@ export class SubmissionGroupStore {
     return ((data ?? []) as Row[]).map(toGroup);
   }
 
+  /**
+   * ACTIVE groups the API created before `before` that have no case, newest first (the cron opens it). One with no
+   * agent on its list is left out: case_open refuses it for ever, and it must not fill the limit.
+   */
+  async listWithoutCase(
+    before: Date,
+    opts: { limit: number }
+  ): Promise<{ id: string; accountId: string }[]> {
+    const { data, error } = await this.db
+      .from('submission_groups')
+      .select(
+        'id, account_id, cases!cases_group_fkey(id), submission_group_access!inner(id)'
+      )
+      .eq('status', 'ACTIVE')
+      .not('created_by_key', 'is', null)
+      .is('cases', null)
+      .eq('submission_group_access.label', 'agent')
+      .is('submission_group_access.removed_at', null)
+      .lt('created_at', before.toISOString())
+      .order('created_at', { ascending: false })
+      .limit(opts.limit);
+    if (error) throw new Error(`submission_groups: ${error.message}`);
+    return ((data ?? []) as Row[]).map((r) => ({
+      id: String(r.id),
+      accountId: String(r.account_id),
+    }));
+  }
+
   /** ENDED groups with a WhatsApp group whose close is not recorded yet (the cron's close retry list). */
   async listUnclosedEnded(
     opts: { accountId?: string; limit?: number } = {}

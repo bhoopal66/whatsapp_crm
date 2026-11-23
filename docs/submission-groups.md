@@ -353,10 +353,14 @@ was still in flight; the next call or the cron retries).
 ## The cron
 
 The automations cron (`GET /api/automations/cron`, throttled to every 2
-minutes) retries pending creates older than 2 minutes, fails sends still
+minutes) opens the case of API-created groups that have none (its details
+stay empty until the app syncs them), retries pending creates older than 2
+minutes, fails sends still
 pending after 10 minutes (one sweep over every workspace), and retries
 closes that did not finish, one workspace at a time on that workspace's
-own numbers. It starts no new work after 45 s.
+own numbers. It starts no new work after 45 s, and leaves a number alone for
+the rest of the run once it fails (network, gateway error, revoked token). A
+close on a disconnected number waits until it is connected again.
 
 ## Consent
 
@@ -387,6 +391,8 @@ product, amount, stage, tasks, documents and SLA timers, worked at
   complete.
 - A `PATCH` with a final status ends the group as above and also moves the
   case to the matching final stage, even when the group had already ended.
+  When the case could not take the status the call answers 500 and the app
+  sends it again; a repeat re-applies it on the ended group.
 
 ### Sync from the submission app (migration 134)
 

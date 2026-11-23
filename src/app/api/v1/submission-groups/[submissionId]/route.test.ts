@@ -1,11 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { CaseRefusedError, CaseStoreError } from '@/lib/cases/store';
 import type { SubmissionGroup } from '@/lib/submission-groups/store';
 
 const m = vi.hoisted(() => ({
   rpc: vi.fn(),
   store: { findByRef: vi.fn(), listAccess: vi.fn(), get: vi.fn() },
   service: { endIfDue: vi.fn() },
-  cases: { idForGroup: vi.fn(), applySubmissionStatus: vi.fn(), get: vi.fn() },
+  cases: {
+    idForGroup: vi.fn(),
+    open: vi.fn(),
+    applySubmissionStatus: vi.fn(),
+    get: vi.fn(),
+  },
 }));
 vi.mock('@/lib/cases/server', () => ({ caseStore: () => m.cases }));
 
@@ -68,6 +74,7 @@ beforeEach(() => {
     closeDeferred: false,
   });
   m.cases.idForGroup.mockResolvedValue('case-1');
+  m.cases.open.mockResolvedValue({ caseId: 'case-1', created: true });
   m.cases.applySubmissionStatus.mockResolvedValue(true);
   m.cases.get.mockResolvedValue({
     id: 'case-1',
@@ -92,20 +99,92 @@ describe('PATCH moves the case', () => {
     });
   });
 
-  it('answers 200 with case null when the case step fails', async () => {
+  it('answers 500 when the case could not take the status, so it is sent again', async () => {
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    m.cases.applySubmissionStatus.mockRejectedValueOnce(new Error('db down'));
+    m.service.endIfDue.mockResolvedValue({
+      ended: true,
+      closed: true,
+      closeDeferred: false,
+    });
+    const res = await patch({ status: 'APPROVED' });
+    expect(res.status).toBe(500);
+    expect((await res.json()).error.code).toBe('internal');
+
+    // The repeat finds the group that call ended and applies it there.
+    m.store.findByRef.mockResolvedValue(group({ status: 'ENDED' }));
+    const again = await patch({ status: 'APPROVED' });
+    err.mockRestore();
+    expect(again.status).toBe(200);
+    expect(m.cases.applySubmissionStatus).toHaveBeenCalledTimes(2);
+    expect((await again.json()).data.case).toMatchObject({ id: 'case-1' });
+  });
+
+  it('answers 500 for a status the case could not take on an ENDED group', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    m.store.findByRef.mockResolvedValue(group({ status: 'ENDED' }));
     m.cases.applySubmissionStatus.mockRejectedValue(new Error('db down'));
     const res = await patch({ status: 'APPROVED' });
     err.mockRestore();
+    expect(res.status).toBe(500);
+  });
+
+  it('a failed read-back still answers 200 with case null', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    m.cases.get.mockRejectedValue(new Error('db down'));
+    const res = await patch({ status: 'APPROVED' });
+    err.mockRestore();
     expect(res.status).toBe(200);
+    expect(m.cases.applySubmissionStatus).toHaveBeenCalledTimes(1);
     expect((await res.json()).data.case).toBeNull();
   });
 
-  it('answers case null for a group without a case, applying nothing', async () => {
-    m.cases.idForGroup.mockResolvedValue(null);
+  it('opens the missing case before applying the status', async () => {
+    m.cases.idForGroup.mockResolvedValueOnce(null);
     const res = await patch({ status: 'APPROVED' });
-    expect((await res.json()).data.case).toBeNull();
+    expect(res.status).toBe(200);
+    expect(m.cases.open).toHaveBeenCalledWith(
+      'g1',
+      { bankCode: null, bankName: null, product: null, amount: null },
+      null
+    );
+    expect(m.cases.open.mock.invocationCallOrder[0]).toBeLessThan(
+      m.cases.applySubmissionStatus.mock.invocationCallOrder[0]
+    );
+    expect((await res.json()).data.case).toMatchObject({ id: 'case-1' });
+  });
+
+  it('never opens (or fills) a case that exists', async () => {
+    await patch({ status: 'APPROVED' });
+    expect(m.cases.open).not.toHaveBeenCalled();
+  });
+
+  it('answers 500 and writes nothing when the missing case cannot be opened', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    m.cases.idForGroup.mockResolvedValue(null);
+    m.cases.open.mockRejectedValue(new CaseStoreError('case_open', '57014'));
+    const res = await patch({ status: 'APPROVED' });
+    const logged = err.mock.calls.map((c) => c.join(' '));
+    err.mockRestore();
+    expect(res.status).toBe(500);
+    expect((await res.json()).error.code).toBe('internal');
+    expect(logged).toEqual([
+      '[api/v1/submission-groups] case open for group g1: cases: case_open failed (57014)',
+    ]);
+    expect(m.rpc).not.toHaveBeenCalled();
+    expect(m.service.endIfDue).not.toHaveBeenCalled();
     expect(m.cases.applySubmissionStatus).not.toHaveBeenCalled();
+  });
+
+  it('an ENDED group with no agent left goes on without a case', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    m.store.findByRef.mockResolvedValue(group({ status: 'ENDED' }));
+    m.cases.idForGroup.mockResolvedValue(null);
+    m.cases.open.mockRejectedValue(new CaseRefusedError('NO_AGENT'));
+    const res = await patch({ status: 'APPROVED' });
+    warn.mockRestore();
+    expect(res.status).toBe(200);
+    expect((await res.json()).data.case).toBeNull();
   });
 
   it('on an ENDED group still moves the case, recording nothing on the group', async () => {

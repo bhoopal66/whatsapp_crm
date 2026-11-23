@@ -264,6 +264,7 @@ describe('the cron membership pass', () => {
     } = {}
   ) => {
     const store = {
+      listWithoutCase: vi.fn().mockResolvedValue([]),
       listPendingCreates: vi.fn().mockResolvedValue([]),
       listUnclosedEnded: vi.fn().mockResolvedValue([]),
       failStalePending: vi.fn().mockResolvedValue([]),

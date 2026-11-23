@@ -1,8 +1,11 @@
 /**
  * Submission Groups housekeeping (module 018a), run from the automations
  * cron: pending 'out' rows older than 10 minutes are settled failed (once,
- * for every account), then per account: pending creates older than 2
+ * for every account), then the cases of Compass-created groups that have
+ * none are opened, then per account: pending creates older than 2
  * minutes are finished and the WhatsApp close of ENDED groups is retried.
+ * A number that fails once (network, gateway error, revoked token) is left
+ * alone for the rest of the run, so it cannot eat the budget of the others.
  * Only once every account has had those, groups due a membership check are
  * read (174), in a pass of their own with a budget of their own: that read
  * meets a gateway that may hang, and must never delay a create or a close.
@@ -11,16 +14,24 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+import { caseStore } from '@/lib/cases/server';
+
 import { customerMembershipFrom } from './membership';
-import type { SubmissionGroupService } from './service';
+import { caseErrorText, openGroupCase } from './open-case';
+import { failedLast, type SubmissionGroupService } from './service';
 import { submissionGroupService, submissionGroupStore } from './server';
-import type { SubmissionGroupStore } from './store';
+import type { SubmissionGroup, SubmissionGroupStore } from './store';
 import { createWhapiGroupsApi, type ParticipantsApi } from './whapi-groups-api';
 
 export const PENDING_CREATE_AGE_MS = 120_000;
 export const STALE_PENDING_OUT_MS = 600_000;
 /** No new account or group is started after this, so the run ends inside after(). */
 export const CRON_BUDGET_MS = 45_000;
+/**
+ * Missing cases opened per run. A group younger than PENDING_CREATE_AGE_MS
+ * is left to its own POST, whose body names the bank.
+ */
+export const CASE_OPENS_PER_RUN = 20;
 /** Membership reads per account per run. The cron runs every 2 minutes per process. */
 export const MEMBERSHIP_CHECKS_PER_RUN = 10;
 /** No membership read starts after this, counted from the start of the pass. */
@@ -30,6 +41,8 @@ export interface SubmissionGroupsCronResult {
   stalePendingFailed: number;
   /** 211: add-number attempts nobody settled, now failed 'unconfirmed'. */
   staleAddsFailed: number;
+  /** Cases opened for Compass-created groups that had none. */
+  casesOpened: number;
   accounts: number;
   created: number;
   createFailed: number;
@@ -41,6 +54,7 @@ export interface SubmissionGroupsCronResult {
 
 type CronStore = Pick<
   SubmissionGroupStore,
+  | 'listWithoutCase'
   | 'listPendingCreates'
   | 'listUnclosedEnded'
   | 'failStalePending'
@@ -63,7 +77,7 @@ const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 interface MembershipPass {
   spent: () => boolean;
-  /** Numbers whose read threw in this run. */
+  /** Numbers that failed in this run, here or in a create or close. */
   failedChannels: Set<string>;
   out: SubmissionGroupsCronResult;
 }
@@ -115,6 +129,7 @@ export async function runSubmissionGroupsCron(
     store?: CronStore;
     serviceFor?: (accountId: string) => CronService;
     participantsFor?: (accountId: string) => ParticipantsApi;
+    openCase?: (accountId: string, groupId: string) => Promise<unknown>;
     now?: () => number;
   } = {}
 ): Promise<SubmissionGroupsCronResult> {
@@ -123,6 +138,7 @@ export async function runSubmissionGroupsCron(
   const out: SubmissionGroupsCronResult = {
     stalePendingFailed: 0,
     staleAddsFailed: 0,
+    casesOpened: 0,
     accounts: 0,
     created: 0,
     createFailed: 0,
@@ -137,6 +153,10 @@ export async function runSubmissionGroupsCron(
       deps.serviceFor ?? ((id: string) => submissionGroupService(id, admin));
     const participantsFor =
       deps.participantsFor ?? ((id: string) => createWhapiGroupsApi(admin, id));
+    const openCase =
+      deps.openCase ??
+      ((accountId: string, groupId: string) =>
+        openGroupCase(caseStore(accountId), groupId));
     const overBudget = () => now() - started > CRON_BUDGET_MS;
 
     // First, so a sender that died no longer defers a close below.
@@ -154,19 +174,44 @@ export async function runSubmissionGroupsCron(
       out.errors.push(`add sweep: ${errText(err)}`);
     }
 
+    // Before the creates: a new group's welcome message reads its case.
+    // Bank, product and amount stay empty until Compass syncs the case.
+    try {
+      const bare = await store.listWithoutCase(
+        new Date(started - PENDING_CREATE_AGE_MS),
+        { limit: CASE_OPENS_PER_RUN }
+      );
+      for (const g of bare) {
+        if (overBudget()) break;
+        try {
+          await openCase(g.accountId, g.id);
+          out.casesOpened++;
+        } catch (err) {
+          out.errors.push(`${g.id}: case: ${caseErrorText(err)}`);
+        }
+      }
+    } catch (err) {
+      out.errors.push(`cases: ${errText(err)}`);
+    }
+
     const pending = await store.listPendingCreates(
       new Date(started - PENDING_CREATE_AGE_MS),
       { limit: 200 }
     );
     const unclosed = await store.listUnclosedEnded({ limit: 200 });
-    const accounts = new Map<string, { pending: boolean; close: string[] }>();
+    const failedChannels = new Set<string>();
+    const accounts = new Map<
+      string,
+      { pending: boolean; close: SubmissionGroup[] }
+    >();
     const slot = (id: string) => {
       let a = accounts.get(id);
       if (!a) accounts.set(id, (a = { pending: false, close: [] }));
       return a;
     };
     for (const g of pending) slot(g.accountId).pending = true;
-    for (const g of unclosed) slot(g.accountId).close.push(g.id);
+    for (const g of failedLast(unclosed, (g) => !!g.waCloseError, started))
+      slot(g.accountId).close.push(g);
 
     for (const [accountId, work] of accounts) {
       if (overBudget()) break;
@@ -183,6 +228,8 @@ export async function runSubmissionGroupsCron(
           const r = await svc.retryPending({
             accountId,
             olderThanMs: PENDING_CREATE_AGE_MS,
+            spent: overBudget,
+            failedChannels,
           });
           out.created += r.created.length;
           // Never throws; the case row exists by now (opened with the submission).
@@ -192,10 +239,12 @@ export async function runSubmissionGroupsCron(
           out.errors.push(`${accountId}: ${errText(err)}`);
         }
       }
-      for (const groupId of work.close) {
+      for (const { id: groupId, channelId } of work.close) {
         if (overBudget()) break;
+        if (channelId && failedChannels.has(channelId)) continue;
         try {
           const r = await svc.retryClose(groupId);
+          if (channelId && r.numberDown) failedChannels.add(channelId);
           if (r.closed) out.closed++;
           else if (r.closeError) out.closeFailed++;
         } catch (err) {
@@ -214,7 +263,7 @@ export async function runSubmissionGroupsCron(
     const passStarted = now();
     const pass: MembershipPass = {
       spent: () => overBudget() || now() - passStarted >= MEMBERSHIP_BUDGET_MS,
-      failedChannels: new Set(),
+      failedChannels,
       out,
     };
     for (const accountId of membershipIds) {

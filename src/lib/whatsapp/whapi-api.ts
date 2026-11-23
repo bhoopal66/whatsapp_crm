@@ -2049,6 +2049,7 @@ export async function removeGroupParticipants(
     path: groupPath(args.groupId, '/participants'),
     method: 'DELETE',
     body: { participants: participantIds(args.participants) },
+    timeoutMs: args.timeoutMs,
   })
   return parseParticipantsResult(data)
 }

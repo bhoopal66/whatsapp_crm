@@ -34,6 +34,7 @@ import {
   createWhapiGroupsApi,
   SubmissionGroupChannelError,
 } from './whapi-groups-api';
+import { SubmissionGroupNumberDisconnectedError } from './service';
 
 const admin = {} as SupabaseClient;
 const WA_GROUP = '120363000000000001@g.us';
@@ -275,14 +276,22 @@ describe('sendGroupText', () => {
 describe('closeGroup', () => {
   it('removes everyone but our number, then leaves', async () => {
     await api().closeGroup('cfg-1', WA_GROUP);
+    // Every call is bounded: a hanging number must not eat the cron's run.
+    expect(h.getGroup).toHaveBeenCalledWith({
+      channel: whapi,
+      groupId: WA_GROUP,
+      timeoutMs: 8_000,
+    });
     expect(h.removeParticipants).toHaveBeenCalledWith({
       channel: whapi,
       groupId: WA_GROUP,
       participants: ['971501234567'],
+      timeoutMs: 15_000,
     });
     expect(h.leaveGroup).toHaveBeenCalledWith({
       channel: whapi,
       groupId: WA_GROUP,
+      timeoutMs: 15_000,
     });
     expect(h.removeParticipants.mock.invocationCallOrder[0]).toBeLessThan(
       h.leaveGroup.mock.invocationCallOrder[0]
@@ -296,7 +305,17 @@ describe('closeGroup', () => {
       channel: { ...whapi, wabaId: null },
       groupId: WA_GROUP,
       participants: ['971501234567'],
+      timeoutMs: 15_000,
     });
+  });
+
+  it('asks a disconnected number nothing: its 404 would read as closed', async () => {
+    h.loadChannels.mockResolvedValue([{ ...whapi, status: 'disconnected' }]);
+    h.getGroup.mockRejectedValue(new WhapiError('Service not found', 404));
+    await expect(api().closeGroup('cfg-1', WA_GROUP)).rejects.toThrow(
+      SubmissionGroupNumberDisconnectedError
+    );
+    expect(h.getGroup).not.toHaveBeenCalled();
   });
 
   it('counts a group already gone as closed', async () => {

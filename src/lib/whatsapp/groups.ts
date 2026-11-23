@@ -852,12 +852,12 @@ function openwaParticipantList(inputs: string[]): string[] {
 }
 
 export async function removeParticipants(
-  args: GroupRef & { participants: string[] }
+  args: GroupRef & { participants: string[]; timeoutMs?: number }
 ): Promise<whapi.ParticipantsResult> {
   const gw = gatewayFor(args.channel);
   if (gw.kind === 'openwa') {
     const results = await openwa.removeParticipants(
-      gw.creds,
+      openwaCreds(gw.creds, args.timeoutMs),
       args.groupId,
       openwaParticipantList(args.participants)
     );
@@ -873,6 +873,7 @@ export async function removeParticipants(
     token: gw.token,
     groupId: args.groupId,
     participants: participantList(args.participants),
+    timeoutMs: args.timeoutMs,
   });
 }
 
