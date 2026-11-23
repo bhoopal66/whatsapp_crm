@@ -100,7 +100,6 @@ function fakeDb(
       'in',
       'like',
       'order',
-      'contains',
     ]) {
       builder[m] = (...a: unknown[]) => (entry.ops.push([m, ...a]), builder);
     }
@@ -499,8 +498,7 @@ describe('group messages and receipts', () => {
     rpc.mockImplementationOnce(async () => {
       throw new Error('boom');
     });
-    // It throws at the end, so the route asks Meta for another delivery.
-    const delivery = run(db, {
+    await run(db, {
       messages: [
         {
           id: 'wamid.1',
@@ -518,7 +516,6 @@ describe('group messages and receipts', () => {
         },
       ],
     });
-    await expect(delivery).rejects.toThrow('1 webhook item(s) failed');
     expect(rpc).toHaveBeenLastCalledWith(
       'deal_room_record_message',
       expect.objectContaining({
@@ -949,145 +946,5 @@ describe('group messages and receipts', () => {
         },
       ],
     ]);
-  });
-});
-
-// TC3: the failure used to be swallowed, the route answered 200, and the
-// message, STOP, join or receipt was lost for good.
-describe('a failed item is delivered again', () => {
-  const message = (id: string) => ({
-    id,
-    from: '971501234567',
-    group_id: GROUP,
-    type: 'text',
-    text: { body: id },
-  });
-  const left = {
-    group_id: GROUP,
-    type: 'group_participants_remove',
-    timestamp: '1712995245',
-    initiated_by: 'participant',
-    removed_participants: [{ wa_id: '971509999999' }],
-  };
-  const body = {
-    groups: [left],
-    messages: [message('wamid.1'), message('wamid.2')],
-    statuses: [
-      {
-        id: 'wamid.out',
-        status: 'read',
-        recipient_type: 'group',
-        recipient_participant_id: '971501234567',
-      },
-    ],
-  };
-
-  beforeEach(() => {
-    vi.spyOn(console, 'error').mockImplementation(() => {});
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
-  });
-
-  /**
-   * The real functions' contracts: a message is one row per wamid, a
-   * repeated participant event answers the same, a repeated receipt false.
-   */
-  function dedupingDb(failOnce: string, code = '57014') {
-    const messages: string[] = [];
-    const receipts = new Set<string>();
-    const bells: { user_id: string; meta: Record<string, unknown> }[] = [];
-    let failed = false;
-    const base = fakeDb({ tables: { deal_rooms: ROOM } });
-    base.rpc.mockImplementation((async (
-      fn: string,
-      p: Record<string, string>
-    ) => {
-      const key = `${fn}:${p.p_wa_message_id ?? p.p_wa_id}`;
-      if (key === failOnce && !failed) {
-        failed = true;
-        return { data: null, error: { code, message: 'blip' } };
-      }
-      if (fn === 'deal_room_record_message') {
-        if (!messages.includes(p.p_wa_message_id))
-          messages.push(p.p_wa_message_id);
-        return { data: 'row', error: null };
-      }
-      if (fn === 'deal_room_record_receipt') {
-        const fresh = !receipts.has(p.p_wa_message_id);
-        receipts.add(p.p_wa_message_id);
-        return { data: fresh, error: null };
-      }
-      return { data: p.p_event, error: null };
-    }) as never);
-    const from = (base.db as { from: (t: string) => unknown }).from;
-    (base.db as { from: unknown }).from = (table: string) => {
-      if (table !== 'notifications') return from(table);
-      let meta: Record<string, unknown> = {};
-      const q = {
-        insert: async (rows: typeof bells) => (
-          bells.push(...rows),
-          { error: null }
-        ),
-        select: () => q,
-        eq: () => q,
-        in: () => q,
-        contains: (_c: string, m: Record<string, unknown>) => ((meta = m), q),
-        then: (ok: (v: unknown) => unknown) =>
-          Promise.resolve({
-            data: bells.filter((b) =>
-              Object.entries(meta).every(([k, v]) => b.meta[k] === v)
-            ),
-            error: null,
-          }).then(ok),
-      };
-      return q;
-    };
-    return { db: base.db, messages, receipts, bells };
-  }
-
-  it.each([
-    'deal_room_record_message:wamid.1',
-    'deal_room_record_receipt:wamid.out',
-    'deal_room_participant_event:971509999999',
-  ])(
-    'throws on %s, and the redelivery loses and repeats nothing',
-    async (f) => {
-      const { db, messages, receipts, bells } = dedupingDb(f);
-      await expect(run(db, body)).rejects.toThrow('1 webhook item(s) failed');
-      await expect(run(db, body)).resolves.toBeUndefined();
-      expect([...messages].sort()).toEqual(['wamid.1', 'wamid.2']);
-      expect([...receipts]).toEqual(['wamid.out']);
-      // One bell for the person who left, whichever delivery wrote it.
-      expect(bells.map((b) => b.user_id)).toEqual(['user-creator']);
-    }
-  );
-
-  it('rings again when the same person leaves at another time', async () => {
-    const { db, bells } = dedupingDb('');
-    await run(db, { groups: [left] });
-    await run(db, { groups: [{ ...left, timestamp: '1712999999' }] });
-    expect(bells).toHaveLength(2);
-  });
-
-  it('asks for nothing again when the database refused the event itself', async () => {
-    const { db } = dedupingDb('deal_room_record_message:wamid.1', '22P05');
-    await expect(run(db, body)).resolves.toBeUndefined();
-  });
-
-  it('writes one deal file when the message itself was not recorded', async () => {
-    const { db, inserts } = fakeDb({
-      tables: { deal_rooms: ROOM, deal_files: { id: 'file-1' } },
-    });
-    await run(db, {
-      messages: [
-        {
-          id: 'wamid.DOC',
-          from: '971501234567',
-          group_id: GROUP,
-          type: 'document',
-          document: { id: 'media-1', filename: 'a.pdf' },
-        },
-      ],
-    });
-    expect(inserts('deal_files')).toEqual([]);
   });
 });

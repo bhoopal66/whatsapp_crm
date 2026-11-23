@@ -41,13 +41,12 @@ it.
   It never reaches `inbound-pipeline.ts` but is edge-screened. The
   service-role functions it calls take the authenticated account id, or a room
   id resolved inside that account. A group STOP removes the person at Meta and
-  opts the contact out. It runs **before the answer** (nothing queues group
-  traffic) and throws after isolating every item, so a failure is a 503 Meta
-  redelivers; a refusal of the event itself (SQLSTATE 22/23, Meta
-  400/403/404) is final and only logged.
-- **Bells** (274): `group_messages_ring` gives the room's live staff and its
-  creator one unread `deal_room_message` per room; `markRoomBellsRead` in the
-  room's screen must clear it or the room never rings again.
+  opts the contact out; its database work is tried twice, and a contact left
+  unstamped logs `STOP NOT APPLIED`. Nothing redelivers group traffic.
+- **Bells** (274): `group_messages_ring` gives the room's live staff (and an
+  owner or admin who opened it) one unread `deal_room_message` per room, never
+  someone `deal_room_access` refuses; `markRoomBellsRead` in the room's screen
+  must clear it or the room never rings again.
 - **The screen** re-reads after a realtime gap (`table-signal.ts`); a guest's
   room and list stay on the minute refresh. `room-timeline.ts` pages back to
   what is held, or replaces it: never a hole.

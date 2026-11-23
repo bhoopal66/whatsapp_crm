@@ -12,17 +12,15 @@ and polish.
 
 ## [Unreleased]
 
-### Deal rooms: nothing lost, nobody left unaware
+### Deal rooms: a bell for a customer's message, and a screen that catches up
 
 **Migration required:** `274_deal_room_bells.sql`
 - A customer's or bank's message in a deal room now rings the bell (and the
-  phone, if push is on) of the staff in the room and whoever opened it.
-  Nobody was told, so the 24-hour window could close unseen. One bell per
-  room until it is read; opening the room reads it.
-- A message, STOP, join or receipt that could not be saved because the
-  database was briefly unavailable is asked for again from Meta. It was
-  lost for good. What had been saved the first time is not saved twice, and
-  nobody is told twice.
+  phone, if push is on) of the staff in the room, and of the owner or admin
+  who opened it. Nobody was told, so the 24-hour window could close unseen.
+  One bell per room until it is read; opening the room reads it.
+- A STOP in a deal room is tried again when the database fails for a moment;
+  if the contact still could not be marked, the log says so for follow-up.
 - A deal room left open while the laptop slept or the connection dropped
   now catches up by itself: messages, the room's status and the reply
   window were stale until something else changed. However many messages

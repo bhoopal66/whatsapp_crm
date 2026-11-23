@@ -8,14 +8,10 @@
  * inbox. Everything is written through 088's service-role functions,
  * which dedupe redeliveries.
  *
- * One bad item never stops the next: each failure is logged and the rest
- * go on, then the call throws, so the route answers an error and Meta
- * delivers the body again (TC3: a swallowed database blip lost the
- * message, STOP, join or receipt for good). What succeeded the first time
- * is deduped. Two failures do not ask for another delivery, because it
- * would fail the same way: a refusal of the event itself (`isFinal`), and
- * a group no room of this account knows (P0002, or a room of another
- * account) — Meta still delivers late webhooks for deleted groups.
+ * Never throws for one bad item: each is logged and the rest go on. A
+ * group no room of this account knows (P0002, or a room of another
+ * account) is logged and ignored — Meta still delivers late webhooks
+ * for deleted groups.
  */
 
 import { createHash } from 'node:crypto';
@@ -226,20 +222,6 @@ export interface HandleGroupWebhookArgs {
 
 class UnknownGroup extends Error {}
 
-/** The database refused the event's own data (SQLSTATE 22xxx, 23xxx). */
-class RefusedEvent extends Error {}
-
-/**
- * Failures another delivery would only repeat: asking Meta for one would
- * keep it re-sending the same body for days. Everything else is retried.
- */
-function isFinal(err: unknown): boolean {
-  return (
-    err instanceof RefusedEvent ||
-    (err instanceof MetaError && [400, 403, 404].includes(err.status))
-  );
-}
-
 export async function handleGroupWebhook(
   args: HandleGroupWebhookArgs
 ): Promise<void> {
@@ -271,10 +253,7 @@ export async function handleGroupWebhook(
           String(params.p_group_id ?? params.p_request_id)
         );
       }
-      const message = `${fn} failed: ${error.message}`;
-      throw /^2[23]/.test((error as { code?: string }).code ?? '')
-        ? new RefusedEvent(message)
-        : new Error(message);
+      throw new Error(`${fn} failed: ${error.message}`);
     }
     return data;
   }
@@ -286,25 +265,7 @@ export async function handleGroupWebhook(
     title: string,
     meta: Json
   ): Promise<void> {
-    const all = alertRecipients(userIds);
-    if (all.length === 0) return;
-    const fullMeta = { room_id: r.id, channel_id: r.channel_id, ...meta };
-    // A redelivered event tells nobody twice. `at` is the event's own time,
-    // so the same thing happening again later still rings; a failed read
-    // only risks a second bell.
-    const { data: told } = meta.at
-      ? await db
-          .from('notifications')
-          .select('user_id')
-          .eq('account_id', accountId)
-          .eq('type', type)
-          .in('user_id', all)
-          .contains('meta', fullMeta)
-      : { data: null };
-    const rang = new Set(
-      ((told ?? []) as { user_id: string }[]).map((n) => n.user_id)
-    );
-    const users = all.filter((id) => !rang.has(id));
+    const users = alertRecipients(userIds);
     if (users.length === 0) return;
     const { error } = await db.from('notifications').insert(
       users.map((user_id) => ({
@@ -313,7 +274,7 @@ export async function handleGroupWebhook(
         type,
         title,
         body: r.subject,
-        meta: fullMeta,
+        meta: { room_id: r.id, channel_id: r.channel_id, ...meta },
       }))
     );
     if (error) console.error('[deal-rooms] notification failed:', error);
@@ -343,8 +304,6 @@ export async function handleGroupWebhook(
     }
   }
 
-  const failures: unknown[] = [];
-
   async function each<T>(
     items: T[],
     what: string,
@@ -360,7 +319,6 @@ export async function handleGroupWebhook(
           );
         } else {
           console.error(`[deal-rooms] ${what} failed:`, err);
-          if (!isFinal(err)) failures.push(err);
         }
       }
     }
@@ -371,17 +329,10 @@ export async function handleGroupWebhook(
   await each(events, 'group event', (event) => groupEvent(event));
   await each(groupMessages(value), 'group message', (m) => inbound(m));
   await each(groupStatuses(value), 'group receipt', (s) => receipt(s));
-  if (failures.length > 0) {
-    throw new AggregateError(
-      failures,
-      `[deal-rooms] ${failures.length} webhook item(s) failed; asking for another delivery`
-    );
-  }
 
   async function groupEvent(event: Json): Promise<void> {
     const type = str(event.type);
     const groupId = str(event.group_id);
-    const at = str(event.timestamp);
     const failed = Array.isArray(event.errors) && event.errors.length > 0;
     const reason = failed
       ? (str(obj(event.errors && (event.errors as unknown[])[0]).message) ??
@@ -476,7 +427,7 @@ export async function handleGroupWebhook(
               kind === 'left'
                 ? 'A participant left the deal room'
                 : 'A participant was removed from the deal room',
-              { event: `participant_${kind}`, wa_id: waId, ...(at && { at }) }
+              { event: `participant_${kind}`, wa_id: waId }
             );
           }
         }
@@ -504,7 +455,7 @@ export async function handleGroupWebhook(
             'deal_room_join_request',
             r,
             'Someone asked to join a deal room',
-            { join_request_id: joinRequestId, wa_id: waId, ...(at && { at }) }
+            { join_request_id: joinRequestId, wa_id: waId }
           );
         }
         return;
@@ -538,7 +489,7 @@ export async function handleGroupWebhook(
           suspended
             ? 'WhatsApp suspended a deal room'
             : 'A deal room is no longer suspended',
-          { event: type, ...(at && { at }) }
+          { event: type }
         );
         return;
       }
@@ -661,21 +612,6 @@ export async function handleGroupWebhook(
         .from(DEAL_FILES_BUCKET)
         .upload(path, buffer, { contentType: mimeType, upsert: true });
       if (upErr) throw new Error(`upload failed: ${upErr.message}`);
-      // A delivery that saved the file and then failed to record the
-      // message comes again: one file row per message.
-      const { data: saved } = await db
-        .from('deal_files')
-        .select('id')
-        .eq('account_id', accountId)
-        .eq('ref_type', 'group_message')
-        .eq('ref_id', messageId)
-        .limit(1)
-        .maybeSingle();
-      if (saved) {
-        media.storage_path = path;
-        media.deal_file_id = (saved as { id: string }).id;
-        return media;
-      }
       const { data: file, error } = await db
         .from('deal_files')
         .insert({
