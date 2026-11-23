@@ -205,6 +205,8 @@ export async function resumePendingExecution(pending: {
   next_step_position: number
   /** The wait the run is parked at (269). Null on a row parked before. */
   wait_step_id?: string | null
+  /** How often this row was released after a failed read (269). */
+  attempts?: number | null
   context: AutomationContext
 }): Promise<void> {
   const db = supabaseAdmin()
@@ -214,12 +216,9 @@ export async function resumePendingExecution(pending: {
     .eq('id', pending.automation_id)
     .maybeSingle()
 
-  if (error) {
-    console.error('[automations] resume: automation load failed', pending.automation_id, error)
-    await finalizeLog(pending.log_id, 'failed', 'stopped: the automation could not be loaded')
-    await markPending(pending.id, 'failed')
-    return
-  }
+  // Every read the run starts from comes before its first step, so a
+  // failed one can be tried again: nothing was sent.
+  if (error) return releasePending(pending, 'automation', error)
   // Switched off (or deleted) while this run was parked: whoever is
   // waiting gets nothing more. Neither status CHECK (006) allows
   // 'cancelled', so the row settles as 'failed' (it did not run) and the
@@ -230,13 +229,17 @@ export async function resumePendingExecution(pending: {
     return
   }
 
-  const { data: steps, error: stepsErr } = await loadSteps(pending.automation_id)
-  if (stepsErr) {
-    console.error('[automations] resume: steps load failed', pending.automation_id, stepsErr)
-    await finalizeLog(pending.log_id, 'failed', 'stopped: the automation could not be loaded')
-    await markPending(pending.id, 'failed')
-    return
+  if (pending.contact_id) {
+    const { error: contactErr } = await db
+      .from('contacts')
+      .select('id')
+      .eq('id', pending.contact_id)
+      .eq('account_id', pending.account_id)
+      .maybeSingle()
+    if (contactErr) return releasePending(pending, 'contact', contactErr)
   }
+  const { data: steps, error: stepsErr } = await loadSteps(pending.automation_id)
+  if (stepsErr) return releasePending(pending, 'steps', stepsErr)
   const { data: log, error: runLogErr } = pending.log_id
     ? await db
         .from('automation_logs')
@@ -244,12 +247,7 @@ export async function resumePendingExecution(pending: {
         .eq('id', pending.log_id)
         .maybeSingle()
     : { data: null, error: null }
-  if (runLogErr) {
-    console.error('[automations] resume: log load failed', pending.automation_id, runLogErr)
-    await finalizeLog(pending.log_id, 'failed', 'stopped: the automation could not be loaded')
-    await markPending(pending.id, 'failed')
-    return
-  }
+  if (runLogErr) return releasePending(pending, 'log', runLogErr)
   const frames = resumeFrames(steps, pending)
   if (!frames) {
     await finalizeLog(pending.log_id, 'failed', STOPPED_CHANGED)
@@ -983,6 +981,7 @@ const MESSAGE_STEP_TYPES: ReadonlySet<string> = new Set([
 
 /** The log's `error_message` when a parked wait is not resumed. */
 const STOPPED_SWITCHED_OFF = 'stopped: the automation was switched off'
+const STOPPED_INTERRUPTED = 'stopped: interrupted'
 const STOPPED_CHANGED = 'stopped: automation changed while waiting'
 
 /** The log detail of a message step not sent to an opted-out contact. */
@@ -1340,4 +1339,72 @@ async function markPending(id: string, status: 'done' | 'failed') {
     .from('automation_pending_executions')
     .update({ status })
     .eq('id', id)
+}
+
+const MAX_RELEASES = 5
+
+/**
+ * A read failed before the run took a step: put the claimed row back for
+ * the next tick, at most MAX_RELEASES times. Only a row still `running`,
+ * so one the sweep below has settled stays settled.
+ */
+async function releasePending(
+  pending: { id: string; automation_id: string; log_id: string | null; attempts?: number | null },
+  what: string,
+  error: unknown,
+): Promise<void> {
+  console.error(`[automations] resume: ${what} load failed`, pending.automation_id, error)
+  const attempts = pending.attempts ?? 0
+  if (attempts >= MAX_RELEASES) {
+    await finalizeLog(pending.log_id, 'failed', `stopped: the ${what} could not be loaded`)
+    await markPending(pending.id, 'failed')
+    return
+  }
+  const { error: releaseErr } = await supabaseAdmin()
+    .from('automation_pending_executions')
+    .update({ status: 'pending', attempts: attempts + 1, claimed_at: null })
+    .eq('id', pending.id)
+    .eq('status', 'running')
+  // Left `running`: the sweep fails it. Never a second run.
+  if (releaseErr) console.error('[automations] release failed:', pending.id, releaseErr)
+}
+
+const INTERRUPTED_AFTER_MS = 30 * 60_000
+
+/**
+ * Runs a restart cut off: claimed more than 30 minutes ago and never
+ * settled. They may have sent already, so they end as failed and are
+ * never run again. A row the build before 269 claimed has no
+ * `claimed_at`; its due time stands in.
+ */
+export async function failInterruptedExecutions(now = Date.now()): Promise<number> {
+  const db = supabaseAdmin()
+  const cutoff = new Date(now - INTERRUPTED_AFTER_MS).toISOString()
+  const fail = () =>
+    db
+      .from('automation_pending_executions')
+      .update({ status: 'failed' })
+      .eq('status', 'running')
+  const settled = [
+    await fail().lt('claimed_at', cutoff).select('id, automation_id, log_id'),
+    await fail().is('claimed_at', null).lt('run_at', cutoff).select('id, automation_id, log_id'),
+  ]
+  let count = 0
+  for (const { data, error } of settled) {
+    if (error) console.error('[automations] interrupted sweep failed:', error)
+    for (const row of data ?? []) {
+      count++
+      console.error('[automations] run interrupted, not run again', row.automation_id, row.id)
+      if (!row.log_id) continue
+      // Only a log still waiting: a run that finished but could not mark
+      // its row keeps its own result.
+      const { error: logErr } = await db
+        .from('automation_logs')
+        .update({ status: 'failed', error_message: STOPPED_INTERRUPTED })
+        .eq('id', row.log_id)
+        .eq('status', 'partial')
+      if (logErr) console.error('[automations] interrupted log update failed:', logErr)
+    }
+  }
+  return count
 }

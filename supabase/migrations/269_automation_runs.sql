@@ -14,6 +14,9 @@
 --     automations.updated_at no longer moves when a run is counted: the
 --     check would refuse every save of an automation in use.
 --
+--  3. attempts, claimed_at: a failed read puts a waiting run back, at most
+--     5 times; a run claimed 30 minutes ago and never settled is failed.
+--
 -- Additive for the previous build. Re-runnable. Apply before the build.
 -- Asserted by supabase/ci/verify-automation-runs.sql.
 -- ============================================================
@@ -21,7 +24,9 @@
 SET lock_timeout = '5s';
 
 ALTER TABLE public.automation_pending_executions
-  ADD COLUMN IF NOT EXISTS wait_step_id uuid;
+  ADD COLUMN IF NOT EXISTS wait_step_id uuid,
+  ADD COLUMN IF NOT EXISTS attempts smallint NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS claimed_at timestamptz;
 
 -- Runs after 006's set_updated_at (triggers fire by name), so re-running
 -- 006 does not undo it.
@@ -113,6 +118,5 @@ END $$;
 REVOKE ALL ON FUNCTION public.automation_save(uuid, uuid, timestamptz, jsonb, jsonb) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.automation_save(uuid, uuid, timestamptz, jsonb, jsonb) TO service_role;
 
--- (end)
 NOTIFY pgrst, 'reload schema';
 RESET lock_timeout;

@@ -11,6 +11,11 @@ Two independent engines, deliberately kept apart:
   by `GET /api/flows/cron`.
 - `lib/automations/*` — stateless trigger → steps rules (keyword, chat
   tag, inbound message, schedule). Scheduled work runs via `GET /api/automations/cron`.
+  A wait suspends the whole run and parks it by the wait's step id
+  (`wait_step_id`, 269), so saving must keep step ids: only
+  `automation_save` writes the steps of an existing automation. Every read
+  a resumed run starts from happens before its first step; only those are
+  retried. A step runs at most once per run.
 
 A flow's `fallback_policy.on_unknown_reply` (JSONB, resolved in
 `lib/flows/fallback.ts`) decides what an off-script reply does: reprompt,

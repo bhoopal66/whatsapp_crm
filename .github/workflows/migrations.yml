@@ -1386,5 +1386,10 @@ jobs:
       - name: Verify reminders and numbers
         run: supabase db query --local --file supabase/ci/verify-reminders-and-numbers.sql
 
+      # Migration 269: a save keeps each automation step by id and refuses
+      # to overwrite someone else's; a counted run is not an edit.
+      - name: Verify automation runs
+        run: supabase db query --local --file supabase/ci/verify-automation-runs.sql
+
       - name: Verify submission group fixes
         run: supabase db query --local --file supabase/ci/verify-sg-fixes.sql

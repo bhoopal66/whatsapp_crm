@@ -71,7 +71,11 @@ vi.mock('./channel-send', () => ({
   engineSendInteractive: vi.fn(),
 }));
 
-import { resumePendingExecution, runAutomationsForTrigger } from './engine';
+import {
+  failInterruptedExecutions,
+  resumePendingExecution,
+  runAutomationsForTrigger,
+} from './engine';
 
 type Pending = Parameters<typeof resumePendingExecution>[0];
 const pendings = () => h.db.automation_pending_executions as Row[];
@@ -284,5 +288,71 @@ describe('an automation edited while a run waits', () => {
     row('one').position = 1;
     await resume();
     expect(h.sent).toEqual(['one', 'two']);
+  });
+});
+
+describe('a read that fails when a run resumes', () => {
+  beforeEach(async () => {
+    step('W', 'wait', 0);
+    step('two', 'send_message', 1);
+    await fire();
+  });
+
+  it.each(['automations', 'contacts', 'automation_steps', 'automation_logs'])(
+    'of %s releases the run, which then runs once',
+    async (table) => {
+      h.unreadable.add(table);
+      await resume();
+      expect(h.sent).toEqual([]);
+      expect(pendings()[0]).toMatchObject({ status: 'pending', attempts: 1 });
+      h.unreadable.clear();
+      await resume();
+      expect(h.sent).toEqual(['two']);
+      expect(pendings()[0].status).toBe('done');
+    }
+  );
+
+  it('is tried again five times, then the run fails with the reason', async () => {
+    h.unreadable.add('contacts');
+    for (let i = 0; i < 5; i++) await resume();
+    expect(pendings()[0]).toMatchObject({ status: 'pending', attempts: 5 });
+    await resume();
+    expect(pendings()[0].status).toBe('failed');
+    expect(log()).toMatchObject({
+      status: 'failed',
+      error_message: 'stopped: the contact could not be loaded',
+    });
+    expect(h.sent).toEqual([]);
+  });
+});
+
+describe('a run a restart cut off', () => {
+  const now = Date.parse('2026-11-23T10:00:00Z');
+  const ago = (min: number) => new Date(now - min * 60_000).toISOString();
+  const run = (id: string, extra: Row) => {
+    pendings().push({ id, log_id: id, status: 'running', ...extra });
+    h.db.automation_logs.push({ id, status: 'partial', steps_executed: [] });
+  };
+  const status = (id: string) => pendings().find((r) => r.id === id)!.status;
+
+  it('ends as failed after 30 minutes and is never due again', async () => {
+    run('old', { claimed_at: ago(31), run_at: ago(60) });
+    run('busy', { claimed_at: ago(29), run_at: ago(600) });
+    run('legacy', { claimed_at: null, run_at: ago(31) });
+    run('waiting', { claimed_at: null, run_at: ago(31), status: 'pending' });
+    run('finished', { claimed_at: ago(31), run_at: ago(60) });
+    h.db.automation_logs[4].status = 'success';
+    expect(await failInterruptedExecutions(now)).toBe(3);
+    expect(status('old')).toBe('failed');
+    expect(status('busy')).toBe('running');
+    expect(status('legacy')).toBe('failed');
+    expect(status('waiting')).toBe('pending');
+    expect(log()).toMatchObject({
+      status: 'failed',
+      error_message: 'stopped: interrupted',
+    });
+    expect(h.db.automation_logs[1].status).toBe('partial');
+    // The run reached its end; only its row was not marked.
+    expect(h.db.automation_logs[4].status).toBe('success');
   });
 });

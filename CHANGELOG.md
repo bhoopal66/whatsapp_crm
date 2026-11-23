@@ -12,6 +12,22 @@ and polish.
 
 ## [Unreleased]
 
+### Automations that wait, and stay where they were
+
+**Migration required:** `269_automation_runs.sql`, before the build.
+- A wait inside a condition branch holds the steps after it and the steps
+  after the condition; they used to run at once. A step that fails in a
+  branch ends the run as failed.
+- Saving an automation keeps its steps, so a customer who is waiting
+  continues at the right place and gets no step twice. If the wait itself
+  was removed, the run ends with the reason "automation changed while
+  waiting".
+- When two admins edit the same automation, the second to save is told
+  that it changed.
+- A failed database read no longer ends a waiting run: it is tried again,
+  at most five times. A run cut off by a restart ends as "interrupted"
+  after 30 minutes and is never run again.
+
 ### Push notifications that stay with the right person
 
 No migration.
