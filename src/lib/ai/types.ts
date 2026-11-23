@@ -134,6 +134,10 @@ export interface AiUsage {
 export interface ProviderResult {
   text: string;
   usage: AiUsage | null;
+  /** The provider stopped before the answer was complete (the output
+   *  cap, the context window, a refusal or a content filter): the text
+   *  is at best the start of one. Callers pass it to `assertComplete`. */
+  truncated?: boolean;
 }
 
 /** Outcome of a generation call. */

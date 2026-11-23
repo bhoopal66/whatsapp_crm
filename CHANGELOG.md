@@ -26,6 +26,24 @@ the build. Additive for the previous build.
 - Erasing a customer deletes the files they sent in WhatsApp groups.
 - A customer message processed late no longer replaces a newer message
   as the chat's preview.
+### HR automated messages are not sent again after a timeout
+
+No migration. A WhatsApp send that timed out, lost its connection or got a
+gateway error (5xx) may have been delivered, yet was sent up to 3 times. It
+is now marked "not confirmed" and never resent; only a failure after which
+nothing can have been sent (a rate limit, a number not ready, a refused
+connection) is retried. Check "not confirmed" messages in HR → Automated
+messages after a gateway outage.
+
+### AI answers that were cut off are never sent
+
+No migration. When the AI provider stops before finishing an answer (the
+length cap, a refusal, a content filter), the half answer is no longer sent
+as if it were complete: the bot hands the chat to a person (after one retry
+on the workspace's model when a smaller or larger one failed), and a draft,
+a translation or an HR draft shows an error instead. OpenAI reasoning models
+now have room for their hidden reasoning besides the reply, so a reply may
+use more tokens on the workspace's key.
 
 ### Limits on what reaches a customer's group, and on uploads
 

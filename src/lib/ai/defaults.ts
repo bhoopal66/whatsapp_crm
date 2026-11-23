@@ -39,6 +39,13 @@ export const HANDOFF_SENTINEL = '[[HANDOFF]]';
  *  bounds token spend on the caller's own key. */
 export const MAX_OUTPUT_TOKENS = 1024;
 
+/**
+ * Added to the output cap of an OpenAI reasoning model: its hidden
+ * reasoning is counted in `max_completion_tokens`, and without room of
+ * its own it eats the reply's.
+ */
+export const OPENAI_REASONING_TOKENS = 4096;
+
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 const DEFAULT_CONTEXT_MESSAGE_LIMIT = 20;
 

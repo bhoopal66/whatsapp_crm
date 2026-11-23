@@ -8,8 +8,10 @@
  *   c) the pure guards: closed / opted out -> cancelled, any other reason
  *      -> held (no write when already held for that reason);
  *   d) the claim is the lock: a lost claim sends nothing;
- *   e) render and send; a send throw -> failed (fail closed), or
- *      failed_terminal when the failure cannot pass on a retry (029a);
+ *   e) render and send; a send throw -> failed (retried) only when nothing
+ *      can have been sent, failed_terminal when the failure cannot pass on
+ *      a retry (029a), else unconfirmed: the gateway may have taken it, so
+ *      it is never resent;
  *   f) mark sent; if that write fails the row is settled unconfirmed and
  *      never resent.
  */
@@ -61,6 +63,9 @@ export function assertTemplateOnly(req: TemplateSendRequest): void {
   if (typeof req.metaTemplateName !== 'string' || req.metaTemplateName === '')
     throw new Error('send request needs a template name');
 }
+
+/** Digit runs long enough to be a phone number, for the log. */
+const PHONE_LIKE = /\+?\d[\d\s().-]{5,}\d/g;
 
 function messageOf(e: unknown): string {
   const m = e instanceof Error ? e.message : String(e);
@@ -149,6 +154,8 @@ export async function processRow(
   };
   let body: string;
   let sent: { providerMessageId: string | null; messageId: string | null };
+  // False = the throw came before the sender, so nothing was sent.
+  let handed = false;
   try {
     const used = placeholders(tpl.body);
     const fill: Record<string, string> = {};
@@ -167,10 +174,19 @@ export async function processRow(
       params,
     };
     assertTemplateOnly(req);
+    handed = true;
     sent = await sender.send(req);
   } catch (e) {
     const f = classifySendFailure(e);
-    if (!f.retryable) {
+    if (f.unconfirmed && handed) {
+      // The row keeps no error text for this state, so the log says why.
+      console.error(
+        `[hr-automsg] send of ${row.id} is unconfirmed: ${f.reason}`
+      );
+      await store.settleUnconfirmed(row.id, null).catch(() => undefined);
+      return 'unconfirmed';
+    }
+    if (!f.retryable && !f.unconfirmed) {
       await store.failTerminal(row.id, f.reason);
       return 'failed_terminal';
     }
@@ -231,6 +247,11 @@ export async function processDue(
       o = await processRow(row, deps);
     } catch (e) {
       o = alreadyDecided(e) ? 'lost' : 'error';
+      if (o === 'error')
+        console.error(
+          `[hr-automsg] row ${row.id} failed:`,
+          messageOf(e).replace(PHONE_LIKE, '[number]')
+        );
     }
     counts[o] = (counts[o] ?? 0) + 1;
   }

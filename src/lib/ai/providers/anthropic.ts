@@ -13,8 +13,16 @@ const ANTHROPIC_VERSION = '2023-06-01';
 
 interface AnthropicResponse {
   content?: { type?: string; text?: string }[];
+  stop_reason?: string | null;
   usage?: { input_tokens?: number; output_tokens?: number };
 }
+
+/** Stop reasons that leave the answer incomplete. */
+const TRUNCATED_STOP_REASONS: ReadonlySet<string> = new Set([
+  'max_tokens',
+  'model_context_window_exceeded',
+  'refusal',
+]);
 
 /**
  * Anthropic's Messages API requires strictly alternating roles that
@@ -87,5 +95,9 @@ export async function generateAnthropic(
     prompt: data?.usage?.input_tokens,
     completion: data?.usage?.output_tokens,
   });
-  return { text, usage };
+  return {
+    text,
+    usage,
+    truncated: TRUNCATED_STOP_REASONS.has(data?.stop_reason ?? ''),
+  };
 }

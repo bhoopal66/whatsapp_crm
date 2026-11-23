@@ -292,3 +292,30 @@ describe('what the provider is shown', () => {
     expect(body).toContain('04 123 4567');
   });
 });
+
+describe('a cut-off answer', () => {
+  it.each([
+    [
+      'openai' as const,
+      {
+        choices: [{ message: { content: 'Half a' }, finish_reason: 'length' }],
+      },
+    ],
+    [
+      'anthropic' as const,
+      {
+        content: [{ type: 'text', text: 'Half a' }],
+        stop_reason: 'max_tokens',
+      },
+    ],
+  ])('%s: throws truncated, never half a reply', async (provider, body) => {
+    vi.mocked(fetch).mockResolvedValue(okResponse(body));
+    const err = await generateReply({
+      config: config({ provider }),
+      systemPrompt: 'sys',
+      messages: [{ role: 'user', content: 'Hi' }],
+    }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(AiError);
+    expect(err).toMatchObject({ code: 'truncated', status: 502 });
+  });
+});

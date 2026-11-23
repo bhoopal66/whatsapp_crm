@@ -188,6 +188,21 @@ describe('translateText', () => {
     ).rejects.toBe(providerErr);
   });
 
+  it('refuses a translation the provider cut off', async () => {
+    mocks.anthropic.mockResolvedValue({
+      text: 'مرحبا، نصف',
+      usage: USAGE,
+      truncated: true,
+    });
+    const err = await translateText({
+      config: config({ provider: 'anthropic' }),
+      text: 'Hello, half a sentence',
+      target: 'ar',
+    }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(AiError);
+    expect((err as AiError).code).toBe('truncated');
+  });
+
   it('refuses an unknown provider', async () => {
     const err = await translateText({
       config: config({ provider: 'gemini' as never }),

@@ -78,10 +78,8 @@ async function chatChannel(
   );
 }
 
-async function sendHrTemplate(
-  db: SupabaseClient,
-  req: TemplateSendRequest
-): Promise<{ providerMessageId: string | null; messageId: string | null }> {
+/** Everything up to the gateway call: nothing here sends. */
+async function prepareSend(db: SupabaseClient, req: TemplateSendRequest) {
   const { data: conv, error: convErr } = await db
     .from('conversations')
     .select(
@@ -189,6 +187,40 @@ async function sendHrTemplate(
     }
   }
 
+  return {
+    contactId: contact.id,
+    sanitized,
+    channel,
+    text,
+    attempt,
+    contentType,
+    templateName,
+  };
+}
+
+async function sendHrTemplate(
+  db: SupabaseClient,
+  req: TemplateSendRequest
+): Promise<{ providerMessageId: string | null; messageId: string | null }> {
+  const {
+    contactId,
+    sanitized,
+    channel,
+    text,
+    attempt,
+    contentType,
+    templateName,
+  } = await prepareSend(db, req).catch((err: unknown) => {
+    if (err instanceof HrSendRefusal) throw err;
+    // Nothing has reached a gateway, so this is safe to try again; left as
+    // it is, the classifier would have to call it unconfirmed.
+    throw new HrSendRefusal(
+      'error',
+      err instanceof Error ? err.message : String(err),
+      true
+    );
+  });
+
   // Same phone-variant retry as the automation sender: numbers registered
   // with and without a trunk 0 both need it to land.
   let workingPhone = sanitized;
@@ -221,7 +253,7 @@ async function sendHrTemplate(
       await db
         .from('contacts')
         .update({ phone: workingPhone })
-        .eq('id', contact.id)
+        .eq('id', contactId)
         .eq('account_id', req.accountId);
     }
 

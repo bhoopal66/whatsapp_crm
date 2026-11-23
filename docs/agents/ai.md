@@ -32,6 +32,7 @@ embeddings key it degrades to lexical-only rather than failing.
 - *Escalation.* At most one extra generation per dispatch, plus one guardrail rewrite on the large model.
 - *Held drafts.* A guardrail **hold** is queued in `conversations.ai_pending_draft` for Send / Edit / Discard (`/api/ai/pending-draft`, claim-then-send). A **block** is never queued.
 - *Pauses.* `ai_paused_reason` records why the bot is paused. The `agent_reply` pause is set by a `messages` trigger, never by app code, and only that pause auto-resumes.
+- *Cut-off answers.* The adapters set `truncated` (the output cap, the context window, a refusal, a content filter) and every caller of an adapter runs `assertComplete`, which throws `AiError` `truncated`: half an answer, or a lost `[[HANDOFF]]`, never goes out. OpenAI reasoning models (by id) get `OPENAI_REASONING_TOKENS` on top of the cap.
 - *Outcomes.* Every dispatch records one outcome (`outcomes.ts`) on the conversation and in `ai_reply_events`. That record is how "why didn't the AI reply" gets answered, so an exit path without one is a bug.
 - *Time budget.* The dispatch runs on a deadline inside the 60 s `after()`. A step that cannot fit is skipped in favour of a hand-off, never left to be killed.
 - *Partner banks (078).* `ts_account_settings.partner_banks` (`{codes, custom}`) is the account's own list for the guardrail; NULL means the built-in `PARTNER_BANK_CODES` (`lib/typesafe/banks.ts`). Parsed tolerantly by `parsePartnerBanks`.

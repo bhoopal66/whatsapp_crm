@@ -134,6 +134,20 @@ describe('026a model port over the providers', () => {
     expect(seen).toHaveLength(2);
   });
 
+  it('a cut-off answer is an error, its spend still logged', async () => {
+    providers.anthropic.mockResolvedValue({
+      text: 'Thanks, a recruiter will',
+      usage: USAGE,
+      truncated: true,
+    });
+    const onUsage = vi.fn();
+    const p = createAiModelPort({ config: config(), onUsage });
+    await expect(p.complete(draftInput())).rejects.toMatchObject({
+      code: 'truncated',
+    });
+    expect(onUsage).toHaveBeenCalledTimes(1);
+  });
+
   it('Arabic passes through unchanged and the task names Arabic', async () => {
     const ar = 'شكرا لك، سنتواصل معك قريبا.';
     answer(ar);

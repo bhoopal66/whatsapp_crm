@@ -1,4 +1,9 @@
-import { AiError, type AiUsage, type ChatMessage } from '../types';
+import {
+  AiError,
+  type AiUsage,
+  type ChatMessage,
+  type ProviderResult,
+} from '../types';
 
 // ============================================================
 // Bits shared by the OpenAI + Anthropic adapters.
@@ -37,6 +42,20 @@ export function normalizeUsage(raw: {
     return null;
   }
   return { promptTokens, completionTokens, totalTokens };
+}
+
+/**
+ * Refuse an answer the provider cut off. Half a sentence must not reach
+ * a customer or an agent as if it were whole, and a hand-off marker at
+ * the end of it is lost with the rest. Every direct caller of an adapter
+ * runs its result through this.
+ */
+export function assertComplete(result: ProviderResult): void {
+  if (!result.truncated) return;
+  throw new AiError(
+    'The AI stopped before finishing its answer, so it was not used. Please try again.',
+    { code: 'truncated', status: 502 }
+  );
 }
 
 /** Map a fetch rejection (timeout / DNS / offline) to a typed AiError. */

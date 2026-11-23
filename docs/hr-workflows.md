@@ -203,7 +203,8 @@ candidates. It is for admins (everything) and Recruitment leads
   Each message is claimed before it is sent, so two runs never send it
   twice; a failed send is retried up to 3 times; a message held or
   failing for more than 24 hours is cancelled, never sent late. A
-  message the gateway accepted but wacrm could not record is marked
+  message the gateway accepted but wacrm could not record, or may have
+  accepted (a timeout, a dropped connection, a gateway error), is marked
   "not confirmed" and never resent; one stuck in sending for 15 minutes
   is marked for review. The nudge counts only conversations that went
   quiet after the trigger was switched on, and within the last 7 days.
@@ -213,9 +214,10 @@ candidates. It is for admins (everything) and Recruitment leads
   being retried: an invalid or not-allowed number, a template that is
   missing, paused or rejected at Meta, Meta's 24-hour window closed, a
   revoked token or unknown Whapi channel, a personal chat or number, a
-  chat that no longer exists. Anything else (rate limits, the gateway
-  down, a timeout, a Whapi number briefly logged out, the chat's number
-  disconnected) is still retried up to 3 times.
+  chat that no longer exists. A failure after which nothing can have
+  been sent (rate limits, the gateway refusing the connection, a number not
+  ready or briefly logged out, the chat's number disconnected) is still
+  retried up to 3 times.
 - **Receipts (migration 212).** WhatsApp's sent, delivered, read and
   failed receipts for an automated message are recorded on it
   (`delivery_state`, `delivery_at`). They only move forward: a late
