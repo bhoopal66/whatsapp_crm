@@ -19,6 +19,8 @@ No migration.
   down on a chat with an HR record, in the HR, IT or Accounts inbox, or on an
   HR line while "open a Recruitment chat" is on. When that cannot be checked
   it sends nothing.
+- The bot no longer also answers a message a meaning-trigger automation just
+  answered.
 
 ### Cases: timers, snoozes and rules
 

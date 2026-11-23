@@ -211,6 +211,10 @@ export interface DispatchArgs {
   /** The inbound's text (a media caption included). The bot's context
    *  holds text rows only, so a caption reaches the gates through this. */
   inboundText?: string | null;
+  /** A meaning trigger (`intent_match`) automation ran for this message
+   *  just before the dispatch: it has answered, so the bot must not. The
+   *  pipeline says so because only Jev can tell that one matches. */
+  meaningTriggerActed?: boolean;
   /** Clock for the dispatch budget (`aiDispatchBudgetMs`). Tests only. */
   now?: () => number;
 }
@@ -307,6 +311,7 @@ export async function dispatchInboundToAiReply(
     interactiveReplyId = null,
     inboundMessageId = null,
     inboundText = null,
+    meaningTriggerActed = false,
     now = Date.now,
   } = args;
   // The dispatch runs inside an `after()` that the route's maxDuration
@@ -557,6 +562,12 @@ export async function dispatchInboundToAiReply(
     // `new_message_received` matches every message, so an active one
     // still stands the bot down: it is an auto-responder.
     if (!flowContext) {
+      if (meaningTriggerActed) {
+        return skip(
+          'skipped_automation',
+          'A meaning-trigger automation answered this message.'
+        );
+      }
       const autoResponderTriggers = ['new_message_received', 'keyword_match'];
       if (interactiveReply || interactiveReplyId) {
         autoResponderTriggers.push('interactive_reply');

@@ -1599,6 +1599,15 @@ describe('dispatchInboundToAiReply — recorded outcomes (077)', () => {
     expect(h.engineSendText).not.toHaveBeenCalled();
   });
 
+  it('skipped_automation: a meaning trigger just answered this message', async () => {
+    expect(
+      await dispatchInboundToAiReply({ ...ARGS, meaningTriggerActed: true })
+    ).toBe('skipped');
+    expect(lastOutcome()).toBe('skipped_automation');
+    expect(h.generateReply).not.toHaveBeenCalled();
+    expect(h.engineSendText).not.toHaveBeenCalled();
+  });
+
   describe('chats that are not sales', () => {
     const LINE = { ...ARGS, inboundChannelId: 'ch-hr' };
     const silent = () => {
