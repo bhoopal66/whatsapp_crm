@@ -25,6 +25,7 @@ import {
   TriangleAlert,
   X,
 } from 'lucide-react';
+import { toast } from 'sonner';
 
 import {
   CaseViewsMenu,
@@ -72,6 +73,7 @@ import {
   writeFilters,
   type InboxUrlState,
 } from '@/lib/cases/inbox-url';
+import { refreshedList, rereadInbox } from '@/lib/cases/inbox-refresh';
 import { mergeTeamPages, teamInboxUrls } from '@/lib/cases/team-view';
 import { LEAD_CHIP } from '@/lib/cases/lead-form';
 import {
@@ -94,12 +96,15 @@ import {
   SLA_STATES,
   type CaseBankOption,
   type InboxFilters,
+  type InboxPage,
   type InboxRow,
   type InboxSlaState,
 } from '@/lib/cases/ui';
 import { SEARCH_MAX_LENGTH } from '@/lib/cases/search';
 import type { CasePriority } from '@/lib/cases/types';
 import { relativeActivity } from '@/lib/groups/ui';
+import { startCatchUp } from '@/lib/realtime/catch-up';
+import { createClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
 
 /** A pause in typing this long commits the search. */
@@ -111,6 +116,16 @@ const URL_SETTLE_MS = 2000;
 const ALL = '__all__';
 /** The agent filter's "My team" value (`?team=1`, never sent to the API). */
 const MY_TEAM = '__team__';
+
+// supabase.channel(name) hands back a channel still being removed.
+let topicSeq = 0;
+
+/** One page of the list; rejects when it could not be read. */
+async function readInboxPage(url: string, signal: AbortSignal) {
+  const res = await fetch(url, { cache: 'no-store', signal });
+  if (!res.ok) throw new Error(String(res.status));
+  return parseInboxPage(await res.json());
+}
 
 interface Loaded {
   rows: InboxRow[];
@@ -247,6 +262,7 @@ export function CasesInbox() {
     [members]
   );
 
+  const { accountId } = useAuth();
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -331,6 +347,70 @@ export function CasesInbox() {
   const reload = () =>
     teamKey !== null ? void loadTeam(teamKey.split('\n')) : void load(apiUrl);
 
+  // Read again in place after a gap: what is listed stays until the answer,
+  // and for good when there is none (`startCatchUp` retries).
+  const refresh = async () => {
+    const signal = inFlight.current?.signal;
+    if (!loaded || loaded.error === 'invalid' || !signal) return;
+    if (teamView && teamKey === null) return;
+    if (loadingMore) throw new Error('loading more');
+    const mine = seq.current;
+    try {
+      let truncated: boolean | undefined;
+      let fresh: InboxPage;
+      if (teamKey !== null) {
+        const pages = await Promise.all(
+          teamKey.split('\n').map((url) => readInboxPage(url, signal))
+        );
+        const merged = mergeTeamPages(pages, filters.sort, new Date());
+        fresh = { rows: merged.rows, nextCursor: null };
+        truncated = merged.truncated;
+      } else {
+        fresh = await rereadInbox(
+          (after, limit) =>
+            readInboxPage(inboxUrl(filters, after, limit), signal),
+          loaded.rows.length
+        );
+      }
+      if (mine !== seq.current) return;
+      setLoaded((prev) => {
+        if (!prev) return prev;
+        const list = refreshedList(
+          { rows: prev.rows, nextCursor: prev.next },
+          fresh
+        );
+        return {
+          rows: list.rows,
+          next: list.nextCursor,
+          error: null,
+          truncated,
+        };
+      });
+    } catch (err) {
+      // The filters changed meanwhile: that load is the fresh one.
+      if (mine !== seq.current) return;
+      throw err;
+    }
+  };
+  const refreshRef = useRef(refresh);
+  useEffect(() => {
+    refreshRef.current = refresh;
+  });
+  useEffect(() => {
+    if (!accountId) return;
+    const supabase = createClient();
+    const live = startCatchUp(() => refreshRef.current());
+    // No cases table is published to realtime: the channel only tells when
+    // the connection is back.
+    const channel = supabase
+      .channel(`cases-list:${accountId}:${++topicSeq}`)
+      .subscribe(live.onStatus);
+    return () => {
+      live.stop();
+      supabase.removeChannel(channel);
+    };
+  }, [accountId]);
+
   const loadMore = async () => {
     if (!loaded?.next) return;
     const mine = seq.current;
@@ -353,7 +433,9 @@ export function CasesInbox() {
             : prev
         );
     } catch {
-      // Keep what is listed; the button stays for another try.
+      // Keep what is listed; the button stays for another try. A list
+      // replaced meanwhile aborted this one: nothing to say.
+      if (mine === seq.current) toast.error(t('loadMoreFailed'));
     } finally {
       setLoadingMore(false);
     }

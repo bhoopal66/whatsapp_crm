@@ -9238,6 +9238,7 @@
     "closed": "종료됨",
     "justNow": "방금",
     "loadMore": "더 보기",
+    "loadMoreFailed": "케이스를 더 불러오지 못했습니다. 다시 시도하세요.",
     "loadFailed": "케이스를 불러오지 못했습니다.",
     "invalidFilters": "필터가 올바르지 않습니다. 필터를 지우고 다시 시도하세요.",
     "retry": "다시 시도",

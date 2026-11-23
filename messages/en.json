@@ -9238,6 +9238,7 @@
     "closed": "Closed",
     "justNow": "just now",
     "loadMore": "Load more",
+    "loadMoreFailed": "More cases could not be loaded. Try again.",
     "loadFailed": "Couldn't load cases.",
     "invalidFilters": "These filters aren't valid. Clear them and try again.",
     "retry": "Retry",
