@@ -57,6 +57,7 @@ import {
 import type { WhatsAppProvider } from '@/lib/whatsapp/channels';
 import { AiError, type AiConfig, type ChatMessage } from './types';
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
+import { isMissingFunction } from '@/lib/team-activity/db-errors';
 import { triggerMatches } from '@/lib/automations/engine';
 import type { Automation } from '@/types';
 
@@ -1604,12 +1605,11 @@ function errorMessage(err: unknown): string {
  * row (200; a closed one too, the person is still a candidate or a
  * colleague), or the message came in on an HR line (213).
  *
- * `hr_lines` is readable only through functions, and the service role has
- * one: `hr_auto_open_recruiter`, which the inbound pipeline calls for
- * every message anyway. Asked here first it opens the Recruitment chat a
- * moment earlier (idempotent). It answers `off` without looking at the
- * lines while *Open a Recruitment chat* is off: an HR line is then only
- * recognised by its chats' HR rows. Throws when a check cannot be read.
+ * `hr_lines` is readable only through functions: `hr_is_line` (279).
+ * Before 279, `hr_auto_open_recruiter`, which the inbound pipeline calls
+ * for every message anyway; it answers `off` without looking at the lines
+ * while *Open a Recruitment chat* is off. Throws when a check cannot be
+ * read.
  */
 async function notSalesChat(
   db: SupabaseClient,
@@ -1630,16 +1630,26 @@ async function notSalesChat(
   if (hrErr) throw new Error(`HR chat lookup: ${hrErr.message}`);
   if (hrRow) return 'This is an HR chat.';
   if (!args.inboundChannelId) return null;
-  const { data: line, error: lineErr } = await db.rpc(
+  const onLine = 'The message came in on an HR line.';
+  const { data: isLine, error: lineErr } = await db.rpc('hr_is_line', {
+    p_channel: args.inboundChannelId,
+  });
+  if (!lineErr) return isLine === true ? onLine : null;
+  if (!isMissingFunction(lineErr)) {
+    throw new Error(`HR line lookup: ${lineErr.message}`);
+  }
+  const { data: opened, error: openErr } = await db.rpc(
     'hr_auto_open_recruiter',
     {
       p_conversation_id: args.conversationId,
       p_channel_id: args.inboundChannelId,
     }
   );
-  if (lineErr) throw new Error(`HR line lookup: ${lineErr.message}`);
-  return line === 'opened' || line === 'exists' || line === 'other_numbers'
-    ? 'The message came in on an HR line.'
+  if (openErr) throw new Error(`HR line lookup: ${openErr.message}`);
+  return opened === 'opened' ||
+    opened === 'exists' ||
+    opened === 'other_numbers'
+    ? onLine
     : null;
 }
 

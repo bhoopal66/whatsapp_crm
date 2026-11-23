@@ -70,6 +70,8 @@ const h = vi.hoisted(() => ({
     hrRow: null as Record<string, unknown> | null,
     hrRowError: null as string | null,
     hrLine: 'off' as string | null,
+    /** hr_is_line (279); null = the function is not there yet. */
+    hrIsLine: false as boolean | null,
     hrLineError: null as string | null,
     deptError: null as string | null,
   },
@@ -342,6 +344,19 @@ vi.mock('./admin-client', () => ({
       };
     },
     rpc: (name: string, args: unknown) => {
+      if (name === 'hr_is_line') {
+        if (h.state.hrLineError) {
+          return Promise.resolve({
+            data: null,
+            error: { message: h.state.hrLineError },
+          });
+        }
+        return Promise.resolve(
+          h.state.hrIsLine === null
+            ? { data: null, error: { code: 'PGRST202', message: 'missing' } }
+            : { data: h.state.hrIsLine, error: null }
+        );
+      }
       if (name === 'hr_auto_open_recruiter') {
         return Promise.resolve(
           h.state.hrLineError
@@ -461,6 +476,7 @@ beforeEach(() => {
   h.state.hrRow = null;
   h.state.hrRowError = null;
   h.state.hrLine = 'off';
+  h.state.hrIsLine = false;
   h.state.hrLineError = null;
   h.state.deptError = null;
   h.loadAiConfig.mockResolvedValue(aiConfig());
@@ -1630,9 +1646,17 @@ describe('dispatchInboundToAiReply — recorded outcomes (077)', () => {
       }
     );
 
+    it('nor a message on an HR line', async () => {
+      h.state.hrIsLine = true;
+      expect(await dispatchInboundToAiReply(LINE)).toBe('skipped');
+      expect(lastOutcome()).toBe('skipped_number');
+      silent();
+    });
+
     it.each(['opened', 'exists', 'other_numbers'])(
-      'nor a message on an HR line (%s)',
+      'nor, before 279, one that opened a Recruitment chat (%s)',
       async (answer) => {
+        h.state.hrIsLine = null;
         h.state.hrLine = answer;
         expect(await dispatchInboundToAiReply(LINE)).toBe('skipped');
         expect(lastOutcome()).toBe('skipped_number');
@@ -1653,6 +1677,7 @@ describe('dispatchInboundToAiReply — recorded outcomes (077)', () => {
     it.each(['off', 'not_hr_line'])(
       'a sales chat on an ordinary number (%s) is answered',
       async (answer) => {
+        h.state.hrIsLine = null;
         h.state.hrLine = answer;
         h.state.conv = { ...h.state.conv, inbox_department: 'sales' };
         expect(await dispatchInboundToAiReply(ARGS)).toBe('replied');

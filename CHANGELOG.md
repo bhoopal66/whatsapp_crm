@@ -61,11 +61,11 @@ No migration.
 
 ### AI
 
-No migration.
+**Migration required: 279** (`279_hr_is_line.sql`). The build runs without
+it; HR lines are then recognised only while "open a Recruitment chat" is on.
 - The sales bot no longer answers HR candidates and colleagues: it stands
   down on a chat with an HR record, in the HR, IT or Accounts inbox, or on an
-  HR line while "open a Recruitment chat" is on. When that cannot be checked
-  it sends nothing.
+  HR line. When that cannot be checked it sends nothing.
 - The bot no longer also answers a message a meaning-trigger automation just
   answered.
 - Questions kept for the knowledge-gap review are stored with identifiers

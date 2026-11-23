@@ -34,8 +34,8 @@ import {
   popoverActions,
 } from '@/lib/calendar/ui/popover-rules';
 import {
-  REMINDER_PRESETS,
   reminderLabel,
+  reminderPresets,
   toggleReminder,
 } from '@/lib/calendar/ui/reminder-chips';
 import { cn } from '@/lib/utils';
@@ -390,21 +390,29 @@ function PopoverBody({
             {t('popover.notifyMe')}
           </span>
           <div className="flex flex-wrap gap-1">
-            {REMINDER_PRESETS.map((m) => {
-              const on = currentReminders.includes(m);
-              const { key, count } = reminderLabel(m);
-              return (
-                <Button
-                  key={m}
-                  size="xs"
-                  variant={on ? 'secondary' : 'outline'}
-                  aria-pressed={on}
-                  onClick={() => toggleNotify(m)}
-                >
-                  {t(`reminders.${key}`, { count })}
-                </Button>
-              );
-            })}
+            {/* What is set is shown too, a preset or not. */}
+            {[
+              ...new Set([
+                ...reminderPresets(item.allDay),
+                ...currentReminders,
+              ]),
+            ]
+              .sort((a, b) => a - b)
+              .map((m) => {
+                const on = currentReminders.includes(m);
+                const label = reminderLabel(m, item.allDay);
+                return (
+                  <Button
+                    key={m}
+                    size="xs"
+                    variant={on ? 'secondary' : 'outline'}
+                    aria-pressed={on}
+                    onClick={() => toggleNotify(m)}
+                  >
+                    {t(`reminders.${label.key}`, label)}
+                  </Button>
+                );
+              })}
           </div>
         </div>
       )}

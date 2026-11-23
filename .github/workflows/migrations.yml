@@ -1066,6 +1066,7 @@ jobs:
       # hr_auto_open_recruiter (service role only) opens a chat on a line
       # as a recruiter row at cv_review by nobody, once, never over an
       # existing row (closed included); deleting a number drops its line.
+      # 279: hr_is_line only looks, for the service role.
       - name: Verify HR lines
         run: supabase db query --local --file supabase/ci/verify-hr-lines.sql
 
