@@ -2368,7 +2368,7 @@
       },
       "reactivatedToast": "Reactivated {name}",
       "deactivateDialogTitle": "Deactivate member",
-      "deactivateDialogDesc": "Deactivate <bold>{name}</bold>? They'll be signed out and won't be able to sign in until you reactivate them. They're also taken off their team and their phone extension is unlinked; reactivating doesn't put either back. Their role, assigned chats and history stay as they are.",
+      "deactivateDialogDesc": "Deactivate <bold>{name}</bold>? They'll be signed out and won't be able to sign in until you reactivate them. They're also taken off their team and their phone extension is unlinked; reactivating doesn't put either back. Their role and history stay as they are; you can hand their chats, tasks, deals and customers over next.",
       "deactivating": "Deactivating...",
       "deactivateBtn": "Deactivate",
       "bankCode": "Bank: {code}",
@@ -2407,6 +2407,30 @@
         "save": "Change password",
         "done": "Password changed for {name}.",
         "failed": "Could not change the password. Try again."
+      },
+      "handover": {
+        "button": "Hand over work",
+        "title": "Hand over {name}'s work",
+        "description": "Choose what moves and who takes it over. They get one notification. Personal WhatsApp chats stay with their own number.",
+        "holds": "Still holds {what}",
+        "kinds": {
+          "chats": "{count, plural, one {# chat} other {# chats}}",
+          "tasks": "{count, plural, one {# open task} other {# open tasks}}",
+          "deals": "{count, plural, one {# open deal} other {# open deals}}",
+          "contacts": "{count, plural, one {# customer} other {# customers}}"
+        },
+        "to": "Hand over to",
+        "toPlaceholder": "Choose a person",
+        "submit": "Hand over",
+        "submitting": "Handing over…",
+        "nothing": "{name} holds no chats, tasks, deals or customers.",
+        "done": "Handed over {what} to {name}.",
+        "loadFailed": "Couldn't read what {name} holds.",
+        "retry": "Try again",
+        "failed": "Could not hand over the work. Try again.",
+        "later": "Not now",
+        "removeWarning": "{name} still holds {what}. Removing them leaves that work with nobody: hand it over first.",
+        "noPeople": "There is nobody else to hand the work to."
       }
     },
     "invite": {
