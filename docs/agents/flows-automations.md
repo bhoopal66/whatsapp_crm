@@ -51,6 +51,9 @@ Cron / GitHub Actions / any pinger):
   sweep. The automation cron also runs it, throttled to once per 5
   minutes per process, so an install that pings only that one is
   covered.
+- The automation cron also drains the inbound WhatsApp queue (migration
+  264, `lib/whatsapp/inbound-drain.ts`) once a minute per process: it has
+  no endpoint of its own, so an install without that cron retries nothing.
 - `GET /api/journeys/cron` (migration 086) — the journey tick: due
   timers and outbox items.
 - `GET /api/deal-rooms/cron` (migration 088) — rooms stuck in

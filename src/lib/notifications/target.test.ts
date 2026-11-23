@@ -160,7 +160,12 @@ describe('notificationTarget', () => {
     }
   );
 
-  it.each(['channel_disconnected', 'channel_reconnected', 'meta_number_alert'])(
+  it.each([
+    'channel_disconnected',
+    'channel_reconnected',
+    'inbound_message_failed',
+    'meta_number_alert',
+  ])(
     '%s opens WhatsApp settings for those who can edit settings',
     (type) => {
       expect(notificationTarget({ type }, 'owner')).toBe(

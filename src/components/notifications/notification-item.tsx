@@ -6,6 +6,7 @@ import {
   AtSign,
   Bell,
   AlarmClock,
+  MailWarning,
   BellRing,
   Bot,
   CalendarCheck,
@@ -60,6 +61,7 @@ const TYPE_ICON: Record<Notification['type'], typeof Bell> = {
   response_unassigned: UserX,
   channel_disconnected: WifiOff,
   channel_reconnected: Wifi,
+  inbound_message_failed: MailWarning,
   meta_number_alert: ShieldAlert,
   team_activity_alert: ShieldAlert,
   team_activity_unlock_request: ShieldAlert,
@@ -103,6 +105,7 @@ const TYPE_ICON_CLASS: Partial<Record<Notification['type'], string>> = {
 const FULL_BODY: ReadonlySet<Notification['type']> = new Set([
   'channel_disconnected',
   'channel_reconnected',
+  'inbound_message_failed',
   'meta_number_alert',
   'team_activity_alert',
   'pbx_connection_silent',

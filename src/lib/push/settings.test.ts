@@ -31,6 +31,7 @@ describe('push kind groups', () => {
     expect(kindGroup('call_missed')).toBe('tasksCalls');
     expect(kindGroup('callback_requested')).toBe('tasksCalls');
     expect(kindGroup('channel_disconnected')).toBe('team');
+    expect(kindGroup('inbound_message_failed')).toBe('team');
     expect(kindGroup('meta_number_alert')).toBe('team');
   });
 });

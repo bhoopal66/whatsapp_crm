@@ -12,6 +12,22 @@ and polish.
 
 ## [Unreleased]
 
+### Inbound WhatsApp messages survive a failure
+
+**Migration required**: apply 264 (as a superuser or BYPASSRLS role)
+**before** the build. Without it the build runs as before and logs
+`NOT DURABLE` once.
+- A customer's message is stored before the gateway is told it arrived. If
+  saving it then fails (database error, restart), it is retried for several
+  hours instead of being lost.
+- If it cannot be stored at all, the gateway is answered 503 and delivers
+  it again.
+- One message that fails no longer holds back the others of its delivery.
+- A message given up on rings the bell of owners and admins.
+- Operators: the retries run in `GET /api/automations/cron`, so that cron
+  must be scheduled. `/api/metrics` has `wacrm_inbound_queue_*`
+  (`docs/monitoring.md`).
+
 ### Reminders and meeting invites after sleep
 
 No migration.

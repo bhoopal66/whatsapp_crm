@@ -108,6 +108,22 @@ branch on which template button was tapped. `docs/campaign-journeys.md`
 is the operator-facing description of that whole loop. Both run on the service role (no `auth.uid()` on those paths —
 hence the `supabaseAdmin()` clients in
 `lib/{flows,automations,ai}/admin-client.ts`) with `maxDuration = 60`.
+
+**Inbound is durable (migration 264).** Every 1:1 message (over-limit ones
+included), receipt, personal-number own send and Whapi/OpenWA group message
+is recorded in `webhook_inbox` (`recordInboundEvents`, one all-or-none call
+per POST) **before the 200**; a failed record releases the replay claims and
+answers 503. Inside `after()`, `runDeliveredEvents` (`inbound-delivery.ts`)
+runs each event on its own: `processInboundEvent` → `settleInboundEvent` →
+confirm its replay claim only when it settled `done`, else release it (a
+confirmed key swallows redeliveries for 24 h). 1:1 events run before group
+messages, which file documents inside their event. What is left is drained
+by the automations cron (`inbound-drain.ts`), one row claimed at a time,
+8 attempts, then a `inbound_message_failed` bell. A new kind of event goes
+through the queue, with its payload built in `inbound-events.ts`. **Not
+queued**: Whapi `groups` / OpenWA `group.*` events and submission-group
+membership, Meta deal rooms, message costs, template and health events.
+While 264 is missing the routes run `processWithoutQueue`, the former path.
 That `after()` is load-bearing: work must be *awaited inside* it, never
 detached as a floating promise, or the route returns and the runtime kills
 the callback mid-flight (issue #301 — and #409 is the same failure
