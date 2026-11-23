@@ -354,7 +354,9 @@ export function ThreadHeader({
             <DropdownMenu onOpenChange={setAssignMenuOpen}>
               <DropdownMenuTrigger
                 title={handlerTitle}
-                aria-label={`${t('assign')}: ${handlerTitle}`}
+                // Starts with the pill's own words, which is what
+                // someone steering by voice says.
+                aria-label={`${handler ? handlerPillName : t('unassigned')}. ${t('assign')}: ${handlerTitle}`}
                 className={cn(
                   'inline-flex h-8 max-w-[6.5rem] items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors @md/thread:max-w-[8.5rem] @2xl/thread:max-w-[11rem]',
                   handler?.kind === 'assigned'

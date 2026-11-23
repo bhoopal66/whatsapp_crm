@@ -323,6 +323,7 @@ function SendButtonsForm({
                 variant="ghost"
                 size="sm"
                 onClick={() => removeButton(i)}
+                aria-label={t("removeButton", { number: i + 1 })}
                 className="text-destructive hover:bg-destructive-soft hover:text-destructive"
               >
                 <Trash2 className="h-3.5 w-3.5" />
@@ -551,6 +552,7 @@ function SendListForm({
                   variant="ghost"
                   size="sm"
                   onClick={() => removeRow(sIdx, rIdx)}
+                  aria-label={t("removeRow", { number: rIdx + 1 })}
                   className="text-destructive hover:bg-destructive-soft hover:text-destructive"
                 >
                   <Trash2 className="h-3.5 w-3.5" />

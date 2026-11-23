@@ -12,6 +12,16 @@ and polish.
 
 ## [Unreleased]
 
+### Screen readers and keyboard: names for every control
+
+No migration.
+- Icon-only buttons (contact row menu, paging, remove, show/hide key,
+  send, add note and others), the retention selects and both side
+  navigations say what they are; buttons whose spoken name differed from
+  their visible text now contain it, so voice control finds them.
+- A pipeline card is one button. **Enter opens the deal; Space picks the
+  card up**, arrows move it, Space or Enter drops it, Escape cancels.
+
 ### Failed reads and missed events are shown
 
 No migration.

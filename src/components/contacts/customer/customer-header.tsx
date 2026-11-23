@@ -340,7 +340,7 @@ export function CustomerHeader({
               <button
                 type="button"
                 onClick={() => void copyPhone()}
-                aria-label={t('copyPhone')}
+                aria-label={`${contact.phone}. ${t('copyPhone')}`}
                 className="hover:text-primary inline-flex cursor-pointer items-center gap-1 transition-colors"
               >
                 <Phone className="size-3.5" />

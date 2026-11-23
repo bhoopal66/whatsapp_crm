@@ -236,6 +236,8 @@ export function ContactsPageInner({
   const tSearch = useTranslations('ContactSearch');
   const tSaved = useTranslations('SavedViews');
   const tTable = useTranslations('ContactsTable');
+  const tTeams = useTranslations('Settings.teams');
+  const tPaging = useTranslations('MeetingRoom.stage');
   const locale = useLocale();
   const { user, accountId, accountRole, profileLoading } = useAuth();
 
@@ -1395,7 +1397,9 @@ export function ContactsPageInner({
                   {t('tableColumns.createdAt')}
                 </SortHeader>
               )}
-              <TableHead className="text-muted-foreground w-12" />
+              <TableHead className="text-muted-foreground w-12">
+                <span className="sr-only">{tTeams('actions')}</span>
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -1593,6 +1597,9 @@ export function ContactsPageInner({
                     <TableCell>
                       <DropdownMenu>
                         <DropdownMenuTrigger
+                          aria-label={tTeams('actionsFor', {
+                            name: contact.name || contact.phone,
+                          })}
                           render={
                             <Button
                               variant="ghost"
@@ -1658,6 +1665,7 @@ export function ContactsPageInner({
             <Button
               variant="outline"
               size="icon-sm"
+              aria-label={tPaging('prevPage')}
               disabled={!hasPrev}
               onClick={() => setPage((p) => p - 1)}
               className="border-border text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
@@ -1670,6 +1678,7 @@ export function ContactsPageInner({
             <Button
               variant="outline"
               size="icon-sm"
+              aria-label={tPaging('nextPage')}
               disabled={!hasNext}
               onClick={() => setPage((p) => p + 1)}
               className="border-border text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"

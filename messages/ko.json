@@ -68,6 +68,7 @@
     "retry": "다시 시도"
   },
   "Sidebar": {
+    "navLabel": "사이드바 메뉴",
     "title": "Taamul Connect",
     "dashboard": "대시보드",
     "worklist": "내 작업 목록",
@@ -1970,6 +1971,9 @@
         "rowTitlePlaceholder": "행 제목 (24자 이하)",
         "addRow": "행 추가",
         "addSection": "섹션 추가",
+        "removeButton": "버튼 {number} 제거",
+        "removeRow": "행 {number} 제거",
+        "removeSection": "섹션 {number} 제거",
         "ifLabel": "만약",
         "capturedVariable": "수집된 변수",
         "chatHasTag": "채팅에 태그가 있음",
@@ -3136,10 +3140,8 @@
       "title": "화면 설정",
       "description": "앱 전체에서 사용할 모드와 강조 색상을 설정합니다. 이 기기에 저장되며, 바로 적용되니 자유롭게 시도해보세요.",
       "mode": "모드",
-      "useMode": "{mode} 모드 사용",
       "active": "사용 중",
       "accentColor": "강조 색상",
-      "useTheme": "{name} 테마 사용",
       "language": "언어",
       "languageDescription": "메뉴와 화면에 쓰이는 언어입니다. 프로필에 저장되어 모든 기기에 적용됩니다. 아랍어는 오른쪽에서 왼쪽으로 표시됩니다.",
       "languageDefault": "워크스페이스 기본값 ({language})",
@@ -3228,6 +3230,8 @@
       "saveSuccess": "기본 통화가 업데이트되었습니다"
     },
     "aiConfig": {
+      "showKey": "API 키 표시",
+      "hideKey": "API 키 숨기기",
       "description": "직접 발급받은 OpenAI 또는 Anthropic 키를 사용하세요. Taamul Connect는 회원님의 키로 공급자에 직접 요청하므로 좌석당 AI 비용이 없고 데이터도 온전히 회원님의 것입니다. 인박스의 AI 답장 초안, 자동 응답 봇, 플레이그라운드에 사용됩니다.",
       "adminOnlyConfig": "관리자와 소유자만 AI 설정을 변경할 수 있습니다.",
       "loadFailed": "AI 설정을 불러오지 못했습니다",
@@ -6856,6 +6860,7 @@
     "ownerRm": "담당 RM: {name}",
     "call": "전화",
     "whatsappButton": "Open chat",
+    "filtersLabel": "타임라인 필터",
     "filters": {
       "all": "전체",
       "calls": "통화",

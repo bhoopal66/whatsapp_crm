@@ -136,6 +136,7 @@ function emptyButton(type: TemplateButton['type']): TemplateButton {
 
 export function TemplateManager() {
   const t = useTranslations('Settings.templates');
+  const tForm = useTranslations('Flows.builder.form');
   const supabase = createClient();
   const { user, loading: authLoading } = useAuth();
 
@@ -1024,6 +1025,7 @@ export function TemplateManager() {
                           type="button"
                           variant="ghost"
                           size="icon"
+                          aria-label={tForm('removeButton', { number: i + 1 })}
                           onClick={() => removeButton(i)}
                           className="text-muted-foreground hover:bg-destructive-soft hover:text-destructive size-7"
                         >

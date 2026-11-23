@@ -3,7 +3,7 @@
 import { Check, Moon, Palette, SunMoon, Sun } from "lucide-react";
 
 import { useTheme } from "@/hooks/use-theme";
-import { MODES, THEMES, type Mode, type ThemeId } from "@/lib/themes";
+import { MODES, THEMES, type Mode } from "@/lib/themes";
 import { cn } from "@/lib/utils";
 import { useTranslations } from "next-intl";
 import { LanguagePicker } from "./language-picker";
@@ -42,7 +42,7 @@ export function AppearancePanel() {
 
         <div
           role="radiogroup"
-          aria-label="Color mode"
+          aria-label={t("mode")}
           className="grid max-w-md grid-cols-2 gap-3"
         >
           {MODES.map((m) => (
@@ -68,7 +68,6 @@ export function AppearancePanel() {
           {THEMES.map((tObj) => (
             <ThemeCard
               key={tObj.id}
-              id={tObj.id}
               name={t(`themes.${tObj.id}.name`)}
               tagline={t(`themes.${tObj.id}.tagline`)}
               swatch={tObj.swatch}
@@ -100,7 +99,6 @@ function ModeCard({
       role="radio"
       onClick={onPick}
       aria-checked={isActive}
-      aria-label={t("useMode", { mode: t(`modes.${mode}`) })}
       className={cn(
         "flex items-center gap-3 rounded-lg border bg-card p-4 text-start transition-colors",
         isActive
@@ -118,7 +116,10 @@ function ModeCard({
         {t(`modes.${mode}`)}
       </span>
       {isActive && (
-        <span className="inline-flex items-center gap-1 rounded-full bg-primary/15 px-2 py-0.5 text-xs font-medium text-primary">
+        <span
+          aria-hidden
+          className="inline-flex items-center gap-1 rounded-full bg-primary/15 px-2 py-0.5 text-xs font-medium text-primary"
+        >
           <Check className="h-3 w-3" />
           {t("active")}
         </span>
@@ -128,14 +129,12 @@ function ModeCard({
 }
 
 function ThemeCard({
-  id,
   name,
   tagline,
   swatch,
   isActive,
   onPick,
 }: {
-  id: ThemeId;
   name: string;
   tagline: string;
   swatch: string;
@@ -148,7 +147,6 @@ function ThemeCard({
       type="button"
       onClick={onPick}
       aria-pressed={isActive}
-      aria-label={t("useTheme", { name })}
       className={cn(
         "flex flex-col gap-3 rounded-lg border bg-card p-4 text-start transition-colors",
         isActive
@@ -166,7 +164,10 @@ function ThemeCard({
           }}
         />
         {isActive && (
-          <span className="inline-flex items-center gap-1 rounded-full bg-primary/15 px-2 py-0.5 text-xs font-medium text-primary">
+          <span
+            aria-hidden
+            className="inline-flex items-center gap-1 rounded-full bg-primary/15 px-2 py-0.5 text-xs font-medium text-primary"
+          >
             <Check className="h-3 w-3" />
             {t("active")}
           </span>
@@ -187,7 +188,6 @@ function ThemeCard({
         <span className="w-3 bg-muted" />
         <span className="w-3 bg-card" />
       </div>
-      <span className="sr-only">Theme id: {id}</span>
     </button>
   );
 }

@@ -7,6 +7,7 @@ import { chatTagChipStyle } from '@/lib/chat-tags/style';
 import {
   DndContext,
   DragOverlay,
+  KeyboardCode,
   KeyboardSensor,
   PointerSensor,
   useSensor,
@@ -92,8 +93,15 @@ export function PipelineBoard({
     // 5px activation distance avoids clicks being interpreted as drags.
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     // Keyboard drag support: focus a card, Space to pick up, arrows to move,
-    // Space to drop, Escape to cancel.
-    useSensor(KeyboardSensor)
+    // Space (or Enter) to drop, Escape to cancel. Enter does not pick up:
+    // the card is the button that opens the deal.
+    useSensor(KeyboardSensor, {
+      keyboardCodes: {
+        start: [KeyboardCode.Space],
+        cancel: [KeyboardCode.Esc],
+        end: [KeyboardCode.Space, KeyboardCode.Enter],
+      },
+    })
   );
 
   const activeDeal = activeDealId
@@ -253,9 +261,9 @@ function StageColumn({
         style={{ backgroundColor: stage.color }}
       />
       <div className="flex items-center justify-between pt-3">
-        <h3 className="text-foreground truncate text-sm font-semibold">
+        <h2 className="text-foreground truncate text-sm font-semibold">
           {stage.name}
-        </h3>
+        </h2>
         <span className="bg-muted text-muted-foreground shrink-0 rounded-full px-2 py-0.5 text-xs font-medium">
           {deals.length}
         </span>
@@ -336,10 +344,11 @@ function DraggableDealCard({
   onEdit: (deal: BoardDeal) => void;
   onMove: (dealId: string, newStageId: string) => void;
 }) {
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
-    id: deal.id,
-    disabled,
-  });
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, isDragging } =
+    useDraggable({
+      id: deal.id,
+      disabled,
+    });
 
   // Right-click: what a click does (open the deal), the drop a drag
   // does (gated the same way: none on a read-only board), and the
@@ -401,8 +410,6 @@ function DraggableDealCard({
         setNodeRef(el);
         cardRef.current = el;
       }}
-      {...listeners}
-      {...attributes}
       style={{ opacity: isDragging ? 0.3 : 1, touchAction: 'none' }}
     >
       <DealCard
@@ -411,6 +418,11 @@ function DraggableDealCard({
         members={members}
         onEdit={onEdit}
         score={score}
+        drag={
+          disabled
+            ? undefined
+            : { ref: setActivatorNodeRef, attributes, listeners }
+        }
       />
     </div>
   );

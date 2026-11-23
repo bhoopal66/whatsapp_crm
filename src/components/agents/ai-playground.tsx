@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import { Bot, RotateCcw, Send, Loader2, UserCircle2, ArrowRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -33,6 +34,7 @@ function describeHandoff(reason?: string | null, detail?: string | null) {
 }
 
 export function AiPlayground({ onGoToSetup }: { onGoToSetup?: () => void }) {
+  const tComposer = useTranslations('Inbox.composer');
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
@@ -206,6 +208,7 @@ export function AiPlayground({ onGoToSetup }: { onGoToSetup?: () => void }) {
         />
         <Button
           size="sm"
+          aria-label={tComposer('send')}
           onClick={send}
           disabled={!input.trim() || sending}
           className="h-9 w-9 shrink-0 p-0"

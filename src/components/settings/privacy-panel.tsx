@@ -450,7 +450,9 @@ function Retention() {
                     onCheckedChange={(v) => set({ on: v })}
                     aria-label={t(`retention.keys.${k}`)}
                   />
-                  <span className="min-w-56">{t(`retention.keys.${k}`)}</span>
+                  <span id={`retention-${k}`} className="min-w-56">
+                    {t(`retention.keys.${k}`)}
+                  </span>
                   <Input
                     className="w-24"
                     type="number"
@@ -465,6 +467,7 @@ function Retention() {
                   </span>
                   <select
                     className={FIELD}
+                    aria-labelledby={`retention-${k}`}
                     value={r.action}
                     disabled={!r.on || rule.actions.length < 2}
                     onChange={(e) =>
