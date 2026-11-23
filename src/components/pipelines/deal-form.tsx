@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { deleteRows, updateRow } from '@/lib/supabase/changed-rows';
 import { createClient } from '@/lib/supabase/client';
@@ -8,6 +8,13 @@ import { useAuth } from '@/hooks/use-auth';
 import { CURRENCIES } from '@/lib/currency';
 import { useCan } from '@/hooks/use-can';
 import { assignableOwners } from '@/lib/pipelines/owner';
+import {
+  dealFormDirty,
+  dealRow,
+  saveDealEdit,
+  shouldFillDealForm,
+  type DealInputs,
+} from '@/lib/pipelines/deal-edit';
 import { useDealPeople } from './use-deal-people';
 import { ContactPicker, type ContactOption } from './contact-picker';
 import { DealRoomLinks } from '@/components/deal-rooms/room-links';
@@ -88,45 +95,83 @@ export function DealForm({
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  // Reset the form fields every time the sheet opens or its input
-  // props change. This is a legitimate prop-driven sync; the rule is
-  // over-cautious here, hence the block-level disable.
+  const typed: DealInputs = {
+    title,
+    value,
+    currency,
+    contactId,
+    stageId,
+    assignedTo,
+    expectedCloseDate,
+    notes,
+  };
+  // What the form was filled with: an edit sends the difference.
+  const filled = useRef<DealInputs | null>(null);
+  // Which deal it was filled for; null while the sheet is closed.
+  const filledFor = useRef<string | null>(null);
+  const dirty = useRef(false);
+  // Runs before the fill below, so that reads this render's answer.
+  useEffect(() => {
+    dirty.current =
+      filled.current !== null && dealFormDirty(filled.current, typed);
+  });
+
+  // Fill the form when the sheet opens, and again when its input props
+  // change, but never over what the person has typed: a board refresh
+  // hands new `stages` to an open form. This is a legitimate prop-driven
+  // sync; the rule is over-cautious here, hence the block-level disable.
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
-    if (!open) return;
-    setConfirmDelete(false);
-    if (deal) {
-      setTitle(deal.title);
-      setValue(String(deal.value ?? ''));
-      setCurrency(deal.currency || defaultCurrency);
-      // contact_id is nullable when the contact has been deleted
-      // (migration 004: ON DELETE SET NULL). "" means "no selection".
-      setContactId(deal.contact_id ?? '');
-      setSelectedContact(
-        deal.contact_id && deal.contact
-          ? {
-              id: deal.contact.id,
-              name: deal.contact.name ?? null,
-              phone: deal.contact.phone,
-            }
-          : null
-      );
-      setStageId(deal.stage_id);
-      setAssignedTo(deal.assigned_to ?? '');
-      setExpectedCloseDate(deal.expected_close_date ?? '');
-      setNotes(deal.notes ?? '');
-    } else {
-      setTitle('');
-      setValue('');
-      setCurrency(defaultCurrency);
-      setContactId('');
-      setSelectedContact(null);
-      setStageId(defaultStageId || stages[0]?.id || '');
-      // A new deal is the creator's own unless they hand it on.
-      setAssignedTo(myProfileId);
-      setExpectedCloseDate('');
-      setNotes('');
+    if (!open) {
+      filledFor.current = null;
+      return;
     }
+    const showing = deal?.id ?? 'new';
+    if (!shouldFillDealForm(filledFor.current, showing, dirty.current)) return;
+    setConfirmDelete(false);
+    const next: DealInputs = deal
+      ? {
+          title: deal.title,
+          value: String(deal.value ?? ''),
+          currency: deal.currency || defaultCurrency,
+          // contact_id is nullable when the contact has been deleted
+          // (migration 004: ON DELETE SET NULL). "" means "no selection".
+          contactId: deal.contact_id ?? '',
+          stageId: deal.stage_id,
+          assignedTo: deal.assigned_to ?? '',
+          expectedCloseDate: deal.expected_close_date ?? '',
+          notes: deal.notes ?? '',
+        }
+      : {
+          title: '',
+          value: '',
+          currency: defaultCurrency,
+          contactId: '',
+          stageId: defaultStageId || stages[0]?.id || '',
+          // A new deal is the creator's own unless they hand it on.
+          assignedTo: myProfileId,
+          expectedCloseDate: '',
+          notes: '',
+        };
+    filled.current = next;
+    filledFor.current = showing;
+    setTitle(next.title);
+    setValue(next.value);
+    setCurrency(next.currency);
+    setContactId(next.contactId);
+    setSelectedContact(
+      deal?.contact_id && deal.contact
+        ? {
+            id: deal.contact.id,
+            name: deal.contact.name ?? null,
+            phone: deal.contact.phone,
+          }
+        : null
+    );
+    setStageId(next.stageId);
+    setAssignedTo(next.assignedTo);
+    setExpectedCloseDate(next.expectedCloseDate);
+    setNotes(next.notes);
   }, [open, deal, defaultStageId, stages, defaultCurrency, myProfileId]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
@@ -164,20 +209,19 @@ export function DealForm({
     }
     setSaving(true);
 
-    const payload = {
-      title: title.trim(),
-      value: parseFloat(value) || 0,
-      currency,
-      contact_id: contactId,
-      pipeline_id: pipelineId,
-      stage_id: stageId,
-      assigned_to: assignedTo || null,
-      notes: notes.trim() || null,
-      expected_close_date: expectedCloseDate || null,
-    };
-
     if (deal) {
-      const res = await updateRow(supabase, 'deals', deal.id, payload);
+      const res = await saveDealEdit(
+        supabase,
+        deal.id,
+        filled.current ?? typed,
+        typed,
+        pipelineId
+      );
+      if (res.kind === 'unchanged') {
+        setSaving(false);
+        onOpenChange(false);
+        return;
+      }
       if (res.kind !== 'changed') {
         toast.error(
           t(res.kind === 'none' ? 'toastNotSaved' : 'toastFailedSave')
@@ -201,7 +245,7 @@ export function DealForm({
         return;
       }
       const { error } = await supabase.from('deals').insert({
-        ...payload,
+        ...dealRow(typed, pipelineId),
         user_id: user.id,
         account_id: accountId,
         status: 'open',
@@ -308,7 +352,7 @@ export function DealForm({
               <div className="grid gap-2">
                 <Label className="text-muted-foreground">{t('value')}</Label>
                 <div className="relative">
-                  <DollarSign className="text-muted-foreground absolute top-1/2 start-2 h-3.5 w-3.5 -translate-y-1/2" />
+                  <DollarSign className="text-muted-foreground absolute start-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2" />
                   <Input
                     type="number"
                     value={value}
