@@ -75,6 +75,24 @@ No migration.
   one, is reported as "may have gone through" instead of hanging or
   returning nothing. `Retry-After` is passed on for 503 as well as 429.
 
+### Importing
+
+No migration.
+- Arabic names in a CSV saved by an Arabic Excel ("CSV (Comma delimited)",
+  Windows-1256) or as Unicode (UTF-16) are read; they were imported, and sent
+  to customers, as "????". A file whose letters are already lost is refused,
+  with what to save it as. Contacts import, broadcast lists and AI knowledge
+  files.
+- The contacts import takes an Excel file (.xlsx, first sheet) as well as CSV,
+  with the same preview.
+- Dates and percentages in an Excel file are read as the sheet shows them
+  (`15/12/2026`, `7.25%`), not as Excel stores them (`46371`, `0.0725`): a
+  broadcast sent the stored number. Phone numbers stay plain digits. Also in
+  the approved answers import.
+- The contacts import no longer duplicates a customer already saved in local
+  form (`050...`, `50...`, `9710...`, `00971...`): it counts as already there
+  and is listed as "Already a customer (saved as ...)" in the preview.
+
 ### Calendar
 
 **Migration required: 278** (`278_calendar_meeting_bells.sql`). Apply it

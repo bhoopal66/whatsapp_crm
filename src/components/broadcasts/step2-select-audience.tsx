@@ -3,12 +3,12 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
+import type { ParsedContactRow } from '@/lib/contacts/parse-contact-csv';
 import {
-  parseContactTable,
-  readContactCsv,
-  type ParsedContactRow,
-} from '@/lib/contacts/parse-contact-csv';
-import { readXlsxTable, XlsxLimitError } from '@/lib/contacts/read-xlsx';
+  CONTACT_FILE_ACCEPT,
+  contactFileProblem,
+  readContactFile,
+} from '@/lib/contacts/read-contact-file';
 import {
   partitionRowsByPhone,
   summarizeRejectedPhones,
@@ -461,22 +461,9 @@ export function Step2SelectAudience({
       setCsvError(message);
       onUpdate({ ...audience, csvContacts: undefined, csvColumns: undefined });
     };
-    const lowerName = file.name.toLowerCase();
-    if (lowerName.endsWith('.xls')) {
-      // The pre-2007 binary format: not a ZIP of XML, so not readable here.
-      fail(t('selectAudience.errorXls'));
-      return;
-    }
     try {
       const { rows, columns, phoneColumn, skippedNoPhone, badLines } =
-        lowerName.endsWith('.xlsx')
-          ? {
-              ...parseContactTable(
-                await readXlsxTable(new Uint8Array(await file.arrayBuffer()))
-              ),
-              badLines: [],
-            }
-          : readContactCsv(await file.text());
+        await readContactFile(file);
       if (phoneColumn === null) {
         fail(t('selectAudience.errorCsvMissingPhone'));
         return;
@@ -486,11 +473,8 @@ export function Step2SelectAudience({
       setCsvFileName(file.name);
       applyCsvRows(parsed, false);
     } catch (err) {
-      fail(
-        err instanceof XlsxLimitError
-          ? t('selectAudience.errorXlsxLimit', { reason: err.message })
-          : t('selectAudience.errorCsvParse')
-      );
+      const { key, reason } = contactFileProblem(err);
+      fail(t(`selectAudience.${key}`, { reason }));
     }
   }
 
@@ -831,7 +815,7 @@ export function Step2SelectAudience({
           <input
             ref={csvInputRef}
             type="file"
-            accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            accept={CONTACT_FILE_ACCEPT}
             className="hidden"
             onChange={(e) => {
               void handleCsvFile(e.target.files?.[0]);

@@ -57,3 +57,26 @@ export function phonesMatch(phone1: string, phone2: string): boolean {
     ? n1.slice(-8) === n2.slice(-8)
     : withoutTrunkZero(n1) === withoutTrunkZero(n2);
 }
+
+/**
+ * The ways a number may already be stored, for a look-up by exact
+ * `phone_normalized`. A 971 number may sit with a trunk 0, without its
+ * country code, or typed with "00"; the same `phonesMatch` that inbound
+ * matching uses keeps only the forms that are this line. Any other
+ * country gives its exact form: a local "05..." could as well be Saudi.
+ */
+export function storedForms(normalized: string): string[] {
+  if (!normalized.startsWith('971')) return [normalized];
+  const rest = normalized.slice(3);
+  const forms = [
+    normalized,
+    rest,
+    `0${rest}`,
+    `9710${rest}`,
+    `00971${rest}`,
+    `009710${rest}`,
+  ];
+  return [...new Set(forms)].filter(
+    (form) => form === normalized || phonesMatch(form, normalized)
+  );
+}
