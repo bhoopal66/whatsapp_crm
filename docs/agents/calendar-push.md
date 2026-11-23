@@ -28,6 +28,10 @@
   (`meta.offset`); the alarm card is `components/reminders/reminder-alarm.tsx`
   on `lib/reminders/alarm.ts`. Every push of one task carries tag
   `task:<id>` so a later ring replaces the last. `docs/calendar.md`.
+- **Late rings (268).** Tasks ring up to 12 h late, events and meetings
+  30 min and not after their end; a heads-up, event or meeting past its
+  first 5 minutes only if it was set before its time. The sweep and
+  `reminders.ts` state the same rules: change both.
 - **117** makes two meeting FKs `DEFERRABLE INITIALLY DEFERRED`, because
   a same-transaction insert-then-cascade-delete failed after a
   `pg_dump` restore. The migration explains why no other FK was

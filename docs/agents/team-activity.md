@@ -62,6 +62,9 @@ identical openers in first messages, failures, response times.
   bot are unchecked. It **fails open** on any error. Agents read `/my-activity`
   (206). Apply 204, 205, 206 before the build. `docs/team-activity.md`;
   `verify-team-activity-enforcement.sql`.
+- **Personal numbers (268).** `personal_owner_id` chats and `is_personal`
+  numbers are out of starts, report, drill-down and (through starts)
+  alerts; a new read of messages here needs the same two filters.
 - **Bell alerts.** `team_activity_alert_sweep()` (service role, at most
   every 5 minutes from the automation cron) dedups through
   `team_activity_alerts`. It skips any account whose limits were never

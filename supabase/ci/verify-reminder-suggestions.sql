@@ -339,21 +339,21 @@ BEGIN
 
   -- ---------- 10. The due-now window's edges ----------
   -- (After section 9: these rings queue pushes with their own tags.)
-  -- The window closes 5 minutes after due_at: a first sweep exactly then
-  -- rings nothing.
+  -- The window closes 12 hours after due_at (268; it was 5 minutes): a
+  -- first sweep exactly then rings nothing.
   INSERT INTO tasks (account_id, kind, title, assigned_to, created_by, due_at)
   VALUES (a_acct, 'follow_up', 'RS edge', u_ag1, u_own, t0 + interval '3 hours') RETURNING id INTO t_edge;
-  r := pg_temp.rs_try('service_role', NULL, format('SELECT calendar_reminder_sweep(%L)::text', t0 + interval '3 hours 5 minutes'));
+  r := pg_temp.rs_try('service_role', NULL, format('SELECT calendar_reminder_sweep(%L)::text', t0 + interval '15 hours'));
   n := n + 1;
   IF EXISTS (SELECT 1 FROM notifications WHERE type = 'task_due' AND meta->>'task_id' = t_edge::text) THEN
-    failed := array_append(failed, ('a first sweep 5 minutes after due_at still rang: ' || r)::text);
+    failed := array_append(failed, ('a first sweep 12 hours after due_at still rang: ' || r)::text);
   END IF;
   -- A task set under 10 minutes ahead misses the heads-up window and
   -- rings exactly once, when due.
   INSERT INTO tasks (account_id, kind, title, assigned_to, created_by, due_at)
-  VALUES (a_acct, 'follow_up', 'RS late', u_ag1, u_own, t0 + interval '5 hours') RETURNING id INTO t_late;
-  r := pg_temp.rs_try('service_role', NULL, format('SELECT calendar_reminder_sweep(%L)::text', t0 + interval '5 hours' - interval '5 minutes'));
-  r := pg_temp.rs_try('service_role', NULL, format('SELECT calendar_reminder_sweep(%L)::text', t0 + interval '5 hours 1 minute'));
+  VALUES (a_acct, 'follow_up', 'RS late', u_ag1, u_own, now() + interval '5 minutes') RETURNING id INTO t_late;
+  r := pg_temp.rs_try('service_role', NULL, format('SELECT calendar_reminder_sweep(%L)::text', now()));
+  r := pg_temp.rs_try('service_role', NULL, format('SELECT calendar_reminder_sweep(%L)::text', now() + interval '6 minutes'));
   n := n + 1;
   IF (SELECT count(*) FROM notifications WHERE type = 'task_due' AND meta->>'task_id' = t_late::text) <> 1
      OR NOT EXISTS (SELECT 1 FROM notifications WHERE type = 'task_due' AND meta->>'task_id' = t_late::text

@@ -1361,3 +1361,11 @@ jobs:
       # message is unread but not the chat's preview.
       - name: Verify guards
         run: supabase db query --local --file supabase/ci/verify-guards.sql
+
+      # Migration 268: a reminder the sweep missed rings late (tasks 12 h,
+      # events and meetings 30 min, not after the end), once; no push for
+      # a task that is done or handed on; personal chats and numbers are
+      # out of team activity and the dashboard; a bot's answer is nobody's
+      # response time.
+      - name: Verify reminders and numbers
+        run: supabase db query --local --file supabase/ci/verify-reminders-and-numbers.sql
