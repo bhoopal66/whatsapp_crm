@@ -302,7 +302,7 @@ export function EventDialog({
           id="event-all-day"
           checked={values.allDay}
           onCheckedChange={(on) =>
-            setValues((v) => (v ? withAllDay(v, on) : v))
+            setValues((v) => (v ? withAllDay(v, on, editing) : v))
           }
         />
       </div>

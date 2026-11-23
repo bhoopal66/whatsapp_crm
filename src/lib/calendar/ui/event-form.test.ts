@@ -229,5 +229,8 @@ describe('all-day reminders', () => {
       []
     );
     expect(saved.reminders).toEqual([10]);
+    const off = withAllDay(saved, false, true);
+    expect(off.reminders).toEqual([10]);
+    expect(withAllDay(off, true, true).reminders).toEqual([10]);
   });
 });

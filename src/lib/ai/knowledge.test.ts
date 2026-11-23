@@ -343,6 +343,23 @@ describe('retrieveKnowledgeScored: a failed search says so', () => {
     expect((await ask(broken)).failed).toBe(true);
   });
 
+  it('a full-text failure, when nothing else was found', async () => {
+    const { db } = makeDb();
+    const rpc =
+      (semantic: unknown[]) =>
+      async (name: string) =>
+        name === 'match_ai_knowledge_fts'
+          ? { data: null, error: { message: 'timeout' } }
+          : { data: semantic, error: null };
+    const alone = Object.assign({}, db, { rpc: rpc([]) }) as typeof db;
+    expect((await ask(alone, null)).failed).toBe(true);
+    const topUp = Object.assign({}, db, {
+      rpc: rpc([{ id: 's', content: 'found', distance: 0.1 }]),
+    }) as typeof db;
+    h.embedTexts.mockResolvedValueOnce([[0.1]]);
+    expect((await ask(topUp)).failed).toBeUndefined();
+  });
+
   it('not without a key, nor when the search worked', async () => {
     expect((await ask(makeDb().db, null)).failed).toBeUndefined();
     expect((await ask(makeDb().db)).failed).toBeUndefined();
@@ -377,12 +394,12 @@ describe('ingestDocument: replacing the chunks', () => {
     expect(steps).toEqual(['embed', 'delete', 'insert']);
   });
 
-  it.each(['delete', 'insert'] as const)(
-    'a failed %s says the document is not indexed',
-    async (fail) => {
-      const err = await run(chunksDb(fail).db).catch((e: unknown) => e);
-      expect(ingestWarning('Saved', err)).toContain('is not indexed');
-      expect(ingestWarning('Saved', err)).not.toContain('still works');
-    }
-  );
+  it.each([
+    ['delete', 'still answers from it'],
+    ['insert', 'is not indexed'],
+  ] as const)('a failed %s says what the AI has now', async (fail, words) => {
+    const err = await run(chunksDb(fail).db).catch((e: unknown) => e);
+    expect(ingestWarning('Saved', err)).toContain(words);
+    expect(ingestWarning('Saved', err)).not.toContain('still works');
+  });
 });

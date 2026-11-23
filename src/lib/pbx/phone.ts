@@ -27,14 +27,15 @@ export function latinDigits(text: string): string {
  * A typed number search as the digits to find inside a stored number
  * (international, no "+"): a leading `00`, then one leading `0`, is how
  * a number is dialled, not part of what is stored. '' for only those
- * zeros: the empty search. (Contact search, 193, drops every leading
- * zero in SQL; the same numbers are found.)
+ * zeros: the empty search. When fewer than two digits would be left the
+ * zeros stay (`001` is not a search for every 1). (Contact search, 193,
+ * drops every leading zero in SQL.)
  */
 export function numberSearchTerm(typed: string): string {
-  return latinDigits(typed)
-    .replace(/\D/g, '')
-    .replace(/^00/, '')
-    .replace(/^0/, '');
+  const digits = latinDigits(typed).replace(/\D/g, '');
+  if (/^0{0,2}$/.test(digits)) return '';
+  const bare = digits.replace(/^00/, '').replace(/^0/, '');
+  return bare.length >= 2 ? bare : digits;
 }
 
 /**

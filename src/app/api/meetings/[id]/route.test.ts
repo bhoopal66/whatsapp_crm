@@ -147,11 +147,13 @@ describe('PATCH /api/meetings/[id]', () => {
     });
   });
 
-  it('updates the meeting first, then removes, then adds', async () => {
+  // Removed first, so the trigger of 278 does not ring them; added last, so
+  // they are invited to the time the meeting now has.
+  it('removes, then updates the meeting, then adds', async () => {
     expect(
       (await patch({ title: 'Renamed', inviteeUserIds: [NEW] })).status
     ).toBe(200);
-    expect(mocks.writes.slice(0, 3)).toEqual(['update', 'delete', 'insert']);
+    expect(mocks.writes.slice(0, 3)).toEqual(['delete', 'update', 'insert']);
   });
 
   it('answers saved: true when an invitee is refused after the meeting changed', async () => {
@@ -162,7 +164,7 @@ describe('PATCH /api/meetings/[id]', () => {
       error: 'Only a live staff member',
       saved: true,
     });
-    expect(mocks.writes.slice(0, 3)).toEqual(['update', 'delete', 'insert']);
+    expect(mocks.writes.slice(0, 3)).toEqual(['delete', 'update', 'insert']);
   });
 
   it('writes nothing and omits saved when only a refused add was asked', async () => {

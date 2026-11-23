@@ -208,16 +208,20 @@ export function formFromEvent(
 /** Switch all-day on or off, keeping the dates. */
 export function withAllDay(
   v: EventFormValues,
-  allDay: boolean
+  allDay: boolean,
+  /** A saved event keeps the reminders it was saved with. */
+  saved = false
 ): EventFormValues {
   if (v.allDay === allDay) return v;
   // The default reminder follows the switch only while it is untouched.
-  const reminders = sameReminders(
-    v.reminders,
-    allDay ? DEFAULT_REMINDERS : ALL_DAY_DEFAULT_REMINDERS
-  )
-    ? [...(allDay ? ALL_DAY_DEFAULT_REMINDERS : DEFAULT_REMINDERS)]
-    : v.reminders;
+  const reminders =
+    !saved &&
+    sameReminders(
+      v.reminders,
+      allDay ? DEFAULT_REMINDERS : ALL_DAY_DEFAULT_REMINDERS
+    )
+      ? [...(allDay ? ALL_DAY_DEFAULT_REMINDERS : DEFAULT_REMINDERS)]
+      : v.reminders;
   if (allDay) return { ...v, allDay, reminders };
   // A timed event on the last day: same day, an hour long.
   return {

@@ -19,7 +19,9 @@
 -- calendar_cancel_occurrence) are patched from their live body, as 274
 -- does. Restated whole: meeting_invitees_notify (from 106),
 -- calendar_events_notify and calendar_event_attendees_notify (from 108).
--- Re-applying 106 or 108 brings the old bodies back: apply 278 again.
+-- Re-applying 106 or 108 brings the old bodies back: apply 278 again (on a
+-- live database neither can be re-run whole: their shorter type list no
+-- longer fits the rows). Apply with ON_ERROR_STOP, over one direct session.
 --
 -- Re-runnable. Writes no rows, so nothing rings while it is applied.
 
@@ -436,8 +438,9 @@ DECLARE
   v_body text;
 BEGIN
   IF NEW.status = 'cancelled' THEN
-    -- One that is over is being tidied up.
-    IF NEW.scheduled_end <= now() THEN
+    -- One that is over is being tidied up. With no end it lasts an hour,
+    -- as the calendar shows it; an instant meeting has no start either.
+    IF coalesce(NEW.scheduled_end, NEW.scheduled_start + interval '1 hour') <= now() THEN
       RETURN NULL;
     END IF;
     v_type := 'meeting_cancelled';

@@ -1400,7 +1400,8 @@ export async function processMessage(
   // A keyword_match automation that acted on this message wins: a
   // meaning trigger would otherwise answer the same text a second time.
   let keywordActed = false;
-  // And a meaning trigger that acted wins over the AI reply below.
+  // And a meaning trigger that answered the customer wins over the AI
+  // reply below.
   let meaningActed = false;
   for (const triggerType of automationTriggers) {
     if (triggerType === 'intent_match' && keywordActed) continue;

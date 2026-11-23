@@ -15,6 +15,7 @@ DECLARE
   a_acct UUID;
   m      UUID;
   m2     UUID;
+  m3     UUID;
   e      UUID;
   s      UUID;
   ts     TIMESTAMPTZ;
@@ -110,6 +111,14 @@ BEGIN
   INSERT INTO meeting_invitees (meeting_id, user_id, account_id) VALUES (m, u_att, a_acct);
   UPDATE meetings SET status = 'ended' WHERE id = m;
   UPDATE meetings SET scheduled_start = tmr + interval '1 day' WHERE id = m;
+  -- With no end, one that started over an hour ago is over too.
+  INSERT INTO meetings (account_id, host_user_id, title, scheduled_start) VALUES (a_acct, u_crt, 'CMB no end', now() - interval '2 hours') RETURNING id INTO m3;
+  INSERT INTO meeting_invitees (meeting_id, user_id, account_id) VALUES (m3, u_att, a_acct);
+  UPDATE meetings SET status = 'cancelled' WHERE id = m3;
+  n := n + 1;
+  IF pg_temp.cmb_rung('meeting_cancelled', 'meeting_id', m3) <> '' THEN
+    failed := array_append(failed, '1: cancelling a past meeting with no end rang'::text);
+  END IF;
   n := n + 1;
   IF pg_temp.cmb_rung('meeting_update', 'meeting_id', m2) || pg_temp.cmb_rung('meeting_cancelled', 'meeting_id', m2)
      || pg_temp.cmb_rung('meeting_update', 'meeting_id', m) || pg_temp.cmb_rung('meeting_cancelled', 'meeting_id', m) <> '' THEN

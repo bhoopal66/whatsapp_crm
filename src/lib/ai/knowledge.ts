@@ -59,7 +59,7 @@ export async function ingestDocument(
     .from('ai_knowledge_chunks')
     .delete()
     .eq('document_id', documentId);
-  if (delErr) throw new KnowledgeIndexError(delErr.message);
+  if (delErr) throw new KnowledgeIndexError(delErr.message, true);
 
   if (chunks.length === 0) return;
 
@@ -102,8 +102,9 @@ export interface KnowledgeRetrieval {
    *  so callers can tell "nothing relevant" from "nothing to search". */
   hasKnowledgeBase: boolean;
   /** The knowledge base could not be searched properly: the count failed,
-   *  or the semantic search did with an embeddings key configured. What
-   *  was found then proves nothing about what is there. */
+   *  the semantic search did with an embeddings key configured, or the
+   *  full-text search did with nothing else found. What was found then
+   *  proves nothing about what is there. */
   failed?: boolean;
 }
 
@@ -222,6 +223,11 @@ export async function retrieveKnowledgeScored(
         p_query: query,
         p_match_count: k,
       });
+      if (error) {
+        // Alone, or after a search that found nothing.
+        if (picked.size === 0) failed = true;
+        console.error('[ai knowledge] lexical search failed:', error);
+      }
       if (!error && Array.isArray(data)) {
         for (const row of data as MatchRow[]) {
           if (picked.size >= k) break;
@@ -235,6 +241,7 @@ export async function retrieveKnowledgeScored(
         }
       }
     } catch (err) {
+      if (picked.size === 0) failed = true;
       console.error('[ai knowledge] lexical retrieval failed:', err);
     }
   }
