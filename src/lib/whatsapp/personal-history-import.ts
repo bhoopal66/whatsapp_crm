@@ -609,7 +609,11 @@ async function importChat(
         phone,
         chat.name || phone,
         { rename: false }
-      );
+      ).catch((err) => {
+        // The database's fault, not this chat's: without StopTick the
+        // chat would be marked failed for good.
+        throw new StopTick(`contact lookup: ${errorText(err)}`);
+      });
       if (!contact) throw new StopTick(`contact for ${chat.chat_id}`);
       const conv = await findOrCreatePersonalChat(
         admin,

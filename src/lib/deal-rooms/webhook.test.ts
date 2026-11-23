@@ -34,6 +34,21 @@ vi.mock('@/lib/whatsapp/meta-api', () => ({
   MetaError: class extends Error {},
 }));
 vi.mock('@/lib/ai/opt-out', () => ({ markOptedOut }));
+const { lookupFailure } = vi.hoisted(() => ({
+  lookupFailure: { current: null as Error | null },
+}));
+vi.mock('@/lib/contacts/dedupe', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/lib/contacts/dedupe')>();
+  return {
+    ...real,
+    findExistingContact: async (
+      ...args: Parameters<typeof real.findExistingContact>
+    ) => {
+      if (lookupFailure.current) throw lookupFailure.current;
+      return real.findExistingContact(...args);
+    },
+  };
+});
 const { sendRoomInvites } = vi.hoisted(() => ({
   sendRoomInvites: vi.fn(async () => ({})),
 }));
@@ -777,6 +792,31 @@ describe('group messages and receipts', () => {
       accountId: 'acct-1',
       contactId: 'contact-local',
     });
+  });
+
+  it('still removes a STOP sender when the contact lookup fails', async () => {
+    const { db } = fakeDb({
+      tables: { deal_rooms: ROOM, deal_room_participants: null, contacts: [] },
+    });
+    lookupFailure.current = new Error('Contact lookup failed');
+    try {
+      await run(db, {
+        messages: [
+          {
+            id: 'wamid.12',
+            from: '971501234567',
+            group_id: GROUP,
+            type: 'text',
+            text: { body: 'STOP' },
+          },
+        ],
+      });
+    } finally {
+      lookupFailure.current = null;
+    }
+    expect(removeParticipants).toHaveBeenCalledWith(
+      expect.objectContaining({ participants: ['971501234567'] })
+    );
   });
 
   it('says in the transcript when removing a STOP sender failed', async () => {

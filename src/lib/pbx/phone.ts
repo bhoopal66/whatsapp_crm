@@ -53,7 +53,7 @@ export function normalizeRemoteNumber(
 /**
  * The values to look a contact up by, exact form first: the number plus
  * the trunk-0 variants `phoneVariants` already retries sends with. A
- * miss on all of them falls back to the last-8-digit `phonesMatch`, as
+ * miss on all of them falls back to `phonesMatch`, as
  * `findExistingContact` does.
  */
 export function contactPhoneCandidates(normalized: string): string[] {
