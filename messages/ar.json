@@ -7433,7 +7433,8 @@
         "invalidDateTime": "هذا التاريخ والوقت غير موجودين في هذه المنطقة الزمنية.",
         "durationInvalid": "اختر مدة.",
         "startInPast": "هذا الوقت قد مضى بالفعل.",
-        "saveFailed": "تعذّر حفظ الاجتماع."
+        "saveFailed": "تعذّر حفظ الاجتماع.",
+        "savedPartly": "تم حفظ الاجتماع، لكن لم يتم تحديث جميع المدعوين. راجع القائمة وحاول مرة أخرى."
       },
       "durationCustom": "مدة مخصصة بالدقائق",
       "minutesUnit": "د",
@@ -8300,7 +8301,10 @@
       "atStart": "عند البدء",
       "minutes": "{count, plural, =1 {دقيقة واحدة} other {# دقائق}}",
       "hours": "{count, plural, =1 {ساعة واحدة} other {# ساعات}}",
-      "days": "{count, plural, =1 {يوم واحد} other {# أيام}}"
+      "days": "{count, plural, =1 {يوم واحد} other {# أيام}}",
+      "atMidnight": "عند منتصف الليل",
+      "dayBefore": "{time} في اليوم السابق",
+      "daysBefore": "{time}، قبل {count} أيام"
     },
     "repeat": {
       "daily": "{interval, plural, =1 {كل يوم} other {كل # أيام}}",

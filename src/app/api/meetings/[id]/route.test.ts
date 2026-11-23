@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// PATCH writes the invitee change before the meeting itself, so a
-// refused invitee (23514: not a live staff member) leaves the title and
-// the current invitee list untouched. A PATCH that takes access away
+// PATCH updates the meeting before the invitees, so a person added in the
+// same save is invited to the new time; an invitee refused afterwards (23514:
+// not a live staff member) answers `saved: true`. A PATCH that takes access away
 // closes and cuts the seats of the people who lost it (M1), and an RPC
 // failure is a 503, not a 403/404. Only the host edits (PATCH); an
 // admin who is not the host is refused.
@@ -147,19 +147,47 @@ describe('PATCH /api/meetings/[id]', () => {
     });
   });
 
-  it('adds, then removes, then updates the meeting', async () => {
+  it('updates the meeting first, then removes, then adds', async () => {
     expect(
       (await patch({ title: 'Renamed', inviteeUserIds: [NEW] })).status
     ).toBe(200);
-    expect(mocks.writes.slice(0, 3)).toEqual(['insert', 'delete', 'update']);
+    expect(mocks.writes.slice(0, 3)).toEqual(['update', 'delete', 'insert']);
   });
 
-  it('changes nothing else when an invitee is refused', async () => {
+  it('answers saved: true when an invitee is refused after the meeting changed', async () => {
     mocks.insertError = { code: '23514', message: 'Only a live staff member' };
-    expect(
-      (await patch({ title: 'Renamed', inviteeUserIds: [NEW] })).status
-    ).toBe(400);
+    const res = await patch({ title: 'Renamed', inviteeUserIds: [NEW] });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: 'Only a live staff member',
+      saved: true,
+    });
+    expect(mocks.writes.slice(0, 3)).toEqual(['update', 'delete', 'insert']);
+  });
+
+  it('writes nothing and omits saved when only a refused add was asked', async () => {
+    mocks.insertError = { code: '23514', message: 'Only a live staff member' };
+    mocks.profiles = [];
+    const res = await patch({ inviteeUserIds: [OLD, NEW] });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'Only a live staff member' });
     expect(mocks.writes).toEqual(['insert']);
+  });
+
+  it('still evicts the people already removed when the add fails', async () => {
+    mocks.insertError = { code: '23514', message: 'Only a live staff member' };
+    mocks.seats = [seat(OLD), seat(HOST)];
+    const res = await patch({ inviteeUserIds: [NEW] });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ saved: true });
+    expect(mocks.writes).toEqual([
+      'delete',
+      'insert',
+      'read seats',
+      'close seats',
+      'cut',
+    ]);
+    expect(mocks.cutSeats).toHaveBeenCalledWith([seat(OLD)]);
   });
 
   it('closes and cuts a removed invitee’s seat, keeping host, invitees and admins', async () => {
@@ -171,8 +199,8 @@ describe('PATCH /api/meetings/[id]', () => {
     ];
     expect((await patch({ inviteeUserIds: [NEW] })).status).toBe(200);
     expect(mocks.writes).toEqual([
-      'insert',
       'delete',
+      'insert',
       'read seats',
       'close seats',
       'cut',

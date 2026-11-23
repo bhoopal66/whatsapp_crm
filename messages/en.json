@@ -7433,7 +7433,8 @@
         "invalidDateTime": "That date and time don't exist in this time zone.",
         "durationInvalid": "Pick a duration.",
         "startInPast": "That time has already passed.",
-        "saveFailed": "Couldn't save the meeting."
+        "saveFailed": "Couldn't save the meeting.",
+        "savedPartly": "The meeting was saved, but the invited people were not all updated. Check the list and try again."
       },
       "durationCustom": "Custom duration in minutes",
       "minutesUnit": "min",
@@ -8300,7 +8301,10 @@
       "atStart": "At start",
       "minutes": "{count, plural, =1 {1 minute} other {# minutes}}",
       "hours": "{count, plural, =1 {1 hour} other {# hours}}",
-      "days": "{count, plural, =1 {1 day} other {# days}}"
+      "days": "{count, plural, =1 {1 day} other {# days}}",
+      "atMidnight": "At midnight",
+      "dayBefore": "{time} the day before",
+      "daysBefore": "{time}, {count} days before"
     },
     "repeat": {
       "daily": "{interval, plural, =1 {Every day} other {Every # days}}",

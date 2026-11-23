@@ -8,8 +8,10 @@ import {
 } from './drag';
 import { descriptionParts, popoverActions } from './popover-rules';
 import {
+  ALL_DAY_REMINDER_PRESETS,
   parseCustomReminder,
   reminderLabel,
+  reminderPresets,
   toggleReminder,
 } from './reminder-chips';
 import { aMeeting, anEvent, aTask } from './test-items';
@@ -133,6 +135,37 @@ describe('reminder chips', () => {
     expect(reminderLabel(120)).toEqual({ key: 'hours', count: 2 });
     expect(reminderLabel(2880)).toEqual({ key: 'days', count: 2 });
     expect(reminderLabel(45)).toEqual({ key: 'minutes', count: 45 });
+  });
+
+  it('labels all-day reminders as times before midnight', () => {
+    expect(reminderLabel(900, true)).toEqual({
+      key: 'dayBefore',
+      count: 1,
+      time: '9:00',
+    });
+    expect(reminderLabel(360, true)).toEqual({
+      key: 'dayBefore',
+      count: 1,
+      time: '18:00',
+    });
+    expect(reminderLabel(0, true).key).toBe('atMidnight');
+    // A saved timed-style value still reads sensibly: 10 min before midnight.
+    expect(reminderLabel(10, true)).toEqual({
+      key: 'dayBefore',
+      count: 1,
+      time: '23:50',
+    });
+    expect(reminderLabel(2340, true)).toEqual({
+      key: 'daysBefore',
+      count: 2,
+      time: '9:00',
+    });
+  });
+
+  it('offers midnight, 18:00 and 09:00 for an all-day event', () => {
+    expect(reminderPresets(true)).toEqual([0, 360, 900]);
+    expect(ALL_DAY_REMINDER_PRESETS).not.toContain(10);
+    expect(reminderPresets(false)).toContain(10);
   });
 });
 

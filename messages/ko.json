@@ -7433,7 +7433,8 @@
         "invalidDateTime": "이 시간대에 존재하지 않는 날짜와 시간입니다.",
         "durationInvalid": "회의 시간을 선택하세요.",
         "startInPast": "이미 지난 시간입니다.",
-        "saveFailed": "회의를 저장하지 못했습니다."
+        "saveFailed": "회의를 저장하지 못했습니다.",
+        "savedPartly": "회의는 저장되었지만 초대한 사람들이 모두 업데이트되지는 않았습니다. 목록을 확인하고 다시 시도해 주세요."
       },
       "durationCustom": "직접 입력한 회의 시간(분)",
       "minutesUnit": "분",
@@ -8300,7 +8301,10 @@
       "atStart": "시작 시",
       "minutes": "{count}분",
       "hours": "{count}시간",
-      "days": "{count}일"
+      "days": "{count}일",
+      "atMidnight": "자정",
+      "dayBefore": "전날 {time}",
+      "daysBefore": "{count}일 전 {time}"
     },
     "repeat": {
       "daily": "{interval, plural, =1 {매일} other {#일마다}}",
