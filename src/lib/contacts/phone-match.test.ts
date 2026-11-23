@@ -8,8 +8,8 @@ describe('phonesMatch', () => {
 
   it.each([
     ['370063949836', '37063949836'],
-    ['+971 050 455 5843', '971504555843'],
-    ['00971 50 455 5843', '971504555843'],
+    ['+971 050 123 0043', '971501230043'],
+    ['00971 50 123 0043', '971501230043'],
     ['+44 (0)7700 900123', '447700900123'],
     // Fits no plan, so only the trunk 0 itself can be compared.
     ['9710123456789012', '971123456789012'],
@@ -25,7 +25,7 @@ describe('phonesMatch', () => {
     // Italy: the 0 belongs to the number.
     ['+39 06 1234 5678', '39612345678'],
     // Not a trunk 0: it sits inside the country code.
-    ['9071504555843', '971504555843'],
+    ['9071501230043', '971501230043'],
   ])('keeps two international numbers apart: %s / %s', (a, b) => {
     expect(phonesMatch(a, b)).toBe(false);
     expect(phonesMatch(b, a)).toBe(false);
@@ -43,8 +43,8 @@ describe('phonesMatch', () => {
   });
 
   it('compares a number without its country code by its last 8 digits', () => {
-    expect(phonesMatch('050 455 5843', '971504555843')).toBe(true);
-    expect(phonesMatch('50 455 5843', '971504555843')).toBe(true);
+    expect(phonesMatch('050 123 0043', '971501230043')).toBe(true);
+    expect(phonesMatch('50 123 0043', '971501230043')).toBe(true);
     expect(phonesMatch('98765 43210', '919876543210')).toBe(true);
   });
 
@@ -55,11 +55,11 @@ describe('phonesMatch', () => {
 });
 
 describe('isLocalPhone', () => {
-  it.each(['050 455 5843', '504555843', '04 123 4567', '98765 43210'])(
+  it.each(['050 123 0043', '501230043', '04 123 4567', '98765 43210'])(
     '%s has no country code',
     (phone) => expect(isLocalPhone(phone)).toBe(true)
   );
-  it.each(['971504555843', '00971504555843', '+65 9123 4567', '97150455584'])(
+  it.each(['971501230043', '00971501230043', '+65 9123 4567', '97150123004'])(
     '%s has one',
     (phone) => expect(isLocalPhone(phone)).toBe(false)
   );

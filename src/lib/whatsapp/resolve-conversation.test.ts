@@ -298,7 +298,7 @@ describe('resolveConversationByPhone — the contact rule for a new number', () 
   });
 
   it.each([
-    ['504555843', 'too_short'], // the live local UAE mobile
+    ['501230043', 'too_short'], // a local UAE mobile
     ['+971 50 123 456', 'invalid_uae'],
     ['98765 43210', 'invalid_number'], // Indian mobile without +91
   ])(
@@ -318,16 +318,16 @@ describe('resolveConversationByPhone — the contact rule for a new number', () 
   );
 
   it('still finds an existing contact saved in a shape the rule refuses', async () => {
-    // A legacy row typed as "504555843" keeps working for integrations
+    // A legacy row typed as "501230043" keeps working for integrations
     // that address it the same way; only creating one is refused.
     const inserted: Script['inserted'] = [];
     const db = makeDb({
       config: { user_id: 'owner-1' },
-      contactCandidates: [{ id: 'c-legacy', phone: '504555843' }],
+      contactCandidates: [{ id: 'c-legacy', phone: '501230043' }],
       existingConversation: { id: 'cv-legacy' },
       inserted,
     });
-    const res = await resolveConversationByPhone(db, 'acct', '504555843');
+    const res = await resolveConversationByPhone(db, 'acct', '501230043');
     expect(res).toMatchObject({
       contactId: 'c-legacy',
       conversationId: 'cv-legacy',

@@ -18,8 +18,8 @@ function internationalDigits(phone: string): string {
 }
 
 /**
- * True for a number stored without its country code ("050 455 5843",
- * "50 455 5843", "98765 43210").
+ * True for a number stored without its country code ("050 123 0043",
+ * "50 123 0043", "98765 43210").
  */
 export function isLocalPhone(phone: string): boolean {
   const digits = internationalDigits(phone);

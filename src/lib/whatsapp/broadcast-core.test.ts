@@ -289,7 +289,7 @@ describe('createBroadcast recipient numbers', () => {
 
     const plan = await createBroadcast(db, 'acc', 'user', {
       templateName: 'promo',
-      recipients: [{ to: '504555843' }, { to: '+971 050 123 4567' }],
+      recipients: [{ to: '501230043' }, { to: '+971 050 123 4567' }],
     });
 
     expect(plan.rejected).toBe(1);
@@ -328,13 +328,13 @@ describe('createBroadcast recipient numbers', () => {
 
     const err = await createBroadcast(db, 'acc', 'user', {
       templateName: 'promo',
-      recipients: [{ to: '504555843' }, { to: '0501234567' }],
+      recipients: [{ to: '501230043' }, { to: '0501234567' }],
     }).catch((e: unknown) => e);
 
     expect(err).toBeInstanceOf(BroadcastError);
     expect(err).toMatchObject({ code: 'bad_request', status: 400 });
     expect((err as Error).message).toBe(
-      `No recipient had a valid phone number. 'recipients[0].to' "504555843" is too short. Include the country code, e.g. +971 50 123 4567`
+      `No recipient had a valid phone number. 'recipients[0].to' "501230043" is too short. Include the country code, e.g. +971 50 123 4567`
     );
     expect(findOrCreateContact).not.toHaveBeenCalled();
     expect(calls.rpc).toHaveLength(0);

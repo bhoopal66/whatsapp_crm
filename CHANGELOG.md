@@ -5471,7 +5471,7 @@ down` once before bringing the new project up. There are no named
   is now folded into the Meta send.
 - **Inbound messages from a contact whose number was typed with spaces
   were silently dropped.** The duplicate-contact lookup pre-filtered on
-  the raw `phone` column, so a contact saved as `971 50 455 5843` was
+  the raw `phone` column, so a contact saved as `971 50 123 0043` was
   invisible to the webhook; the insert then tripped the unique index
   and the message never reached the inbox. The lookup now filters on
   the normalised column the index is built on.

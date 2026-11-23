@@ -165,8 +165,8 @@ describe('validateContactPhone — refused', () => {
     ['+0501234567', 'missing_country_code'],
     ['04 123 4567', 'missing_country_code'],
     // local UAE mobiles saved without 971 (the unanswered customer)
-    ['50 455 5843', 'too_short'],
-    ['504555843', 'too_short'],
+    ['50 123 0043', 'too_short'],
+    ['501230043', 'too_short'],
     ['0050123456', 'too_short'],
     ['12345', 'too_short'],
     ['1234567890123456', 'too_long'],
@@ -201,7 +201,7 @@ describe('validateContactPhone — refused', () => {
   it('tells the person to add the country code, with an example', () => {
     for (const raw of [
       '0501234567',
-      '504555843',
+      '501230043',
       '9.71505E+11',
       '97150123456',
       '1234567890123456',
@@ -298,23 +298,23 @@ describe('validatePhoneToSave', () => {
   it('keeps an unchanged number as typed without validating it', () => {
     // A legacy local-format row stays editable: renaming the contact
     // must not demand a phone fix first.
-    expect(validatePhoneToSave('50 455 5843', '504555843')).toEqual({
+    expect(validatePhoneToSave('50 123 0043', '501230043')).toEqual({
       ok: true,
-      phone: '504555843',
+      phone: '501230043',
       changed: false,
     });
   });
 
   it('validates and normalizes a changed number', () => {
-    expect(validatePhoneToSave('50 455 5843', '+971 050 455 5843')).toEqual({
+    expect(validatePhoneToSave('50 123 0043', '+971 050 123 0043')).toEqual({
       ok: true,
-      phone: '971504555843',
+      phone: '971501230043',
       changed: true,
     });
   });
 
   it('refuses a changed number that is invalid', () => {
-    const result = validatePhoneToSave('971504555843', '0504555843');
+    const result = validatePhoneToSave('971501230043', '0501230043');
     expect(result).toMatchObject({
       ok: false,
       reason: 'missing_country_code',
@@ -322,7 +322,7 @@ describe('validatePhoneToSave', () => {
   });
 
   it('treats a missing original as a new entry', () => {
-    expect(validatePhoneToSave(null, '504555843')).toMatchObject({
+    expect(validatePhoneToSave(null, '501230043')).toMatchObject({
       ok: false,
       reason: 'too_short',
     });
@@ -334,7 +334,7 @@ describe('validatePhoneToSave', () => {
   });
 
   it('requires a number', () => {
-    expect(validatePhoneToSave('971504555843', '  ')).toMatchObject({
+    expect(validatePhoneToSave('971501230043', '  ')).toMatchObject({
       ok: false,
       reason: 'required',
     });

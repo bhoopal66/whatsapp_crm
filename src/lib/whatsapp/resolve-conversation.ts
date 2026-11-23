@@ -54,7 +54,7 @@ export interface ResolveConversationOptions {
  * An existing contact is found by the last-8 match below, whatever
  * shape its number was saved in. A new one is held to the rule every
  * other entry point uses (`validateContactPhone`): the E.164 check
- * alone let "504555843" and "+9710501234567" become contacts here,
+ * alone let "501230043" and "+9710501234567" become contacts here,
  * each send was 'sent' to a JID that is nobody, and the customer's
  * real inbound later attached itself to that row.
  */
@@ -130,7 +130,7 @@ export async function resolveConversationByPhone(
   // the number is 9613123456) otherwise misses the real contact and
   // the last-8 match lands on an unrelated one that shares the typed
   // tail (971503123456) — and the send goes to that person. A number
-  // the rule refuses keeps the raw digits, so a legacy "504555843"
+  // the rule refuses keeps the raw digits, so a legacy "501230043"
   // row is still found.
   const existing = await findExistingContact(
     db,

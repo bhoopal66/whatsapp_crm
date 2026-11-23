@@ -39,7 +39,7 @@ beforeEach(() => {
 describe('POST /api/v1/contacts', () => {
   it.each([
     ['0501234567', /country code/],
-    ['50 455 5843', /too short/],
+    ['50 123 0043', /too short/],
     ['9.71505E+11', /scientific notation/],
     ['97150123456', /UAE/],
   ])(

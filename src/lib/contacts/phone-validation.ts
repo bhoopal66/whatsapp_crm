@@ -7,7 +7,7 @@ import { normalizePhone } from '@/lib/whatsapp/phone-utils';
  * POST /api/v1/contacts, the contact POST /api/v1/messages creates
  * for a new `to`, and the Compass customer sync.
  *
- * Why it exists: local-format numbers ("50 455 5843", "050…") and
+ * Why it exists: local-format numbers ("50 123 0043", "050…") and
  * spreadsheet-mangled ones ("9.71505E+11") used to be stored as typed.
  * Whapi accepts a send to such a number as 'sent' — to a JID that is
  * nobody — so a customer went unanswered for days with nothing red

@@ -45,16 +45,16 @@ export class ContactLookupError extends Error {
  *
  * The suffix filter runs against the generated `phone_normalized`
  * column (digits only, migration 022), NOT the raw `phone`. A contact
- * typed into the form as `971 50 455 5843` has spaces inside the last
- * eight digits, so `LIKE '%04555843'` on `phone` misses it; the insert
+ * typed into the form as `971 50 123 0043` has spaces inside the last
+ * eight digits, so `LIKE '%01230043'` on `phone` misses it; the insert
  * then trips the unique index, the race re-lookup misses the same way,
  * and the inbound message is dropped on the floor.
  *
  * An exact digits match always beats a trunk-0 variant, which beats the
  * last-8 match of a row stored without its country code. Ties go to the
  * oldest row, except for last-8 matches: two of them are two guesses, so
- * none is taken. When a local-format twin ("50 455 5843") and the
- * full number ("971 50 455 5843") both exist, heap order used to pick
+ * none is taken. When a local-format twin ("50 123 0043") and the
+ * full number ("971 50 123 0043") both exist, heap order used to pick
  * between them per query: one burst of inbound documents split across
  * the two contacts, and every reply on the local twin went to a JID
  * that does not exist while Whapi still reported it 'sent'.

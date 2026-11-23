@@ -144,7 +144,7 @@ it was saved in; a trunk `0` typed after the country code is dropped
 before matching. A number with no contact yet creates one, and it must
 pass the same check as `phone` on `POST /api/v1/contacts`; otherwise the
 request fails with `400 bad_request`, nothing is created or sent, and
-the message names the problem (e.g. `'to' "504555843" is too short.
+the message names the problem (e.g. `'to' "501230043" is too short.
 Include the country code, e.g. +971 50 123 4567`). Spreadsheet notation
 (`9.71505E+11`), a `.0` decimal suffix and letters in the number (other
 than a `tel:` prefix — so `whatsapp:+971…` is refused) are refused even

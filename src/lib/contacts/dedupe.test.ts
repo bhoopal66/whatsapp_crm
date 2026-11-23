@@ -94,7 +94,7 @@ describe('findExistingContact', () => {
   it('asks for candidates oldest first so ties are stable', async () => {
     const orders: Array<[string, boolean | undefined]> = [];
     const db = stubDb([], undefined, (c, o) => orders.push([c, o?.ascending]));
-    await findExistingContact(db, 'acct', '971504555843');
+    await findExistingContact(db, 'acct', '971501230043');
     expect(orders).toEqual([
       ['created_at', true],
       ['id', true],
@@ -105,36 +105,36 @@ describe('findExistingContact', () => {
     // The local-format twin was created first and shares the last 8
     // digits; the inbound number is the full international one.
     const db = stubDb([
-      { id: 'local', phone: '50 455 5843' },
-      { id: 'intl', phone: '971 50 455 5843' },
+      { id: 'local', phone: '50 123 0043' },
+      { id: 'intl', phone: '971 50 123 0043' },
     ]);
-    const hit = await findExistingContact(db, 'acct', '971504555843');
+    const hit = await findExistingContact(db, 'acct', '971501230043');
     expect(hit?.id).toBe('intl');
   });
 
   it('finds the one contact stored without its country code', async () => {
     const db = stubDb([
-      { id: 'ksa', phone: '+966 50 455 5843' },
-      { id: 'local', phone: '0504555843' },
+      { id: 'ksa', phone: '+966 50 123 0043' },
+      { id: 'local', phone: '0501230043' },
     ]);
-    const hit = await findExistingContact(db, 'acct', '971504555843');
+    const hit = await findExistingContact(db, 'acct', '971501230043');
     expect(hit?.id).toBe('local');
   });
 
   it('takes none of several contacts stored without a country code', async () => {
     const db = stubDb([
-      { id: 'older', phone: '0504555843' },
-      { id: 'newer', phone: '50 455 5843' },
+      { id: 'older', phone: '0501230043' },
+      { id: 'newer', phone: '50 123 0043' },
     ]);
-    expect(await findExistingContact(db, 'acct', '971504555843')).toBeNull();
+    expect(await findExistingContact(db, 'acct', '971501230043')).toBeNull();
   });
 
   it('prefers a trunk-0 variant to an older local row', async () => {
     const db = stubDb([
-      { id: 'local', phone: '0504555843' },
-      { id: 'trunk', phone: '+971 050 455 5843' },
+      { id: 'local', phone: '0501230043' },
+      { id: 'trunk', phone: '+971 050 123 0043' },
     ]);
-    const hit = await findExistingContact(db, 'acct', '971504555843');
+    const hit = await findExistingContact(db, 'acct', '971501230043');
     expect(hit?.id).toBe('trunk');
   });
 
@@ -147,8 +147,8 @@ describe('findExistingContact', () => {
   );
 
   it('does not guess the country of a number given without one', async () => {
-    const db = stubDb([{ id: 'uae', phone: '971504555843' }]);
-    expect(await findExistingContact(db, 'acct', '504555843')).toBeNull();
+    const db = stubDb([{ id: 'uae', phone: '971501230043' }]);
+    expect(await findExistingContact(db, 'acct', '501230043')).toBeNull();
   });
 
   it('throws when the contacts cannot be read', async () => {
@@ -160,20 +160,20 @@ describe('findExistingContact', () => {
     };
     const db = { from: () => builder } as unknown as SupabaseClient;
     await expect(
-      findExistingContact(db, 'acct', '971504555843')
+      findExistingContact(db, 'acct', '971501230043')
     ).rejects.toBeInstanceOf(ContactLookupError);
   });
 
   it('suffix-filters on phone_normalized, not the raw phone column', async () => {
-    // A contact saved as "971 50 455 5843" has whitespace inside the
+    // A contact saved as "971 50 123 0043" has whitespace inside the
     // last eight digits, so a LIKE on `phone` would miss it and the
     // webhook would drop the message after the unique-index rejection.
     let filtered: [string, string] | undefined;
-    const db = stubDb([{ id: 'c1', phone: '971 50 455 5843' }], (c, p) => {
+    const db = stubDb([{ id: 'c1', phone: '971 50 123 0043' }], (c, p) => {
       filtered = [c, p];
     });
-    const hit = await findExistingContact(db, 'acct', '971504555843');
-    expect(filtered).toEqual(['phone_normalized', '%04555843']);
+    const hit = await findExistingContact(db, 'acct', '971501230043');
+    expect(filtered).toEqual(['phone_normalized', '%01230043']);
     expect(hit?.id).toBe('c1');
   });
 
