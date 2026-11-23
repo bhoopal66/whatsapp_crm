@@ -203,6 +203,8 @@ export async function resumePendingExecution(pending: {
   parent_step_id: string | null
   branch: 'yes' | 'no' | null
   next_step_position: number
+  /** The wait the run is parked at (269). Null on a row parked before. */
+  wait_step_id?: string | null
   context: AutomationContext
 }): Promise<void> {
   const db = supabaseAdmin()
@@ -228,20 +230,57 @@ export async function resumePendingExecution(pending: {
     return
   }
 
+  const { data: steps, error: stepsErr } = await loadSteps(pending.automation_id)
+  if (stepsErr) {
+    console.error('[automations] resume: steps load failed', pending.automation_id, stepsErr)
+    await finalizeLog(pending.log_id, 'failed', 'stopped: the automation could not be loaded')
+    await markPending(pending.id, 'failed')
+    return
+  }
+  const { data: log, error: runLogErr } = pending.log_id
+    ? await db
+        .from('automation_logs')
+        .select('steps_executed, status')
+        .eq('id', pending.log_id)
+        .maybeSingle()
+    : { data: null, error: null }
+  if (runLogErr) {
+    console.error('[automations] resume: log load failed', pending.automation_id, runLogErr)
+    await finalizeLog(pending.log_id, 'failed', 'stopped: the automation could not be loaded')
+    await markPending(pending.id, 'failed')
+    return
+  }
+  const frames = resumeFrames(steps, pending)
+  if (!frames) {
+    await finalizeLog(pending.log_id, 'failed', STOPPED_CHANGED)
+    await markPending(pending.id, 'failed')
+    return
+  }
+
   try {
-    await executeStepsFrom({
-      automation: automation as Automation,
-      contactId: pending.contact_id,
-      context: pending.context ?? {},
-      parentStepId: pending.parent_step_id,
-      branch: pending.branch,
-      startPosition: pending.next_step_position,
-      logId: pending.log_id,
-      triggerEvent: 'resumed_wait',
-      // However short the wait, this is no longer a direct answer.
-      customerJustWrote: false,
-    })
-    await markPending(pending.id, 'done')
+    const outcome = await runFrames(
+      {
+        automation: automation as Automation,
+        contactId: pending.contact_id,
+        context: pending.context ?? {},
+        logId: pending.log_id,
+        triggerEvent: 'resumed_wait',
+        // However short the wait, this is no longer a direct answer.
+        customerJustWrote: false,
+        steps,
+        // A step runs at most once per run, also when the wait was moved
+        // above steps that already ran.
+        alreadyRun: new Set(
+          ((log?.steps_executed as AutomationLogStepResult[] | undefined) ?? []).map(
+            (r) => r.step_id,
+          ),
+        ),
+        results: [],
+        errorMessage: null,
+      },
+      frames,
+    )
+    await markPending(pending.id, outcome === 'failed' ? 'failed' : 'done')
   } catch (err) {
     console.error('[automations] resume failed:', err)
     await markPending(pending.id, 'failed')
@@ -286,17 +325,26 @@ async function executeAutomation(automation: Automation, input: DispatchInput) {
     return
   }
 
-  await executeStepsFrom({
-    automation,
-    contactId: input.contactId ?? null,
-    context: input.context ?? {},
-    parentStepId: null,
-    branch: null,
-    startPosition: 0,
-    logId: log.id,
-    triggerEvent: input.triggerType,
-    customerJustWrote: input.customerJustWrote === true,
-  })
+  const { data: steps, error: stepsErr } = await loadSteps(automation.id)
+  if (stepsErr) {
+    await finalizeLog(log.id, 'failed', stepsErr.message)
+  } else {
+    await runFrames(
+      {
+        automation,
+        contactId: input.contactId ?? null,
+        context: input.context ?? {},
+        logId: log.id,
+        triggerEvent: input.triggerType,
+        customerJustWrote: input.customerJustWrote === true,
+        steps,
+        alreadyRun: new Set(),
+        results: [],
+        errorMessage: null,
+      },
+      [{ parentStepId: null, branch: null, startPosition: 0 }],
+    )
+  }
 
   // Atomic counter update via the SQL function from migration 007.
   // Doing this with a client-side read-modify-write raced when the
@@ -314,50 +362,115 @@ interface ExecuteArgs {
   automation: Automation
   contactId: string | null
   context: AutomationContext
-  parentStepId: string | null
-  branch: 'yes' | 'no' | null
-  startPosition: number
   logId: string | null
   triggerEvent: string
   /** See DispatchInput.customerJustWrote. */
   customerJustWrote: boolean
 }
 
-async function executeStepsFrom(args: ExecuteArgs): Promise<void> {
-  const db = supabaseAdmin()
+/** One run of an automation: its steps as they were when it (re)started. */
+interface Run extends ExecuteArgs {
+  steps: AutomationStep[]
+  /** Steps an earlier part of this run (before a wait) already took. */
+  alreadyRun: ReadonlySet<string>
+  results: AutomationLogStepResult[]
+  errorMessage: string | null
+}
 
-  const baseQuery = db
+/** A place in the tree: one step list and where to continue in it. */
+interface Frame {
+  parentStepId: string | null
+  branch: 'yes' | 'no' | null
+  startPosition: number
+}
+
+type RunOutcome = 'done' | 'suspended' | 'failed'
+
+async function loadSteps(automationId: string): Promise<{
+  data: AutomationStep[]
+  error: { message: string } | null
+}> {
+  const { data, error } = await supabaseAdmin()
     .from('automation_steps')
     .select('*')
-    .eq('automation_id', args.automation.id)
-    .gte('position', args.startPosition)
+    .eq('automation_id', automationId)
     .order('position', { ascending: true })
+  return { data: (data ?? []) as AutomationStep[], error }
+}
 
-  const scoped =
-    args.parentStepId === null
-      ? baseQuery.is('parent_step_id', null)
-      : baseQuery.eq('parent_step_id', args.parentStepId).eq('branch', args.branch ?? 'yes')
-
-  const { data: steps, error: stepsErr } = await scoped
-
-  if (stepsErr) {
-    await finalizeLog(args.logId, 'failed', stepsErr.message)
-    return
+/**
+ * Where a parked run continues: the rest of the wait's own list, then
+ * what follows each enclosing condition, up to the root. Null when the
+ * wait (or, on an old row, its branch) is gone: the automation changed,
+ * and any other place would be the wrong one.
+ *
+ * A row parked before 269 has no `wait_step_id`. Its run already took the
+ * steps after the condition (that was the bug), so it finishes its own
+ * list only. Its `parent_step_id` goes NULL with the condition while
+ * `branch` stays, which is how a lost one is told from the root.
+ */
+function resumeFrames(
+  steps: AutomationStep[],
+  pending: {
+    wait_step_id?: string | null
+    parent_step_id: string | null
+    branch: 'yes' | 'no' | null
+    next_step_position: number
+  },
+): Frame[] | null {
+  const byId = new Map(steps.map((s) => [s.id, s]))
+  if (!pending.wait_step_id) {
+    if (pending.parent_step_id ? !byId.has(pending.parent_step_id) : pending.branch) return null
+    return [
+      {
+        parentStepId: pending.parent_step_id,
+        branch: pending.branch,
+        startPosition: pending.next_step_position,
+      },
+    ]
   }
-  if (!steps || steps.length === 0) {
-    if (args.parentStepId === null && args.logId) {
-      await finalizeLog(args.logId, 'success', null)
-    }
-    return
+  let at = byId.get(pending.wait_step_id)
+  if (at?.step_type !== 'wait') return null
+  const frames: Frame[] = []
+  while (at) {
+    frames.push({
+      parentStepId: at.parent_step_id ?? null,
+      branch: at.branch ?? null,
+      startPosition: at.position + 1,
+    })
+    if (!at.parent_step_id) return frames
+    at = byId.get(at.parent_step_id)
   }
+  return null
+}
 
-  const results: AutomationLogStepResult[] = []
-  let status: 'success' | 'partial' | 'failed' = 'success'
-  let errorMessage: string | null = null
+/** Run each list in turn and settle the log. */
+async function runFrames(run: Run, frames: Frame[]): Promise<RunOutcome> {
+  let outcome: RunOutcome = 'done'
+  for (const frame of frames) {
+    outcome = await runStepList(run, frame)
+    if (outcome !== 'done') break
+  }
+  await appendResults(
+    run.logId,
+    run.results,
+    outcome === 'done' ? 'success' : outcome === 'suspended' ? 'partial' : 'failed',
+    run.errorMessage,
+  )
+  return outcome
+}
 
-  for (const step of steps as AutomationStep[]) {
-    // `wait` is the suspension point: enqueue and stop processing this
-    // scope. The cron endpoint will pick it up later.
+async function runStepList(args: Run, frame: Frame): Promise<RunOutcome> {
+  const db = supabaseAdmin()
+  const { results } = args
+
+  for (const step of args.steps) {
+    if ((step.parent_step_id ?? null) !== frame.parentStepId) continue
+    if (frame.parentStepId !== null && step.branch !== (frame.branch ?? 'yes')) continue
+    if (step.position < frame.startPosition || args.alreadyRun.has(step.id)) continue
+
+    // `wait` is the suspension point: enqueue and suspend the whole run.
+    // The cron endpoint will pick it up later.
     if (step.step_type === 'wait') {
       const cfg = step.step_config as WaitStepConfig
       const ms = waitMs(cfg)
@@ -368,9 +481,10 @@ async function executeStepsFrom(args: ExecuteArgs): Promise<void> {
         user_id: args.automation.user_id,
         contact_id: args.contactId,
         log_id: args.logId,
-        parent_step_id: args.parentStepId,
-        branch: args.branch,
+        parent_step_id: frame.parentStepId,
+        branch: frame.branch,
         next_step_position: step.position + 1,
+        wait_step_id: step.id,
         context: args.context,
         run_at: new Date(Date.now() + ms).toISOString(),
         status: 'pending',
@@ -378,15 +492,14 @@ async function executeStepsFrom(args: ExecuteArgs): Promise<void> {
       if (waitErr) {
         console.error('[automations] wait insert failed:', args.automation.id, waitErr)
         // Nothing is parked, so nothing will resume: a failed step.
-        errorMessage = 'wait: the wait could not be saved'
+        args.errorMessage = 'wait: the wait could not be saved'
         results.push({
           step_id: step.id,
           step_type: step.step_type,
           status: 'failed',
-          detail: errorMessage,
+          detail: args.errorMessage,
         })
-        status = 'failed'
-        break
+        return 'failed'
       }
       results.push({
         step_id: step.id,
@@ -394,9 +507,7 @@ async function executeStepsFrom(args: ExecuteArgs): Promise<void> {
         status: 'success',
         detail: `waiting ${cfg.amount} ${cfg.unit}`,
       })
-      status = 'partial'
-      await appendResults(args.logId, results, status, errorMessage)
-      return
+      return 'suspended'
     }
 
     try {
@@ -411,13 +522,13 @@ async function executeStepsFrom(args: ExecuteArgs): Promise<void> {
         })
         // Recurse into the chosen branch at position 0 (children use their
         // own ordering within the branch scope).
-        await executeStepsFrom({
-          ...args,
+        const outcome = await runStepList(args, {
           parentStepId: step.id,
           branch: taken ? 'yes' : 'no',
           startPosition: 0,
-          logId: args.logId,
         })
+        // A wait in the branch parks the steps after the condition too.
+        if (outcome !== 'done') return outcome
         continue
       }
 
@@ -447,18 +558,11 @@ async function executeStepsFrom(args: ExecuteArgs): Promise<void> {
         status: 'failed',
         detail: msg,
       })
-      status = 'failed'
-      errorMessage = msg
-      break
+      args.errorMessage = msg
+      return 'failed'
     }
   }
-
-  if (args.parentStepId === null) {
-    await appendResults(args.logId, results, status, errorMessage)
-  } else {
-    // Nested branch — just append results; parent scope decides final status.
-    await appendResults(args.logId, results, null, errorMessage)
-  }
+  return 'done'
 }
 
 async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string> {
@@ -879,6 +983,7 @@ const MESSAGE_STEP_TYPES: ReadonlySet<string> = new Set([
 
 /** The log's `error_message` when a parked wait is not resumed. */
 const STOPPED_SWITCHED_OFF = 'stopped: the automation was switched off'
+const STOPPED_CHANGED = 'stopped: automation changed while waiting'
 
 /** The log detail of a message step not sent to an opted-out contact. */
 const SKIPPED_OPTED_OUT = 'skipped: the customer opted out'
@@ -1199,7 +1304,7 @@ function interpolate(
 async function appendResults(
   logId: string | null,
   newItems: AutomationLogStepResult[],
-  status: 'success' | 'partial' | 'failed' | null,
+  status: 'success' | 'partial' | 'failed',
   errorMessage: string | null,
 ) {
   if (!logId) return
@@ -1213,11 +1318,7 @@ async function appendResults(
     ...((existing?.steps_executed as AutomationLogStepResult[] | undefined) ?? []),
     ...newItems,
   ]
-  const update: Record<string, unknown> = { steps_executed: merged }
-  // Only overwrite status on the outermost scope — nested branches pass null.
-  if (status !== null) {
-    update.status = status
-  }
+  const update: Record<string, unknown> = { steps_executed: merged, status }
   if (errorMessage) update.error_message = errorMessage
   await db.from('automation_logs').update(update).eq('id', logId)
 }
