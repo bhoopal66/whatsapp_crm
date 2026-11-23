@@ -8,6 +8,11 @@ import {
 } from '@/lib/auth/account';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
 import { getFlowTemplate } from '@/lib/flows/templates';
+import { serverErrorResponse } from '@/lib/api/server-error';
+import {
+  AuthUnavailableError,
+  isAuthUnavailable,
+} from '@/lib/auth/auth-unavailable';
 
 /**
  * GET /api/flows — list the caller's flows.
@@ -30,7 +35,15 @@ async function requireUser(): Promise<
   const supabase = await createClient();
   const {
     data: { user },
+    error: authError,
   } = await supabase.auth.getUser();
+  if (isAuthUnavailable(authError)) {
+    return {
+      ok: false,
+      status: 503,
+      body: { error: new AuthUnavailableError().message },
+    };
+  }
   if (!user) {
     return { ok: false, status: 401, body: { error: 'Unauthorized' } };
   }
@@ -57,7 +70,7 @@ export async function GET() {
     .select('*')
     .order('created_at', { ascending: false });
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverErrorResponse('GET /api/flows', error);
   }
   return NextResponse.json({ flows: data ?? [] });
 }
@@ -137,10 +150,7 @@ export async function POST(request: Request) {
       .select()
       .single();
     if (flowErr || !flow) {
-      return NextResponse.json(
-        { error: flowErr?.message ?? 'flow insert failed' },
-        { status: 500 }
-      );
+      return serverErrorResponse('POST /api/flows', flowErr);
     }
     if (template.nodes.length > 0) {
       const { error: nodesErr } = await admin.from('flow_nodes').insert(
@@ -156,7 +166,7 @@ export async function POST(request: Request) {
         // sit as an empty draft. CASCADE on flow_id removes the
         // (probably zero) nodes too.
         await admin.from('flows').delete().eq('id', flow.id);
-        return NextResponse.json({ error: nodesErr.message }, { status: 500 });
+        return serverErrorResponse('POST /api/flows', nodesErr);
       }
     }
     return NextResponse.json({ flow }, { status: 201 });
@@ -182,10 +192,7 @@ export async function POST(request: Request) {
     .select()
     .single();
   if (error || !data) {
-    return NextResponse.json(
-      { error: error?.message ?? 'insert failed' },
-      { status: 500 }
-    );
+    return serverErrorResponse('POST /api/flows', error);
   }
   return NextResponse.json({ flow: data }, { status: 201 });
 }

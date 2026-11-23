@@ -28,6 +28,10 @@ import {
   RATE_LIMITS,
 } from "@/lib/rate-limit";
 import { createClient } from "@/lib/supabase/server";
+import {
+  authUnavailableResponse,
+  isAuthUnavailable,
+} from '@/lib/auth/auth-unavailable';
 
 function rpcErrorToResponse(err: PostgrestError): NextResponse {
   if (err.code === "42501") {
@@ -77,7 +81,9 @@ export async function POST(
   // common "user clicked the link before logging in" path.
   const {
     data: { user },
+    error: authError,
   } = await supabase.auth.getUser();
+  if (isAuthUnavailable(authError)) return authUnavailableResponse();
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

@@ -15,12 +15,19 @@ import {
   validateStepsForActivation,
   validateTriggerForActivation,
 } from '@/lib/automations/validate';
+import { serverErrorResponse } from '@/lib/api/server-error';
+import {
+  AuthUnavailableError,
+  isAuthUnavailable,
+} from '@/lib/auth/auth-unavailable';
 
 async function requireUser() {
   const supabase = await createClient();
   const {
     data: { user },
+    error: authError,
   } = await supabase.auth.getUser();
+  if (isAuthUnavailable(authError)) throw new AuthUnavailableError();
   return user;
 }
 
@@ -42,7 +49,12 @@ export async function GET(
     return toErrorResponse(err);
   }
 
-  const user = await requireUser();
+  let user: Awaited<ReturnType<typeof requireUser>>;
+  try {
+    user = await requireUser();
+  } catch (err) {
+    return toErrorResponse(err);
+  }
   if (!user)
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
@@ -55,7 +67,7 @@ export async function GET(
     .maybeSingle();
 
   if (error)
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverErrorResponse('GET /api/automations/[id]', error);
   if (!automation)
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
@@ -82,7 +94,12 @@ export async function PATCH(
     return toErrorResponse(err);
   }
 
-  const user = await requireUser();
+  let user: Awaited<ReturnType<typeof requireUser>>;
+  try {
+    user = await requireUser();
+  } catch (err) {
+    return toErrorResponse(err);
+  }
   if (!user)
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
@@ -158,7 +175,7 @@ export async function PATCH(
       .eq('id', id)
       .eq('account_id', ctx.accountId);
     if (updErr)
-      return NextResponse.json({ error: updErr.message }, { status: 500 });
+      return serverErrorResponse('PATCH /api/automations/[id]', updErr);
   }
 
   if (Array.isArray(body.steps)) {
@@ -187,7 +204,12 @@ export async function DELETE(
     return toErrorResponse(err);
   }
 
-  const user = await requireUser();
+  let user: Awaited<ReturnType<typeof requireUser>>;
+  try {
+    user = await requireUser();
+  } catch (err) {
+    return toErrorResponse(err);
+  }
   if (!user)
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
@@ -197,6 +219,6 @@ export async function DELETE(
     .eq('id', id)
     .eq('account_id', ctx.accountId);
   if (error)
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverErrorResponse('DELETE /api/automations/[id]', error);
   return NextResponse.json({ ok: true });
 }

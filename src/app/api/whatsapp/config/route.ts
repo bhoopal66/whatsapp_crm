@@ -23,6 +23,10 @@ import {
 import { encrypt, decrypt } from '@/lib/whatsapp/encryption'
 import { nextHealth, syncPairedNumber } from '@/lib/whatsapp/channel-health'
 import { serverSupabaseUrl } from '@/lib/supabase/urls'
+import {
+  authUnavailableResponse,
+  isAuthUnavailable,
+} from '@/lib/auth/auth-unavailable';
 
 /**
  * WhatsApp connection settings, backed by Whapi.Cloud.
@@ -211,6 +215,7 @@ export async function GET(request: Request) {
       data: { user },
       error: authError,
     } = await supabase.auth.getUser()
+    if (isAuthUnavailable(authError)) return authUnavailableResponse()
 
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -396,6 +401,7 @@ export async function POST(request: Request) {
       data: { user },
       error: authError,
     } = await supabase.auth.getUser()
+    if (isAuthUnavailable(authError)) return authUnavailableResponse()
 
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -799,6 +805,7 @@ export async function DELETE(request: Request) {
       data: { user },
       error: authError,
     } = await supabase.auth.getUser()
+    if (isAuthUnavailable(authError)) return authUnavailableResponse()
 
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

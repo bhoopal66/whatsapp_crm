@@ -10,6 +10,7 @@ import {
   validateTemplatePayload,
   type TemplatePayload,
 } from '@/lib/whatsapp/template-validators'
+import { AuthUnavailableError } from '@/lib/auth/auth-unavailable';
 
 /**
  * Per-template lifecycle endpoint.
@@ -130,7 +131,7 @@ export async function PATCH(
 
     return NextResponse.json({ success: true, template: row })
   } catch (error) {
-    if (error instanceof UnauthorizedError || error instanceof ForbiddenError) {
+    if (error instanceof UnauthorizedError || error instanceof ForbiddenError || error instanceof AuthUnavailableError) {
       return toErrorResponse(error)
     }
     console.error('Error editing template:', error)
@@ -182,7 +183,7 @@ export async function DELETE(
 
     return NextResponse.json({ success: true })
   } catch (error) {
-    if (error instanceof UnauthorizedError || error instanceof ForbiddenError) {
+    if (error instanceof UnauthorizedError || error instanceof ForbiddenError || error instanceof AuthUnavailableError) {
       return toErrorResponse(error)
     }
     console.error('Error deleting template:', error)

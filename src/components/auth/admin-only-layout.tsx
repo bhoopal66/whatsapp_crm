@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import type { ReactNode } from 'react';
 
 import { getCurrentAccount } from '@/lib/auth/account';
+import { AuthUnavailableError } from '@/lib/auth/auth-unavailable';
 import { GUEST_HOME_PATH } from '@/lib/auth/my-workspaces';
 import {
   canEditSettings,
@@ -11,6 +12,15 @@ import {
   isBankGuest,
 } from '@/lib/auth/roles';
 import { parseReportKeys, type ReportKey } from '@/lib/reports/access';
+
+/**
+ * The auth service or the profile could not be read: not a sign-out, so
+ * never the redirect to /login. Rethrown, it reaches the error boundary
+ * (src/app/error.tsx, with its retry) and nothing is rendered.
+ */
+function rethrowUnavailable(err: unknown): void {
+  if (err instanceof AuthUnavailableError) throw err;
+}
 
 /**
  * Server-side gate for the workspace-configuration screens —
@@ -44,7 +54,8 @@ export async function AdminOnlyLayout({ children }: { children: ReactNode }) {
   try {
     const ctx = await getCurrentAccount();
     allowed = canEditSettings(ctx.role);
-  } catch {
+  } catch (err) {
+    rethrowUnavailable(err);
     // getCurrentAccount throws for a signed-out caller and for a user
     // with no account/role row. Either way they cannot be an admin.
     signedIn = false;
@@ -78,7 +89,8 @@ export async function TeamLeaderOnlyLayout({
   try {
     const ctx = await getCurrentAccount();
     allowed = canLeadTeam(ctx.role);
-  } catch {
+  } catch (err) {
+    rethrowUnavailable(err);
     signedIn = false;
   }
 
@@ -108,7 +120,8 @@ export async function CallReviewerLayout({
   try {
     ctx = await getCurrentAccount();
     allowed = canLeadTeam(ctx.role);
-  } catch {
+  } catch (err) {
+    rethrowUnavailable(err);
     signedIn = false;
   }
   if (ctx && !allowed && !isBankGuest(ctx.role)) {
@@ -138,7 +151,8 @@ export async function AgentOnlyLayout({ children }: { children: ReactNode }) {
   try {
     const ctx = await getCurrentAccount();
     allowed = canSendMessages(ctx.role);
-  } catch {
+  } catch (err) {
+    rethrowUnavailable(err);
     signedIn = false;
   }
 
@@ -162,7 +176,8 @@ export async function StaffOnlyLayout({ children }: { children: ReactNode }) {
   try {
     const ctx = await getCurrentAccount();
     allowed = !isBankGuest(ctx.role);
-  } catch {
+  } catch (err) {
+    rethrowUnavailable(err);
     signedIn = false;
   }
 
@@ -187,7 +202,8 @@ export async function SalesOnlyLayout({ children }: { children: ReactNode }) {
   try {
     const ctx = await getCurrentAccount();
     allowed = !ctx.salesRestricted;
-  } catch {
+  } catch (err) {
+    rethrowUnavailable(err);
     signedIn = false;
   }
 
@@ -214,7 +230,8 @@ export async function HrAccessLayout({ children }: { children: ReactNode }) {
   try {
     ctx = await getCurrentAccount();
     allowed = canEditSettings(ctx.role);
-  } catch {
+  } catch (err) {
+    rethrowUnavailable(err);
     signedIn = false;
   }
   if (ctx && !allowed && !isBankGuest(ctx.role)) {
@@ -257,7 +274,8 @@ export async function ReportAccessLayout({
   try {
     ctx = await getCurrentAccount();
     allowed = canManageReportAccess(ctx.role);
-  } catch {
+  } catch (err) {
+    rethrowUnavailable(err);
     signedIn = false;
   }
   if (ctx && !allowed && !isBankGuest(ctx.role)) {
@@ -296,7 +314,8 @@ export async function ReportsLandingLayout({
   try {
     ctx = await getCurrentAccount();
     allowed = canEditSettings(ctx.role);
-  } catch {
+  } catch (err) {
+    rethrowUnavailable(err);
     signedIn = false;
   }
   if (ctx && !allowed && !isBankGuest(ctx.role)) {

@@ -17,13 +17,19 @@ import { NextResponse } from 'next/server';
 import { isLocale, LOCALE_COOKIE, LOCALE_COOKIE_OPTIONS } from '@/i18n/locales';
 import { toErrorResponse } from '@/lib/auth/account';
 import { createClient } from '@/lib/supabase/server';
+import {
+  authUnavailableResponse,
+  isAuthUnavailable,
+} from '@/lib/auth/auth-unavailable';
 
 export async function PUT(request: Request) {
   try {
     const supabase = await createClient();
     const {
       data: { user },
+      error: authError,
     } = await supabase.auth.getUser();
+    if (isAuthUnavailable(authError)) return authUnavailableResponse();
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }

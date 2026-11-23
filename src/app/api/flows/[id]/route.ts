@@ -7,6 +7,11 @@ import {
 } from '@/lib/auth/account';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
 import { resolveFallbackPolicy } from '@/lib/flows/fallback';
+import { serverErrorResponse } from '@/lib/api/server-error';
+import {
+  AuthUnavailableError,
+  isAuthUnavailable,
+} from '@/lib/auth/auth-unavailable';
 
 /**
  * GET   /api/flows/[id]  — fetch one flow with its nodes.
@@ -34,7 +39,15 @@ async function requireOwnership(flowId: string): Promise<
   const supabase = await createClient();
   const {
     data: { user },
+    error: authError,
   } = await supabase.auth.getUser();
+  if (isAuthUnavailable(authError)) {
+    return {
+      ok: false,
+      status: 503,
+      body: { error: new AuthUnavailableError().message },
+    };
+  }
   if (!user) {
     return { ok: false, status: 401, body: { error: 'Unauthorized' } };
   }
@@ -154,7 +167,7 @@ export async function PUT(
     .update(flowPatch)
     .eq('id', id);
   if (updErr) {
-    return NextResponse.json({ error: updErr.message }, { status: 500 });
+    return serverErrorResponse('PUT /api/flows/[id]', updErr);
   }
 
   if (body.nodes !== undefined) {
@@ -165,7 +178,7 @@ export async function PUT(
       .delete()
       .eq('flow_id', id);
     if (delErr) {
-      return NextResponse.json({ error: delErr.message }, { status: 500 });
+      return serverErrorResponse('PUT /api/flows/[id]', delErr);
     }
     if (body.nodes.length > 0) {
       const { error: insErr } = await admin.from('flow_nodes').insert(
@@ -179,7 +192,7 @@ export async function PUT(
         }))
       );
       if (insErr) {
-        return NextResponse.json({ error: insErr.message }, { status: 500 });
+        return serverErrorResponse('PUT /api/flows/[id]', insErr);
       }
     }
   }
@@ -221,7 +234,7 @@ export async function DELETE(
   // free up the contact for new triggers immediately.
   const { error } = await supabaseAdmin().from('flows').delete().eq('id', id);
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverErrorResponse('DELETE /api/flows/[id]', error);
   }
   return NextResponse.json({ ok: true });
 }

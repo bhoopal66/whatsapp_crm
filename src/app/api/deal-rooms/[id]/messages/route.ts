@@ -9,6 +9,10 @@ import {
 } from '@/lib/deal-rooms/operations';
 import { listRoomMessages, parsePageQuery } from '@/lib/deal-rooms/reads';
 import { createClient } from '@/lib/supabase/server';
+import {
+  AuthUnavailableError,
+  isAuthUnavailable,
+} from '@/lib/auth/auth-unavailable';
 
 /** One gateway round trip. */
 export const maxDuration = 60;
@@ -37,7 +41,8 @@ export async function POST(
 ) {
   try {
     const supabase = await createClient();
-    const { data: auth } = await supabase.auth.getUser();
+    const { data: auth, error: authError } = await supabase.auth.getUser();
+    if (isAuthUnavailable(authError)) throw new AuthUnavailableError();
     if (!auth.user) throw new UnauthorizedError();
     const { id } = await params;
     const { data: canPost, error } = await supabase.rpc('deal_room_can_post', {
@@ -111,7 +116,8 @@ export async function GET(
 ) {
   try {
     const supabase = await createClient();
-    const { data: auth } = await supabase.auth.getUser();
+    const { data: auth, error: authError } = await supabase.auth.getUser();
+    if (isAuthUnavailable(authError)) throw new AuthUnavailableError();
     if (!auth.user) throw new UnauthorizedError();
     const { id } = await params;
     const query = parsePageQuery(new URL(request.url).searchParams);

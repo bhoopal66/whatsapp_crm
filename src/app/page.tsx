@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 
 import { pickActiveProfile } from '@/lib/auth/active-profile';
+import { isAuthUnavailable } from '@/lib/auth/auth-unavailable';
 import { landingPathForRole } from '@/lib/auth/landing';
 import { isAccountRole } from '@/lib/auth/roles';
 import { createClient } from '@/lib/supabase/server';
@@ -22,7 +23,10 @@ async function landingPath(): Promise<string> {
     const supabase = await createClient();
     const {
       data: { user },
+      error: authError,
     } = await supabase.auth.getUser();
+    // No answer is not "signed out" (auth-unavailable.ts).
+    if (isAuthUnavailable(authError)) return '/dashboard';
     if (!user) return '/login';
     // `*`, not a column list, like getCurrentAccount: a missing column
     // (an unapplied migration) must not fail the read. RLS hands a

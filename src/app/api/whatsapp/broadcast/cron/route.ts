@@ -51,6 +51,7 @@ import {
   nextAllowedSendTime,
   parseQuietHours,
 } from '@/lib/broadcasts/quiet-hours';
+import { serverErrorResponse } from '@/lib/api/server-error';
 
 export const maxDuration = 300;
 
@@ -97,7 +98,7 @@ export async function GET(request: Request) {
     .limit(MAX_PER_TICK);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return serverErrorResponse('GET /api/whatsapp/broadcast/cron', error);
   }
   if (!due || due.length === 0) {
     return NextResponse.json({

@@ -9,6 +9,7 @@ import { NextResponse } from 'next/server';
 import { ForbiddenError, UnauthorizedError } from '@/lib/auth/account';
 import { vaultStore } from './server';
 import { VaultStoreError, type VaultStore } from './store';
+import { AuthUnavailableError } from '@/lib/auth/auth-unavailable';
 
 /** migration 121's token CHECK. */
 export const VAULT_TOKEN_RE = /^vlt_[ghjkmnpqrstvwxyz]{26}$/;
@@ -36,7 +37,11 @@ export function vaultJson(body: unknown, status = 200): NextResponse {
 
 export function vaultErrorResponse(err: unknown): NextResponse {
   if (err instanceof VaultHttpError) return vaultJson(err.body, err.status);
-  if (err instanceof UnauthorizedError || err instanceof ForbiddenError)
+  if (
+    err instanceof UnauthorizedError ||
+    err instanceof ForbiddenError ||
+    err instanceof AuthUnavailableError
+  )
     return vaultJson({ error: err.message }, err.status);
   if (err instanceof VaultStoreError)
     console.error('[vault] store failure:', err.message, err.code);

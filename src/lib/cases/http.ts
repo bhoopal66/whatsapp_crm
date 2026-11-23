@@ -34,6 +34,7 @@ import { CaseRefusedError, CaseStoreError, type CaseStore } from './store';
 import type { Case, CaseRole } from './types';
 import { CaseViewsRefusedError } from './views';
 import { inPostgresRange } from '@/lib/pg-date';
+import { AuthUnavailableError } from '@/lib/auth/auth-unavailable';
 
 export { isUuid };
 
@@ -207,7 +208,11 @@ export function caseErrorResponse(err: unknown, route?: string): NextResponse {
     return refusal(err.reason);
   if (err instanceof CaseViewsRefusedError)
     return refusal(err.reason, VIEWS_CONFLICT_TEXT);
-  if (err instanceof UnauthorizedError || err instanceof ForbiddenError)
+  if (
+    err instanceof UnauthorizedError ||
+    err instanceof ForbiddenError ||
+    err instanceof AuthUnavailableError
+  )
     return toErrorResponse(err);
   if (err instanceof CaseStoreError)
     console.error(`${tag} store failure:`, err.fn, err.code);

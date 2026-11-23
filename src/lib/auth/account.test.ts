@@ -246,6 +246,35 @@ describe("getCurrentAccount", () => {
     await expect(getCurrentAccount()).rejects.toBeInstanceOf(UnauthorizedError);
   });
 
+  it("answers an auth outage 503, and a real refusal 401", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const statusFor = async (userErr: unknown) => {
+      createClient.mockReturnValue(
+        makeClient({ user: null, userErr, byTable: {} }).client,
+      );
+      return toErrorResponse(await getCurrentAccount().catch((e) => e)).status;
+    };
+    expect(
+      await statusFor({ name: "AuthRetryableFetchError", status: 0 }),
+    ).toBe(503);
+    expect(await statusFor({ name: "AuthApiError", status: 500 })).toBe(503);
+    for (const status of [400, 401, 403]) {
+      expect(await statusFor({ name: "AuthApiError", status })).toBe(401);
+    }
+  });
+
+  it("answers a failed profile read 503, but no profile 403", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const statusFor = async (profiles: { data: unknown; error: unknown }) => {
+      createClient.mockReturnValue(
+        makeClient({ user: { id: "user-1" }, byTable: { profiles } }).client,
+      );
+      return toErrorResponse(await getCurrentAccount().catch((e) => e)).status;
+    };
+    expect(await statusFor({ data: null, error: { code: "57014" } })).toBe(503);
+    expect(await statusFor({ data: [], error: null })).toBe(403);
+  });
+
   it("maps a profiles query error to 'Could not load account context'", async () => {
     const { client } = makeClient({
       user: { id: "user-1" },

@@ -3,6 +3,10 @@ import { NextResponse } from 'next/server';
 import { UnauthorizedError, toErrorResponse } from '@/lib/auth/account';
 import { loadRoomDetail } from '@/lib/deal-rooms/reads';
 import { createClient } from '@/lib/supabase/server';
+import {
+  AuthUnavailableError,
+  isAuthUnavailable,
+} from '@/lib/auth/auth-unavailable';
 
 /**
  * One deal room as the caller may see it (module 014c): the room,
@@ -20,7 +24,8 @@ export async function GET(
 ) {
   try {
     const supabase = await createClient();
-    const { data: auth } = await supabase.auth.getUser();
+    const { data: auth, error: authError } = await supabase.auth.getUser();
+    if (isAuthUnavailable(authError)) throw new AuthUnavailableError();
     if (!auth.user) throw new UnauthorizedError();
     const { id } = await params;
     const detail = await loadRoomDetail(supabase, id);

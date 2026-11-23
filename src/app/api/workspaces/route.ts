@@ -33,6 +33,10 @@ import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import { isAccountRole } from '@/lib/auth/roles';
 import { createClient } from '@/lib/supabase/server';
 import { serverSupabaseUrl } from '@/lib/supabase/urls';
+import {
+  authUnavailableResponse,
+  isAuthUnavailable,
+} from '@/lib/auth/auth-unavailable';
 
 /** One request creates at most this many logins. */
 const MAX_INVITES = 50;
@@ -70,7 +74,9 @@ export async function GET() {
     const supabase = await createClient();
     const {
       data: { user },
+      error: authError,
     } = await supabase.auth.getUser();
+    if (isAuthUnavailable(authError)) return authUnavailableResponse();
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
