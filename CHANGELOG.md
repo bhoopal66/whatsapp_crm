@@ -28,6 +28,24 @@ and polish.
   one-to-one chat; only submission groups did this before.
 - "Customer waiting" is now **Waiting for the customer**, on the cases list,
   its filter and the home page: the flag means we wait for the customer.
+### Compass notifications and cases: five fixes
+
+No migration.
+- A Compass notification is no longer sent 1:1 to a customer who opted out
+  or is marked do-not-contact: it answers 422 `customer_opted_out`, as in
+  the group. When the contact cannot be read it answers 503
+  `contact_lookup_failed` and sends nothing.
+- A Compass notification that WhatsApp may already have is never sent
+  twice. After a timeout, a gateway error or a restart mid-send, the answer
+  is 409 `delivery_unconfirmed` (don't retry; check the chat). A definite
+  refusal can still be retried with the same key.
+- A status Compass sends for a case that is already closed is answered with
+  `case_status_applied: false` (`case_status_reason: "case_closed"`). It
+  looked applied.
+- A rating request is kept for an hourly retry when the chat or contact
+  cannot be read. It was refused for good, with the wrong reason.
+- A case's due date out of range is refused before anything is saved. The
+  other fields were saved and the screen showed an error.
 
 ### Voice notes: one tap to record, one tap to send
 

@@ -29,6 +29,7 @@ vi.mock('@/lib/whatsapp/send-message', async (importOriginal) => {
 });
 
 import {
+  DELIVERY_UNCONFIRMED,
   isClaimRetryable,
   NotifyError,
   parseNotificationRequest,
@@ -37,6 +38,7 @@ import {
 } from './notify';
 import { SendMessageError } from '@/lib/whatsapp/send-message';
 import { ChannelError } from '@/lib/whatsapp/channels';
+import { ContactLookupError } from '@/lib/contacts/dedupe';
 import { SubmissionGroupSentNotRecordedError } from '@/lib/submission-groups/service';
 import { COMPASS_TEMPLATES } from './meta-template';
 import { APPROVED_TEXT, SUBMITTED_TEXT } from './compass-messages.fixture';
@@ -60,6 +62,8 @@ function makeDb(
     templates?: Row[];
     /** Tables whose reads answer an error. */
     failReads?: string[];
+    /** Updates that answer an error, chosen by their payload. */
+    failUpdate?: (payload: Row) => boolean;
     /** assignment_settings rows (migration 236). */
     settings?: Row[];
     cases?: Row[];
@@ -126,6 +130,8 @@ function makeDb(
           rows.push(row);
           return { data: [row], error: null };
         }
+        if (op === 'update' && seed.failUpdate?.(payload))
+          return { data: null, error: { message: 'write failed' } };
         if (op === 'update') {
           const hit = matching();
           hit.forEach((r) => Object.assign(r, payload));
@@ -316,6 +322,16 @@ describe('isClaimRetryable', () => {
       true
     );
   });
+  it('never retries one that may already be with WhatsApp', () => {
+    for (const status of ['sending', 'failed']) {
+      expect(
+        isClaimRetryable(
+          { status, updated_at: at(1e9), error_code: DELIVERY_UNCONFIRMED },
+          now
+        )
+      ).toBe(false);
+    }
+  });
   it('retries a sending claim only once it is stale', () => {
     expect(
       isClaimRetryable({ status: 'sending', updated_at: at(1000) }, now)
@@ -358,7 +374,10 @@ describe('sendCompassNotification', () => {
       messageType: 'template',
       templateName: 'compass_case_approved',
       templateLanguage: 'en',
-      templateParams: ['SILVER DUNE FURNITURE & DECOR IND. FACTORY LLC.', 'NBF'],
+      templateParams: [
+        'SILVER DUNE FURNITURE & DECOR IND. FACTORY LLC.',
+        'NBF',
+      ],
       surface: 'api',
       provider: 'meta',
       requireProvider: true,
@@ -608,6 +627,47 @@ describe('sendCompassNotification', () => {
     expect(found.rpcs).toEqual([]);
   });
 
+  it.each(['opted_out_at', 'do_not_contact_at'])(
+    'refuses 1:1 a customer with %s set, in or out of the window; the key works after an opt-in',
+    async (col) => {
+      const { db, tables } = makeDb(chatOnMeta(HOUR));
+      const customer = (at: string | null) => ({
+        id: 'contact-1',
+        phone: '971501234567',
+        [col]: at,
+      });
+      findExistingContact.mockResolvedValue(customer('2026-11-23T08:00:00Z'));
+      for (const req of [
+        baseRequest(),
+        baseRequest({ idempotency_key: 'APP-2', text: 'hello' }),
+      ]) {
+        await expect(
+          sendCompassNotification(db, 'acct', req)
+        ).rejects.toMatchObject({ code: 'customer_opted_out', status: 422 });
+      }
+      expect(resolveConversationByPhone).not.toHaveBeenCalled();
+      expect(sendMessageToConversation).not.toHaveBeenCalled();
+      expect(tables.compass_notifications[0]).toMatchObject({
+        status: 'failed',
+        error_code: 'customer_opted_out',
+      });
+
+      findExistingContact.mockResolvedValue(customer(null));
+      const out = await sendCompassNotification(db, 'acct', baseRequest());
+      expect(out.notification.status).toBe('sent');
+    }
+  );
+
+  it('refuses, retryable and sending nothing, when the contact cannot be read', async () => {
+    const { db, tables } = makeDb();
+    findExistingContact.mockRejectedValue(new ContactLookupError('down'));
+    await expect(
+      sendCompassNotification(db, 'acct', baseRequest())
+    ).rejects.toMatchObject({ code: 'contact_lookup_failed', status: 503 });
+    expect(sendMessageToConversation).not.toHaveBeenCalled();
+    expect(tables.compass_notifications[0].status).toBe('failed');
+  });
+
   it('never touches conversation ownership', async () => {
     // The only table notify.ts writes is its own; ownership lives on
     // `conversations`, which it only reads itself (the Meta gate) and
@@ -746,7 +806,7 @@ describe('sendCompassNotification', () => {
 
   it('marks a gateway failure as failed so it can be retried', async () => {
     sendMessageToConversation.mockRejectedValue(
-      new SendMessageError('whatsapp_error', 'gateway down', 502)
+      new SendMessageError('whatsapp_error', 'gateway down', 502, true)
     );
     const { db, tables } = makeDb();
     await expect(
@@ -756,6 +816,103 @@ describe('sendCompassNotification', () => {
       status: 'failed',
       error_code: 'whatsapp_error',
     });
+  });
+
+  it('marks the row before the gateway call and clears the mark once sent', async () => {
+    const { db, tables } = makeDb();
+    let during: Row = {};
+    sendMessageToConversation.mockImplementation(async () => {
+      during = { ...tables.compass_notifications[0] };
+      return { messageId: 'msg-1', whatsappMessageId: 'wa-1' };
+    });
+    await sendCompassNotification(db, 'acct', baseRequest());
+    expect(during).toMatchObject({
+      status: 'sending',
+      error_code: DELIVERY_UNCONFIRMED,
+    });
+    expect(tables.compass_notifications[0]).toMatchObject({
+      status: 'sent',
+      error_code: null,
+    });
+  });
+
+  it('sends nothing when the mark cannot be written, and the key stays usable', async () => {
+    let fail = true;
+    const { db, tables } = makeDb({
+      failUpdate: (p) => fail && p.error_code === DELIVERY_UNCONFIRMED,
+    });
+    await expect(
+      sendCompassNotification(db, 'acct', baseRequest())
+    ).rejects.toMatchObject({ code: 'internal', status: 500 });
+    expect(sendMessageToConversation).not.toHaveBeenCalled();
+    expect(tables.compass_notifications[0].status).toBe('failed');
+    fail = false;
+    await sendCompassNotification(db, 'acct', baseRequest());
+    expect(sendMessageToConversation).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries the sent record once', async () => {
+    let fails = 1;
+    const { db, tables } = makeDb({
+      failUpdate: (p) => p.status === 'sent' && fails-- > 0,
+    });
+    await sendCompassNotification(db, 'acct', baseRequest());
+    expect(tables.compass_notifications[0]).toMatchObject({
+      status: 'sent',
+      message_id: 'msg-1',
+    });
+  });
+
+  it('answers sent but never sends again when the sent record cannot be written', async () => {
+    const { db, tables } = makeDb({ failUpdate: (p) => p.status === 'sent' });
+    const out = await sendCompassNotification(db, 'acct', baseRequest());
+    expect(out.notification).toMatchObject({ status: 'sent', error: null });
+    const row = tables.compass_notifications[0];
+    expect(row).toMatchObject({
+      status: 'sending',
+      error_code: DELIVERY_UNCONFIRMED,
+    });
+
+    // Fresh: it may be a live send. Stale: unconfirmed, not sent again.
+    await expect(
+      sendCompassNotification(db, 'acct', baseRequest())
+    ).rejects.toMatchObject({ code: 'in_progress', status: 409 });
+    row.updated_at = new Date(Date.now() - STALE_CLAIM_MS - 1).toISOString();
+    await expect(
+      sendCompassNotification(db, 'acct', baseRequest())
+    ).rejects.toMatchObject({ code: DELIVERY_UNCONFIRMED, status: 409 });
+    expect(sendMessageToConversation).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['a gateway timeout', new SendMessageError('whatsapp_error', 'x', 502)],
+    ['an unknown error', new Error('socket hang up')],
+  ])('never sends again after %s', async (_label, err) => {
+    const { db, tables } = makeDb();
+    sendMessageToConversation.mockRejectedValue(err);
+    for (let i = 0; i < 2; i++) {
+      await expect(
+        sendCompassNotification(db, 'acct', baseRequest())
+      ).rejects.toMatchObject({ code: DELIVERY_UNCONFIRMED, status: 409 });
+    }
+    expect(sendMessageToConversation).toHaveBeenCalledTimes(1);
+    expect(tables.compass_notifications[0]).toMatchObject({
+      status: 'failed',
+      error_code: DELIVERY_UNCONFIRMED,
+    });
+  });
+
+  it('does not send a claim another request already handed over, nor touch its row', async () => {
+    const { db, tables } = makeDb();
+    resolveConversationByPhone.mockImplementation(async () => {
+      tables.compass_notifications[0].error_code = DELIVERY_UNCONFIRMED;
+      return { conversationId: 'conv-1', contactId: 'contact-1' };
+    });
+    await expect(
+      sendCompassNotification(db, 'acct', baseRequest())
+    ).rejects.toMatchObject({ code: 'in_progress', status: 409 });
+    expect(sendMessageToConversation).not.toHaveBeenCalled();
+    expect(tables.compass_notifications[0].status).toBe('sending');
   });
 
   it('resolves the phone and name from a synced Compass customer, and links it', async () => {

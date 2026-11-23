@@ -253,6 +253,18 @@ describe('PATCH /api/cases/[id]', () => {
     expect(m.store.setPriority).not.toHaveBeenCalled();
   });
 
+  it('is 400 for a due date Postgres cannot hold, before anything is written', async () => {
+    const res = await patch({
+      product: 'Loan',
+      priority: 'high',
+      due_at: '+200000-01-01T00:00:00.000Z',
+    });
+    expect(res.status).toBe(400);
+    expect(m.store.setDetails).not.toHaveBeenCalled();
+    expect(m.store.setPriority).not.toHaveBeenCalled();
+    expect(m.store.setDue).not.toHaveBeenCalled();
+  });
+
   it('is 400 for a bad or empty body', async () => {
     for (const body of [
       {},
