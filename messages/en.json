@@ -3348,7 +3348,8 @@
       "autoResumeMinutes": "{count} min",
       "autoResumeHours": "{count} h",
       "guardrailRetry": "Rewrite a held draft once before a person reviews it",
-      "guardrailRetryDesc": "When the AI safety check holds a draft, the large model rewrites it once using the check's reasons. If that is held too, the chat goes to a person with the draft ready to send, edit or discard."
+      "guardrailRetryDesc": "When the AI safety check holds a draft, the large model rewrites it once using the check's reasons. If that is held too, the chat goes to a person with the draft ready to send, edit or discard.",
+      "stale": "Someone else changed these settings. They have been reloaded."
     },
     "aiKnowledge": {
       "loadFailed": "Failed to load knowledge base",
@@ -5122,7 +5123,9 @@
         "leaderViewEnabled": {
           "label": "Team leaders see their team's activity"
         }
-      }
+      },
+      "stale": "Someone else changed these settings. They have been reloaded.",
+      "loadFailed": "Couldn't load the limits."
     },
     "findings": {
       "reply_rate_low": {

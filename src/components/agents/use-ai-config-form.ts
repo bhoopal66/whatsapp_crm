@@ -62,6 +62,8 @@ export function useAiConfigForm() {
   // The last load failed: the form does not hold what is stored, so
   // nothing may be shown as the config or saved from it.
   const [loadError, setLoadError] = useState(false);
+  // The version the form was loaded from, for the save to compare.
+  const [updatedAt, setUpdatedAt] = useState<string | null | undefined>();
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [removing, setRemoving] = useState(false);
@@ -153,6 +155,7 @@ export function useAiConfigForm() {
       setHasStoredEmbeddingsKey(read.hasEmbeddingsKey);
       setLoaded(read.values);
       setValues(read.values);
+      setUpdatedAt(read.updatedAt);
       setLoadError(false);
     } catch {
       if (loadedAccountIdRef.current !== forAccount) return;
@@ -263,13 +266,22 @@ export function useAiConfigForm() {
         const res = await fetch('/api/ai/config', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(plan.config),
+          body: JSON.stringify({
+            ...plan.config,
+            expectedUpdatedAt: updatedAt,
+          }),
         });
         const data = await res.json();
+        if (data?.code === 'STALE') {
+          toast.error(t('stale'));
+          load(accountId);
+          return;
+        }
         if (!res.ok) {
           toast.error(data.error ?? t('saveFailed'));
           return;
         }
+        setUpdatedAt(data?.updated_at ?? undefined);
         // Saved even if the route PUT below fails, so a retry only PUTs.
         next = applyAiSaveResult(next, current, plan, {
           configSaved: true,
@@ -325,6 +337,7 @@ export function useAiConfigForm() {
         setHasStoredEmbeddingsKey(false);
         setLoaded(blank);
         setValues(blank);
+        setUpdatedAt(null);
       } else {
         const data = await res.json();
         toast.error(data.error ?? t('removeFailed'));

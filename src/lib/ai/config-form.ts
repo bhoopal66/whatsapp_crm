@@ -307,6 +307,9 @@ export interface AiConfigLoad {
   hasKey: boolean;
   hasEmbeddingsKey: boolean;
   values: AiConfigFormValues;
+  /** The stored row's version: null when there is none yet, undefined
+   *  when the server did not say (then a save is not compared). */
+  updatedAt: string | null | undefined;
 }
 
 /**
@@ -327,6 +330,11 @@ export function readAiConfigResponse(
     hasKey: d.configured && Boolean(d.has_key),
     hasEmbeddingsKey: d.configured && Boolean(d.has_embeddings_key),
     values: d.configured ? aiConfigFormFromResponse(d) : emptyAiConfigForm(),
+    updatedAt: !d.configured
+      ? null
+      : typeof d.updated_at === 'string'
+        ? d.updated_at
+        : undefined,
   };
 }
 

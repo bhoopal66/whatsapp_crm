@@ -42,19 +42,21 @@ const STORED = {
 /** Answers for GET /api/ai/config, in turn; the last one repeats. */
 let answers: (() => Promise<unknown>)[] = [];
 let posts: unknown[] = [];
+let postAnswer = () => json({ success: true });
 
 beforeEach(() => {
   resetHooks();
   auth.accountId = 'acc-1';
   answers = [];
   posts = [];
+  postAnswer = () => json({ success: true });
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string, init?: RequestInit) => {
       if (url !== '/api/ai/config') return json({});
       if (init?.method === 'POST') {
         posts.push(JSON.parse(String(init.body)));
-        return json({ success: true });
+        return postAnswer();
       }
       return (answers.length > 1 ? answers.shift()! : answers[0])();
     })
@@ -112,4 +114,32 @@ it('a workspace that is not set up never keeps the last one’s form', async () 
   expect(form().configured).toBe(false);
   expect(form().hasStoredKey).toBe(false);
   expect(form().values.systemPrompt).toBe('');
+});
+
+it('Save sends the version it loaded; a 409 reloads what is stored', async () => {
+  answers = [
+    async () => json({ ...STORED, updated_at: 'v2' }),
+    async () =>
+      json({ ...STORED, updated_at: 'v3', system_prompt: 'Their newer one' }),
+  ];
+  postAnswer = () => json({ error: 'x', code: 'STALE' }, 409);
+  form();
+  await settle();
+  form().set('systemPrompt', 'Mine');
+  await form().save();
+  expect(posts).toMatchObject([{ expectedUpdatedAt: 'v2' }]);
+  await settle();
+  expect(form().values.systemPrompt).toBe('Their newer one');
+  expect(form().dirty).toBe(false);
+});
+
+it('the first save says it found no configuration', async () => {
+  answers = [async () => json({ configured: false })];
+  form();
+  await settle();
+  form().set('apiKey', 'sk-new');
+  form().set('keyEdited', true);
+  form().set('model', 'gpt-x');
+  await form().save();
+  expect(posts).toMatchObject([{ expectedUpdatedAt: null }]);
 });

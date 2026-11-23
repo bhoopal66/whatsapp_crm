@@ -3348,7 +3348,8 @@
       "autoResumeMinutes": "{count}분",
       "autoResumeHours": "{count}시간",
       "guardrailRetry": "보류된 초안을 사람이 검토하기 전에 한 번 다시 쓰기",
-      "guardrailRetryDesc": "AI 안전 검사가 초안을 보류하면 대형 모델이 검사 사유를 반영해 한 번 다시 씁니다. 그것도 보류되면 채팅은 보내기, 수정 또는 삭제할 수 있는 초안과 함께 사람에게 넘어갑니다."
+      "guardrailRetryDesc": "AI 안전 검사가 초안을 보류하면 대형 모델이 검사 사유를 반영해 한 번 다시 씁니다. 그것도 보류되면 채팅은 보내기, 수정 또는 삭제할 수 있는 초안과 함께 사람에게 넘어갑니다.",
+      "stale": "다른 사람이 이 설정을 변경했습니다. 설정을 다시 불러왔습니다."
     },
     "aiKnowledge": {
       "loadFailed": "지식베이스를 불러오지 못했습니다",
@@ -5122,7 +5123,9 @@
         "leaderViewEnabled": {
           "label": "팀 리더는 팀의 활동을 봅니다"
         }
-      }
+      },
+      "stale": "다른 사람이 이 설정을 변경했습니다. 설정을 다시 불러왔습니다.",
+      "loadFailed": "한도를 불러오지 못했습니다."
     },
     "findings": {
       "reply_rate_low": {

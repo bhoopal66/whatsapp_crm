@@ -706,8 +706,6 @@ function TeamActivityPageInner() {
           key={limitsKey}
           open={limitsOpen}
           onOpenChange={setLimitsOpen}
-          limits={report.limits}
-          saved={report.limitsSaved}
           onSaved={onLimitsSaved}
         />
       )}
