@@ -1,5 +1,6 @@
 import { readTextFile, TextEncodingError } from '@/lib/csv/decode-text';
 import {
+  contactPhoneColumn,
   parseContactTable,
   readContactCsv,
   type ReadContactCsvResult,
@@ -25,7 +26,9 @@ export async function readContactFile(
   if (name.endsWith('.xls')) throw new OldExcelError();
   if (!name.endsWith('.xlsx')) return readContactCsv(await readTextFile(file));
   const { rows, firstRow } = await readXlsxFirstSheet(
-    new Uint8Array(await file.arrayBuffer())
+    new Uint8Array(await file.arrayBuffer()),
+    undefined,
+    contactPhoneColumn
   );
   const parsed = parseContactTable(
     rows,

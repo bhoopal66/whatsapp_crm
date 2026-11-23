@@ -48,6 +48,50 @@ describe('readContactFile', () => {
     ]);
   });
 
+  it('reads an .xlsx date and percentage as shown, its phones as digits', async () => {
+    const styles =
+      '<numFmts count="1"><numFmt numFmtId="164" formatCode="0.00%"/></numFmts>' +
+      '<cellXfs count="3"><xf numFmtId="0"/><xf numFmtId="14"/>' +
+      '<xf numFmtId="164"/></cellXfs>';
+    const parsed = await readContactFile(
+      file(
+        'due.xlsx',
+        simpleBook(
+          `<row r="1">${text('A1', 'Mobile')}${text('B1', 'Due')}${text('C1', 'Rate')}</row>` +
+            // A phone as a number, as text, and in a date-formatted cell,
+            // once small enough to be a day.
+            '<row r="2"><c r="A2"><v>9.71501234567E+11</v></c><c r="B2" s="1"><v>46371</v></c><c r="C2" s="2"><v>7.2499999999999995E-2</v></c></row>' +
+            `<row r="3">${text('A3', '+971 50 123 4568')}</row>` +
+            '<row r="4"><c r="A4" s="1"><v>971501234569</v></c></row>' +
+            '<row r="5"><c r="A5" s="1"><v>501234</v></c></row>',
+          undefined,
+          styles
+        )
+      )
+    );
+    expect(parsed.rows.map((r) => r.phone)).toEqual([
+      '971501234567',
+      '+971 50 123 4568',
+      '971501234569',
+      '501234',
+    ]);
+    expect(parsed.rows[0].values).toEqual({
+      mobile: '971501234567',
+      due: '15/12/2026',
+      rate: '7.25%',
+    });
+  });
+
+  it('reads a UTF-16 CSV', async () => {
+    const bytes = Buffer.from(
+      '\ufeffphone\tname\r\n+971501234567\tمحمد\r\n',
+      'utf16le'
+    );
+    expect((await readContactFile(file('list.csv', bytes))).rows).toMatchObject(
+      [{ phone: '+971501234567', name: 'محمد' }]
+    );
+  });
+
   it('reads a Windows-1256 CSV', async () => {
     const bytes = Uint8Array.from([
       ...new TextEncoder().encode('phone,name\r\n+971501234567,'),

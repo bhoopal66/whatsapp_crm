@@ -7,8 +7,11 @@
  * is, in the browser, with no spreadsheet library: an `.xlsx` is a ZIP
  * of XML parts, and a contact list needs only the cell text.
  *
- * A hand scan rather than DOMParser because the tests run in node. Dates
- * are Excel serial numbers and are returned as such, not converted.
+ * A hand scan rather than DOMParser because the tests run in node. A date
+ * or a percentage is stored as a bare number; its cell's number format
+ * (`xl/styles.xml`) says which it is, and the cell reads as the sheet
+ * shows it (xlsx-number-format.ts). Returned as stored, "due on 46371"
+ * reached customers.
  *
  * The file is untrusted (an admin's upload on the server, anyone's
  * spreadsheet in the browser), and both of its layers can claim far
@@ -22,6 +25,14 @@
  * 50 MB of `<row>` blocks the event loop for hours. Every search here
  * starts where the previous one ended, which keeps a read linear.
  */
+
+import {
+  builtinFormat,
+  formatNumber,
+  parseFormat,
+  plainNumber,
+  type CellFormat,
+} from './xlsx-number-format';
 
 /** Excel's own grid: columns A to XFD, rows 1 to 1,048,576. */
 export const XLSX_MAX_COLUMNS = 16_384;
@@ -419,7 +430,54 @@ function rowIndex(ref: string | null): number | null {
   return i === ref.length ? null : Number(ref.slice(i)) - 1;
 }
 
-function cellValue(type: string | null, body: string, shared: string[]) {
+/** What a cell's style index (`s`) says about its number. */
+interface Styles {
+  formats: (CellFormat | null)[];
+  date1904: boolean;
+}
+
+/** Excel's limit on cell formats is 65,490; the rest are not read. */
+const MAX_CELL_FORMATS = 65_536;
+
+/** The number format of every `cellXfs` entry, in order. */
+function cellFormats(xml: string): (CellFormat | null)[] {
+  const custom = new Map<string, CellFormat | null>();
+  const numFmts = firstElement(xml, 'numFmts');
+  for (const a of numFmts ? openingTags(numFmts.body, 'numFmt') : []) {
+    if (custom.size === MAX_CELL_FORMATS) break;
+    const id = attr(a, 'numFmtId');
+    const code = attr(a, 'formatCode');
+    if (id !== null && code !== null) custom.set(id, parseFormat(code));
+  }
+  const formats: (CellFormat | null)[] = [];
+  const cellXfs = firstElement(xml, 'cellXfs');
+  for (const a of cellXfs ? openingTags(cellXfs.body, 'xf') : []) {
+    if (formats.length === MAX_CELL_FORMATS) break;
+    const id = attr(a, 'numFmtId') ?? '0';
+    const own = custom.get(id);
+    formats.push(own === undefined ? builtinFormat(Number(id)) : own);
+  }
+  return formats;
+}
+
+function numberText(raw: string, style: string | null, styles: Styles) {
+  const format = style === null ? null : styles.formats[Number(style)];
+  const n = raw.trim() === '' ? NaN : Number(raw);
+  return (
+    (format && Number.isFinite(n)
+      ? formatNumber(n, format, styles.date1904)
+      : null) ?? plainNumber(raw)
+  );
+}
+
+/** `style` is the cell's `s`; null reads a number as plain digits. */
+function cellValue(
+  type: string | null,
+  body: string,
+  shared: string[],
+  style: string | null,
+  styles: Styles
+) {
   const v = firstElement(body, 'v');
   const raw = v ? decodeText(v.body) : '';
   switch (type) {
@@ -438,15 +496,17 @@ function cellValue(type: string | null, body: string, shared: string[]) {
       return '';
     case 'str':
       return raw;
-    default: {
-      // A phone number typed into a number cell is stored as a double
-      // and can come back as "9.71501234567E+11"; whole numbers are
-      // written out in plain digits so it reads as the number it is.
-      const n = raw.trim() === '' ? NaN : Number(raw);
-      return Number.isSafeInteger(n) ? String(n) : raw;
-    }
+    default:
+      return numberText(raw, style, styles);
   }
 }
+
+/**
+ * Given the header, the column whose numbers stay plain digits whatever
+ * their format (-1 for none): a phone column formatted as a date still
+ * holds phone numbers.
+ */
+export type PlainColumn = (header: string[]) => number;
 
 /**
  * Cells and rows are placed by their references, so a reference is held
@@ -456,8 +516,15 @@ function cellValue(type: string | null, body: string, shared: string[]) {
  * charged. Padding is written lazily, up to the last non-empty row and,
  * within a row, the last non-empty cell, and is charged when written.
  */
-function sheetRows(xml: string, shared: string[], budget: Budget): string[][] {
+function sheetRows(
+  xml: string,
+  shared: string[],
+  styles: Styles,
+  budget: Budget,
+  plainColumn?: PlainColumn
+): string[][] {
   const rows: string[][] = [];
+  let plain: number | null = null;
   for (const row of elements(xml, 'row')) {
     const found: Array<[number, string]> = [];
     let next = 0; // where a cell without a reference lands
@@ -470,7 +537,13 @@ function sheetRows(xml: string, shared: string[], budget: Budget): string[][] {
         );
       }
       next = Math.max(next, col + 1);
-      const value = cellValue(attr(c.attrs, 't'), c.body, shared);
+      const value = cellValue(
+        attr(c.attrs, 't'),
+        c.body,
+        shared,
+        col === plain ? null : attr(c.attrs, 's'),
+        styles
+      );
       if (value !== '') found.push([col, value]);
     }
     const ref = attr(row.attrs, 'r');
@@ -486,6 +559,8 @@ function sheetRows(xml: string, shared: string[], budget: Budget): string[][] {
     spendCells(budget, width + Math.max(0, at + 1 - rows.length));
     const cells: string[] = new Array<string>(width).fill('');
     for (const [col, value] of found) cells[col] = value;
+    if (plain === null && plainColumn && cells.some((c) => c.trim() !== ''))
+      plain = plainColumn(cells);
     while (rows.length < at) rows.push([]);
     rows[at] = cells;
   }
@@ -527,6 +602,7 @@ interface Workbook {
   /** Every `<sheet>` in tab order, with its relationship when it has one. */
   sheets: { name: string; hidden: boolean; rel: Relationship | undefined }[];
   sharedStringsPath: string;
+  styles: () => Promise<Styles>;
   budget: Budget;
 }
 
@@ -577,6 +653,18 @@ async function openWorkbook(
     });
   }
   const sharedRel = rels.find((r) => r.type.endsWith('/sharedStrings'));
+  const stylesRel = rels.find((r) => r.type.endsWith('/styles'));
+  // Without a readable styles part every number is written as stored.
+  const styles = async (): Promise<Styles> => {
+    const xml = await read(
+      stylesRel ? resolveTarget(stylesRel.target) : 'xl/styles.xml'
+    ).catch(() => null);
+    const [properties] = workbook ? openingTags(workbook, 'workbookPr') : [];
+    return {
+      formats: xml ? cellFormats(xml) : [],
+      date1904: /^(?:1|true)$/.test(attr(properties ?? '', 'date1904') ?? ''),
+    };
+  };
   return {
     read,
     rels,
@@ -584,6 +672,7 @@ async function openWorkbook(
     sharedStringsPath: sharedRel
       ? resolveTarget(sharedRel.target)
       : 'xl/sharedStrings.xml',
+    styles,
     budget,
   };
 }
@@ -599,12 +688,11 @@ export async function readXlsxTable(
 /** readXlsxTable's rows, and the sheet row (from 1) the header is on. */
 export async function readXlsxFirstSheet(
   bytes: Uint8Array,
-  limits?: Partial<XlsxLimits>
+  limits?: Partial<XlsxLimits>,
+  plainColumn?: PlainColumn
 ): Promise<{ rows: string[][]; firstRow: number }> {
-  const { read, rels, sheets, sharedStringsPath, budget } = await openWorkbook(
-    bytes,
-    limits
-  );
+  const { read, rels, sheets, sharedStringsPath, styles, budget } =
+    await openWorkbook(bytes, limits);
 
   // The first visible worksheet in tab order, which need not be
   // sheet1.xml once sheets have been reordered or deleted. A chartsheet
@@ -622,15 +710,18 @@ export async function readXlsxFirstSheet(
     ? resolveTarget(sheetRel.target)
     : 'xl/worksheets/sheet1.xml';
 
-  const [sheet, sharedXml] = await Promise.all([
+  const [sheet, sharedXml, sheetStyles] = await Promise.all([
     read(sheetPath),
     read(sharedStringsPath),
+    styles(),
   ]);
   if (sheet === null) throw new Error('The workbook has no worksheet');
   const rows = sheetRows(
     sheet,
     sharedXml ? sharedStrings(sharedXml) : [],
-    budget
+    sheetStyles,
+    budget,
+    plainColumn
   );
   // Rows are placed by reference, so a sheet whose header sits below a
   // blank first row would start with []; CSV drops leading blank lines
@@ -651,10 +742,8 @@ export async function readXlsxSheets(
   bytes: Uint8Array,
   limits?: Partial<XlsxLimits>
 ): Promise<{ name: string; rows: string[][] }[]> {
-  const { read, rels, sheets, sharedStringsPath, budget } = await openWorkbook(
-    bytes,
-    limits
-  );
+  const { read, rels, sheets, sharedStringsPath, styles, budget } =
+    await openWorkbook(bytes, limits);
   const targets =
     rels.length === 0
       ? [
@@ -670,11 +759,15 @@ export async function readXlsxSheets(
         );
   const sharedXml = await read(sharedStringsPath);
   const shared = sharedXml ? sharedStrings(sharedXml) : [];
+  const sheetStyles = await styles();
   const out: { name: string; rows: string[][] }[] = [];
   for (const t of targets) {
     const xml = await read(t.path);
     if (xml !== null) {
-      out.push({ name: t.name, rows: sheetRows(xml, shared, budget) });
+      out.push({
+        name: t.name,
+        rows: sheetRows(xml, shared, sheetStyles, budget),
+      });
     }
   }
   return out;

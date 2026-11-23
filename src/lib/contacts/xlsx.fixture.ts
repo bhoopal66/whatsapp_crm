@@ -84,18 +84,19 @@ export function zip(files: FixtureFile[]): Uint8Array {
 export const NS =
   'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" ' +
   'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"';
-export const REL =
+const REL =
   'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
 
 export function workbook(
   sheets: { name: string; rid: string; state?: string }[],
-  rels: { id: string; type: string; target: string }[]
+  rels: { id: string; type: string; target: string }[],
+  properties = ''
 ): FixtureFile[] {
   return [
     {
       name: 'xl/workbook.xml',
       content:
-        `<?xml version="1.0" encoding="UTF-8"?><workbook ${NS}><sheets>` +
+        `<?xml version="1.0" encoding="UTF-8"?><workbook ${NS}>${properties}<sheets>` +
         sheets
           .map(
             (s, i) =>
@@ -129,8 +130,16 @@ export function sheet(rows: string): string {
   );
 }
 
-/** One workbook, one sheet at the usual path, optional shared strings. */
-export function simpleBook(rows: string, shared?: string): Uint8Array {
+/**
+ * One workbook, one sheet at the usual path, with optional shared strings
+ * and style sheet contents.
+ */
+export function simpleBook(
+  rows: string,
+  shared?: string,
+  styles?: string,
+  date1904 = false
+): Uint8Array {
   const rels = [
     { id: 'rId1', type: 'worksheet', target: 'worksheets/sheet1.xml' },
   ];
@@ -141,14 +150,29 @@ export function simpleBook(rows: string, shared?: string): Uint8Array {
       target: 'sharedStrings.xml',
     });
   }
+  if (styles) {
+    rels.push({ id: 'rId3', type: 'styles', target: 'styles.xml' });
+  }
   return zip([
-    ...workbook([{ name: 'Sheet1', rid: 'rId1' }], rels),
+    ...workbook(
+      [{ name: 'Sheet1', rid: 'rId1' }],
+      rels,
+      date1904 ? '<workbookPr date1904="1"/>' : ''
+    ),
     { name: 'xl/worksheets/sheet1.xml', content: sheet(rows) },
     ...(shared
       ? [
           {
             name: 'xl/sharedStrings.xml',
             content: `<?xml version="1.0" encoding="UTF-8"?><sst ${NS}>${shared}</sst>`,
+          },
+        ]
+      : []),
+    ...(styles
+      ? [
+          {
+            name: 'xl/styles.xml',
+            content: `<?xml version="1.0" encoding="UTF-8"?><styleSheet ${NS}>${styles}</styleSheet>`,
           },
         ]
       : []),

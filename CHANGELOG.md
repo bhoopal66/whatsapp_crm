@@ -22,6 +22,10 @@ No migration.
   files.
 - The contacts import takes an Excel file (.xlsx, first sheet) as well as CSV,
   with the same preview.
+- Dates and percentages in an Excel file are read as the sheet shows them
+  (`15/12/2026`, `7.25%`), not as Excel stores them (`46371`, `0.0725`): a
+  broadcast sent the stored number. Phone numbers stay plain digits. Also in
+  the approved answers import.
 
 ### Calendar
 
