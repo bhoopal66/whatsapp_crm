@@ -11,6 +11,7 @@ import { useLocale, useTranslations } from 'next-intl';
 
 import { Card, CardContent } from '@/components/ui/card';
 import { useAuth } from '@/hooks/use-auth';
+import { hasMinRole } from '@/lib/auth/roles';
 import { formatAge } from '@/lib/desk/intake-form';
 import type { DeskWorklist } from '@/lib/desk/store';
 import { deskTabHref, worklistTab } from '@/lib/desk/tabs';
@@ -20,12 +21,20 @@ import { deskApi } from './desk-api';
 export function DeskWorklistCard() {
   const t = useTranslations('Desk');
   const locale = useLocale();
-  const { accountId } = useAuth();
+  const { accountId, accountRole, profileLoading, salesRestricted } = useAuth();
+  // The desk is agents' and up, outside a restricted department. Anyone
+  // else (HR people, viewers) would only be refused, on every load.
+  const asks =
+    !profileLoading &&
+    !!accountRole &&
+    hasMinRole(accountRole, 'agent') &&
+    !salesRestricted;
   const [w, setW] = useState<{
     account: string | null;
     data: DeskWorklist;
   } | null>(null);
   useEffect(() => {
+    if (!asks) return;
     let live = true;
     void deskApi.worklist().then((r) => {
       if (live && r.ok) setW({ account: accountId, data: r.data });
@@ -33,9 +42,9 @@ export function DeskWorklistCard() {
     return () => {
       live = false;
     };
-  }, [accountId]);
+  }, [accountId, asks]);
   // Another workspace's answer is never shown after a switch.
-  if (!w || w.account !== accountId) return null;
+  if (!asks || !w || w.account !== accountId) return null;
   const rows = (['tray', 'queue', 'mine', 'tasks'] as const).filter(
     (k) => w.data[k].count > 0
   );
