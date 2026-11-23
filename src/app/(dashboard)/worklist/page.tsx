@@ -3,10 +3,10 @@
 /**
  * My worklist (package 029c): what needs action next, ranked in the
  * browser from reads other screens already make (`loadWorklistInputs`,
- * which never throws). There is no worklist API and nothing here
+ * which never throws and names the parts it could not read). There is no worklist API and nothing here
  * writes; each row opens its existing screen.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 
 import { useWorkspaceMembers } from '@/components/meetings/use-workspace-members';
@@ -22,16 +22,16 @@ import { useLedTeam } from '@/hooks/use-led-team';
 import { createClient } from '@/lib/supabase/client';
 import { loadWorklistInputs } from '@/lib/worklist/load';
 import {
+  mergeWorklistLoad,
+  type WorklistLoad,
+} from '@/lib/worklist/load-state';
+import {
   filterWaitingChats,
   loadWaitingChats,
   WAITING_CHATS_LIMIT,
   type WaitingChat,
 } from '@/lib/worklist/waiting';
-import {
-  rankWorklist,
-  worklistMode,
-  type WorklistInputs,
-} from '@/lib/worklist/rank';
+import { rankWorklist, worklistMode } from '@/lib/worklist/rank';
 
 /** How often the waiting customers are re-read while the page is open. */
 const WAITING_REFRESH_MS = 60_000;
@@ -46,9 +46,13 @@ export default function WorklistPage() {
   // effect. Ranked against the moment the reads were made.
   const [loaded, setLoaded] = useState<{
     accountId: string;
-    inputs: WorklistInputs;
+    load: WorklistLoad;
     now: number;
+    attempt: number;
   } | null>(null);
+  // Bumped by Retry; until a load carries the same number, it is on its way.
+  const [attempt, setAttempt] = useState(0);
+  const retry = useCallback(() => setAttempt((n) => n + 1), []);
   // Customers waiting for a reply (migration 238), tagged like `loaded`.
   // `rows` null: never had a good read; a failed refresh keeps the last.
   const [waiting, setWaiting] = useState<{
@@ -56,7 +60,10 @@ export default function WorklistPage() {
     rows: WaitingChat[] | null;
     now: number;
     failed: boolean;
+    attempt: number;
   } | null>(null);
+  const [waitingAttempt, setWaitingAttempt] = useState(0);
+  const retryWaiting = useCallback(() => setWaitingAttempt((n) => n + 1), []);
   const [filter, setFilter] = useState({ accountId, userId: '' });
   const assignedTo = filter.accountId === accountId ? filter.userId : '';
   const teamView = assignedTo === WORKLIST_MY_TEAM && team.canLead;
@@ -70,13 +77,22 @@ export default function WorklistPage() {
     const now = Date.now();
     void loadWorklistInputs(createClient(), fetch, now, {
       cases: !salesRestricted,
-    }).then((inputs) => {
-      if (live) setLoaded({ accountId, inputs, now });
+    }).then((read) => {
+      if (!live) return;
+      setLoaded((prev) => ({
+        accountId,
+        load: mergeWorklistLoad(
+          prev?.accountId === accountId ? prev.load : null,
+          read
+        ),
+        now,
+        attempt,
+      }));
     });
     return () => {
       live = false;
     };
-  }, [accountId, salesRestricted]);
+  }, [accountId, salesRestricted, attempt]);
 
   useEffect(() => {
     if (!accountId) return;
@@ -88,13 +104,20 @@ export default function WorklistPage() {
         setWaiting((prev) => {
           const keep = prev && prev.accountId === accountId ? prev : null;
           return rows
-            ? { accountId, rows, now, failed: false }
+            ? {
+                accountId,
+                rows,
+                now,
+                failed: false,
+                attempt: waitingAttempt,
+              }
             : // A blip keeps the last good rows on screen.
               {
                 accountId,
                 rows: keep?.rows ?? null,
                 now: keep?.now ?? now,
                 failed: true,
+                attempt: waitingAttempt,
               };
         });
       });
@@ -113,7 +136,7 @@ export default function WorklistPage() {
       clearInterval(timer);
       document.removeEventListener('visibilitychange', onVisible);
     };
-  }, [accountId]);
+  }, [accountId, waitingAttempt]);
 
   const waitingRows = useMemo(
     () =>
@@ -144,7 +167,7 @@ export default function WorklistPage() {
       // "My team" waits for the roster rather than flash everyone's.
       (teamView && team.ids === null)
         ? null
-        : rankWorklist(loaded.inputs, loaded.now, {
+        : rankWorklist(loaded.load.inputs, loaded.now, {
             userId: user.id,
             role: accountRole,
             ...(teamView
@@ -165,6 +188,9 @@ export default function WorklistPage() {
     [members]
   );
 
+  const waitingFailed =
+    waiting !== null && waiting.accountId === accountId && waiting.failed;
+
   return (
     <>
       {mode !== 'none' && (
@@ -172,11 +198,10 @@ export default function WorklistPage() {
           <WaitingCustomers
             rows={waitingRows}
             nameOf={nameOf}
-            failed={
-              teamFailed ||
-              (waiting?.accountId === accountId &&
-                waiting.failed &&
-                waiting.rows === null)
+            failed={teamFailed || waitingFailed}
+            onRetry={teamFailed ? team.retry : retryWaiting}
+            retrying={
+              !teamFailed && waitingFailed && waiting.attempt !== waitingAttempt
             }
             now={waiting?.now ?? 0}
             capped={
@@ -198,6 +223,11 @@ export default function WorklistPage() {
       <WorklistView
         // Not loading: the error above says why there is nothing.
         items={teamFailed ? [] : items}
+        load={
+          teamFailed || loaded?.accountId !== accountId ? null : loaded.load
+        }
+        onRetry={retry}
+        retrying={loaded !== null && loaded.attempt !== attempt}
         mode={mode}
         nameOf={nameOf}
         assignedTo={assignedTo}

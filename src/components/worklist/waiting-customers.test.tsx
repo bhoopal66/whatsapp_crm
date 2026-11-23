@@ -126,4 +126,36 @@ describe('WaitingCustomers', () => {
     expect(html).not.toContain('worklist-waiting-empty');
     expect(html).not.toContain('Loading waiting customers');
   });
+
+  it('offers Retry on a failed first read, and loads while it runs', () => {
+    const failed = (retrying: boolean) =>
+      render(
+        <WaitingCustomers
+          rows={null}
+          failed
+          retrying={retrying}
+          onRetry={() => undefined}
+          nameOf={nameOf}
+          now={NOW}
+        />
+      );
+    expect(failed(false)).toContain(en.States.retry);
+    expect(failed(true)).toContain(en.WorklistWaiting.loading);
+    expect(failed(true)).not.toContain('role="alert"');
+  });
+
+  it('keeps old rows and says they could not be refreshed', () => {
+    const html = render(
+      <WaitingCustomers
+        rows={ROWS}
+        failed
+        onRetry={() => undefined}
+        nameOf={nameOf}
+        now={NOW}
+      />
+    );
+    expect(html).toContain(en.WorklistWaiting.stale);
+    expect(html).toContain(en.States.retry);
+    expect(html).toContain('data-id="c-old"');
+  });
 });

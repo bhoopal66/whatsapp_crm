@@ -12,6 +12,13 @@ and polish.
 
 ## [Unreleased]
 
+### Failed reads and missed events are shown
+
+No migration.
+- My worklist says which part could not be loaded (HR conversations,
+  agent drafts, cases) and offers a retry, instead of "Nothing needs
+  action right now". A part that loaded before keeps its rows.
+
 ### Reminders and meeting invites after sleep
 
 No migration.
