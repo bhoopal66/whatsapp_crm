@@ -12,13 +12,16 @@ import * as groups from '@/lib/whatsapp/groups';
 import { normalizePhone } from '@/lib/whatsapp/phone-utils';
 import { WhapiError } from '@/lib/whatsapp/whapi-api';
 
+import { planClose } from './close-plan';
 import {
+  isNumberFailure,
   SubmissionGroupChannelError,
   SubmissionGroupNotAttemptedError,
   SubmissionGroupNumberDisconnectedError,
   type FoundGroup,
   type GroupsApi,
 } from './service';
+import { SubmissionGroupCloseIncompleteError } from './wa-errors';
 
 export { SubmissionGroupChannelError };
 
@@ -39,7 +42,7 @@ export const LOOKUP_BUDGET_MS = 20_000;
 const isGroupGone = (err: unknown): boolean =>
   err instanceof WhapiError && err.isGroupNotFound;
 
-/** A close's read of the group, and each of its two calls that change it. */
+/** A close's read of the group, and each of its calls that change it. */
 export const CLOSE_READ_TIMEOUT_MS = 8_000;
 export const CLOSE_CALL_TIMEOUT_MS = 15_000;
 
@@ -254,7 +257,8 @@ export function createWhapiGroupsApi(
     },
 
     /**
-     * Remove everyone but our own number, then leave. A group WhatsApp
+     * Remove everyone but our own number, then leave: only once nobody else
+     * is in it, so a partial failure throws and is retried. A group WhatsApp
      * no longer knows on this number (404) is already closed; a number
      * marked disconnected is never asked, its 404 would say the same.
      */
@@ -277,18 +281,32 @@ export function createWhapiGroupsApi(
         if (isGroupGone(err)) return;
         throw err;
       }
-      // Our number is the one on file, and in any case the group's creator
-      // (we created it): skip both, so a missing or placeholder wabaId never
-      // makes the close try to remove ourselves and fail on every retry.
-      const ours = normalizePhone(channel.wabaId ?? '') || null;
-      const others = group.participants
-        .filter((p) => p.role !== 'superadmin')
-        .map((p) => p.waId)
-        .filter((w): w is string => !!w && w !== ours);
+      const plan = planClose(
+        group.participants,
+        normalizePhone(channel.wabaId ?? '') || null
+      );
+      let remaining = plan.unreachable;
+      const remove = async (participants: string[]) => {
+        if (participants.length === 0) return;
+        const out = await groups.removeParticipants({
+          ...ref,
+          participants,
+          includeHidden: true,
+        });
+        remaining += out.failed.length;
+      };
       try {
-        if (others.length > 0) {
-          await groups.removeParticipants({ ...ref, participants: others });
+        await remove(plan.phones);
+        // On their own: a gateway that will not take a hidden id must not
+        // stop the others from being removed.
+        try {
+          await remove(plan.hidden);
+        } catch (err) {
+          if (isNumberFailure(err) || isGroupGone(err)) throw err;
+          remaining += plan.hidden.length;
         }
+        if (remaining > 0)
+          throw new SubmissionGroupCloseIncompleteError(remaining);
         await groups.leaveGroup(ref);
       } catch (err) {
         if (isGroupGone(err)) return;

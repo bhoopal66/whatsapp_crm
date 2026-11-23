@@ -8845,6 +8845,7 @@
         "pending": "The WhatsApp group is being created. You can send once it is ready.",
         "createError": "The WhatsApp group could not be created.",
         "closeError": "The group ended, but closing it on WhatsApp failed.",
+        "closeRemaining": "{count, plural, one {# person} other {# people}} could not be removed from it, so it is still open. The system keeps trying; you can also remove them on the phone.",
         "numberRemoved": "The WhatsApp number hosting this group was removed. Nobody can send.",
         "contactRemoved": "The customer contact of this group was deleted."
       },

@@ -39,6 +39,9 @@ No migration.
 No migration.
 - A submission group's chat has "Load older messages": only its newest 200
   could be reached. Older messages already loaded stay through live updates.
+- Closing a group takes out the members WhatsApp hides too. When someone
+  could not be removed, the group is not recorded as closed, its number
+  stays in, and the page says how many are left; the cron tries again.
 
 ### Push notifications that stay with the right person
 

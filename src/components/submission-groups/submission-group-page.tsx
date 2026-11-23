@@ -82,6 +82,7 @@ import {
   type SgOlderPage,
   waModeOf,
 } from '@/lib/submission-groups/ui';
+import { closeRemaining } from '@/lib/submission-groups/wa-errors';
 import { cn } from '@/lib/utils';
 
 import { useSubmissionGroupsList } from './list-context';
@@ -1012,6 +1013,7 @@ function Banners({
   group: SgGroup;
 }) {
   const t = useTranslations('SubmissionGroups.page');
+  const stillIn = closeRemaining(group.wa_close_error);
   return (
     <>
       {banners.map((b) => (
@@ -1043,7 +1045,9 @@ function Banners({
             )}
             {b === 'closeError' && group.wa_close_error && (
               <span className="block text-xs opacity-80">
-                {group.wa_close_error}
+                {stillIn === null
+                  ? group.wa_close_error
+                  : t('banners.closeRemaining', { count: stillIn })}
               </span>
             )}
           </span>

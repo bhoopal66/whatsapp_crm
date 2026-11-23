@@ -851,17 +851,39 @@ function openwaParticipantList(inputs: string[]): string[] {
   return waIds;
 }
 
+/** A hidden member's id, as the gateway gives it. */
+const isHiddenId = (x: string) => /^[0-9]{5,25}@lid$/.test(x);
+
+/**
+ * `includeHidden` (a submission group's close only): a hidden member's
+ * `<digits>@lid` goes to Whapi as it is, and an id that is neither that nor
+ * a usable number is answered in `failed` instead of being left out.
+ */
 export async function removeParticipants(
-  args: GroupRef & { participants: string[]; timeoutMs?: number }
+  args: GroupRef & {
+    participants: string[];
+    timeoutMs?: number;
+    includeHidden?: boolean;
+  }
 ): Promise<whapi.ParticipantsResult> {
   const gw = gatewayFor(args.channel);
+  let participants = args.participants;
+  const unusable: whapi.WhapiIdentity[] = [];
+  if (args.includeHidden) {
+    const usable = (x: string) =>
+      isHiddenId(x) || toParticipantWaId(x) !== null;
+    for (const x of participants)
+      if (!usable(x)) unusable.push({ jid: x, waId: null });
+    participants = participants.filter(usable);
+    if (participants.length === 0) return { processed: [], failed: unusable };
+  }
   if (gw.kind === 'openwa') {
     const results = await openwa.removeParticipants(
       openwaCreds(gw.creds, args.timeoutMs),
       args.groupId,
-      openwaParticipantList(args.participants)
+      openwaParticipantList(participants)
     );
-    const out: whapi.ParticipantsResult = { processed: [], failed: [] };
+    const out: whapi.ParticipantsResult = { processed: [], failed: unusable };
     for (const r of results) {
       (r.success ? out.processed : out.failed).push(
         openwa.fromOpenWAParticipantId(r.id)
@@ -869,12 +891,15 @@ export async function removeParticipants(
     }
     return out;
   }
-  return whapi.removeGroupParticipants({
+  const out = await whapi.removeGroupParticipants({
     token: gw.token,
     groupId: args.groupId,
-    participants: participantList(args.participants),
+    participants: args.includeHidden
+      ? participants.map((x) => toParticipantWaId(x) ?? x)
+      : participantList(participants),
     timeoutMs: args.timeoutMs,
   });
+  return { processed: out.processed, failed: [...out.failed, ...unusable] };
 }
 
 export async function promoteAdmins(
