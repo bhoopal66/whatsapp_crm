@@ -1464,3 +1464,8 @@ jobs:
       # works in slices, and a failure leaves a row and rings the owners.
       - name: Verify retention fixes
         run: supabase db query --local --file supabase/ci/verify-retention-fixes.sql
+
+      # Migration 283: in chat-media and flow-media a person reaches only
+      # what they uploaded, and uploads only into the browser's folders.
+      - name: Verify chat media owner
+        run: supabase db query --local --file supabase/ci/verify-chat-media-owner.sql

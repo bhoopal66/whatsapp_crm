@@ -181,8 +181,10 @@ Each of these is a fixed bug, not a preference:
 
 Gateway-hosted media links expire in ~30 days, so `mirror-inbound-media.ts`
 copies the bytes into the `chat-media` bucket (`inbound/` beneath
-`account-<id>` — migration 023's RLS only matches the first segment) and
-persists that URL instead. It is best-effort **by contract**: it returns
+`account-<id>`, with the service role: since migration 283 a signed-in
+person reaches only the objects they uploaded themselves, and uploads only
+to the top of `account-<id>`, `staged/` and `groups/`) and persists that
+URL instead. It is best-effort **by contract**: it returns
 `null` and never throws, because a webhook that throws makes Whapi redeliver
 and re-run the entire fan-out. Per-account opt-out: `mirror_inbound_media`
 (migration 039).
@@ -201,7 +203,7 @@ A parked, staged or retried attachment lives only in the browser, so the
 composer stops using one past 29 days (`isExpiredStagedMedia`,
 `lib/storage/staged-media.ts`, one day under the sweep's age): it is
 deleted and the agent told, never sent as a dead link.
-`verify-chat-media-staged.sql`.
+`verify-chat-media-staged.sql`, `verify-chat-media-owner.sql`.
 
 One `message_templates` row drives both providers, differently: Whapi has
 no template registry, so the row is rendered locally (`template-body.ts`)

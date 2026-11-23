@@ -247,9 +247,11 @@ BEGIN
   -- Set it here as the Storage API would, so RLS is what these checks test;
   -- harmless on a storage schema without that guard.
   PERFORM set_config('storage.allow_delete_query', 'true', true);
-  INSERT INTO storage.objects (bucket_id, name) VALUES
-    ('chat-media', 'account-' || a_acct || '/voice-library/' || e_lib1 || '.ogg'),
-    ('chat-media', 'account-' || a_acct || '/staged/1-voice242.ogg');
+  -- Owned by people who try below, so 283's owner rule is not what
+  -- refuses them.
+  INSERT INTO storage.objects (bucket_id, name, owner_id) VALUES
+    ('chat-media', 'account-' || a_acct || '/voice-library/' || e_lib1 || '.ogg', u_agent2::text),
+    ('chat-media', 'account-' || a_acct || '/staged/1-voice242.ogg', u_view::text);
 
   r := pg_temp.vn_try(u_view, format(
     'DELETE FROM storage.objects WHERE bucket_id = ''chat-media'' AND name = %L',
@@ -296,8 +298,8 @@ BEGIN
   END IF;
   -- A normal composer upload still works.
   r := pg_temp.vn_try(u_agent, format(
-    'INSERT INTO storage.objects (bucket_id, name) VALUES (''chat-media'', %L)',
-    'account-' || a_acct || '/staged/2-voice242.ogg'));
+    'INSERT INTO storage.objects (bucket_id, name, owner_id) VALUES (''chat-media'', %L, %L)',
+    'account-' || a_acct || '/staged/2-voice242.ogg', u_agent));
   n := n + 1;
   IF r <> '1' THEN failed := array_append(failed, 'agent cannot stage an upload: ' || r); END IF;
   r := pg_temp.vn_try(u_agent, format(
