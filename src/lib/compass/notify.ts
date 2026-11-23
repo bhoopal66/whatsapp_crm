@@ -375,16 +375,24 @@ export async function getNotificationByKey(
   return row ? serializeNotification(row) : null;
 }
 
+/** Now, but always later than `previous`: two writers never share a stamp. */
+function stampAfter(previous?: string): string {
+  const last = previous ? new Date(previous).getTime() : 0;
+  return new Date(Math.max(Date.now(), last + 1)).toISOString();
+}
+
 /**
- * Claim the key. Returns the claimed row id, or the already-sent row
- * when this is a duplicate. Throws `in_progress` (409) while another
+ * Claim the key. Returns the claimed row id and the claim's token (the
+ * `updated_at` it wrote), or the already-sent row when this is a duplicate. Throws `in_progress` (409) while another
  * request holds a live claim.
  */
 async function claim(
   db: SupabaseClient,
   accountId: string,
   req: NotificationRequest
-): Promise<{ id: string } | { duplicateOf: Record<string, unknown> }> {
+): Promise<
+  { id: string; token: string } | { duplicateOf: Record<string, unknown> }
+> {
   const fields = {
     compass_id: req.compassId,
     event: req.event,
@@ -394,7 +402,7 @@ async function claim(
     status: 'sending',
     error_code: null,
     error_message: null,
-    updated_at: new Date().toISOString(),
+    updated_at: stampAfter(),
   };
 
   const { data: inserted, error } = await db
@@ -407,7 +415,9 @@ async function claim(
     .select('id')
     .single();
 
-  if (inserted) return { id: inserted.id as string };
+  if (inserted) {
+    return { id: inserted.id as string, token: fields.updated_at };
+  }
   if (!isUniqueViolation(error)) {
     throw new NotifyError('internal', 'Failed to record the notification', 500);
   }
@@ -435,14 +445,15 @@ async function claim(
   if (isClaimRetryable(row)) {
     // Compare-and-set on updated_at: of two retries racing for the same
     // failed/stale claim, exactly one matches the old timestamp.
+    const token = stampAfter(row.updated_at);
     const { data: reclaimed } = await db
       .from('compass_notifications')
-      .update(fields)
+      .update({ ...fields, updated_at: token })
       .eq('id', existing.id as string)
       .eq('updated_at', existing.updated_at as string)
       .select('id');
     if (reclaimed && reclaimed.length > 0) {
-      return { id: reclaimed[0].id as string };
+      return { id: reclaimed[0].id as string, token };
     }
   }
 
@@ -810,32 +821,50 @@ export async function sendCompassNotification(
   }
   const notificationId = claimed.id;
 
+  // The `updated_at` this request last wrote. Every write below matches
+  // it: a row another request took over after STALE_CLAIM_MS carries that
+  // request's stamp, and is left alone (`claimLost`).
+  let token = claimed.token;
+  let claimLost = false;
+
   // Retried once: an outcome that is not stored leaves the row marked
   // DELIVERY_UNCONFIRMED.
   const record = async (fields: Record<string, unknown>): Promise<boolean> => {
+    const stamp = stampAfter(token);
     for (let attempt = 1; attempt <= 2; attempt++) {
-      const { error } = await db
+      const { data, error } = await db
         .from('compass_notifications')
-        .update({ ...fields, updated_at: new Date().toISOString() })
-        .eq('id', notificationId);
-      if (!error) return true;
+        .update({ ...fields, updated_at: stamp })
+        .eq('id', notificationId)
+        // `stamp` too: a first attempt may be stored and its answer lost.
+        .in('updated_at', [token, stamp])
+        .select('id');
+      if (!error) {
+        if (!data || data.length === 0) {
+          claimLost = true;
+          return false;
+        }
+        token = stamp;
+        return true;
+      }
       console.error('[compass/notify] could not record outcome:', error);
     }
     return false;
   };
 
-  // Compare-and-set: a claim another request took over after
-  // STALE_CLAIM_MS, or already handed over, is not handed over twice.
-  let claimLost = false;
+  // Compare-and-set: a claim taken over, or already handed over, is not
+  // handed over twice.
   const markHandedToGateway = async () => {
+    const stamp = stampAfter(token);
     const { data, error } = await db
       .from('compass_notifications')
       .update({
         error_code: DELIVERY_UNCONFIRMED,
         error_message: DELIVERY_UNCONFIRMED_MESSAGE,
-        updated_at: new Date().toISOString(),
+        updated_at: stamp,
       })
       .eq('id', notificationId)
+      .eq('updated_at', token)
       .eq('status', 'sending')
       .is('error_code', null)
       .select('id');
@@ -850,6 +879,7 @@ export async function sendCompassNotification(
       claimLost = true;
       throw sendInProgress();
     }
+    token = stamp;
   };
 
   // Once the gateway has accepted the message, a later failure must
@@ -898,7 +928,10 @@ export async function sendCompassNotification(
         422
       );
     }
-    if (phone !== req.to) await record({ phone });
+    if (phone !== req.to) {
+      await record({ phone });
+      if (claimLost) throw sendInProgress();
+    }
 
     // 170: a text update goes ONLY into the customer's submission group
     // when there is a live one; it is sent from the group's own number,

@@ -902,6 +902,79 @@ describe('sendCompassNotification', () => {
     });
   });
 
+  describe('a claim that stalled and was taken over', () => {
+    const stall = (row: Row) => {
+      row.updated_at = new Date(Date.now() - STALE_CLAIM_MS - 1).toISOString();
+    };
+
+    it("a failure before the mark leaves the winner's sent row alone", async () => {
+      const { db, tables } = makeDb();
+      resolveConversationByPhone.mockImplementationOnce(async () => {
+        // A stalls here; B reclaims the key, sends and records it.
+        stall(tables.compass_notifications[0]);
+        await sendCompassNotification(db, 'acct', baseRequest());
+        throw new Error('A fails late');
+      });
+      await expect(
+        sendCompassNotification(db, 'acct', baseRequest())
+      ).rejects.toThrow('A fails late');
+      expect(tables.compass_notifications[0]).toMatchObject({
+        status: 'sent',
+        error_code: null,
+        message_id: 'msg-1',
+      });
+
+      const again = await sendCompassNotification(db, 'acct', baseRequest());
+      expect(again.duplicate).toBe(true);
+      expect(sendMessageToConversation).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not hand over on the winner's claim, nor write to its row", async () => {
+      const { db, tables } = makeDb();
+      const taken = new Date(Date.now() + 1000).toISOString();
+      resolveConversationByPhone.mockImplementationOnce(async () => {
+        tables.compass_notifications[0].updated_at = taken; // B, not yet marked
+        return { conversationId: 'conv-1', contactId: 'contact-1' };
+      });
+      await expect(
+        sendCompassNotification(db, 'acct', baseRequest())
+      ).rejects.toMatchObject({ code: 'in_progress', status: 409 });
+      expect(sendMessageToConversation).not.toHaveBeenCalled();
+      expect(tables.compass_notifications[0]).toMatchObject({
+        status: 'sending',
+        error_code: null,
+        updated_at: taken,
+      });
+    });
+
+    it('a group update posted late does not overwrite the row either', async () => {
+      const { db, tables } = makeDb({
+        groups: [
+          {
+            id: 'g-1',
+            account_id: 'acct',
+            submission_ref: 'SUB-1',
+            contact_id: null,
+          },
+        ],
+      });
+      const row = () => tables.compass_notifications[0];
+      await sendCompassNotification(
+        db,
+        'acct',
+        baseRequest({ reference: 'SUB-1' }),
+        {
+          groupSender: async () => {
+            row().updated_at = new Date(Date.now() + 1000).toISOString();
+            row().group_message_id = 'B';
+            return { status: 'sent', messageId: 'A' } as never;
+          },
+        }
+      );
+      expect(row().group_message_id).toBe('B');
+    });
+  });
+
   it('does not send a claim another request already handed over, nor touch its row', async () => {
     const { db, tables } = makeDb();
     resolveConversationByPhone.mockImplementation(async () => {
