@@ -50,6 +50,8 @@
 -- ON_ERROR_STOP: psql goes on after an error. A statement that failed on
 -- the lock timeout is safe to re-run; contacts_consent_log refuses to be
 -- replaced while the events' CHECK would refuse its 'restored'.
+-- Every trigger is replaced in one statement: a lock timeout leaves the one
+-- that was there.
 -- Re-runnable. verify-contact-delete.sql.
 -- ============================================================
 
@@ -195,8 +197,7 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-DROP TRIGGER IF EXISTS contacts_suppression_keep ON public.contacts;
-CREATE TRIGGER contacts_suppression_keep BEFORE DELETE OR UPDATE OF phone ON public.contacts
+CREATE OR REPLACE TRIGGER contacts_suppression_keep BEFORE DELETE OR UPDATE OF phone ON public.contacts
   FOR EACH ROW WHEN (OLD.opted_out_at IS NOT NULL OR OLD.do_not_contact_at IS NOT NULL)
   EXECUTE FUNCTION public.contacts_suppression_keep();
 
@@ -227,8 +228,7 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-DROP TRIGGER IF EXISTS contacts_suppression_restore ON public.contacts;
-CREATE TRIGGER contacts_suppression_restore BEFORE INSERT OR UPDATE OF phone ON public.contacts
+CREATE OR REPLACE TRIGGER contacts_suppression_restore BEFORE INSERT OR UPDATE OF phone ON public.contacts
   FOR EACH ROW WHEN (NEW.opted_out_at IS NULL OR NEW.do_not_contact_at IS NULL)
   EXECUTE FUNCTION public.contacts_suppression_restore();
 
@@ -326,8 +326,7 @@ END
 $log$
 $create$;
 END $guard$;
-DROP TRIGGER IF EXISTS contacts_consent_log ON public.contacts;
-CREATE TRIGGER contacts_consent_log
+CREATE OR REPLACE TRIGGER contacts_consent_log
   AFTER INSERT OR UPDATE OF marketing_opt_in_at, opted_out_at, do_not_contact_at, phone
   ON public.contacts
   FOR EACH ROW EXECUTE FUNCTION public.contacts_consent_log();
@@ -351,12 +350,13 @@ BEGIN
   UPDATE public.contact_suppressions s
      SET opted_out_at = CASE WHEN NOT v_out THEN s.opted_out_at END,
          do_not_contact_at = CASE WHEN NOT v_dnc THEN s.do_not_contact_at END
-   WHERE s.account_id = OLD.account_id AND (s.phone_hash = v_hash OR s.contact_id = OLD.id);
+   WHERE s.account_id = OLD.account_id AND (s.phone_hash = v_hash OR s.contact_id = OLD.id)
+     -- The row above's complement, also against one kept meanwhile.
+     AND NOT ((v_out OR s.opted_out_at IS NULL) AND (v_dnc OR s.do_not_contact_at IS NULL));
   RETURN NULL;
 END;
 $$;
-DROP TRIGGER IF EXISTS contacts_suppression_lift ON public.contacts;
-CREATE TRIGGER contacts_suppression_lift AFTER UPDATE OF opted_out_at, do_not_contact_at ON public.contacts
+CREATE OR REPLACE TRIGGER contacts_suppression_lift AFTER UPDATE OF opted_out_at, do_not_contact_at ON public.contacts
   FOR EACH ROW WHEN ((OLD.opted_out_at IS NOT NULL AND NEW.opted_out_at IS NULL)
                      OR (OLD.do_not_contact_at IS NOT NULL AND NEW.do_not_contact_at IS NULL))
   EXECUTE FUNCTION public.contacts_suppression_lift();
@@ -405,8 +405,7 @@ BEGIN
   RETURN OLD;
 END;
 $$;
-DROP TRIGGER IF EXISTS contacts_open_work_guard ON public.contacts;
-CREATE TRIGGER contacts_open_work_guard BEFORE DELETE ON public.contacts
+CREATE OR REPLACE TRIGGER contacts_open_work_guard BEFORE DELETE ON public.contacts
   FOR EACH ROW EXECUTE FUNCTION public.contacts_open_work_guard();
 
 -- ---------- 5. What goes with them ----------
