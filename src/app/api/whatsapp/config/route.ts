@@ -765,10 +765,21 @@ export async function POST(request: Request) {
       // most one primary per account with a partial unique index — so a
       // straight insert would fail when a Meta number is already
       // connected and holds the flag. First channel in wins it.
-      const { count: siblingCount } = await supabase
+      // Shared numbers only: a person's own number (is_personal) never
+      // holds the default, so counting it left the first shared number
+      // of an account with only a personal one non-default.
+      const { count: siblingCount, error: siblingError } = await supabase
         .from('whatsapp_config')
         .select('id', { count: 'exact', head: true })
         .eq('account_id', accountId)
+        .eq('is_personal', false)
+      if (siblingError) {
+        console.error('Error counting whatsapp_config rows:', siblingError)
+        return NextResponse.json(
+          { error: 'Failed to validate configuration' },
+          { status: 500 }
+        )
+      }
 
       const newRow = {
         account_id: accountId,

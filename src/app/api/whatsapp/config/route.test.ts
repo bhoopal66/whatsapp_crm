@@ -368,3 +368,34 @@ describe('POST /api/whatsapp/config — failed reads and a failed save', () => {
     expect(h.registerWebhook).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('POST /api/whatsapp/config — the first shared number is the default', () => {
+  const connect = () =>
+    POST(post({ token: 'tok', channel_id: 'NEW-CHANNEL', create: true }));
+
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    h.getChannelInfo.mockResolvedValue(channelInfo('AUTH', '971500001234'));
+  });
+
+  it('counts only shared rows, so a personal number does not take the default', async () => {
+    h.siblings = 0;
+    const res = await connect();
+    expect(res.status).toBe(200);
+    expect(h.eqs).toContainEqual(['whatsapp_config', 'is_personal', false]);
+    expect(h.inserts[0]).toMatchObject({ is_primary: true });
+  });
+
+  it('is not the default when a shared number already exists', async () => {
+    h.siblings = 1;
+    await connect();
+    expect(h.inserts[0]).toMatchObject({ is_primary: false });
+  });
+
+  it('answers 500 when the sibling count fails, and inserts nothing', async () => {
+    h.fail.count = { message: 'connection reset' };
+    const res = await connect();
+    expect(res.status).toBe(500);
+    expect(h.inserts).toHaveLength(0);
+  });
+});

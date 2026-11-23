@@ -31,6 +31,8 @@ No migration.
   one of their reads fails (it answers an error), and when the save itself
   fails the channel is pointed back at the callback it had, instead of staying
   on one the CRM no longer knows.
+- The first shared Whapi number of an account that only had a personal number
+  is now its default number.
 
 ### Calendar
 
