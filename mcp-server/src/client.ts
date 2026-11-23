@@ -22,6 +22,25 @@ export class TaamulApiError extends Error {
   }
 }
 
+/** Longest wait for an answer, its body included. */
+const TIMEOUT_MS = 30_000;
+
+/** No usable answer: whether a write took effect is unknown. */
+function unanswered(
+  method: string,
+  status: number,
+  code: string,
+  what: string,
+): TaamulApiError {
+  return new TaamulApiError(
+    status,
+    code,
+    method === 'GET'
+      ? `${what}.`
+      : `${what}. The request may have gone through: check before sending it again.`,
+  );
+}
+
 export interface Paginated<T> {
   data: T[];
   next_cursor: string | null;
@@ -59,13 +78,25 @@ export class TaamulClient {
     }
 
     let res: Response;
+    let text: string;
     try {
       res = await fetch(url, {
         method,
         headers,
         body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+        signal: AbortSignal.timeout(TIMEOUT_MS),
       });
+      // The timeout can also fire while the body is read.
+      text = await res.text();
     } catch (err) {
+      if ((err as Error).name === 'TimeoutError') {
+        throw unanswered(
+          method,
+          0,
+          'timeout',
+          `Taamul Connect did not answer within ${TIMEOUT_MS / 1000} seconds`,
+        );
+      }
       throw new TaamulApiError(
         0,
         'network_error',
@@ -73,9 +104,7 @@ export class TaamulClient {
       );
     }
 
-    // 429s carry a Retry-After we surface to the model.
     let payload: unknown = undefined;
-    const text = await res.text();
     if (text) {
       try {
         payload = JSON.parse(text);
@@ -91,14 +120,26 @@ export class TaamulClient {
       const envelope = payload as { error?: { code?: string; message?: string } } | undefined;
       const code = envelope?.error?.code ?? 'internal';
       let message = envelope?.error?.message ?? `Request failed with status ${res.status}`;
-      if (res.status === 429) {
+      // Both carry a Retry-After we surface to the model.
+      if (res.status === 429 || res.status === 503) {
         const retryAfter = res.headers.get('Retry-After');
         if (retryAfter) message += ` (retry after ${retryAfter}s)`;
       }
       throw new TaamulApiError(res.status, code, message);
     }
 
-    const envelope = payload as { data: T; meta?: { next_cursor: string | null } };
+    const envelope = payload as
+      | { data?: T; meta?: { next_cursor: string | null } }
+      | null
+      | undefined;
+    if (envelope?.data === undefined) {
+      throw unanswered(
+        method,
+        res.status,
+        'bad_response',
+        `Taamul Connect answered ${res.status} with a body that could not be read`,
+      );
+    }
     return { data: envelope.data, meta: envelope.meta };
   }
 

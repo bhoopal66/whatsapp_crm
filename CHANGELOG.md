@@ -27,6 +27,13 @@ No migration.
 - Broadcasts skip customers marked do-not-contact, as they skip those who
   opted out. One already on a campaign's list is marked failed with the
   reason.
+- A broadcast created through the API and cut off by a restart is continued
+  by the broadcast cron, half an hour later. It stayed `sending` until
+  someone pressed Resume. This includes ones already stuck, if they were
+  created in the last 7 days.
+- MCP server: a request that gets no answer in 30 seconds, or an unreadable
+  one, is reported as "may have gone through" instead of hanging or
+  returning nothing. `Retry-After` is passed on for 503 as well as 429.
 
 ### Calendar
 

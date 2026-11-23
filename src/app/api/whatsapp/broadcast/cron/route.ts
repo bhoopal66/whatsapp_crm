@@ -25,7 +25,11 @@
 // hours, the number's daily limit, a logged-out phone) or die with the
 // process: leftovers stay 'pending', the campaign stays 'sending', and a
 // later tick continues it, at most one per tick, for a week after its
-// appointment. Only scheduled campaigns: one sent from the wizard has
+// appointment. So is a campaign the public API created, for a week after
+// that: nobody has a tab open on it. The mark of one is a NULL
+// `audience_filter`: the wizard always writes it, and
+// `create_broadcast_with_recipients`, which only the API calls, never
+// does (pinned in `cron-continue.test.ts`). One sent from the wizard has
 // no appointment and is finished by the tab or by Resume.
 //
 // Every tick also replays Meta receipts that no recipient row matched
@@ -71,7 +75,7 @@ const MAX_PER_TICK = 5;
 /** Unfinished campaigns looked at per tick; the first that may run does. */
 const CONTINUE_CANDIDATES = 20;
 
-/** How long after its appointment an unfinished campaign is continued. */
+/** How long after its appointment (API: its creation) one is continued. */
 const CONTINUE_WITHIN_MS = 7 * 24 * 60 * 60 * 1000;
 
 interface DueRow {
@@ -194,19 +198,23 @@ export async function GET(request: Request) {
     }
   }
 
-  // Scheduled campaigns a capped, stopped or killed pass left unfinished.
+  // Scheduled and API campaigns a capped, stopped or killed pass left
+  // unfinished. A new API campaign is left to its request first; that also
+  // covers one whose request could not take the delivery lock.
   // Longest untouched first: a campaign that just had its pass goes to
   // the back, and one that may not run yet does not use the tick.
-  const staleCutoff = new Date(now.getTime() - DELIVERY_LOCK_STALE_MS);
+  const nowIso = now.toISOString();
+  const stale = new Date(+now - DELIVERY_LOCK_STALE_MS).toISOString();
+  const weekAgo = new Date(+now - CONTINUE_WITHIN_MS).toISOString();
   const { data: unfinished, error: unfinishedError } = await admin
     .from('broadcasts')
     .select('id, account_id, quiet_hours, updated_at')
     .eq('status', 'sending')
-    .lte('scheduled_at', now.toISOString())
-    .gte('scheduled_at', new Date(+now - CONTINUE_WITHIN_MS).toISOString())
     .or(
-      `delivery_locked_at.is.null,delivery_locked_at.lt.${staleCutoff.toISOString()}`
+      `and(scheduled_at.lte.${nowIso},scheduled_at.gte.${weekAgo}),` +
+        `and(scheduled_at.is.null,audience_filter.is.null,created_at.lte.${stale},created_at.gte.${weekAgo})`
     )
+    .or(`delivery_locked_at.is.null,delivery_locked_at.lt.${stale}`)
     .order('updated_at', { ascending: true })
     .limit(CONTINUE_CANDIDATES);
   if (unfinishedError) {

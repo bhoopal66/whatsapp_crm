@@ -420,8 +420,12 @@ Broadcast status + counts. Scope: `broadcasts:send`. `status` moves
 arrive. `status` can stay `sending` after a failure of the sending
 number itself (a revoked or expired access token, a logged-out number,
 a lapsed subscription): delivery stops at the first recipient that hit
-it, the rest stay pending, and the campaign is finished by resuming it
-from the dashboard once the number is fixed — the API has no resume.
+it and the rest stay pending. A campaign interrupted that way, or by a
+restart, is continued automatically by the broadcast cron, at the
+earliest half an hour later and for 7 days after it was created, once
+the number can send again. No recipient is sent to twice, so don't
+create it again. Someone can also resume it from the dashboard at any
+time, which is the only way after the 7 days; the API has no resume.
 `failed` can follow `sent`: WhatsApp can accept a send and report it
 failed later, and a campaign in which every recipient failed that way
 moves to `failed`. `sent` and `failed` are final unless someone resumes

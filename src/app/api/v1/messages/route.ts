@@ -57,6 +57,11 @@ import {
 import { consentRefusal } from '@/lib/whatsapp/send-origin';
 import type { InteractiveMessagePayload } from '@/lib/whatsapp/interactive';
 
+interface ConsentRegister {
+  opted_out_at?: string | null;
+  do_not_contact_at?: string | null;
+}
+
 const customerOptedOut = () =>
   fail(
     'customer_opted_out',
@@ -121,7 +126,7 @@ export async function POST(request: Request) {
     // The opt-out may sit on an older twin of the contact this number
     // resolves to, so every contact it matches is asked, as Compass does.
     // Before the find-or-create: a refused send leaves nothing behind.
-    const twins = await findMatchingContacts(
+    const twins: ConsentRegister[] = await findMatchingContacts(
       ctx.supabase,
       ctx.accountId,
       contactLookupNumber(to).number

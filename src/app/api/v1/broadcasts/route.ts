@@ -34,7 +34,7 @@ import { requireApiKey } from '@/lib/auth/api-context';
 // recipient rows 'pending' and the broadcast stuck 'sending'. This is a
 // bound, not a guarantee: a near-cap (MAX_RECIPIENTS) audience can
 // still exceed 60s, so very large sends should be split across
-// requests. A durable queue/cron drain is the complete fix (follow-up).
+// requests. The broadcast cron continues what is left half an hour later.
 export const maxDuration = 60;
 import { ok, fail, toApiErrorResponse } from '@/lib/api/v1/respond';
 import { resolveAuditUserId, ContactError } from '@/lib/api/v1/contacts';
@@ -97,7 +97,8 @@ export async function POST(request: Request) {
       );
     } else {
       // Either a Resume already holds the lock and delivers, or the claim
-      // failed and every row waits, pending, for one. The broadcast
+      // failed and every row waits, pending, for one or for the cron,
+      // which takes it up after half an hour. The broadcast
       // exists, so the answer is the same: an error here would have the
       // caller create it again.
       console.error(
