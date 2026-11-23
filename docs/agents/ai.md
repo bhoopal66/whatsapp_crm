@@ -79,3 +79,18 @@ panel. The bubble text never gets `dir="auto"`, because the time overlay
 reserves room at the end of the last line; the composer textarea does
 get it. Anything under a bubble goes after the reactions chip, which
 overlaps the bubble (`-mt-1.5`).
+
+**Learn from team answers (migration 278, `lib/kb/learn*.ts`,
+`docs/ai-agent.md`).** Off by default (`kb_learn_settings`, set only via
+`kb_learn_set_enabled`, admin+ of the active account). The automations
+cron runs `runKbLearning` hourly; `kb_learn_claim_run` lets an account
+through once per 7 days. Drafts are written only by
+`kb_learn_record_draft` (service role), always status `draft`, source
+`learned`, ref `LRN-…`; it refuses while the switch is off and when the
+topic has a live draft (`kb_learned_drafts`: same gaps ≥ half, or same
+label; a deleted or `remove` draft frees the topic). Evidence is
+redacted with `brainRedact` plus known names before `generateReply`
+(purpose `kb_learn`, so `assertAiTransfer` runs), fail closed; the
+answer is dropped if it carries an identifier or mask. Usage mode
+`kb_learn`: 278 restates 202's CHECK list, so apply in order, once.
+The bot's reply path and `kb_shortlist` are unchanged.

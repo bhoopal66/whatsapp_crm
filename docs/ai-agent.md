@@ -247,6 +247,49 @@ replaced the identifier.
 It counts against the reply cap. Empty means off. The outcome is
 recorded as `replied`, "Sensitive-data warning sent".
 
+### Learn from team answers (migration 278)
+
+Off by default. An owner or admin switches it on under the
+**Unanswered questions** card (Knowledge tab): **Learn from team
+answers**.
+
+Once a week per workspace (checked hourly by the automations cron, and
+`kb_learn_claim_run` stamps the account first, so two crons never both
+run it), up to 10 open gap topics that no approved answer covers and
+that have no learned draft yet are looked at. For each:
+
+1. The team's answer to each question in the topic is the first message
+   a **person** wrote in that chat after the question, within 48 hours
+   (`sender_type` `agent` with a sender, plain text, not a template).
+   The bot, automations and templates do not count. Personal chats and
+   opted-out or do-not-contact customers are skipped. Up to 5 answers.
+2. Every question and answer is redacted (the second-brain redactor:
+   e-mail, IBAN, Emirates ID, card, OTP, account, passport, phone, any
+   run of 9+ digits) and every customer and team-member name known in
+   those chats is masked. If any text cannot be screened, the topic is
+   skipped: nothing is sent.
+3. The workspace's own AI key (`model_small` if set, else `model`) is
+   asked for ONE short, general answer in English, and in Arabic too
+   when the team answered in Arabic. The prompt forbids names, numbers
+   and amounts that belong to one customer. The call passes the AI
+   transfer register (224) as purpose `kb_learn` and is logged in usage
+   as **Learned answers** (`ai_usage_log.mode` `kb_learn`).
+4. An answer that still carries an identifier or a mask is thrown away.
+   Otherwise `kb_learn_record_draft` stores a `kb_entries` row: status
+   **draft**, source `learned`, ref `LRN-XXXXXXXX`, audience
+   prospective client, the topic as the question, and a reviewer note
+   "Drafted from N team replies, <dates>. Check before approving."
+
+The draft shows in **Approved answers** with a **Learned** badge, and
+the **Learned only** filter lists them. Edit it and approve it the usual
+way; until then the bot never uses it (`kb_shortlist` returns approved
+rows only). The model may write `[TO CONFIRM: …]` where the replies
+disagree; 081's check refuses to approve an answer that still has one.
+
+A topic is drafted once (`kb_learned_drafts`): the same gaps (half or
+more) or the same label under a new topic id count as the same topic.
+It is drafted again only if its draft was deleted or set to **Remove**.
+
 ## Translate (migration 154)
 
 Two inbox buttons use the same AI key as the bot and **Draft with AI**.

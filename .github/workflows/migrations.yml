@@ -1441,3 +1441,10 @@ jobs:
       # and never who was rung, one taken out loses its badge.
       - name: Verify chat people and mentions
         run: supabase db query --local --file supabase/ci/verify-chat-people-mentions.sql
+
+      # Migration 278: learn from team answers. Off by default and, while
+      # off, nothing is drafted; only an admin sets it; one run a week; a
+      # learned entry is always a draft; a topic is drafted once (again
+      # only after remove or delete); a non-admin cannot read the ledger.
+      - name: Verify kb learn
+        run: supabase db query --local --file supabase/ci/verify-kb-learn.sql
