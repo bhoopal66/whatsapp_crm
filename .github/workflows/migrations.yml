@@ -1507,3 +1507,8 @@ jobs:
       # cost ledger, and never written by a session.
       - name: Verify message failure reasons
         run: supabase db query --local --file supabase/ci/verify-message-failure-reason.sql
+
+      # Migration 294: after a transfer everyone who answered a leg may
+      # see the call and write its note; nobody else gains anything.
+      - name: Verify call notes
+        run: supabase db query --local --file supabase/ci/verify-call-notes.sql

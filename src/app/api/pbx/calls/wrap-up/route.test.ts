@@ -40,6 +40,27 @@ beforeEach(() => {
 });
 
 describe('GET /api/pbx/calls/wrap-up', () => {
+  it('offers a transferred call to everyone who answered a leg of it', async () => {
+    fake = createFakeDb({
+      calls: [
+        call({
+          pbx_call_id: 'handed-on',
+          user_id: 'other',
+          meta: { answered_user_ids: ['me', 'other'] },
+        }),
+        call({
+          pbx_call_id: 'theirs',
+          user_id: 'other',
+          meta: { answered_user_ids: ['other'], rang_user_ids: ['me'] },
+        }),
+      ],
+    });
+    const { calls } = await (await GET()).json();
+    expect(calls.map((c: { pbxCallId: string }) => c.pbxCallId)).toEqual([
+      'handed-on',
+    ]);
+  });
+
   it('answers my newest call still in its wrap-up, timed by the server', async () => {
     fake = createFakeDb({
       calls: [

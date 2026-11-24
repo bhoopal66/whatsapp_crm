@@ -192,6 +192,18 @@ export function longestAnsweredRecording(legs: CallLeg[]): string | null {
   return best?.recording ?? null;
 }
 
+/**
+ * The numbers that were on an answered leg of a customer call: our side
+ * of each, and the other side of an internal (transfer) leg, the person
+ * it was handed to. Ring groups among them belong to no one.
+ */
+export function answeredExtensions(legs: CallLeg[]): string[] {
+  return legs
+    .filter((l) => ANSWERED_STATUSES.has(l.status))
+    .flatMap((l) => [l.extension, l.direction === 'internal' ? l.peer : null])
+    .filter((e): e is string => !!e);
+}
+
 const iso = (ms: number) => new Date(ms).toISOString();
 
 /**
