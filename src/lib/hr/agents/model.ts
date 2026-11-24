@@ -1,23 +1,16 @@
 /**
  * Recruiter agents (package 026a): the ModelPort over wacrm's own AI
- * providers, the way `lib/ai/translate.ts` calls them. The account's key
- * goes only into the provider call, never into a message. Candidate text
+ * providers (`lib/ai/provider-call.ts`: masked, transfer checked). The
+ * account's key goes only into the provider call, never into a message. Candidate text
  * and history go only inside the delimited DATA block (`prompts.ts`).
  * Provider errors propagate unchanged, and a cut-off answer is an error
  * too (`assertComplete`): the orchestrator fails closed on any throw (handoff 'error', no draft). The model only suggests a label
  * or a draft; the guardrails stay in code.
  */
-import { assertAiTransfer, promptSize } from '@/lib/privacy/ai-transfer';
-import { aiRequestTimeoutMs } from '@/lib/ai/defaults';
-import { generateAnthropic } from '@/lib/ai/providers/anthropic';
-import { generateOpenAi } from '@/lib/ai/providers/openai';
-import { assertComplete, type ProviderArgs } from '@/lib/ai/providers/shared';
-import {
-  AiError,
-  type AiConfig,
-  type AiUsage,
-  type ProviderResult,
-} from '@/lib/ai/types';
+import { callProvider } from '@/lib/ai/provider-call';
+import { assertComplete } from '@/lib/ai/providers/shared';
+import { echoesRedaction } from '@/lib/ai/redact-input';
+import type { AiConfig, AiUsage } from '@/lib/ai/types';
 import type { ModelInput, ModelOutput, ModelPort } from './ports';
 import { SYSTEM_PROMPTS, buildUserContent } from './prompts';
 import { INTENTS, type Intent } from './types';
@@ -48,38 +41,15 @@ export function createAiModelPort(opts: AiModelPortOptions): ModelPort {
   async function complete(input: ModelInput): Promise<ModelOutput> {
     const classify = input.task === 'classify';
     const model = classify ? (config.modelSmall ?? config.model) : config.model;
-    const providerArgs: ProviderArgs = {
-      apiKey: config.apiKey,
+    const result = await callProvider({
+      config,
+      purpose: 'hr_agent',
       model,
       systemPrompt: SYSTEM_PROMPTS[input.agent],
       messages: [{ role: 'user', content: buildUserContent(input) }],
-      timeoutMs: opts.timeoutMs ?? aiRequestTimeoutMs(),
+      timeoutMs: opts.timeoutMs,
       maxTokens: classify ? CLASSIFY_MAX_TOKENS : DRAFT_MAX_TOKENS,
-    };
-
-    await assertAiTransfer(
-      config,
-      'hr_agent',
-      model,
-      promptSize(providerArgs.systemPrompt, providerArgs.messages)
-    );
-    let result: ProviderResult;
-    const provider = config.provider;
-    switch (provider) {
-      case 'openai':
-        result = await generateOpenAi(providerArgs);
-        break;
-      case 'anthropic':
-        result = await generateAnthropic(providerArgs);
-        break;
-      default: {
-        const never: never = provider;
-        throw new AiError(`Unsupported AI provider: ${String(never)}`, {
-          code: 'unsupported_provider',
-          status: 400,
-        });
-      }
-    }
+    });
     onUsage?.({ model, usage: result.usage });
     assertComplete(result);
 
@@ -87,7 +57,9 @@ export function createAiModelPort(opts: AiModelPortOptions): ModelPort {
       const intent = parseIntent(result.text);
       return intent ? { text: '', intent } : { text: '' };
     }
-    return { text: result.text.trim() };
+    const text = result.text.trim();
+    // A repeated mask is no draft: the orchestrator hands an empty one off.
+    return { text: echoesRedaction(text) ? '' : text };
   }
 
   return { complete };

@@ -3,6 +3,7 @@ import {
   cachedMessageTranslation,
   resetTranslationCache,
   translateDraft,
+  translateDraftErrorKey,
   translateMessage,
 } from './client';
 
@@ -120,5 +121,16 @@ describe('translateDraft', () => {
         }),
       })
     );
+  });
+});
+
+describe('translateDraftErrorKey', () => {
+  it.each([
+    ['ai_not_configured', 'translateNotConfigured'],
+    ['translate_unsafe', 'translateUnsafe'],
+    ['network', 'translateFailed'],
+    [null, 'translateFailed'],
+  ])('%s -> %s', (code, key) => {
+    expect(translateDraftErrorKey(code)).toBe(key);
   });
 });

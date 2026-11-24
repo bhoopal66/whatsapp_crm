@@ -105,7 +105,7 @@ import {
   VoiceWorkStrip,
 } from './voice-recording-bar';
 import { useTranslations } from 'next-intl';
-import { translateDraft } from '@/lib/translate/client';
+import { translateDraft, translateDraftErrorKey } from '@/lib/translate/client';
 import {
   canTranslateDraft,
   landTranslation,
@@ -909,11 +909,7 @@ export function MessageComposer({
       const result = await translateDraft(requested, requestedChat);
       if (!result.ok) {
         if (openChatRef.current !== requestedChat) return;
-        toast.error(
-          result.code === 'ai_not_configured'
-            ? t('translateNotConfigured')
-            : t('translateFailed')
-        );
+        toast.error(t(translateDraftErrorKey(result.code)));
         return;
       }
       const landing = landTranslation({

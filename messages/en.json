@@ -667,6 +667,7 @@
       "undoTranslate": "Undo",
       "translateFailed": "Couldn't translate the message.",
       "translateNotConfigured": "AI isn't set up yet — enable it in AI Agents → Assistant.",
+      "translateUnsafe": "This text could not be translated safely. Remove the number and add it yourself.",
       "translateChanged": "The message changed while translating, so it was kept.",
       "addCaption": "Add a caption…",
       "removeAttachment": "Remove attachment",

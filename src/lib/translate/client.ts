@@ -110,6 +110,15 @@ export function translateDraft(
   );
 }
 
+/** The `Inbox.composer` string for a failed draft translation. */
+export function translateDraftErrorKey(
+  code: string | null
+): 'translateNotConfigured' | 'translateUnsafe' | 'translateFailed' {
+  if (code === 'ai_not_configured') return 'translateNotConfigured';
+  if (code === 'translate_unsafe') return 'translateUnsafe';
+  return 'translateFailed';
+}
+
 /** Test seam: forget every cached and pending translation. */
 export function resetTranslationCache(): void {
   cache.clear();

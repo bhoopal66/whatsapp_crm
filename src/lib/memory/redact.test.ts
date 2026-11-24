@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { redact, luhnValid, foldDigits } from './redact';
+import { redact, redactSpans, luhnValid, foldDigits } from './redact';
 
 // Seeded PRNG so the property runs are reproducible.
 function rng(seed: number) {
@@ -439,5 +439,18 @@ describe('019c redaction whole-run card claim', () => {
     ['+784 1990 1234 5676', '[PHONE:234] 5676', { PHONE: 1 }],
   ])('%j is unchanged by the claim: %j', (text, expected, counts) => {
     expect(ok(text)).toEqual({ ok: true, text: expected, redactions: counts });
+  });
+});
+
+describe('redactSpans', () => {
+  it('keeps the text and originals in order: joined, they are the input', () => {
+    const input = 'a ٠٥٠ ١٢٣ ٤٥٦٧, sara@x.ae; card ４111 1111 1111 1111!';
+    const r = redactSpans(input);
+    if (!r.ok) throw new Error('refused');
+    const join = (f: 'original' | 'token') =>
+      r.pieces.map((p) => (typeof p === 'string' ? p : p[f])).join('');
+    expect(join('original')).toBe(input);
+    expect(join('token')).toBe('a [PHONE:567], [EMAIL]; card [CARD]!');
+    expect(redact(input)).toMatchObject({ ok: true, text: join('token') });
   });
 });
