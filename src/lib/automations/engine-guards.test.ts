@@ -51,6 +51,10 @@ vi.mock('./admin-client', () => {
         tests.push((r) => (r[k] ?? null) === v),
         b
       ),
+      in: (k: string, vs: unknown[]) => (
+        tests.push((r) => vs.includes(r[k])),
+        b
+      ),
       gte: (k: string, v: number) => (tests.push((r) => Number(r[k]) >= v), b),
       order: () => b,
       limit: () => b,
@@ -433,6 +437,40 @@ describe('assign to a specific person', () => {
   it('control: active staff takes the chat, over its holder', async () => {
     await trigger('new_message_received');
     expect(holder()).toBe('u2');
+  });
+
+  it.each([
+    ['in the HR inbox', { inbox_department: 'hr' }],
+    ['of a candidate', {}],
+  ])('never hands over a chat %s, whatever started it', async (_w, patch) => {
+    const sales = {
+      ...h.db.conversations[0],
+      id: 'sales',
+      assigned_agent_id: 'u9',
+    };
+    Object.assign(h.db.conversations[0], patch);
+    h.db.conversations.push(sales);
+    if (!('inbox_department' in patch))
+      h.db.hr_conversations = [{ conversation_id: h.db.conversations[0].id }];
+    await trigger('chat_tag_set');
+    expect(holder()).toBe('u9');
+    expect(sales.assigned_agent_id).toBe('u2');
+    h.db.hr_conversations = [];
+  });
+
+  it('is skipped in a chat that is not a sales chat', async () => {
+    await trigger('new_message_received', {
+      salesChat: async () => ({
+        personal: false,
+        notSales: 'This is an HR chat.',
+        error: null,
+      }),
+    });
+    expect(holder()).toBe('u9');
+    expect(log().steps_executed[0]).toMatchObject({
+      status: 'skipped',
+      detail: 'skipped: This is an HR chat.',
+    });
   });
 });
 

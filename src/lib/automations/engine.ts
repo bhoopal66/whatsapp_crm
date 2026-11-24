@@ -22,7 +22,7 @@ import type {
 } from '@/types'
 import { supabaseAdmin } from './admin-client'
 import { isActiveStaff } from '@/lib/auth/active-staff'
-import { salesAnswersOff, type SalesChatCheck } from '@/lib/ai/not-sales-chat'
+import { notSalesChat, salesAnswersOff, type SalesChatCheck } from '@/lib/ai/not-sales-chat'
 import { judgeMeanings, loadMeaningTurns, meaningCandidate } from '@/lib/insights/meaning'
 import { writeConversationChatTags } from '@/lib/chat-tags/server'
 import { chatTagTriggerMatches } from '@/lib/chat-tags/trigger-match'
@@ -771,16 +771,10 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
         // limit), on the contact's company chat. It leaves alone a chat
         // someone holds (inbound gives it to the customer's last caller)
         // or is already working (human_engaged_at). Never throws.
-        const { data: chat } = await db
-          .from('conversations')
-          .select('id')
-          .eq('account_id', args.automation.account_id)
-          .eq('contact_id', args.contactId)
-          .is('personal_owner_id', null)
-          .order('created_at', { ascending: true })
-          .limit(1)
-          .maybeSingle()
-        const conversationId = (chat as { id?: string } | null)?.id
+        const [conversationId] = await salesChatIds(
+          args.automation.account_id,
+          args.contactId,
+        )
         if (!conversationId) return 'no chat to assign'
         const result = await rotateAssign(db, {
           accountId: args.automation.account_id,
@@ -806,11 +800,13 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
       }
       const agentId = cfg.agent_id
       if (!agentId) return 'no agent resolved'
+      const chatIds = await salesChatIds(args.automation.account_id, args.contactId)
+      if (chatIds.length === 0) return 'no chat to assign'
       const { data: assigned, error: assignErr } = await db
         .from('conversations')
         .update({ assigned_agent_id: agentId })
         .eq('account_id', args.automation.account_id)
-        .eq('contact_id', args.contactId)
+        .in('id', chatIds)
         .is('personal_owner_id', null)
         .select('id')
       failOnWriteError(assignErr, 'assign_conversation: the chat could not be assigned')
@@ -1039,12 +1035,54 @@ async function notSalesReason(args: ExecuteArgs): Promise<string | null> {
   return args.context.sales_answers_off || (await salesAnswersOff(args.salesChat))
 }
 
-/** Why a message step stays off in a chat that is not a sales chat, or null. */
+/**
+ * The contact's company chats that are sales chats, oldest first. Assigning
+ * decides who may read a chat, so a candidate's chat, or another
+ * department's, is never handed to sales, also by a trigger without a
+ * message (a tag, a time). One that cannot be checked is left alone.
+ */
+async function salesChatIds(accountId: string, contactId: string): Promise<string[]> {
+  const db = supabaseAdmin()
+  const { data, error } = await db
+    .from('conversations')
+    .select('id, inbox_department, channel_id')
+    .eq('account_id', accountId)
+    .eq('contact_id', contactId)
+    .is('personal_owner_id', null)
+    .order('created_at', { ascending: true })
+  failOnWriteError(error, 'assign_conversation: the chats could not be read')
+  const ids: string[] = []
+  for (const c of (data ?? []) as {
+    id: string
+    inbox_department: string | null
+    channel_id: string | null
+  }[]) {
+    try {
+      const reason = await notSalesChat(db, {
+        conversationId: c.id,
+        inboxDepartment: c.inbox_department ?? null,
+        inboundChannelId: c.channel_id ?? null,
+        readOnly: true,
+      })
+      if (!reason) ids.push(c.id)
+    } catch (err) {
+      console.error('[automations] chat not checked, not assigned:', c.id, err)
+    }
+  }
+  return ids
+}
+
+/**
+ * Why a step stays off in a chat that is not a sales chat, or null: those
+ * that write to the person, and the assignment.
+ */
 async function notSalesSkipReason(
   step: AutomationStep,
   args: ExecuteArgs,
 ): Promise<string | null> {
-  if (!MESSAGE_STEP_TYPES.has(step.step_type)) return null
+  if (!MESSAGE_STEP_TYPES.has(step.step_type) && step.step_type !== 'assign_conversation') {
+    return null
+  }
   const reason = await notSalesReason(args)
   return reason ? `skipped: ${reason}` : null
 }

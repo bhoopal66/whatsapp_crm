@@ -64,6 +64,8 @@ const h = vi.hoisted(() => ({
   csatRpc: vi.fn(),
   // The contact's open cases without a group.
   caseRows: null as Record<string, unknown>[] | null,
+  // hr_conversations: the chat is a candidate's.
+  hrRow: null as Record<string, unknown> | null,
   // case_sla_event_system (migration 124).
   slaRpc: vi.fn(),
 }));
@@ -98,6 +100,9 @@ function respond(call: Call): Result {
   }
   if (call.table === 'cases' && call.op === 'select') {
     return { data: h.caseRows, error: null };
+  }
+  if (call.table === 'hr_conversations') {
+    return { data: h.hrRow, error: null };
   }
   if (call.table === 'broadcast_recipients' && call.op === 'select') {
     return { data: h.recipientRows, error: null };
@@ -336,6 +341,7 @@ beforeEach(() => {
     .mockResolvedValue({ assignedTo: 'agent-2', reason: 'assigned' });
   h.csatRpc.mockReset().mockResolvedValue({ data: false, error: null });
   h.caseRows = null;
+  h.hrRow = null;
   h.slaRpc.mockReset().mockResolvedValue({ data: null, error: null });
 });
 
@@ -393,6 +399,23 @@ describe('processMessage — broadcast first-reply rotation', () => {
     });
     // The customer's last caller is asked first; the flow sees the result.
     expect(h.order).toEqual(['calls', 'rotate', 'flows']);
+  });
+
+  it("leaves a candidate's chat, and one it cannot check, alone", async () => {
+    rotationOn();
+    h.hrRow = { conversation_id: 'conv-1' };
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+    h.hrRow = null;
+    h.refuse = 'hr_conversations:select';
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    await processMessage(
+      { ...message, id: 'wamid.unchecked' },
+      'acct-1',
+      'owner-1',
+      channel
+    );
+    h.refuse = null;
+    expect(h.rotate).not.toHaveBeenCalled();
   });
 
   it('is not asked when the message answers no campaign', async () => {

@@ -34,6 +34,9 @@ and polish.
 
 ### Fixed
 
+- **A candidate's chat is never assigned to sales.** The "Assign" step of an
+  automation and the rotation of campaign replies leave chats of HR, and of
+  any other department, alone: who holds a chat may read it.
 - **When a submission group ends, its bells follow.** The unread bell of an
   agent who loses the group opens the customer's page instead of "does not
   exist". **Migration required: 313**.

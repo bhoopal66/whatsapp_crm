@@ -125,13 +125,13 @@ vi.mock("./admin-client", () => {
     if (table === "conversations" && type === "select") {
       state.convSelects.push(ops.filters);
       // Honour every eq() filter, like PostgREST would.
-      const row = state.conversations.find((c) =>
+      const rows = state.conversations.filter((c) =>
         ops.filters.every(
           ([op, k, v]) =>
             op !== "eq" || (c as Record<string, unknown>)[k] === v
         )
       );
-      return { data: row ?? null, error: null };
+      return { data: ops.many ? rows : (rows[0] ?? null), error: null };
     }
     return { data: null, error: null };
   }
@@ -153,6 +153,7 @@ vi.mock("./admin-client", () => {
       upsert: (p: unknown) => ((ops.type = "upsert"), (ops.payload = p), b),
       eq: (k: string, v: unknown) => (ops.filters.push(["eq", k, v]), b),
       gte: () => b,
+      in: () => b,
       is: (k: string, v: unknown) => (ops.filters.push(["is", k, v]), b),
       order: () => b,
       limit: () => b,

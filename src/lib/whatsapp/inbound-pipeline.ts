@@ -60,7 +60,7 @@ import { runAutomationsForTrigger } from '@/lib/automations/engine';
 import { dispatchInboundToFlows } from '@/lib/flows/engine';
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply';
 import { closesBurst, noteTaken } from '@/lib/ai/stranded';
-import { salesChatOnce } from '@/lib/ai/not-sales-chat';
+import { salesAnswersOff, salesChatOnce } from '@/lib/ai/not-sales-chat';
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver';
 import { watchInboundMessage } from '@/lib/ai/typesafe-watch';
 import { autoTagFromInsights } from '@/lib/insights/auto-tag';
@@ -1300,18 +1300,20 @@ async function runInboundMessage(
   // broadcast pool when that switch is on (migration 236). Ahead of the
   // follow-up flow and the bots, so they see the assignee. The call-
   // history pick above ran first and keeps its person. Never throws.
-  if (campaignReply) {
-    await rotateBroadcastReply(accountId, conversation);
-  }
-
+  // Not a candidate's chat, or another department's: who holds a chat may
+  // read it.
+  //
   // One decision for this message, read when the first of them needs it:
   // no sales answer (flow, journey, automation message step, AI reply),
-  // campaign sorting or smart insight in an HR chat or another
-  // department's. Internal automation steps run.
+  // assignment, campaign sorting or smart insight in an HR chat or another
+  // department's. Other internal automation steps run.
   const salesChat = salesChatOnce(supabaseAdmin, {
     conversationId: conversation.id,
     inboundChannelId: channel.id,
   });
+  if (campaignReply && !(await salesAnswersOff(salesChat))) {
+    await rotateBroadcastReply(accountId, conversation);
+  }
 
   // Campaign reply sorting (migration 148, docs/jev-insights.md): Jev
   // sorts that first reply into a class, stored on the recipient row and
