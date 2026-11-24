@@ -611,6 +611,20 @@ describe('POST /api/whatsapp/groups: a create that may have happened', () => {
     expect(mocks.later).toHaveLength(0);
   });
 
+  it('a refusal spends nothing, except one that says too many requests', async () => {
+    const left = () => addBudget('agent-1', CH).remaining();
+    const before = left();
+    for (let i = 0; i < 12; i++) {
+      mocks.createGroup.mockRejectedValueOnce(new WhapiError('no', 403));
+      expect(await code(await post(base))).toBe('not_admin');
+    }
+    expect(left()).toBe(before);
+    mocks.createGroup.mockRejectedValueOnce(new WhapiError('slow down', 429));
+    await post(base);
+    expect(left()).toBeLessThan(before);
+    expect((await post(base)).status).toBe(201);
+  });
+
   describe('ownership of the group that was made', () => {
     const found = (over: Record<string, unknown> = {}) => ({
       id: WA,

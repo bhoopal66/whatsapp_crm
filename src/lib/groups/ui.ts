@@ -590,7 +590,8 @@ export function formatWaId(waId: string): string {
  * escaped; a phone query also matches on its digits alone.
  */
 export function contactSearchFilter(query: string): string | null {
-  const q = latinDigits(query)
+  // As sanitizeContactSearch: a name keeps the digits it was typed with.
+  const q = (/\p{L}/u.test(query) ? query : latinDigits(query))
     .replace(/[,()*%\\"']/g, ' ')
     .trim();
   if (q.length < 2) return null;

@@ -238,7 +238,12 @@ describe('a submission group our number created (299)', () => {
       profiles: [{ user_id: 'own', account_id: ACCT, account_role: 'owner' }],
       notifications: [],
       submission_groups: [
-        { account_id: ACCT, wa_group_id: MIRROR, status: 'ENDED' },
+        {
+          account_id: ACCT,
+          channel_id: 'ch-1',
+          wa_group_id: MIRROR,
+          status: 'ENDED',
+        },
         // Another workspace's submission group does not count here.
         { account_id: 'acct-2', wa_group_id: GROUP, status: 'ACTIVE' },
       ],
@@ -315,6 +320,24 @@ describe('a submission group our number created (299)', () => {
     expect(db.tables.whatsapp_group_messages).toMatchObject([
       { group_id: 'g-1', wa_message_id: 'm-2' },
     ]);
+  });
+
+  it('keeps the message of a submission group left on a removed number', async () => {
+    // Its own module asks for its number, which is gone: nobody else would.
+    const db = fresh(true);
+    db.tables.submission_groups[0].channel_id = null;
+    await persistGroupMessages(fakeSupabase(db) as never, channel, [
+      message('m-1', MIRROR),
+    ] as never);
+    expect(db.tables.whatsapp_group_messages).toMatchObject([
+      { group_id: 'g-mirror', wa_message_id: 'm-1' },
+    ]);
+    expect(
+      await applyGroupEvents(fakeSupabase(db) as never, channel, [
+        participants('request', MIRROR),
+      ])
+    ).toBe(0);
+    expect(db.tables.notifications).toEqual([]);
   });
 
   it('throws and writes nothing when it cannot tell', async () => {

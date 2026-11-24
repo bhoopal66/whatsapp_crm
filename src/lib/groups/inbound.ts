@@ -162,9 +162,15 @@ export async function persistGroupMessages(
     channel,
     messages.map((m) => m.waGroupId)
   );
-  const submission = await submissionGroupIds(admin, channel.accountId, [
-    ...groups.keys(),
-  ]);
+  // Of this number only: a submission group whose number was removed and
+  // added again is recorded by neither module otherwise, and the message
+  // is gone. In the (hidden) mirror it is at least kept.
+  const submission = await submissionGroupIds(
+    admin,
+    channel.accountId,
+    [...groups.keys()],
+    channel.id
+  );
   for (const id of submission) groups.delete(id);
   const rows = [];
   let unknownGroup = 0;

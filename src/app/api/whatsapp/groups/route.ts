@@ -70,7 +70,6 @@ import {
   type CreateGroupOutcome,
   getGroup,
   GROUP_ADD_POLICY,
-  GroupCreateUnsupportedError,
   groupDeadline,
   updateGroupInfo,
   updateGroupSetting,
@@ -354,12 +353,14 @@ export async function POST(request: Request) {
         deadline,
       });
     } catch (err) {
-      // This gateway cannot create: the next try is on another number.
-      if (err instanceof GroupCreateUnsupportedError) {
-        budget.refund(room);
-        refundGroupCreate(channel.id);
-      }
       if (isDefiniteCreateRefusal(err)) {
+        // Nobody was reached, so nothing is spent: a number that is logged
+        // out must not use up its own day. A gateway that says 429 is
+        // counted: trying again at once is what it asks us not to do.
+        if ((err as { status?: unknown }).status !== 429) {
+          budget.refund(room);
+          refundGroupCreate(channel.id);
+        }
         if (tookName) refundRateLimit(sameName, 1);
         throw err;
       }

@@ -26,6 +26,15 @@ describe('Arabic-keyboard digits', () => {
     );
   });
 
+  it('a name keeps the digits it was typed with', () => {
+    expect(sanitizeContactSearch('شركة ٢٠٢٠')).toBe('شركة ٢٠٢٠');
+    expect(searchRpcTerm('مكتب ٥')).toBe('مكتب ٥');
+    expect(contactSearchFilter('شركة ٢٠٢٠')).toContain(
+      'name.ilike.%شركة ٢٠٢٠%'
+    );
+    expect(groupFilter('شركة ٢٠٢٠')).toContain('name.ilike.*شركة ٢٠٢٠*');
+  });
+
   it.each([AR, FA])('search: %s is a phone search', (typed) => {
     expect(sanitizeContactSearch(typed)).toBe('0588336503');
     expect(searchRpcTerm(typed)).toBe('0588336503');
