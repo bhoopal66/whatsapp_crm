@@ -8,7 +8,8 @@
  *     case_task_overdue at the given clock, never stored.
  *   Documents — required per (account, bank, product); a document is
  *     missing until 'received'. The request to the customer is
- *     documents.ts; docRequestBegin / docMarkRequested are its two RPCs.
+ *     documents.ts; docRequestBegin / docMarkRequested are its RPCs, and
+ *     docRequestRelease takes back the claim of a send that did not go.
  *   Config — task templates and document requirements, owner/admin only.
  *
  * Internal case text lives in other modules (see never-sent.test.ts): this
@@ -19,7 +20,7 @@
  * read right before a listing (the listings decide nothing).
  */
 import { CaseRpc, type Row } from './rpc';
-import { date, rows, str } from './store';
+import { CaseStoreError, date, rows, str } from './store';
 
 export type TaskStatus = 'open' | 'done' | 'blocked';
 export type DocStatus = 'requested' | 'received' | 'rejected';
@@ -100,6 +101,8 @@ export interface DocRequestBegin {
   bankName: string | null;
   docKeys: string[];
   docLabels: string[];
+  /** The claim (297); NULL unless one was asked for and taken. */
+  requestId: string | null;
 }
 
 const TASK_COLUMNS =
@@ -132,6 +135,11 @@ const toRequirement = (r: Row): DocRequirement => ({
   label: String(r.label),
   position: Number(r.position),
 });
+
+/** PostgREST's and Postgres's "no function with those arguments". */
+const isMissingFunction = (err: unknown) =>
+  err instanceof CaseStoreError &&
+  (err.code === 'PGRST202' || err.code === '42883');
 
 export class CaseToolsStore extends CaseRpc {
   // ---------- tasks ----------
@@ -318,15 +326,30 @@ export class CaseToolsStore extends CaseRpc {
     };
   }
 
-  /** For the actor who may act on the case: what the request needs. */
+  /**
+   * For the actor who may act on the case: what the request needs. With
+   * `claim` (the send, 297) it also claims the request: refused
+   * REQUESTED_RECENTLY within 10 minutes of another one unless `force`.
+   * Without it (a preview) nothing is claimed or refused. A database from
+   * before 297 has no claim to take: the call is answered without one.
+   */
   async docRequestBegin(
     caseId: string,
-    actor: string
+    actor: string,
+    claim?: { force: boolean }
   ): Promise<DocRequestBegin> {
-    const row = await this.one('case_doc_request_begin', {
-      p_case: caseId,
-      p_actor: actor,
-    });
+    const fn = 'case_doc_request_begin';
+    const args = { p_case: caseId, p_actor: actor };
+    let row: Row;
+    try {
+      row = await this.one(
+        fn,
+        claim ? { ...args, p_force: claim.force, p_claim: true } : args
+      );
+    } catch (err) {
+      if (!claim || !isMissingFunction(err)) throw err;
+      row = await this.one(fn, args);
+    }
     return {
       accountId: String(row.account_id),
       groupId: String(row.group_id),
@@ -334,7 +357,21 @@ export class CaseToolsStore extends CaseRpc {
       bankName: str(row.bank_name),
       docKeys: strings(row.doc_keys),
       docLabels: strings(row.doc_labels),
+      requestId: str(row.request_id),
     };
+  }
+
+  /** Takes back the actor's own claim: its send did not go out. */
+  async docRequestRelease(
+    caseId: string,
+    actor: string,
+    requestId: string
+  ): Promise<void> {
+    await this.rpc('case_doc_request_release', {
+      p_case: caseId,
+      p_actor: actor,
+      p_request: requestId,
+    });
   }
 
   /** After the request was sent; returns how many rows it wrote. */

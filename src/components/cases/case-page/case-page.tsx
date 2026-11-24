@@ -35,6 +35,7 @@ import {
   canTakeOver,
   docRequestKey,
   isSnoozed,
+  requestedRecently,
   parseCaseDetail,
   snoozeErrorKey,
   resolveCaseTab,
@@ -130,6 +131,8 @@ export function CasePage({ caseId }: { caseId: string }) {
   const [state, setState] = useState<State>('loading');
   const [detail, setDetail] = useState<CaseDetail | null>(null);
   const [open, setOpen] = useState<Open>(null);
+  const [recentRequest, setRecentRequest] =
+    useState<ReturnType<typeof requestedRecently>>(null);
   const [acting, setActing] = useState(false);
   const [viewers, setViewers] = useState<string[]>([]);
   const mounted = useRef(true);
@@ -218,12 +221,14 @@ export function CasePage({ caseId }: { caseId: string }) {
     router.replace(`${url.pathname}${url.search}`, { scroll: false });
   };
 
-  const requestDocs = async () => {
+  const requestDocs = async (force = false) => {
     setOpen(null);
+    setRecentRequest(null);
     setActing(true);
     const r = await sendCaseRequest(
       `/api/cases/${caseId}/documents/request`,
-      'POST'
+      'POST',
+      force ? { force: true } : undefined
     );
     setActing(false);
     if (r.ok) {
@@ -231,6 +236,11 @@ export function CasePage({ caseId }: { caseId: string }) {
       if (res?.recorded === false) toast.warning(t('docs.sentNotRecorded'));
       else toast.success(t('docs.sent'));
       void reload();
+      return;
+    }
+    const recent = requestedRecently(r.status, r.json);
+    if (recent) {
+      setRecentRequest(recent);
       return;
     }
     const res = r.json as { code?: unknown; refusal?: unknown } | null;
@@ -720,6 +730,18 @@ export function CasePage({ caseId }: { caseId: string }) {
         cancelLabel={t('cancel')}
         confirmLabel={t('docs.confirm')}
         onConfirm={() => void requestDocs()}
+      />
+      <ConfirmDialog
+        open={recentRequest !== null}
+        onOpenChange={(o) => !o && setRecentRequest(null)}
+        title={t('docs.recentTitle')}
+        description={t('docs.recentBody', {
+          name: person(recentRequest?.by ?? null),
+          time: dateLabel(recentRequest?.at ?? null) ?? '',
+        })}
+        cancelLabel={t('cancel')}
+        confirmLabel={t('docs.sendAgain')}
+        onConfirm={() => void requestDocs(true)}
       />
     </div>
   );

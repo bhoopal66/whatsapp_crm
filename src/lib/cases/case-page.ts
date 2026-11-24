@@ -473,6 +473,24 @@ export function docRequestKey(
 }
 
 /**
+ * The refusal of a document request made less than 10 minutes after the
+ * case's last one (297): by whom (a user id) and when; null for any other
+ * answer. The person may send again.
+ */
+export function requestedRecently(
+  status: number,
+  json: unknown
+): { by: string; at: string } | null {
+  const r = json as { code?: unknown; by?: unknown; at?: unknown } | null;
+  return status === 409 &&
+    r?.code === 'REQUESTED_RECENTLY' &&
+    typeof r.by === 'string' &&
+    typeof r.at === 'string'
+    ? { by: r.by, at: r.at }
+    : null;
+}
+
+/**
  * Take over stays disabled until the hand-over template is approved
  * (the route answers 409 TEMPLATE_NOT_APPROVED). Flip this once it is;
  * the click handler already treats that 409 as "still awaiting approval".

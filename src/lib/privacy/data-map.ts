@@ -409,6 +409,13 @@ export const PERSONAL: Readonly<Record<string, PersonalTable>> = {
     reason: KYC,
     exported: true,
   },
+  case_doc_requests: {
+    link: 'case',
+    class: 'identifier',
+    erase: 'retain',
+    reason: AUDIT,
+    exported: false,
+  },
   case_document_files: {
     link: 'case',
     class: 'special',
