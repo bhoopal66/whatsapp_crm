@@ -1560,3 +1560,6 @@ jobs:
       # and never over somebody else's save; a counted run is no edit.
       - name: Verify flow save
         run: supabase db query --local --file supabase/ci/verify-flow-save.sql
+
+      - name: Verify campaign stop (301)
+        run: supabase db query --local --file supabase/ci/verify-campaign-stop.sql

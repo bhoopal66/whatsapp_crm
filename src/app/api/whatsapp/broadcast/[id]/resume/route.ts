@@ -58,7 +58,7 @@ async function settleIfSending(broadcastId: string): Promise<void> {
     .select('status')
     .eq('id', broadcastId)
     .maybeSingle();
-  if (data?.status === 'sending') {
+  if (data?.status === 'sending' || data?.status === 'stopped') {
     await finalizeBroadcastStatus(admin, broadcastId);
   }
 }
@@ -92,6 +92,9 @@ export async function POST(
     const scope: ResumeScope = RESUME_SCOPES.includes(body?.scope)
       ? body.scope
       : 'pending';
+    // Only the Resume button of a stopped campaign says this: the wizard's
+    // own next pass must not undo a Stop.
+    const opts = { resumeStopped: body?.resume_stopped === true };
 
     // Claim BEFORE planning. Two clicks on Resume, or a click while an
     // earlier pass is still running, would otherwise both build a plan
@@ -120,10 +123,11 @@ export async function POST(
       supabase,
       accountId,
       id,
-      scope
+      scope,
+      opts
     );
 
-    await markBroadcastSending(supabase, id);
+    await markBroadcastSending(supabase, id, opts);
     claimedId = null; // ownership passes to the after() block
 
     // Service-role client for the fan-out: it outlives the request, and

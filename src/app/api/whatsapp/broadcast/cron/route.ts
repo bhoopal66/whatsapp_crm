@@ -183,10 +183,13 @@ export async function GET(request: Request) {
       }
       if (
         err instanceof BroadcastError &&
-        (err.code === 'quiet_hours' || err.code === 'internal')
+        (err.code === 'quiet_hours' ||
+          err.code === 'internal' ||
+          err.code === 'campaign_stopped')
       ) {
         // The window began since the check above: the next tick moves
         // the appointment. Or the database did not answer: it stays due.
+        // Or someone stopped it in between.
         skipped++;
         continue;
       }
@@ -325,6 +328,7 @@ async function continueBroadcast(
         claimed &&
         code &&
         code !== 'internal' &&
+        code !== 'campaign_stopped' &&
         code !== 'quiet_hours'
       ) {
         await recordContinueRefusal(

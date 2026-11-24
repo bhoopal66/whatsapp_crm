@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 // What a delivery pass does between the first send and the last:
 // opt-outs and quiet hours that begin meanwhile, and sends whose outcome
 // nobody knows.
@@ -28,7 +29,7 @@ import {
   type BroadcastPlan,
 } from './broadcast-core';
 import { runBroadcastPass } from './broadcast-pass';
-import { planBroadcastResume } from './broadcast-resume';
+import { markBroadcastSending, planBroadcastResume } from './broadcast-resume';
 import { MetaError } from './meta-api';
 import {
   SEND_UNCONFIRMED_REASON,
@@ -538,4 +539,61 @@ describe('planning while the database does not answer', () => {
       await expect(resume(db)).rejects.toMatchObject({ code: 'internal' });
     }
   );
+});
+
+describe('Stop (migration 301)', () => {
+  beforeEach(() => {
+    sendTemplate.mockReset();
+  });
+
+  it('holds for a pass already running: the rest stay pending', async () => {
+    const w = world(3);
+    sendTemplate.mockImplementation(async () => {
+      w.broadcasts[0].status = 'stopped';
+      return { messageId: 'wamid.1' };
+    });
+    await deliverBroadcast(fakeDb(w), planFor(w));
+    expect(sendTemplate).toHaveBeenCalledTimes(1);
+    expect(w.broadcast_recipients.map((r) => r.status)).toEqual([
+      'sent',
+      'pending',
+      'pending',
+    ]);
+    expect(w.broadcast_recipients[1].error_message).toBeNull();
+    expect(w.broadcasts[0].status).toBe('stopped');
+  });
+
+  it('is undone by its own Resume only', async () => {
+    const w = world(2, { status: 'stopped' });
+    const db = fakeDb(w);
+    const refused = { code: 'campaign_stopped', status: 400 };
+    await expect(
+      planBroadcastResume(db, 'acct-1', 'bc-1', 'pending')
+    ).rejects.toMatchObject(refused);
+    // Stopped after the plan was made.
+    await expect(markBroadcastSending(db, 'bc-1')).rejects.toMatchObject(
+      refused
+    );
+    expect(w.broadcasts[0].status).toBe('stopped');
+
+    const opts = { resumeStopped: true };
+    const { plan } = await planBroadcastResume(
+      db,
+      'acct-1',
+      'bc-1',
+      'pending',
+      opts
+    );
+    expect(plan.planned).toHaveLength(2);
+    await markBroadcastSending(db, 'bc-1', opts);
+    expect(w.broadcasts[0].status).toBe('sending');
+  });
+
+  it('the SQL guard names the write-ahead mark', () => {
+    const sql = readFileSync(
+      'supabase/migrations/301_campaign_stop.sql',
+      'utf8'
+    );
+    expect(sql).toContain(`NEW.error_message = '${SEND_UNCONFIRMED_REASON}'`);
+  });
 });

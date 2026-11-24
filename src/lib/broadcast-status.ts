@@ -47,6 +47,10 @@ export const broadcastStatusConfig: Record<BroadcastStatus, StatusDisplay> = {
     label: "failed",
     classes: "bg-destructive/10 text-destructive border-destructive/20",
   },
+  stopped: {
+    label: "stopped",
+    classes: "bg-slate-500/10 text-muted-foreground border-slate-500/20",
+  },
 };
 
 export const recipientStatusConfig: Record<RecipientStatus, StatusDisplay> = {

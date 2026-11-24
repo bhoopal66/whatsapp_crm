@@ -185,6 +185,8 @@ export default function BroadcastDetailPage() {
   const tPaging = useTranslations('MeetingRoom.stage');
   const tReply = useTranslations('ReplyClasses');
   const broadcastId = params.id as string;
+  const [confirmStop, setConfirmStop] = useState(false);
+  const [stopping, setStopping] = useState(false);
 
   const [broadcast, setBroadcast] = useState<Broadcast | null>(null);
   /** Name of the follow-up flow (migration 054), when one is linked. */
@@ -407,7 +409,10 @@ export default function BroadcastDetailPage() {
       const res = await fetch(`/api/whatsapp/broadcast/${broadcastId}/resume`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scope }),
+        body: JSON.stringify({
+          scope,
+          resume_stopped: broadcast?.status === 'stopped',
+        }),
       });
       const payload = await res.json().catch(() => ({}));
 
@@ -440,6 +445,23 @@ export default function BroadcastDetailPage() {
     } finally {
       setResumingScope(null);
     }
+  }
+
+  async function handleStop() {
+    setStopping(true);
+    const { data, error: stopErr } = await createClient().rpc(
+      'broadcast_stop',
+      { p_broadcast: broadcastId }
+    );
+    setStopping(false);
+    setConfirmStop(false);
+    if (stopErr) {
+      toast.error(t('toastFailedStop', { error: stopErr.message }));
+    } else {
+      const { sent, remaining } = data as { sent: number; remaining: number };
+      toast.success(t('toastStopped', { sent, remaining }));
+    }
+    await refreshAll();
   }
 
   async function handleDelete() {
@@ -495,6 +517,9 @@ export default function BroadcastDetailPage() {
   // still pending and nothing left to move them. Name that state rather
   // than leaving a permanently pulsing "sending" badge.
   const isStalled = broadcast.status === 'sending' && pendingCount > 0;
+  const isStopped = broadcast.status === 'stopped';
+  const canStop =
+    broadcast.status === 'sending' || broadcast.status === 'scheduled';
 
   const funnelSteps: FunnelStep[] = [
     {
@@ -560,6 +585,36 @@ export default function BroadcastDetailPage() {
             "Delete Pipeline" flow. Mid-send broadcasts can't be deleted
             because orphaning in-flight Meta messages would leave the
             funnel inconsistent. */}
+        {canStop && confirmStop ? (
+          <div className="border-warning/30 bg-warning-soft flex flex-wrap items-center gap-2 rounded-md border px-3 py-1.5 text-sm">
+            <span className="text-foreground">{t('stopPrompt')}</span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setConfirmStop(false)}
+              disabled={stopping}
+              className="h-7"
+            >
+              {t('cancel')}
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleStop}
+              disabled={stopping}
+              className="h-7"
+            >
+              {t('stop')}
+            </Button>
+          </div>
+        ) : canStop ? (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setConfirmStop(true)}
+          >
+            {t('stop')}
+          </Button>
+        ) : null}
         {confirmDelete ? (
           <div className="border-destructive/30 bg-destructive-soft flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm">
             <span className="text-destructive">{t('deletePrompt')}</span>
@@ -666,16 +721,22 @@ export default function BroadcastDetailPage() {
           actually something outstanding — and not for a scheduled
           campaign, whose pending rows are the appointment, not a stall. */}
       {broadcast.status !== 'scheduled' &&
-        (pendingCount > 0 || retryableCount > 0) && (
+        (pendingCount > 0 || (retryableCount > 0 && !isStopped)) && (
           <div className="border-border bg-card flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4">
             <div className="text-sm">
               <p className="text-foreground font-medium">
-                {isStalled ? t('resumeStalledTitle') : t('resumeTitle')}
+                {isStopped
+                  ? t('stoppedTitle')
+                  : isStalled
+                    ? t('resumeStalledTitle')
+                    : t('resumeTitle')}
               </p>
               <p className="text-muted-foreground mt-0.5">
-                {isStalled
-                  ? t('resumeStalledHint', { count: pendingCount })
-                  : t('resumeHint', { count: retryableCount })}
+                {isStopped
+                  ? t('stoppedHint', { count: pendingCount })
+                  : isStalled
+                    ? t('resumeStalledHint', { count: pendingCount })
+                    : t('resumeHint', { count: retryableCount })}
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -693,7 +754,7 @@ export default function BroadcastDetailPage() {
                   {t('resumePending', { count: pendingCount })}
                 </Button>
               )}
-              {retryableCount > 0 && (
+              {retryableCount > 0 && !isStopped && (
                 <Button
                   variant="outline"
                   size="sm"
