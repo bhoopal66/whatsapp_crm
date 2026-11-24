@@ -41,7 +41,10 @@ import type {
   NormalizedStatusValue,
 } from '@/lib/whatsapp/inbound';
 import { describeMetaFailure } from '@/lib/whatsapp/meta-failure';
-import { settleBroadcastAfterLateFailure } from '@/lib/whatsapp/broadcast-core';
+import {
+  settleBroadcastAfterCorrection,
+  settleBroadcastAfterLateFailure,
+} from '@/lib/whatsapp/broadcast-core';
 import { buildHandoffSummary } from '@/lib/ai/handoff';
 import { buildConversationContext } from '@/lib/ai/context';
 import type { WhatsAppChannel } from '@/lib/whatsapp/channels';
@@ -95,10 +98,13 @@ import { routeDeskDocument } from '@/lib/desk/route-inbound';
 // replied. Webhook replays must never regress a recipient back down
 // this ladder.
 //
-// `failed` is NOT on this ladder. It's a terminal side branch that is
-// only valid from the early states (pending / sent) — once the message
-// has been delivered or read, a later "failed" status event is a bug in
-// the gateway's pipeline or a spoof attempt and must be ignored.
+// `failed` is NOT on this ladder. It's a side branch that is only valid
+// from the early states (pending / sent) — once the message has been
+// delivered or read, a later "failed" status event is a bug in the
+// gateway's pipeline or a spoof attempt and must be ignored. It is not
+// the last word either: a gateway may report an ack error, retry, and
+// deliver. `delivered` and `read` correct it (migration 291); `sent`
+// does not. Ignoring them kept the bubble red, and staff sent again.
 const RECIPIENT_STATUS_LADDER = [
   'pending',
   'sent',
@@ -126,8 +132,8 @@ const MESSAGE_STATUS_PREDECESSORS: Record<
 > = {
   pending: [],
   sent: ['sending'],
-  delivered: ['sending', 'sent'],
-  read: ['sending', 'sent', 'delivered'],
+  delivered: ['sending', 'sent', 'failed'],
+  read: ['sending', 'sent', 'delivered', 'failed'],
   failed: ['sending', 'sent'],
 };
 
@@ -135,19 +141,19 @@ const MESSAGE_STATUS_PREDECESSORS: Record<
 // vocabulary (migration 001's CHECK: the ladder above plus 'failed').
 // A compare-and-set on the status the handler had read used to drop a
 // concurrent 'read' whenever 'delivered' committed first: both read
-// 'sent', and the second UPDATE matched nothing — and migration 066's
-// reconcile only moves rows still at 'sent', so nothing repaired it.
+// 'sent', and the second UPDATE matched nothing, and nothing repaired it.
 // With the predecessors in the WHERE a higher receipt lands whichever
 // commits first, and a lower one arriving late matches nothing.
-// 'replied' and 'failed' are never overwritten; 'pending' moves nothing.
+// 'replied' is never overwritten, 'failed' only by a delivery; 'pending'
+// moves nothing. SQL mirror: reconcile_broadcast_recipient_statuses (291).
 const RECIPIENT_STATUS_PREDECESSORS: Record<
   NormalizedStatusValue,
   readonly string[]
 > = {
   pending: [],
   sent: ['pending'],
-  delivered: ['pending', 'sent'],
-  read: ['pending', 'sent', 'delivered'],
+  delivered: ['pending', 'sent', 'failed'],
+  read: ['pending', 'sent', 'delivered', 'failed'],
   failed: ['pending', 'sent'],
 };
 
@@ -156,13 +162,14 @@ const RECIPIENT_STATUS_PREDECESSORS: Record<
  *   - Along the ladder, only forward moves are allowed.
  *   - `failed` is accepted only from `pending` or `sent`; it's refused
  *     once the recipient has reached any of the success states.
+ *   - Out of `failed`, only proof of delivery is accepted.
  */
 function isValidStatusTransition(current: string, incoming: string): boolean {
   if (incoming === 'failed') {
     return current === 'pending' || current === 'sent';
   }
   if (current === 'failed') {
-    return false; // failed is terminal
+    return incoming === 'delivered' || incoming === 'read';
   }
   const ci = ladderLevel(current);
   const ii = ladderLevel(incoming);
@@ -280,6 +287,11 @@ export async function handleStatusUpdate(
       update.sent_at = tsIso;
     if (status.status === 'delivered') update.delivered_at = tsIso;
     if (status.status === 'read') update.read_at = tsIso;
+    // A delivered message failed at nothing: the reason an earlier
+    // 'failed' left goes too, or the page shows it beside the tick.
+    if (status.status === 'delivered' || status.status === 'read') {
+      update.error_message = null;
+    }
     // Why, when the gateway said (Meta only). Without it the detail
     // page shows '-' and offers Retry failed, which for most of these
     // codes only fails again.
@@ -303,15 +315,18 @@ export async function handleStatusUpdate(
     if (recUpdateErr) {
       failed = true;
       console.error('Error updating broadcast recipient status:', recUpdateErr);
-    } else if (
-      status.status === 'failed' &&
-      (flipped ?? []).length > 0 &&
-      recipient.broadcast_id
-    ) {
-      await settleBroadcastAfterLateFailure(
-        supabaseAdmin(),
-        recipient.broadcast_id
-      );
+    } else if ((flipped ?? []).length > 0 && recipient.broadcast_id) {
+      if (status.status === 'failed') {
+        await settleBroadcastAfterLateFailure(
+          supabaseAdmin(),
+          recipient.broadcast_id
+        );
+      } else if (recipient.status === 'failed') {
+        await settleBroadcastAfterCorrection(
+          supabaseAdmin(),
+          recipient.broadcast_id
+        );
+      }
     }
   }
 

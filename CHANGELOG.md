@@ -12,6 +12,15 @@ and polish.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A message reported failed and then delivered shows as delivered.**
+  When WhatsApp reports an error, retries and delivers, the later
+  delivered or read receipt now replaces "failed" in chats, WhatsApp
+  groups, campaigns and HR automated messages; the error text goes, the
+  campaign's failed count falls, and "Retry failed" does not send it
+  again. **Migration required: 291**, after 289.
+
 ### Security
 
 - **Small access points closed.** Case desk: an upload naming a company

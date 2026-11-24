@@ -697,6 +697,9 @@ export async function deliverBroadcast(
           .update({
             status: 'failed',
             error_message: SENT_NOT_RECORDED_REASON,
+            // So that its receipt can find the row and correct it.
+            whatsapp_message_id: sentMessageId,
+            sent_at: new Date().toISOString(),
           })
           .eq('id', recipient.recipientRowId);
         stopped = `a send could not be recorded: ${stampError}`;
@@ -875,6 +878,36 @@ export async function settleBroadcastAfterLateFailure(
   } catch (err) {
     console.error(
       '[broadcast-core] late-failure settle threw:',
+      err instanceof Error ? err.message : err
+    );
+  }
+}
+
+/**
+ * The reverse: a receipt said a recipient recorded as failed was delivered
+ * after all, so a campaign that read 'failed' because every recipient had
+ * failed reads 'sent'. Moves 'failed' to 'sent' and nothing else, and never
+ * while a recipient is pending. Never throws (the status webhook's path).
+ */
+export async function settleBroadcastAfterCorrection(
+  db: SupabaseClient,
+  broadcastId: string
+): Promise<void> {
+  try {
+    if ((await terminalStatusFromRecipients(db, broadcastId)) !== 'sent') {
+      return;
+    }
+    const { error } = await db
+      .from('broadcasts')
+      .update({ status: 'sent', updated_at: new Date().toISOString() })
+      .eq('id', broadcastId)
+      .eq('status', 'failed');
+    if (error) {
+      console.error('[broadcast-core] correction settle failed:', error);
+    }
+  } catch (err) {
+    console.error(
+      '[broadcast-core] correction settle threw:',
       err instanceof Error ? err.message : err
     );
   }

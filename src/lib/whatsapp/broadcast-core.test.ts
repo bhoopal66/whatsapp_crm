@@ -5,6 +5,7 @@ import {
   deliverBroadcast,
   finalizeBroadcastStatus,
   reconcileBroadcastStatuses,
+  settleBroadcastAfterCorrection,
   settleBroadcastAfterLateFailure,
   BroadcastError,
   type BroadcastPlan,
@@ -1009,6 +1010,24 @@ function settleDb(
     },
   } as unknown as SupabaseClient;
 }
+
+describe('settleBroadcastAfterCorrection', () => {
+  it.each([
+    ['a corrected recipient', { pending: 0, failed: 11 }, 'sent'],
+    ['every recipient still failed', { pending: 0, failed: 12 }, undefined],
+    ['a recipient still pending', { pending: 1, failed: 10 }, undefined],
+  ])('%s', async (_name, counts, expected) => {
+    const writes = { filters: {} as Record<string, unknown> } as {
+      update?: Record<string, unknown>;
+      filters: Record<string, unknown>;
+    };
+    await settleBroadcastAfterCorrection(settleDb(counts, 12, writes), 'b-1');
+    expect(writes.update?.status).toBe(expected);
+    if (expected) {
+      expect(writes.filters).toEqual({ id: 'b-1', status: 'failed' });
+    }
+  });
+});
 
 describe('settleBroadcastAfterLateFailure', () => {
   it("fails a 'sent' campaign once every recipient has failed", async () => {

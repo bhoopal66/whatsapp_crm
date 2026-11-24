@@ -351,7 +351,8 @@ describe('sends whose outcome nobody knows', () => {
       status: 'failed',
       error_message: SENT_NOT_RECORDED_REASON,
     });
-    expect(w.broadcast_recipients[0].whatsapp_message_id).toBeUndefined();
+    // Kept, so that its receipt can correct the row (migration 291).
+    expect(w.broadcast_recipients[0].whatsapp_message_id).toBe('wamid.1');
     expect(w.broadcast_recipients[1].status).toBe('pending');
     await expect(resume(db, 'failed')).rejects.toMatchObject({
       code: 'nothing_to_resume',

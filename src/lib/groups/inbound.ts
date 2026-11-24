@@ -202,8 +202,9 @@ export async function persistGroupMessages(
 
 /**
  * Forward-only ladder for our group sends: pending → sent → delivered
- * → read; `failed` only from pending/sent. Inbound rows (status NULL)
- * never move.
+ * → read; `failed` only from pending/sent, corrected only by a delivery
+ * (the 1:1 rule, inbound-pipeline.ts). Inbound rows (status NULL) never
+ * move.
  */
 export const GROUP_STATUS_PREDECESSORS: Record<
   GroupMessageStatus,
@@ -211,8 +212,8 @@ export const GROUP_STATUS_PREDECESSORS: Record<
 > = {
   pending: [],
   sent: ['pending'],
-  delivered: ['pending', 'sent'],
-  read: ['pending', 'sent', 'delivered'],
+  delivered: ['pending', 'sent', 'failed'],
+  read: ['pending', 'sent', 'delivered', 'failed'],
   failed: ['pending', 'sent'],
 };
 

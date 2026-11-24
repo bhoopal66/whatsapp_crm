@@ -221,7 +221,9 @@ candidates. It is for admins (everything) and Recruitment leads
 - **Receipts (migration 212).** WhatsApp's sent, delivered, read and
   failed receipts for an automated message are recorded on it
   (`delivery_state`, `delivery_at`). They only move forward: a late
-  "delivered" never overwrites "read", and nothing overwrites "failed".
+  "delivered" never overwrites "read", and only "delivered" or "read"
+  overwrites "failed" (migration 291: WhatsApp retried and it arrived; the
+  message is sent again and its reason is removed).
   A "failed" receipt marks the message failed for good with WhatsApp's
   error code (`delivery_failed:<code>`). A receipt that arrives in the
   moment before the message is marked sent lands on the chat's own copy
