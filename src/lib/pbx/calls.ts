@@ -152,8 +152,8 @@ export function summarizeMonth(
   };
   for (const r of rows) {
     out.total += 1;
-    if (r.status === 'answered' || r.answered_at) out.answered += 1;
-    else if (isMissedCall(r)) out.missed += 1;
+    if (isMissedCall(r)) out.missed += 1;
+    else if (r.status === 'answered' || r.answered_at) out.answered += 1;
     out.talkSeconds += r.talk_seconds ?? 0;
   }
   return out;

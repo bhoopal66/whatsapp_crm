@@ -40,8 +40,8 @@
 // the Calls screen disables Call back for that customer. The dial route
 // still decides: it checks the number across the workspace, which this
 // list does not. mine (the default): calls they were a party to,
-// that rang their phone or that they answered (myCallsFilter); missed: inbound calls nobody
-// answered (as the month summary counts them); my_missed: both; all:
+// that rang their phone or that they answered (myCallsFilter); missed: inbound calls
+// that ended missed (isMissedCall, as the reports count them); my_missed: both; all:
 // every call RLS shows them (a leader's teams, an admin's workspace;
 // a call reviewer's too, migration 198, whose customers RLS hides are
 // named on the service role, the name only).
@@ -163,8 +163,7 @@ export async function GET(request: Request) {
       if (q.scope === 'missed' || q.scope === 'my_missed')
         query = query
           .eq('direction', 'inbound')
-          .in('status', [...MISSED_STATUSES])
-          .is('answered_at', null);
+          .in('status', [...MISSED_STATUSES]);
       if (q.scope === 'unrouted') query = query.eq('meta->>unrouted', 'true');
       if (from) query = query.gte('started_at', from);
       if (q.to) query = query.lt('started_at', q.to);

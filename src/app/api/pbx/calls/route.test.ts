@@ -304,7 +304,8 @@ describe('GET /api/pbx/calls', () => {
       call({ direction: 'outbound', status: 'no_answer', contact_id: C2 })
     );
     expect(await ids('scope=mine')).toEqual(['call-4', 'call-1']);
-    expect(await ids('scope=missed')).toEqual(['call-2']);
+    // call-3: a live frame said answered, its final status says missed (098).
+    expect(await ids('scope=missed')).toEqual(['call-2', 'call-3']);
     expect(await ids(`contactId=${C2}`)).toEqual(['call-4']);
     expect(await ids('to=2026-10-02T00:00:00Z')).toEqual(['call-1']);
     expect(await ids('from=2026-10-02T00:00:00Z&limit=1')).toHaveLength(1);

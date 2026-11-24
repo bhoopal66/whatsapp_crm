@@ -22,6 +22,9 @@ and polish.
 
 ### Fixed
 
+- **A call that was picked up, then sent on to someone who did not take
+  it, is on the Missed list.** Both call reports counted it as missed while
+  the list, the customer page and its month figures did not. No migration.
 - **After a transfer, the other person can name the customer too.** The
   contact picked on the incoming-call card (or just created) was refused
   for everyone but the call's one person; anyone who answered may now fill
