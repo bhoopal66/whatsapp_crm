@@ -21,6 +21,7 @@ import {
   toErrorResponse,
   assertSalesAccess,
 } from '@/lib/auth/account';
+import { chunkIds } from '@/lib/contacts/fuzzy-search';
 import { SgHttpError } from '@/lib/submission-groups/http';
 import {
   submissionGroupStore,
@@ -241,10 +242,14 @@ export async function GET(request: Request) {
   }
 }
 
+/** Ended groups listed at most; the Ended tab has them all. */
+const ENDED_UNREAD_MAX = 30;
+
 /**
  * The ENDED groups among the caller's unread counts, newest end first.
  * `sg_unread_by_group` already answers only for groups they may read;
- * sg_can_read decides again, as for every ENDED group.
+ * sg_can_read decides again, as for every ENDED group. Beside the list,
+ * like the counts: a failure is logged and the list stands without it.
  */
 async function loadEndedUnread(
   admin: ReturnType<typeof supabaseAdmin>,
@@ -255,18 +260,36 @@ async function loadEndedUnread(
   const have = new Set(listed.map((g) => g.id));
   const ids = [...unread.keys()].filter((id) => !have.has(id));
   if (!ids.length) return [];
-  const { data, error } = await admin
-    .from('submission_groups')
-    .select(GROUP_COLUMNS)
-    .eq('account_id', ctx.accountId)
-    .eq('status', 'ENDED')
-    .in('id', ids)
-    .order('ended_at', { ascending: false });
-  if (error) throw new Error(`submission_groups: ${error.message}`);
-  const store = submissionGroupStore(admin);
-  const groups = ((data ?? []) as unknown as Row[]).map(toGroup);
-  const allowed = await Promise.all(
-    groups.map((g) => store.canRead(g.id, ctx.userId))
-  );
-  return groups.filter((_, i) => allowed[i]);
+  try {
+    const pages = await Promise.all(
+      chunkIds(ids).map(async (chunk) => {
+        const { data, error } = await admin
+          .from('submission_groups')
+          .select(GROUP_COLUMNS)
+          .eq('account_id', ctx.accountId)
+          .eq('status', 'ENDED')
+          .in('id', chunk)
+          .order('ended_at', { ascending: false })
+          .limit(ENDED_UNREAD_MAX);
+        if (error) throw new Error(`submission_groups: ${error.message}`);
+        return (data ?? []) as unknown as Row[];
+      })
+    );
+    const groups = pages
+      .flat()
+      .sort((a, b) => String(b.ended_at).localeCompare(String(a.ended_at)))
+      .slice(0, ENDED_UNREAD_MAX)
+      .map(toGroup);
+    const store = submissionGroupStore(admin);
+    const allowed = await Promise.all(
+      groups.map((g) => store.canRead(g.id, ctx.userId))
+    );
+    return groups.filter((_, i) => allowed[i]);
+  } catch (err) {
+    console.error(
+      '[submission-groups] ended groups with unread messages not read:',
+      err instanceof Error ? err.message : err
+    );
+    return [];
+  }
 }

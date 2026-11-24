@@ -67,6 +67,8 @@ BEGIN
   RETURN jsonb_build_object('saved', true, 'count', v_count, 'mappings', v_mappings, 'sla', v_sla);
 END;
 $function$;
+REVOKE ALL ON FUNCTION public.case_bank_stages_set(uuid, uuid, text, text[], text[], boolean) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.case_bank_stages_set(uuid, uuid, text, text[], text[], boolean) TO service_role;
 
 CREATE OR REPLACE FUNCTION public.case_file_spec_set(
   p_actor uuid, p_bank_code text, p_product text, p_rows jsonb, p_expected jsonb
@@ -100,6 +102,8 @@ BEGIN
   RETURN public.case_file_spec_set(p_actor, p_bank_code, p_product, p_rows);
 END;
 $function$;
+REVOKE ALL ON FUNCTION public.case_file_spec_set(uuid, text, text, jsonb, jsonb) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.case_file_spec_set(uuid, text, text, jsonb, jsonb) TO service_role;
 
 -- Answers the approved row.
 CREATE OR REPLACE FUNCTION public.case_intake_template_approve(
@@ -128,12 +132,8 @@ BEGIN
     'updated_at', to_jsonb(t.updated_at));
 END;
 $function$;
-
-REVOKE ALL ON FUNCTION public.case_bank_stages_set(uuid, uuid, text, text[], text[], boolean) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.case_bank_stages_set(uuid, uuid, text, text[], text[], boolean) TO service_role;
-REVOKE ALL ON FUNCTION public.case_file_spec_set(uuid, text, text, jsonb, jsonb) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.case_file_spec_set(uuid, text, text, jsonb, jsonb) TO service_role;
 REVOKE ALL ON FUNCTION public.case_intake_template_approve(uuid, uuid, text, timestamptz) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.case_intake_template_approve(uuid, uuid, text, timestamptz) TO service_role;
 
 RESET lock_timeout;
+NOTIFY pgrst, 'reload schema';

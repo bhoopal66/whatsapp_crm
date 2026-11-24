@@ -806,6 +806,7 @@
       "noChats": "No chats found",
       "loadFailed": "Could not load your chats",
       "searchFailed": "The search failed. Change the text to try again.",
+      "searching": "Searching all your chats…",
       "unknownContact": "Unknown contact",
       "selectedCount": "{count} of {max} selected",
       "cancel": "Cancel",

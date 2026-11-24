@@ -23,6 +23,7 @@ vi.mock('@/lib/meetings/sfu', async (importOriginal) => ({
 }));
 vi.mock('@/lib/meetings/cut', () => ({ cutSeats: mocks.cutSeats }));
 
+import { SfuError } from '@/lib/meetings/sfu';
 import { PUT } from './route';
 
 const M = '22222222-2222-4222-8222-222222222222';
@@ -89,6 +90,15 @@ describe('PUT /api/meetings/[id]/sfu/renegotiate', () => {
     expect(mocks.cutSeats).toHaveBeenCalledWith([
       expect.objectContaining({ cf_session_id: 'sess-own' }),
     ]);
+  });
+
+  it('cuts it when the answer itself was lost', async () => {
+    mocks.reread = { data: null, error: null };
+    mocks.renegotiate.mockRejectedValue(
+      new SfuError('no answer', 504, 'timeout')
+    );
+    expect((await put()).status).toBeGreaterThanOrEqual(500);
+    expect(mocks.cutSeats).toHaveBeenCalledTimes(1);
   });
 
   it('does not read a failed re-read as closed', async () => {

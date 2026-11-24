@@ -80,6 +80,8 @@ export async function POST(request: Request, { params }: Params) {
     try {
       answer = await newTracks(own.cf_session_id, checked.value.request);
     } catch (err) {
+      // A call that timed out may have gone through.
+      await seatClosedMeanwhile(ctx.supabase, ctx, id, own);
       const res = sfuErrorResponse(err);
       if (res) return res;
       throw err;

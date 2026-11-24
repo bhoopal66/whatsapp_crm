@@ -54,6 +54,8 @@ export async function PUT(request: Request, { params }: Params) {
     try {
       answer = await renegotiate(own.cf_session_id, body.sessionDescription);
     } catch (err) {
+      // A call that timed out may have gone through.
+      await seatClosedMeanwhile(ctx.supabase, ctx, id, own);
       const res = sfuErrorResponse(err);
       if (res) return res;
       throw err;

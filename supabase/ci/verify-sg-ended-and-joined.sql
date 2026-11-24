@@ -154,6 +154,14 @@ BEGIN
   ASSERT EXISTS (SELECT 1 FROM notifications n WHERE n.user_id = u_sees AND n.read_at IS NULL
                     AND n.type = 'submission_group_message'), 'another person''s bell was cleared';
   ASSERT pg_temp.sej_as(u_admin, format('SELECT sg_mark_read(%L)', g)) <> '42501', 'an admin was refused';
+  -- A bell rung after the end by the function before 308 opens the group the
+  -- agent lost: replaced, not taken for the bell of the last 30 minutes.
+  UPDATE notifications SET meta = meta - 'ended', contact_id = NULL,
+         created_at = (SELECT x.ended_at + interval '1 second' FROM submission_groups x WHERE x.id = g)
+   WHERE account_id = a AND user_id = u_sees AND read_at IS NULL AND type = 'submission_group_message';
+  PERFORM sg_record_inbound(g, 'SEJ-IN-3B', '971500308011', 'customer', 'text', 'q', NULL, now());
+  r := pg_temp.sej_rung(g);
+  ASSERT position(format('sej-sees:%s /contacts/%s', c, c) IN r) > 0, 'an older bell silenced the agent: ' || r;
 
   -- 2. Nobody on the list may read it: the owner and admins too.
   g := (SELECT o.group_id FROM sg_open(a, 'SEJ-3', c, w, 's', NULL, acc - 3 - 2, NULL, 'group') o);

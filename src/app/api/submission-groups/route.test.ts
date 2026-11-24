@@ -325,6 +325,22 @@ describe('GET /api/submission-groups', () => {
     expect((await (await get()).json()).ended_unread).toEqual([]);
   });
 
+  it('stands when the ENDED groups cannot be read (308)', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    readable = new Set([E]);
+    rls.rpc = { sg_unread_by_group: () => [{ group_id: E, unread: 2 }] };
+    admin.rpc = {
+      sg_can_read: () => {
+        throw new Error('sg_can_read: timeout');
+      },
+    };
+    const res = await get();
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.groups.map((g: { id: string }) => g.id)).toEqual([A, A2]);
+    expect(body.ended_unread).toEqual([]);
+  });
+
   it("never lists another account's group, even if a client returned it", async () => {
     rls.tables.submission_groups.push(
       group({ id: X, account_id: 'acct-2', last_activity_at: '2026-10-11' })

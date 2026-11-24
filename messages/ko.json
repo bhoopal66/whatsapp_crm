@@ -806,6 +806,7 @@
       "noChats": "채팅이 없습니다",
       "loadFailed": "채팅 목록을 불러오지 못했습니다",
       "searchFailed": "검색하지 못했습니다. 검색어를 바꿔 다시 시도하세요.",
+      "searching": "모든 채팅을 검색하는 중…",
       "unknownContact": "알 수 없는 연락처",
       "selectedCount": "{count}/{max}개 선택됨",
       "cancel": "취소",

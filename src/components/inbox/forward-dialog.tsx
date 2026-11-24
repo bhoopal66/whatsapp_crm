@@ -58,6 +58,7 @@ export function ForwardDialog({
   // Never cached (`lib/client-cache.ts`): conversations stay fresh.
   const [targets, setTargets] = useState<ForwardTarget[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [search, setSearch] = useState('');
   const term = search.trim();
   // What the server found for a term: any chat, not only a recent one.
@@ -78,6 +79,7 @@ export function ForwardDialog({
     let cancelled = false;
     void (async () => {
       setLoading(true);
+      setLoadFailed(false);
       try {
         const list = await recentForwardTargets(createClient(), {
           accountId,
@@ -95,7 +97,7 @@ export function ForwardDialog({
           'Failed to load forward targets:',
           (err as { message?: string })?.message
         );
-        toast.error(t('loadFailed'));
+        setLoadFailed(true);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -139,7 +141,13 @@ export function ForwardDialog({
 
   const answered = found?.term === term ? found : null;
   const searching = !!term && !answered;
-  const searchFailed = !!term && answered?.list === null;
+  // What is missing from the list, if anything.
+  const failed =
+    !!term && answered?.list === null
+      ? t('searchFailed')
+      : loadFailed
+        ? t('loadFailed')
+        : null;
   const filtered = useMemo(
     () =>
       mergeForwardTargets(
@@ -269,6 +277,16 @@ export function ForwardDialog({
           />
         </div>
 
+        {filtered.length > 0 && (failed || searching) && (
+          <p
+            role={failed ? 'alert' : undefined}
+            className="text-muted-foreground flex items-center gap-1.5 text-xs"
+          >
+            {!failed && <Loader2 className="h-3 w-3 animate-spin" />}
+            {failed ?? t('searching')}
+          </p>
+        )}
+
         <div className="border-border max-h-72 min-h-24 overflow-y-auto rounded-md border">
           {loading || (searching && filtered.length === 0) ? (
             <div className="flex items-center justify-center py-8">
@@ -276,10 +294,10 @@ export function ForwardDialog({
             </div>
           ) : filtered.length === 0 ? (
             <p
-              role={searchFailed ? 'alert' : undefined}
+              role={failed ? 'alert' : undefined}
               className="text-muted-foreground py-8 text-center text-xs"
             >
-              {searchFailed ? t('searchFailed') : t('noChats')}
+              {failed ?? t('noChats')}
             </p>
           ) : (
             <ul className="divide-border divide-y">

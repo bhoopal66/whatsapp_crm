@@ -202,6 +202,7 @@ BEGIN
         WHERE n.user_id = w.user_id
           AND n.created_at > now() - interval '30 minutes'
           AND n.created_at >= g.ended_at  -- a bell of before the end answers nothing asked after it
+          AND (NOT w.lost OR n.meta ? 'ended')  -- nor does one that opens the group they lost
           AND n.account_id = NEW.account_id
           AND n.type = 'submission_group_message'
           AND n.meta ->> 'group_id' = NEW.group_id::text));
