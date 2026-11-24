@@ -133,6 +133,8 @@ export interface SgOlderPage extends Pick<
 
 export interface SgListPage {
   groups: SgListItem[];
+  /** 308: ENDED groups with a customer's new message; absent for none. */
+  ended_unread?: SgListItem[];
   next_cursor: string | null;
 }
 
@@ -142,18 +144,25 @@ const isObj = (v: unknown): v is Record<string, unknown> =>
 /** The list response, tolerant of a missing or malformed body. */
 export function parseSgList(json: unknown): SgListPage {
   if (!isObj(json)) return { groups: [], next_cursor: null };
-  const groups = Array.isArray(json.groups)
-    ? (
-        json.groups.filter(
-          (g) => isObj(g) && typeof g.id === 'string'
-        ) as SgListItem[]
-      ).map((g) => ({ ...g, wa_mode: waModeOf(g) }))
-    : [];
+  const items = (list: unknown) =>
+    Array.isArray(list)
+      ? (
+          list.filter(
+            (g) => isObj(g) && typeof g.id === 'string'
+          ) as SgListItem[]
+        ).map((g) => ({ ...g, wa_mode: waModeOf(g) }))
+      : [];
+  const groups = items(json.groups);
+  const endedUnread = items(json.ended_unread);
   const next =
     typeof json.next_cursor === 'string' && json.next_cursor
       ? json.next_cursor
       : null;
-  return { groups, next_cursor: next };
+  return {
+    groups,
+    ...(endedUnread.length ? { ended_unread: endedUnread } : {}),
+    next_cursor: next,
+  };
 }
 
 /** The list URL for one tab, search, bank filter and page. */

@@ -43,6 +43,13 @@ and polish.
   closed. A customer who left under a hidden number is checked again instead
   of staying "joined".
 
+- **A customer's message after a submission group ended reaches somebody
+  who can read it.** The bell goes to those who may open the ended group,
+  and to the owner and admins when nobody on it may; an agent who lost the
+  group is sent to the customer's page instead, if they may see the
+  customer. Ended groups with new messages are listed above the active
+  ones, and opening the archive clears their count and bell. Part of
+  migration 308.
 - **The privacy register no longer calls Draft with AI a reply.** The
   draft and the playground record their own purpose (`draft`,
   `playground`) in the AI transfer register instead of `reply`.

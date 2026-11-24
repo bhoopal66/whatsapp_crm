@@ -30,8 +30,13 @@ submission app. `docs/submission-groups.md` is the contract.
 - **After the end (267).** A later status is stored on the ENDED group
   and on the case timeline (`case_detail_log`), never moving a closed
   case. Until WhatsApp is closed, a customer's message rings those on the
-  list at the end (else the case's agent, else the admins) and is unread
-  while that bell is. `verify-sg-fixes.sql`.
+  list at the end (else the case's agent) and is unread while that bell is.
+  Since 308: whoever may read the group (`sg_can_read`) is rung with it; an
+  agent who lost it is rung with the customer's page (`contact_id`,
+  `meta.ended`, followed by `hrefFor` and `push_bell_url`) only if
+  `sg_user_sees_contact` (restates `contacts_select`: change both); the owner
+  and admins when nobody on the list may read it. `verify-sg-fixes.sql`,
+  `verify-sg-ended-and-joined.sql`.
 - **Inbound** group messages arrive through `processWhapiGroups` and are
   stored idempotently on `(group_id, wa_message_id)`; they never reach
   `messages`, flows, automations or the AI.
@@ -76,7 +81,8 @@ submission app. `docs/submission-groups.md` is the contract.
 - **Unread, bell, team leader (173).** `submission_group_reads` is a
   per-person marker written only by `sg_mark_read`, which also reads that
   person's `submission_group_message` bells for the group and refuses an
-  ENDED group. `sg_unread_by_group` / `sg_unread_count` count inbound
+  ENDED group the caller may not read (308: opening the archive clears it;
+  the list answers those groups as `ended_unread`). `sg_unread_by_group` / `sg_unread_count` count inbound
   messages (146's 7-day rule). A trigger rings a customer's message to
   the agent and coordinators, bank holders included, once per person per
   group while unread; the customer's text never goes in the bell. On an

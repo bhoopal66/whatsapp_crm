@@ -494,6 +494,8 @@ export function SubmissionGroupPage({
       const json = (await res.json()) as { messages?: SgMessage[] };
       stickRef.current = true;
       setArchive(json.messages ?? []);
+      // The messages after the end are read here and nowhere else (308).
+      void markSubmissionGroupRead(groupId);
     } catch {
       toast.error(t('archiveFailed'));
     } finally {

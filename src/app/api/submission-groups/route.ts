@@ -26,7 +26,11 @@ import {
   submissionGroupStore,
   supabaseAdmin,
 } from '@/lib/submission-groups/server';
-import { GROUP_COLUMNS, toGroup } from '@/lib/submission-groups/store';
+import {
+  GROUP_COLUMNS,
+  toGroup,
+  type SubmissionGroup,
+} from '@/lib/submission-groups/store';
 import {
   loadBankHolding,
   loadBanks,
@@ -171,14 +175,20 @@ export async function GET(request: Request) {
       mine = (res.data ?? []) as AccessRow[];
     }
 
-    // An ENDED group has no unread count; 173 counts ACTIVE groups only.
-    const [refs, unread, banks] = await Promise.all([
-      loadRefs(admin, ctx.accountId, groups),
-      ended ? new Map<string, number>() : loadUnread(ctx.supabase),
+    const unread = await loadUnread(ctx.supabase);
+    // The sidebar counts a customer's message in an ENDED group (267), so the
+    // first page of the plain Active list carries those groups too (308).
+    const endedUnread =
+      ended || query.cursor || query.search || query.bank
+        ? []
+        : await loadEndedUnread(admin, ctx, groups, unread);
+    const listed = [...groups, ...endedUnread];
+    const [refs, banks] = await Promise.all([
+      loadRefs(admin, ctx.accountId, listed),
       loadBanks(
         admin,
         ctx.accountId,
-        groups.map((g) => g.id)
+        listed.map((g) => g.id)
       ),
     ]);
     // With no open row on an ACTIVE group, a leader of the case's agent
@@ -214,6 +224,14 @@ export async function GET(request: Request) {
           unread: unread.get(g.id),
         })
       ),
+      ended_unread: endedUnread.map((g) =>
+        toListItem(g, {
+          ...refs,
+          banks,
+          myLabel: null,
+          unread: unread.get(g.id),
+        })
+      ),
       next_cursor: next,
     });
   } catch (err) {
@@ -221,4 +239,34 @@ export async function GET(request: Request) {
       return NextResponse.json(err.body, { status: err.status });
     return toErrorResponse(err);
   }
+}
+
+/**
+ * The ENDED groups among the caller's unread counts, newest end first.
+ * `sg_unread_by_group` already answers only for groups they may read;
+ * sg_can_read decides again, as for every ENDED group.
+ */
+async function loadEndedUnread(
+  admin: ReturnType<typeof supabaseAdmin>,
+  ctx: { accountId: string; userId: string },
+  listed: readonly { id: string }[],
+  unread: ReadonlyMap<string, number>
+): Promise<SubmissionGroup[]> {
+  const have = new Set(listed.map((g) => g.id));
+  const ids = [...unread.keys()].filter((id) => !have.has(id));
+  if (!ids.length) return [];
+  const { data, error } = await admin
+    .from('submission_groups')
+    .select(GROUP_COLUMNS)
+    .eq('account_id', ctx.accountId)
+    .eq('status', 'ENDED')
+    .in('id', ids)
+    .order('ended_at', { ascending: false });
+  if (error) throw new Error(`submission_groups: ${error.message}`);
+  const store = submissionGroupStore(admin);
+  const groups = ((data ?? []) as unknown as Row[]).map(toGroup);
+  const allowed = await Promise.all(
+    groups.map((g) => store.canRead(g.id, ctx.userId))
+  );
+  return groups.filter((_, i) => allowed[i]);
 }

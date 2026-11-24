@@ -309,6 +309,23 @@ describe('notificationTarget', () => {
     ).toBeNull();
   });
 
+  it('a bell of an ended group the reader lost opens the customer (308)', () => {
+    const meta = { group_id: ROOM, ended: true };
+    expect(
+      notificationTarget(
+        { type: 'submission_group_message', contact_id: CH, meta },
+        'agent'
+      )
+    ).toBe(`/contacts/${CH}`);
+    // The contact was deleted since: nothing, never the group.
+    expect(
+      notificationTarget(
+        { type: 'submission_group_message', contact_id: null, meta },
+        'agent'
+      )
+    ).toBeNull();
+  });
+
   it('a bank guest is only sent to team chat', () => {
     expect(
       notificationTarget(

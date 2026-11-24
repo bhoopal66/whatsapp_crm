@@ -83,6 +83,17 @@ describe('parseSgList', () => {
     });
   });
 
+  it('reads the ended groups with new messages (308)', () => {
+    const ended = item({ id: 'g9', status: 'ENDED', unread: 2 });
+    expect(
+      parseSgList({ groups: [], ended_unread: [ended, 'x'], next_cursor: null })
+    ).toEqual({
+      groups: [],
+      ended_unread: [{ ...ended, wa_mode: 'group' }],
+      next_cursor: null,
+    });
+  });
+
   it('survives a malformed body', () => {
     expect(parseSgList(null)).toEqual({ groups: [], next_cursor: null });
     expect(parseSgList({ groups: 'x', next_cursor: '' })).toEqual({

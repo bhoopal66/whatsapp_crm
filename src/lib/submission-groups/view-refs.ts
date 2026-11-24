@@ -104,7 +104,8 @@ export async function loadBanks(
 }
 
 /**
- * The caller's unread count per ACTIVE group (migration 173). Unlike the
+ * The caller's unread count per group: ACTIVE (migration 173), and ENDED
+ * with a customer's message they may read (267, 308). Unlike the
  * lookups here it takes the caller's RLS client: `sg_unread_by_group`
  * answers for `auth.uid()`, which the service role does not have. A count
  * is a decoration on the row, so any failure (the migration not applied

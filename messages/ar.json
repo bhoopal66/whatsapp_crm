@@ -9178,6 +9178,7 @@
       "search": "ابحث بالشركة أو جهة الاتصال أو المرجع",
       "count": "{count, plural, one {# طلب} other {# طلبات}}",
       "countMore": "{count, plural, one {+# طلب} other {+# طلبات}}",
+      "endedUnread": "منتهية، رسائل جديدة",
       "myGroups": "مجموعاتي",
       "myGroupsHint": "عرض الطلبات التي أنت ضمنها فقط",
       "contactLine": "جهة الاتصال: {name}",

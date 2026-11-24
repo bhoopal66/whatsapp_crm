@@ -9178,6 +9178,7 @@
       "search": "회사, 연락처 또는 참조 번호로 검색",
       "count": "{count, plural, other {제출 #건}}",
       "countMore": "{count, plural, other {제출 #건 이상}}",
+      "endedUnread": "종료됨, 새 메시지",
       "myGroups": "내 그룹",
       "myGroupsHint": "내가 참여한 제출만 표시",
       "contactLine": "연락처: {name}",

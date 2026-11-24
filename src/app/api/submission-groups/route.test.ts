@@ -295,15 +295,34 @@ describe('GET /api/submission-groups', () => {
     ]);
   });
 
-  it('reads no unread counts for ENDED groups', async () => {
+  it('counts the unread messages of ENDED groups (308)', async () => {
     as('admin');
     readable.add(E);
-    const unread = vi.fn(() => [{ group_id: E, unread: 3 }]);
-    rls.rpc = { sg_unread_by_group: unread };
+    rls.rpc = { sg_unread_by_group: () => [{ group_id: E, unread: 3 }] };
     const body = await (await get('?status=ended')).json();
     expect(body.groups.map((g: { id: string }) => g.id)).toEqual([E]);
-    expect(body.groups[0].unread).toBe(0);
-    expect(unread).not.toHaveBeenCalled();
+    expect(body.groups[0].unread).toBe(3);
+    expect(body.ended_unread).toEqual([]);
+  });
+
+  it('puts ENDED groups with unread messages beside the Active list (308)', async () => {
+    readable = new Set([E, X]);
+    rls.rpc = {
+      sg_unread_by_group: () => [
+        { group_id: A, unread: 1 },
+        { group_id: E, unread: 2 },
+        { group_id: X, unread: 4 },
+      ],
+    };
+    const body = await (await get()).json();
+    expect(body.groups.map((g: { id: string }) => g.id)).toEqual([A, A2]);
+    expect(body.ended_unread).toMatchObject([
+      { id: E, status: 'ENDED', archive: true, unread: 2, my_label: null },
+    ]);
+    const searched = await (await get('?q=Jane')).json();
+    expect(searched.ended_unread).toEqual([]);
+    readable = new Set();
+    expect((await (await get()).json()).ended_unread).toEqual([]);
   });
 
   it("never lists another account's group, even if a client returned it", async () => {

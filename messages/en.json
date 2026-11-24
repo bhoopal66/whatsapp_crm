@@ -9178,6 +9178,7 @@
       "search": "Search company, contact or reference",
       "count": "{count, plural, one {# submission} other {# submissions}}",
       "countMore": "{count, plural, one {#+ submission} other {#+ submissions}}",
+      "endedUnread": "Ended, new messages",
       "myGroups": "My groups",
       "myGroupsHint": "Show only the submissions you are on",
       "contactLine": "Contact: {name}",
