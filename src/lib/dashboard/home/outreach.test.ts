@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
 import type { MyOutreachDay } from '@/lib/team-activity/thread-guard';
-import { outreachBars, outreachTone, type OutreachNumber } from './outreach';
+import {
+  isOutreachNumber,
+  outreachBars,
+  outreachTone,
+  type OutreachNumber,
+} from './outreach';
 
 function day(over: Partial<MyOutreachDay> = {}): MyOutreachDay {
   return {
@@ -22,18 +27,21 @@ const whapi: OutreachNumber = {
   provider: 'whapi',
   label: 'Sales',
   waba_id: '+971500000001',
+  is_personal: false,
 };
 const openwa: OutreachNumber = {
   id: 'n2',
   provider: 'openwa',
   label: null,
   waba_id: '+971500000002',
+  is_personal: false,
 };
 const meta: OutreachNumber = {
   id: 'n3',
   provider: 'meta',
   label: 'Cloud',
   waba_id: 'waba',
+  is_personal: false,
 };
 
 describe('outreachTone', () => {
@@ -52,6 +60,16 @@ describe('outreachTone', () => {
 });
 
 describe('outreachBars', () => {
+  it('leaves personal numbers out, whoever owns them', () => {
+    const personal = { ...whapi, id: 'p1', is_personal: true };
+    expect(
+      outreachBars(day(), [personal, openwa]).numbers.map((b) => b.key)
+    ).toEqual(['n2']);
+    // With only a personal number there is nothing to show the card for.
+    expect([personal, meta].some(isOutreachNumber)).toBe(false);
+    expect([personal, whapi].some(isOutreachNumber)).toBe(true);
+  });
+
   it("clamps the person's percent to 0..100", () => {
     expect(outreachBars(day({ started: 30 }), []).me).toMatchObject({
       started: 30,

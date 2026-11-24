@@ -22,6 +22,9 @@ and polish.
 
 ### Fixed
 
+- **The home "New chats today" card no longer lists personal WhatsApp
+  numbers**, and is not shown when only personal numbers are connected. No
+  migration.
 - **A message that failed to send no longer counts on the home screen.** It
   counted as the answer in "First response time" (the card and the owner's
   CSV) and was drawn as an outgoing message. Both figures can change for past

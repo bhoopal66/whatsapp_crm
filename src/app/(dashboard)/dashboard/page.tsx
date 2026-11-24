@@ -33,12 +33,12 @@ import {
   fetchOpenCases,
   HOME_LIST_LIMIT,
 } from '@/lib/dashboard/home/sources';
+import { isOutreachNumber } from '@/lib/dashboard/home/outreach';
 import { homeWidgets } from '@/lib/dashboard/home/widgets';
 import { missedCallCount } from '@/lib/dashboard/missed-calls';
 import { loadCallsBadge } from '@/lib/pbx/calls-badge';
 import { createClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
-import { isLinkedDeviceNumber } from '@/lib/whatsapp/channel-management';
 
 /** A visible tab refreshes itself this often. */
 const AUTO_REFRESH_MS = 5 * 60_000;
@@ -102,9 +102,7 @@ export default function DashboardPage() {
   );
   const widgets = homeWidgets(role, {
     pbx: callsBadge.data?.hasPbx ?? false,
-    phoneNumbers: (numbers.data ?? []).some((n) =>
-      isLinkedDeviceNumber(n.provider)
-    ),
+    phoneNumbers: (numbers.data ?? []).some(isOutreachNumber),
     salesRestricted,
   });
   const show = widgets.has.bind(widgets);
