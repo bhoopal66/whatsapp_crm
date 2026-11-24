@@ -61,6 +61,10 @@ package 035a-c. `docs/case-desk.md` is the contract.
   `desk_tray_resolve`. Escalation: `runDeskTrayEscalation` (automations
   cron, 5 min) through `createSystemTask`, `source_ref desk_tray:<id>`.
   `TRAY_REASONS` is pinned to the CHECK by `tray.test.ts`.
+  303: filing from the tray needs `case_can_write`, as `intake_file` does;
+  a document that could not be copied leaves a `COPY_FAILED` row
+  (`desk_tray_copy_failed`, through 230's own routing rule) instead of only
+  a log line; the list is read through `desk_tray_page` (items + total).
   `verify-desk-whatsapp-routing.sql`.
 - **Shared documents and reuse consent (231, design 035 D5/D11/D13).**
   `case_document_files_same_customer` (BEFORE INSERT, every writer):

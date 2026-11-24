@@ -174,6 +174,10 @@ alone**:
   form's caption field (`4271RAKD ejari`, `NEW RAK Kite General Trading
   12345`); what the caption does not settle waits in the sorting queue.
   It shows under *My uploads* as arriving by WhatsApp.
+- A document that could not be copied (a file type the desk does not take,
+  too large, a passing storage error) still appears in the tray, marked
+  "could not be copied", with where the original is. Only somebody who may
+  write to a case can file into it from the tray. (Migration 303.)
 - **The tray** (Case desk → Tray) shows the sender, the companies they
   act for, why the document is there, the document, and the candidate
   cases with their reasons (*quoted*, *case code*, *asked for a
