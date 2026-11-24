@@ -94,9 +94,16 @@ joined, `pickTeamAnswer`); a topic needs `MIN_ANSWERS_PER_TOPIC` (2). Drafts are
 `kb_learn_record_draft` (service role), always status `draft`, source
 `learned`, ref `LRN-…`; it refuses while the switch is off and when the
 topic has a live draft (`kb_learned_drafts`: same gaps ≥ half, or same
-label; a deleted or `remove` draft frees the topic). Evidence is
-redacted with `brainRedact` plus known names before `generateReply`
+`topic_key`, a SHA-256 of the label; a deleted or `remove` draft frees the topic). A discarded
+one (`kb_learn_record_discard`) holds it for 28 days. The label is a
+customer's message: never sent or stored. Chats pass `notSalesChat`
+(`lib/ai/not-sales-chat.ts`, shared with auto-reply; `readOnly` here) for
+the chat and every message's number; every read throws. Evidence is
+masked with `maskIdentifiers` (`brainRedact`, case numbers, 5+ digit runs)
+and `buildNameMatcher` over the account's whole list (`knownNames`, once
+per run; `kb_learn_case_names` for tables the service role may not read) before `generateReply`
 (purpose `kb_learn`, so `assertAiTransfer` runs), fail closed; the
-answer is dropped if it carries an identifier or mask. Usage mode
+model's question and both answers are screened with the same
+(`screenText`). Usage mode
 `kb_learn`: 290 restates 202's CHECK list, so apply in order, once.
 The bot's reply path and `kb_shortlist` are unchanged.

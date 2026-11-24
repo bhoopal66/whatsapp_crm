@@ -4,10 +4,12 @@
  * For each workspace with the switch on whose last run is a week old
  * (kb_learn_claim_run stamps it first, so two crons never both run), up
  * to MAX_TOPICS_PER_RUN open gap topics without a live learned draft:
- * collect up to five team answers and the customer questions, redact
- * them (fail closed: a text that cannot be screened skips the topic),
- * ask the workspace's own AI key (model_small if set) for one general
- * answer, and store it through kb_learn_record_draft, which writes a
+ * collect up to five team answers and the customer questions from sales
+ * chats only, mask them with the account's whole name list (read once per
+ * run; fail closed: a list or chat that cannot be read, or a text that
+ * cannot be screened, sends nothing), ask the workspace's own AI key
+ * (model_small if set) for one general question and answer, screen both
+ * with the same list, and store them through kb_learn_record_draft, which writes a
  * kb_entries DRAFT only. The bot's reply path and approved-answer
  * selection are untouched: a draft is never shortlisted.
  *
@@ -18,12 +20,15 @@
  * Server-only, service role. Never throws; starts no new account or topic
  * after its time budget.
  */
+import { createHash } from 'node:crypto';
+
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { supabaseAdmin } from '@/lib/ai/admin-client';
 import { loadAiConfig } from '@/lib/ai/config';
 import { generateReply } from '@/lib/ai/generate';
 import type { AiConfig } from '@/lib/ai/types';
+import { notSalesChat } from '@/lib/ai/not-sales-chat';
 import { logAiUsage, type LogAiUsageArgs } from '@/lib/ai/usage';
 
 import {
@@ -33,16 +38,17 @@ import {
   MIN_ANSWERS_PER_TOPIC,
   MAX_TOPICS_PER_RUN,
   buildLearnPrompt,
-  cleanTopicLabel,
   isLearnableChat,
   learnedRef,
   learnedReviewerNotes,
   parseLearnedAnswer,
   pickTeamAnswer,
   redactEvidence,
+  redactEvidenceText,
   wantsArabic,
   type ThreadMessage,
 } from './learn';
+import { buildNameMatcher, type NameMatcher } from './known-names';
 
 /** The cron pass starts no new account after this long. */
 export const PASS_BUDGET_MS = 45_000;
@@ -83,7 +89,8 @@ export type RecordDraftResult =
 export interface RecordDraftArgs {
   accountId: string;
   topicId: string;
-  topicLabel: string;
+  /** A hash of the topic's label; the label itself is never stored. */
+  topicKey: string;
   gapIds: string[];
   ref: string;
   question: string;
@@ -104,8 +111,19 @@ export interface KbLearnStore {
   topicDrafted(
     accountId: string,
     gapIds: string[],
-    label: string
+    topicKey: string
   ): Promise<boolean>;
+  /** Every person and company name known to the account. Throws when any
+   *  part of it cannot be read. */
+  knownNames(accountId: string): Promise<string[]>;
+  /** Notes that the model's text was thrown away, so the topic is not
+   *  asked again at once. */
+  recordDiscard(
+    args: Pick<
+      RecordDraftArgs,
+      'accountId' | 'topicId' | 'topicKey' | 'gapIds' | 'evidenceCount'
+    >
+  ): Promise<void>;
   gaps(accountId: string, ids: string[]): Promise<LearnGap[]>;
   thread(
     accountId: string,
@@ -132,19 +150,33 @@ export interface TopicOutcome {
     | 'already'
     | 'no_answers'
     | 'redaction'
-    | 'label'
     | 'model'
     | 'unusable'
+    /** The model's text carried a name, an identifier or a mask. */
+    | 'discarded'
     | 'refused'
     /** The switch went off while the run worked: stop the account. */
     | 'disabled';
 }
 
 /** Outcomes after which the model had been asked. */
-const ASKED = new Set(['model', 'unusable', 'refused']);
+const ASKED = new Set(['model', 'unusable', 'discarded', 'refused']);
 
 const message = (err: unknown) =>
   err instanceof Error ? err.message : String(err);
+
+/**
+ * The ledger's key for a topic whose gaps changed on a recompute: a hash,
+ * because the label is a customer's own message. Per account, so equal
+ * labels in two workspaces do not match.
+ */
+export function topicKey(accountId: string, label: string): string {
+  const norm = String(label ?? '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+  return createHash('sha256').update(`${accountId}\n${norm}`).digest('hex');
+}
 
 /**
  * One topic. Exported for the tests: the redaction gate, the evidence
@@ -154,27 +186,29 @@ export async function learnTopic(
   deps: KbLearnDeps,
   accountId: string,
   config: AiConfig,
-  topic: LearnTopic
+  topic: LearnTopic,
+  accountNames: readonly string[],
+  accountMatcher: NameMatcher = buildNameMatcher(accountNames)
 ): Promise<TopicOutcome> {
   const { store } = deps;
   // An approved answer already covers it (152's judgment): nothing to learn.
   if (topic.coverage === 'full' || topic.coverage === 'partial')
     return { drafted: false, reason: 'covered' };
-  // The label as stored (redacted): the ledger compares this one.
-  const label = cleanTopicLabel(topic.label);
-  if (!label) return { drafted: false, reason: 'label' };
+  const key = topicKey(accountId, topic.label);
   const gapIds = await store.topicGapIds(accountId, topic.id);
   if (gapIds.length === 0) return { drafted: false, reason: 'no_answers' };
-  if (await store.topicDrafted(accountId, gapIds, label))
+  if (await store.topicDrafted(accountId, gapIds, key))
     return { drafted: false, reason: 'already' };
 
   const gaps = (await store.gaps(accountId, gapIds.slice(0, MAX_GAPS_READ)))
     .slice()
     .sort((a, b) => b.created_at.localeCompare(a.created_at));
-  const answers: { text: string; names: string[]; at: string }[] = [];
-  // Only questions from chats that may be learned from (not personal, not
-  // opted out), each with its own customer's name masked.
-  const questions: { text: string; names: string[] }[] = [];
+  const answers: { text: string; at: string }[] = [];
+  // Only questions from chats that may be learned from (a sales chat, not
+  // personal, not opted out). The topic's label is not one of them: it may
+  // come from any chat.
+  const questions: string[] = [];
+  const chatNames = new Set<string>();
   const seenChats = new Set<string>();
   for (const gap of gaps) {
     if (answers.length >= MAX_ANSWERS_PER_TOPIC) break;
@@ -191,31 +225,39 @@ export async function learnTopic(
     if (!thread) continue;
     const reply = pickTeamAnswer(gap.created_at, thread.messages);
     if (!reply?.content_text) continue;
-    const names = [
-      thread.contactName ?? '',
-      reply.sender_id ? (thread.senderNames[reply.sender_id] ?? '') : '',
-    ].filter(Boolean);
-    questions.push({ text: gap.question, names });
-    answers.push({ text: reply.content_text, names, at: reply.created_at });
+    // A sender whose name is unknown cannot be masked out of a reply.
+    const senderName = reply.sender_id
+      ? thread.senderNames[reply.sender_id]?.trim()
+      : '';
+    if (!senderName) continue;
+    for (const n of [thread.contactName, ...Object.values(thread.senderNames)])
+      if (n) chatNames.add(n);
+    questions.push(gap.question);
+    answers.push({ text: reply.content_text, at: reply.created_at });
   }
   if (answers.length < MIN_ANSWERS_PER_TOPIC)
     return { drafted: false, reason: 'no_answers' };
 
-  // Every name known in the topic's chats is masked in every text: a
-  // customer may name someone from another chat. Fail closed: nothing
-  // goes out unless every text was screened.
-  const names = [...new Set(answers.flatMap((a) => a.names))];
-  const redacted = redactEvidence({
-    questions: questions.map((q) => ({ text: q.text, names })),
-    answers: answers.map((a) => ({ text: a.text, names })),
-  });
+  // The account's whole list masks every text, then the chats' own names
+  // (a contact saved since the list was read). Fail closed: nothing goes
+  // out unless every text was screened.
+  const chatMatcher = buildNameMatcher(chatNames);
+  const matcher: NameMatcher = {
+    mask: (t) => chatMatcher.mask(accountMatcher.mask(t)),
+  };
+  const redacted = redactEvidence(
+    { questions, answers: answers.map((a) => a.text) },
+    (t) => redactEvidenceText(t, matcher)
+  );
   if (!redacted.ok) return { drafted: false, reason: 'redaction' };
   const { evidence } = redacted;
-  if (evidence.answers.length < MIN_ANSWERS_PER_TOPIC)
+  if (
+    evidence.answers.length < MIN_ANSWERS_PER_TOPIC ||
+    evidence.questions.length === 0
+  )
     return { drafted: false, reason: 'no_answers' };
   const arabic = wantsArabic(evidence.answers);
   const prompt = buildLearnPrompt({
-    topic: label,
     questions: evidence.questions,
     answers: evidence.answers,
     arabic,
@@ -246,18 +288,28 @@ export async function learnTopic(
     );
     return { drafted: false, reason: 'model' };
   }
-  const answer = parseLearnedAnswer(text, arabic);
-  if (!answer) return { drafted: false, reason: 'unusable' };
+  const answer = parseLearnedAnswer(text, arabic, matcher);
+  if (answer === 'unusable') return { drafted: false, reason: 'unusable' };
+  if (answer === 'discarded') {
+    await store.recordDiscard({
+      accountId,
+      topicId: topic.id,
+      topicKey: key,
+      gapIds,
+      evidenceCount: evidence.answers.length,
+    });
+    return { drafted: false, reason: 'discarded' };
+  }
 
   const notes = learnedReviewerNotes(answers.map((a) => a.at));
   for (let attempt = 0; attempt < 2; attempt++) {
     const res = await store.recordDraft({
       accountId,
       topicId: topic.id,
-      topicLabel: label,
+      topicKey: key,
       gapIds,
       ref: learnedRef(deps.random),
-      question: label,
+      question: answer.question,
       answerEn: answer.answerEn,
       answerAr: answer.answerAr,
       notes,
@@ -284,11 +336,22 @@ export async function learnAccount(
     const config = await deps.loadConfig(accountId);
     if (!config?.apiKey) return { drafted, tried };
     const topics = await deps.store.openTopics(accountId);
+    if (topics.length === 0) return { drafted, tried };
+    // Once per run; a list that cannot be read in full stops the run.
+    const names = await deps.store.knownNames(accountId);
+    const matcher = buildNameMatcher(names);
     for (const topic of topics) {
       if (tried >= MAX_TOPICS_PER_RUN) break;
       if (deadlineAt - now() < TOPIC_MIN_BUDGET_MS) break;
       try {
-        const out = await learnTopic(deps, accountId, config, topic);
+        const out = await learnTopic(
+          deps,
+          accountId,
+          config,
+          topic,
+          names,
+          matcher
+        );
         if (out.reason === 'disabled') break;
         // A topic the model was asked about counts toward the cap.
         if (out.drafted || ASKED.has(out.reason ?? '')) tried++;
@@ -346,6 +409,18 @@ export async function runKbLearning(
 // The Supabase store (service role).
 // ------------------------------------------------------------------
 
+/**
+ * Where an account's names are: customers and their companies, every
+ * member (staff, coordinators, bank coordinators; a deactivated one too),
+ * the companies of cases, and the bank people cases were discussed with.
+ */
+const NAME_SOURCES = [
+  ['contacts', ['name', 'company']],
+  ['profiles', ['full_name']],
+  ['submission_groups', ['customer_name']],
+] as const;
+const NAMES_PAGE = 1000;
+
 export function supabaseKbLearnStore(db: SupabaseClient): KbLearnStore {
   return {
     async dueAccounts(since) {
@@ -395,11 +470,11 @@ export function supabaseKbLearnStore(db: SupabaseClient): KbLearnStore {
       if (error) throw new Error(`members: ${error.message}`);
       return ((data ?? []) as { gap_id: string }[]).map((r) => r.gap_id);
     },
-    async topicDrafted(accountId, gapIds, label) {
+    async topicDrafted(accountId, gapIds, topicKey) {
       const { data, error } = await db.rpc('kb_learn_topic_drafted', {
         p_account: accountId,
         p_gap_ids: gapIds,
-        p_label: label,
+        p_topic_key: topicKey,
       });
       if (error) throw new Error(`drafted: ${error.message}`);
       return data === true;
@@ -417,7 +492,7 @@ export function supabaseKbLearnStore(db: SupabaseClient): KbLearnStore {
     async thread(accountId, conversationId, from, until) {
       const { data: conv, error: convError } = await db
         .from('conversations')
-        .select('id, contact_id, personal_owner_id')
+        .select('id, contact_id, personal_owner_id, inbox_department')
         .eq('id', conversationId)
         .eq('account_id', accountId)
         .maybeSingle();
@@ -426,8 +501,19 @@ export function supabaseKbLearnStore(db: SupabaseClient): KbLearnStore {
       const c = conv as {
         contact_id: string | null;
         personal_owner_id: string | null;
+        inbox_department: string | null;
       };
       if (!c.contact_id) return null;
+      // HR, IT and accounts chats (the auto-reply's own rule). A read
+      // error throws: the topic is skipped, not let through.
+      if (
+        await notSalesChat(db, {
+          conversationId,
+          inboxDepartment: c.inbox_department ?? null,
+          inboundChannelId: null,
+        })
+      )
+        return null;
       const { data: contact, error: contactError } = await db
         .from('contacts')
         .select('name, opted_out_at, do_not_contact_at')
@@ -454,7 +540,7 @@ export function supabaseKbLearnStore(db: SupabaseClient): KbLearnStore {
       const { data: rows, error } = await db
         .from('messages')
         .select(
-          'sender_type, sender_id, content_type, content_text, template_name, created_at'
+          'sender_type, sender_id, content_type, content_text, template_name, created_at, channel_id'
         )
         .eq('conversation_id', conversationId)
         .gt('created_at', from)
@@ -463,6 +549,31 @@ export function supabaseKbLearnStore(db: SupabaseClient): KbLearnStore {
         .limit(50);
       if (error) throw new Error(`messages: ${error.message}`);
       const messages = (rows ?? []) as ThreadMessage[];
+      // The question itself came in at or just before the gap was noted.
+      const { data: asked, error: askedError } = await db
+        .from('messages')
+        .select('channel_id')
+        .eq('conversation_id', conversationId)
+        .eq('sender_type', 'customer')
+        .lte('created_at', from)
+        .order('created_at', { ascending: false })
+        .limit(5);
+      if (askedError) throw new Error(`question: ${askedError.message}`);
+      const channels = new Set(
+        [...messages, ...((asked ?? []) as { channel_id: string | null }[])]
+          .map((m) => m.channel_id)
+          .filter((id): id is string => typeof id === 'string')
+      );
+      for (const channel of channels)
+        if (
+          await notSalesChat(db, {
+            conversationId,
+            inboxDepartment: null,
+            inboundChannelId: channel,
+            readOnly: true,
+          })
+        )
+          return null;
       const senders = [
         ...new Set(
           messages
@@ -472,11 +583,12 @@ export function supabaseKbLearnStore(db: SupabaseClient): KbLearnStore {
       ];
       const senderNames: Record<string, string> = {};
       if (senders.length > 0) {
-        const { data: people } = await db
+        const { data: people, error: peopleError } = await db
           .from('profiles')
           .select('user_id, full_name')
           .eq('account_id', accountId)
           .in('user_id', senders);
+        if (peopleError) throw new Error(`senders: ${peopleError.message}`);
         for (const p of (people ?? []) as {
           user_id: string;
           full_name: string | null;
@@ -485,11 +597,62 @@ export function supabaseKbLearnStore(db: SupabaseClient): KbLearnStore {
       }
       return { messages, contactName: k.name ?? null, senderNames };
     },
+    async knownNames(accountId) {
+      const names = new Set<string>();
+      for (const [table, columns] of NAME_SOURCES) {
+        // By id, until an empty page: PostgREST cuts an unpaged read at
+        // its row cap without saying so.
+        let after: string | null = null;
+        for (;;) {
+          let query = db
+            .from(table)
+            .select(['id', ...columns].join(', '))
+            .eq('account_id', accountId);
+          if (after) query = query.gt('id', after);
+          const { data, error } = await query
+            .order('id', { ascending: true })
+            .limit(NAMES_PAGE);
+          if (error) throw new Error(`names (${table}): ${error.message}`);
+          if (!Array.isArray(data))
+            throw new Error(`names (${table}): no rows`);
+          const rows = data as unknown as Record<string, string | null>[];
+          if (rows.length === 0) break;
+          for (const row of rows)
+            for (const col of columns) if (row[col]) names.add(row[col]);
+          after = rows[rows.length - 1]!.id;
+        }
+      }
+      let last: string | null = null;
+      for (;;) {
+        const { data, error } = await db.rpc('kb_learn_case_names', {
+          p_account: accountId,
+          p_after: last,
+          p_limit: NAMES_PAGE,
+        });
+        if (error) throw new Error(`names (cases): ${error.message}`);
+        if (!Array.isArray(data)) throw new Error('names (cases): no rows');
+        const page = data as string[];
+        if (page.length === 0) break;
+        for (const name of page) names.add(name);
+        last = page[page.length - 1]!;
+      }
+      return [...names];
+    },
+    async recordDiscard(a) {
+      const { error } = await db.rpc('kb_learn_record_discard', {
+        p_account: a.accountId,
+        p_topic_id: a.topicId,
+        p_topic_key: a.topicKey,
+        p_gap_ids: a.gapIds,
+        p_evidence_count: a.evidenceCount,
+      });
+      if (error) throw new Error(`discard: ${error.message}`);
+    },
     async recordDraft(a) {
       const { data, error } = await db.rpc('kb_learn_record_draft', {
         p_account: a.accountId,
         p_topic_id: a.topicId,
-        p_topic_label: a.topicLabel,
+        p_topic_key: a.topicKey,
         p_gap_ids: a.gapIds,
         p_ref: a.ref,
         p_question: a.question,

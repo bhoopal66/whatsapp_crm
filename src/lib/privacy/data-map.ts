@@ -954,7 +954,9 @@ export const NOT_PERSONAL: Readonly<Record<string, string>> =
             'kb_imports',
             'kb_gap_topics',
             'kb_gap_topic_members',
-            // 290: gap ids and a topic label per learned draft; no message text.
+            // 290: gap ids and a SHA-256 of the topic's label per learned draft; no
+            // message text. The entry's question and answers (kb_entries) are the
+            // model's, stored only when they carry no known name or identifier.
             'kb_learned_drafts',
             'ai_knowledge_chunks',
             'ai_knowledge_documents',

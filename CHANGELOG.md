@@ -44,14 +44,21 @@ superuser or BYPASSRLS role; after 152 and 202).
 - Once a week it takes open question topics the knowledge base cannot
   answer, finds how people on the team answered them in chat (within
   48 hours, a person's own reply, not the bot, an automation or a
-  template; personal chats and opted-out customers are skipped), and
+  template; personal chats, HR, IT and accounts chats, HR lines and
+  opted-out customers are skipped), and
   drafts one general answer with the workspace's own AI key. "Let me
   check" and greetings are not answers; an answer sent in several
   bubbles is read as one. A topic needs answers from at least two chats.
   The switch shows when it last ran and how many drafts it wrote.
-- Names, phone numbers, e-mails, IBANs, IDs, card and account numbers
-  are masked before anything is sent; if a text cannot be screened, the
-  topic is skipped. An answer that still carries one is thrown away.
+- Before anything is sent, phone numbers, e-mails, IBANs, IDs, card and
+  account numbers, case numbers, any run of five or more digits, and the
+  names saved in the CRM (contacts and their companies, members, case
+  customers, bank contacts) are masked, in English and Arabic. If a list
+  or chat cannot be read, or a text cannot be screened, nothing is sent.
+  A name that is not saved anywhere in the CRM is not recognised.
+- The customer's own question is never stored: the AI writes a general
+  one. A question or answer that carries a known name or a number is
+  thrown away, and that topic waits 28 days.
 - Each draft appears in **Approved answers** with a **Learned** badge
   (filter: **Learned only**) and a note on how many replies it came
   from. It is never approved or sent by itself: edit it and approve it

@@ -265,16 +265,26 @@ that have no learned draft yet are looked at. For each:
    lines ("let me check", "one moment", "Hi Sara,", "شكرا") do not
    count. An answer split over bubbles is joined: the same person's next
    messages, each within 10 minutes, until the customer writes again (at
-   most 4). Personal chats and opted-out or do-not-contact customers are
-   skipped. Up to 5 answers; a topic needs **at least 2**, from
+   most 4). Personal chats, HR, IT and accounts chats (the bot's own
+   rule, `lib/ai/not-sales-chat.ts`), chats with a message on an HR line
+   in that window, and opted-out or do-not-contact customers are
+   skipped, questions included; so is a reply whose sender has no name.
+   A check that cannot be read skips the topic. Up to 5 answers; a topic needs **at least 2**, from
    different chats, or it waits for more.
 2. Every question and answer is redacted (the second-brain redactor:
-   e-mail, IBAN, Emirates ID, card, OTP, account, passport, phone, any
-   run of 9+ digits) and every customer and team-member name known in
-   those chats is masked. If any text cannot be screened, the topic is
-   skipped: nothing is sent.
+   e-mail, IBAN, Emirates ID, card, OTP, account, passport, phone; a
+   phone keeps its last 3 digits), then case numbers (`TC-…` and caption
+   codes), IBAN-like strings and any run of 5+ digits in any script, then
+   the account's names, read once per run in full: contacts and their
+   companies, every member, submission-group customers, case-desk
+   companies and bank contacts. Names match as whole words in any case,
+   Arabic folded and behind و ف ب ل ك س ال; a name's words also match
+   alone unless they are common business words. A name saved nowhere in
+   the CRM, or spelled differently, is not recognised. If a list cannot
+   be read or a text screened, nothing is sent. The topic's label is a
+   customer's message: it is never sent or stored.
 3. The workspace's own AI key (`model_small` if set, else `model`) is
-   asked for ONE short, general answer in English, and in Arabic too
+   asked for ONE short, general question, and its answer in English, and in Arabic too
    when the team answered in Arabic. The prompt forbids names, numbers
    and amounts that belong to one customer. The chat text is fenced as
    evidence the model must not take instructions from, and the model may
@@ -282,10 +292,12 @@ that have no learned draft yet are looked at. For each:
    drafted). The call passes the AI
    transfer register (224) as purpose `kb_learn` and is logged in usage
    as **Learned answers** (`ai_usage_log.mode` `kb_learn`).
-4. An answer that still carries an identifier or a mask is thrown away.
+4. A question or answer that carries a known name, one of those shapes
+   or a mask is thrown away; the topic is noted as discarded and not
+   tried again for 28 days.
    Otherwise `kb_learn_record_draft` stores a `kb_entries` row: status
    **draft**, source `learned`, ref `LRN-XXXXXXXX`, audience
-   prospective client, the topic as the question, and a reviewer note
+   prospective client, the general question, and a reviewer note
    "Drafted from N team replies, <dates>. Check before approving."
 
 The draft shows in **Approved answers** with a **Learned** badge, and
@@ -298,7 +310,7 @@ Under the switch, **Last run** shows when the weekly run last started
 and how many new drafts it wrote.
 
 A topic is drafted once (`kb_learned_drafts`): the same gaps (half or
-more) or the same label under a new topic id count as the same topic.
+more) or the same label (kept as a SHA-256 only) under a new topic id count as the same topic.
 It is drafted again only if its draft was deleted or set to **Remove**.
 
 ## Translate (migration 154)

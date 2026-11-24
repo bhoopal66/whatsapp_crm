@@ -20,12 +20,17 @@
 --  3. kb_learned_drafts: the ledger, one row per drafted topic, so a
 --     topic is drafted once. Topic ids change on every recompute (152
 --     replaces the set), so a topic is "the same" when at least half of
---     a ledger row's gaps are in it, or its label matches (the 152
---     carry-over idea). A topic is drafted again only when its draft was
---     deleted or set to 'remove'. Admin+ reads; service role writes.
+--     a ledger row's gaps are in it, or its label's hash matches (the 152
+--     carry-over idea; the label is a customer's message, so only a
+--     SHA-256 of it is kept). A topic is drafted again only when its
+--     draft was deleted or set to 'remove', and one whose draft was
+--     discarded (the model's text carried a name or an identifier) only
+--     after 28 days. Admin+ reads; service role writes.
 --  4. kb_learn_record_draft(): the one writer of a learned entry, service
 --     role only. Refuses when the switch is off or the topic already has
 --     a live draft, and always writes status 'draft', source 'learned'.
+--     kb_learn_record_discard() notes a discarded draft;
+--     kb_learn_case_names() lists names to mask (service role only).
 --
 -- The functions are SECURITY DEFINER and write kb_entries, which RLS
 -- guards: hence the BYPASSRLS check below. Re-runnable: IF NOT EXISTS,
@@ -92,12 +97,14 @@ CREATE TABLE IF NOT EXISTS public.kb_learned_drafts (
   account_id     uuid NOT NULL REFERENCES public.accounts(id) ON DELETE CASCADE,
   -- No foreign key: a recompute replaces every topic (152).
   topic_id       uuid NULL,
-  topic_label    text NOT NULL,
+  topic_key      text NOT NULL,   -- SHA-256 of account and label, never the label
   gap_ids        uuid[] NOT NULL DEFAULT '{}',
   entry_id       uuid NULL,
   evidence_count integer NOT NULL,
+  -- The model's text was thrown away: no entry, not asked again at once.
+  discarded_at   timestamptz NULL,
   created_at     timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT kb_learned_drafts_label_check CHECK (char_length(topic_label) BETWEEN 1 AND 500),
+  CONSTRAINT kb_learned_drafts_key_check CHECK (topic_key ~ '^[0-9a-f]{64}$'),
   CONSTRAINT kb_learned_drafts_evidence_check CHECK (evidence_count BETWEEN 1 AND 50),
   -- The column list keeps account_id when the draft is deleted: the row
   -- stays, and a NULL entry is what lets the topic be drafted again.
@@ -108,7 +115,7 @@ CREATE TABLE IF NOT EXISTS public.kb_learned_drafts (
 );
 
 COMMENT ON TABLE public.kb_learned_drafts IS
-  'Learn from team answers (290): which gap topic was drafted into which kb_entries row, so a topic is drafted once. Holds gap ids and the topic label, no team or customer message text. Admin+ read; written by kb_learn_record_draft() only.';
+  'Learn from team answers (290): which gap topic was drafted into which kb_entries row, so a topic is drafted once. Holds gap ids and a hash of the topic label, no team or customer message text. Admin+ read; written by kb_learn_record_draft() only.';
 
 CREATE INDEX IF NOT EXISTS idx_kb_learned_drafts_account
   ON public.kb_learned_drafts (account_id, created_at DESC);
@@ -201,11 +208,12 @@ GRANT EXECUTE ON FUNCTION public.kb_learn_finish_run(uuid, integer) TO service_r
 
 -- Whether a topic already has a live draft: a ledger row whose entry
 -- still exists and is not 'remove', and that is the same topic (half or
--- more of its gaps are in this one, or the same label).
+-- more of its gaps are in this one, or the same label hash); or a draft
+-- of it was discarded within the last 28 days.
 CREATE OR REPLACE FUNCTION public.kb_learn_topic_drafted(
   p_account uuid,
   p_gap_ids uuid[],
-  p_label text
+  p_topic_key text
 )
 RETURNS boolean
 LANGUAGE sql
@@ -216,11 +224,11 @@ AS $$
   SELECT EXISTS (
     SELECT 1
       FROM public.kb_learned_drafts l
-      JOIN public.kb_entries e ON e.id = l.entry_id AND e.account_id = l.account_id
+      LEFT JOIN public.kb_entries e ON e.id = l.entry_id AND e.account_id = l.account_id
      WHERE l.account_id = p_account
-       AND e.status <> 'remove'
+       AND (e.status <> 'remove' OR l.discarded_at > now() - interval '28 days')
        AND (
-         lower(btrim(l.topic_label)) = lower(btrim(coalesce(p_label, '')))
+         l.topic_key = p_topic_key
          OR (cardinality(l.gap_ids) > 0
              AND 2 * (SELECT count(*) FROM unnest(l.gap_ids) g
                        WHERE g = ANY (coalesce(p_gap_ids, '{}')))
@@ -238,7 +246,7 @@ GRANT EXECUTE ON FUNCTION public.kb_learn_topic_drafted(uuid, uuid[], text) TO s
 CREATE OR REPLACE FUNCTION public.kb_learn_record_draft(
   p_account        uuid,
   p_topic_id       uuid,
-  p_topic_label    text,
+  p_topic_key      text,
   p_gap_ids        uuid[],
   p_ref            text,
   p_question       text,
@@ -266,7 +274,7 @@ BEGIN
   END IF;
 
   IF p_ref IS NULL OR p_ref !~ '^LRN-[A-Z0-9]{6,12}$'
-     OR p_topic_label IS NULL OR btrim(p_topic_label) = '' OR char_length(p_topic_label) > 500
+     OR p_topic_key IS NULL OR p_topic_key !~ '^[0-9a-f]{64}$'
      OR p_question IS NULL OR btrim(p_question) = '' OR char_length(p_question) > 2000
      OR p_answer_en IS NULL OR btrim(p_answer_en) = '' OR char_length(p_answer_en) > 4000
      OR char_length(coalesce(p_answer_ar, '')) > 4000
@@ -283,7 +291,7 @@ BEGIN
     RETURN jsonb_build_object('status', 'invalid');
   END IF;
 
-  IF public.kb_learn_topic_drafted(p_account, v_gaps, p_topic_label) THEN
+  IF public.kb_learn_topic_drafted(p_account, v_gaps, p_topic_key) THEN
     RETURN jsonb_build_object('status', 'already');
   END IF;
 
@@ -301,9 +309,9 @@ BEGIN
   END;
 
   INSERT INTO public.kb_learned_drafts
-    (account_id, topic_id, topic_label, gap_ids, entry_id, evidence_count)
+    (account_id, topic_id, topic_key, gap_ids, entry_id, evidence_count)
   VALUES
-    (p_account, p_topic_id, left(btrim(p_topic_label), 500), v_gaps, v_entry, p_evidence_count);
+    (p_account, p_topic_id, p_topic_key, v_gaps, v_entry, p_evidence_count);
 
   RETURN jsonb_build_object('status', 'drafted', 'entry_id', v_entry);
 END $$;
@@ -312,3 +320,72 @@ REVOKE ALL ON FUNCTION public.kb_learn_record_draft(uuid, uuid, text, uuid[], te
   FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.kb_learn_record_draft(uuid, uuid, text, uuid[], text, text, text, text, text, integer)
   TO service_role;
+
+-- The model's text carried a name or an identifier: remember the topic
+-- (gap ids and hash only), so it is not asked again at once. Nothing is
+-- written while the switch is off.
+CREATE OR REPLACE FUNCTION public.kb_learn_record_discard(
+  p_account        uuid,
+  p_topic_id       uuid,
+  p_topic_key      text,
+  p_gap_ids        uuid[],
+  p_evidence_count integer
+)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_gaps uuid[];
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM public.kb_learn_settings
+                  WHERE account_id = p_account AND enabled) THEN
+    RETURN false;
+  END IF;
+  SELECT coalesce(array_agg(DISTINCT g.id), '{}') INTO v_gaps
+    FROM public.ai_knowledge_gaps g
+   WHERE g.account_id = p_account AND g.id = ANY (coalesce(p_gap_ids, '{}'));
+  IF cardinality(v_gaps) = 0 THEN
+    RETURN false;
+  END IF;
+  INSERT INTO public.kb_learned_drafts
+    (account_id, topic_id, topic_key, gap_ids, evidence_count, discarded_at)
+  VALUES
+    (p_account, p_topic_id, p_topic_key, v_gaps, p_evidence_count, now());
+  RETURN true;
+END $$;
+
+REVOKE ALL ON FUNCTION public.kb_learn_record_discard(uuid, uuid, text, uuid[], integer)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.kb_learn_record_discard(uuid, uuid, text, uuid[], integer)
+  TO service_role;
+
+-- Names the service role may not read as tables (the bank contact log of
+-- 124, the case desk's companies of 220), for masking only: one distinct
+-- list in order, paged by the last name seen. Names only, nothing else.
+CREATE OR REPLACE FUNCTION public.kb_learn_case_names(
+  p_account uuid,
+  p_after   text DEFAULT NULL,
+  p_limit   integer DEFAULT 1000
+)
+RETURNS SETOF text
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT x.name
+    FROM (SELECT b.contact_name COLLATE "C" AS name FROM public.case_bank_contacts b
+           WHERE b.account_id = p_account
+          UNION
+          SELECT d.legal_name COLLATE "C" FROM public.desk_customers d
+           WHERE d.account_id = p_account) x
+   WHERE x.name <> '' AND (p_after IS NULL OR x.name > p_after COLLATE "C")
+   ORDER BY x.name
+   LIMIT least(greatest(coalesce(p_limit, 1000), 1), 1000);
+$$;
+
+REVOKE ALL ON FUNCTION public.kb_learn_case_names(uuid, text, integer)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.kb_learn_case_names(uuid, text, integer) TO service_role;
