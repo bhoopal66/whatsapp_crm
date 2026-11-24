@@ -12,6 +12,16 @@ and polish.
 
 ## [Unreleased]
 
+### Fixed
+
+- **OpenWA numbers past the tenth were never checked.** The gateway takes
+  ten requests a second per route; the five-minute status check asked for
+  every number at once, so the last ones were refused every time and kept
+  an old "connected" or "disconnected". A call the gateway's per-second
+  limit refuses now waits a second and asks again (at most three times),
+  for status checks, sends and attachment downloads alike; its daily
+  pacing limit is never retried. No migration.
+
 ### Security
 
 - **Small access points closed.** Case desk: an upload naming a company

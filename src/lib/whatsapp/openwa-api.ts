@@ -148,10 +148,10 @@ interface OpenWAErrorBody {
   retryAfterSeconds?: number;
 }
 
-async function throwOpenWAError(
+async function readOpenWAError(
   response: Response,
   route: 'session' | 'message'
-): Promise<never> {
+): Promise<OpenWAError> {
   let message = `OpenWA API error: ${response.status}`;
   let code: string | null = null;
   let retryAfterSeconds: number | null = null;
@@ -170,12 +170,46 @@ async function throwOpenWAError(
     const header = Number(response.headers.get('retry-after'));
     if (Number.isFinite(header) && header >= 0) retryAfterSeconds = header;
   }
-  throw new OpenWAError(message, response.status, {
+  return new OpenWAError(message, response.status, {
     code,
     retryAfterSeconds,
     route,
   });
 }
+
+// ============================================================
+// The gateway's request limit
+// ============================================================
+
+/** Asks again at most this often, and only for a limit this short. */
+const THROTTLE_RETRIES = 3;
+const THROTTLE_WAIT_MAX_SECONDS = 2;
+
+/**
+ * How long to wait before repeating a call OpenWA's own request limiter
+ * refused, or null when the answer stands.
+ *
+ * The gateway takes 10 requests a second per route from one caller, and
+ * the CRM is one caller for every number: the health sweep asked for all
+ * of them at once, so the numbers past the tenth were refused on every
+ * tick and their status was never checked. The limiter is a guard that
+ * runs before any handler, so a refused call did nothing and repeating a
+ * send cannot send it twice.
+ *
+ * The pacing governor's 429 carries a code (the number's daily allowance),
+ * and the per-minute and per-hour limits a longer wait: both stand.
+ */
+function throttleWaitMs(err: OpenWAError): number | null {
+  if (err.status !== 429 || err.code !== null) return null;
+  if (!err.message.startsWith('ThrottlerException')) return null;
+  const seconds = Math.max(err.retryAfterSeconds ?? 1, 1);
+  if (seconds > THROTTLE_WAIT_MAX_SECONDS) return null;
+  // Calls refused together must not come back together.
+  return seconds * 1_000 + Math.random() * 500;
+}
+
+const wait = (ms: number) =>
+  new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 // ============================================================
 // Transport
@@ -227,33 +261,41 @@ export async function openwaRequest<T>(args: OpenWARequestArgs): Promise<T> {
   };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
 
-  let response: Response;
-  try {
-    const url = apiPath
-      ? `${openwaBaseUrl()}${apiPath}`
-      : sessionUrl(sessionId, path);
-    response = await fetch(url, {
-      method,
-      headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
-      signal: AbortSignal.timeout(timeoutMs ?? OPENWA_TIMEOUT_MS),
-    });
-  } catch (err) {
-    // DNS, refused socket, timeout. A 5xx leaves a send's outcome unknown;
-    // the cause tells `isDefiniteSendRefusal` which of them it was.
-    const reason = err instanceof Error ? err.message : String(err);
-    const failed = new OpenWAError(`OpenWA request failed: ${reason}`, 503, {
-      route,
-    });
-    // Tells our own 503 from the gateway's, and a refused connection from a
-    // timeout (`neverConnected`).
-    failed.cause = err;
-    throw failed;
-  }
+  for (let attempt = 0; ; attempt++) {
+    let response: Response;
+    try {
+      const url = apiPath
+        ? `${openwaBaseUrl()}${apiPath}`
+        : sessionUrl(sessionId, path);
+      response = await fetch(url, {
+        method,
+        headers,
+        body: body === undefined ? undefined : JSON.stringify(body),
+        signal: AbortSignal.timeout(timeoutMs ?? OPENWA_TIMEOUT_MS),
+      });
+    } catch (err) {
+      // DNS, refused socket, timeout. A 5xx leaves a send's outcome unknown;
+      // the cause tells `isDefiniteSendRefusal` which of them it was.
+      const reason = err instanceof Error ? err.message : String(err);
+      const failed = new OpenWAError(`OpenWA request failed: ${reason}`, 503, {
+        route,
+      });
+      // Tells our own 503 from the gateway's, and a refused connection from a
+      // timeout (`neverConnected`).
+      failed.cause = err;
+      throw failed;
+    }
 
-  if (!response.ok) await throwOpenWAError(response, route);
-  if (response.status === 204) return undefined as T;
-  return (await response.json()) as T;
+    if (!response.ok) {
+      const failed = await readOpenWAError(response, route);
+      const ms = attempt < THROTTLE_RETRIES ? throttleWaitMs(failed) : null;
+      if (ms === null) throw failed;
+      await wait(ms);
+      continue;
+    }
+    if (response.status === 204) return undefined as T;
+    return (await response.json()) as T;
+  }
 }
 
 // ============================================================
@@ -951,37 +993,53 @@ export type DownloadMediaArgs = Credentials & {
  */
 export async function openMedia(args: DownloadMediaArgs): Promise<Response> {
   const { apiKey, sessionId, downloadUrl, maxBytes } = args;
-  let response: Response;
-  try {
-    response = await fetchPublicUrl(
-      downloadUrl,
-      { signal: args.signal ?? AbortSignal.timeout(OPENWA_TIMEOUT_MS) },
-      {
-        maxDecodedBytes: maxBytes,
-        isTrusted: (url) => isOpenWAMediaUrl(url, sessionId),
-        trustedHeaders: { 'X-API-Key': apiKey },
+  for (let attempt = 0; ; attempt++) {
+    let response: Response;
+    try {
+      response = await fetchPublicUrl(
+        downloadUrl,
+        { signal: args.signal ?? AbortSignal.timeout(OPENWA_TIMEOUT_MS) },
+        {
+          maxDecodedBytes: maxBytes,
+          isTrusted: (url) => isOpenWAMediaUrl(url, sessionId),
+          trustedHeaders: { 'X-API-Key': apiKey },
+        }
+      );
+    } catch (err) {
+      if (err instanceof UnsafeUrlError) {
+        throw new OpenWAError(`Media download refused: ${err.message}`, 400, {
+          route: 'message',
+        });
       }
-    );
-  } catch (err) {
-    if (err instanceof UnsafeUrlError) {
-      throw new OpenWAError(`Media download refused: ${err.message}`, 400, {
+      const reason = err instanceof Error ? err.message : String(err);
+      throw new OpenWAError(`OpenWA media download failed: ${reason}`, 503, {
         route: 'message',
       });
     }
-    const reason = err instanceof Error ? err.message : String(err);
-    throw new OpenWAError(`OpenWA media download failed: ${reason}`, 503, {
-      route: 'message',
-    });
-  }
-  if (!response.ok) {
-    await response.body?.cancel().catch(() => {});
+    if (response.ok) return response;
+
+    // Only the gateway's own limiter is waited for: a burst of attachments
+    // passes its ten a second. Another host's 429 stands.
+    if (
+      response.status === 429 &&
+      attempt < THROTTLE_RETRIES &&
+      URL.canParse(downloadUrl) &&
+      isOpenWAMediaUrl(new URL(downloadUrl), sessionId)
+    ) {
+      const ms = throttleWaitMs(await readOpenWAError(response, 'message'));
+      if (ms !== null) {
+        await wait(ms);
+        continue;
+      }
+    } else {
+      await response.body?.cancel().catch(() => {});
+    }
     throw new OpenWAError(
       `Media download failed: ${response.status}`,
       response.status,
       { route: 'message' }
     );
   }
-  return response;
 }
 
 /** Media bytes, at most `maxBytes` of them. */
