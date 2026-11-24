@@ -11038,6 +11038,7 @@
       "approved": "Approved",
       "waiting": "Waiting for an owner's approval",
       "noWording": "No wording yet",
+      "storedNow": "Stored now: {body}",
       "placeholders": "You can use: {list}",
       "save": "Save wording",
       "approve": "Approve",

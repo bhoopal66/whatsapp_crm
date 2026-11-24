@@ -215,6 +215,42 @@ describe('the intake wording', () => {
     expect(sent[1].body).toEqual({ updatedAt: 'v2' });
   });
 
+  it('a save names the version shown and keeps the typing over a change', async () => {
+    let now = row('Old', 'v1');
+    replies = (_u, init) =>
+      init?.method === 'PUT'
+        ? { status: 409, body: { code: 'TEMPLATE_CHANGED' } }
+        : { status: 200, body: now };
+    await open();
+    (text().props.onChange as (e: object) => void)({
+      target: { value: 'Mine' },
+    });
+    now = row('Theirs', 'v2');
+    await click(view, 'save');
+    expect(sent[0].body).toEqual({ body: 'Mine', updatedAt: 'v1' });
+    expect(text().props.value).toBe('Mine');
+    await click(view, 'save');
+    expect(sent[1].body).toEqual({ body: 'Mine', updatedAt: 'v2' });
+  });
+
+  it('a failed first read offers Reload, never "no wording"', async () => {
+    let up = false;
+    replies = () =>
+      up
+        ? { status: 200, body: row('Old', 'v1') }
+        : { status: 500, body: null };
+    await open();
+    expect(text()).toBeUndefined();
+    up = true;
+    const failed = findElements(
+      render(view),
+      (el) => typeof el.props.onRetry === 'function'
+    )[0];
+    (failed.props.onRetry as () => void)();
+    await load(view);
+    expect(text().props.value).toBe('Old');
+  });
+
   it("after a save the approval names the saver's own version", async () => {
     let now = row('Old', 'v1');
     replies = (_u, init) =>

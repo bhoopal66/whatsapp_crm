@@ -11038,6 +11038,7 @@
       "approved": "승인됨",
       "waiting": "소유자 승인 대기 중",
       "noWording": "아직 문구 없음",
+      "storedNow": "현재 저장된 문구: {body}",
       "placeholders": "사용 가능: {list}",
       "save": "문구 저장",
       "approve": "승인",

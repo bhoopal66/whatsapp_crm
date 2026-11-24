@@ -149,7 +149,15 @@ function useConfigRead<T>(url: string, parse: (body: unknown) => T | null) {
     };
   }, [url, parse]);
   const reload = useCallback(async () => {
-    setState(await readConfig(url, parse));
+    const next = await readConfig(url, parse);
+    setState((prev) => {
+      // Another bank is shown by now.
+      if (prev && prev.url !== url) return prev;
+      // A failed reload keeps what was read before.
+      return next.failed && prev && prev.data !== null
+        ? { ...prev, failed: true }
+        : next;
+    });
   }, [url, parse]);
   const current = state?.url === url ? state : null;
   return {
@@ -714,11 +722,20 @@ export function StagesEditor({
     ({ stages: string[]; reset: boolean } & DroppedStageUses) | null
   >(null);
 
-  if (loadFailed)
+  // A failed Reload keeps the list, and what was typed, on screen.
+  if (loadFailed && !stored)
     return (
-      <p className="text-destructive text-sm" role="alert">
-        {tc('loadFailed')}
-      </p>
+      <div className="flex flex-wrap items-center gap-2" role="alert">
+        <p className="text-destructive text-sm">{tc('loadFailed')}</p>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() => void load()}
+        >
+          {tc('reload')}
+        </Button>
+      </div>
     );
   if (!stored)
     return <div className="bg-muted/50 h-40 animate-pulse rounded-xl" />;

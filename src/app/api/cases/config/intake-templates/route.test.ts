@@ -32,6 +32,7 @@ let admin: FakeClient;
 let setResult: { data?: unknown; error?: unknown };
 let approveResult: { data?: unknown; error?: unknown };
 let rows: Record<string, unknown>[];
+let stored: Record<string, unknown>[];
 
 const as = (role: string) => {
   m.ctx = { userId: 'u-1', accountId: 'acct-1', role, supabase: rls.client };
@@ -54,6 +55,7 @@ const post = (kind: string, body?: unknown) =>
 beforeEach(() => {
   vi.spyOn(console, 'error').mockImplementation(() => {});
   rows = [];
+  stored = [];
   setResult = { data: false };
   approveResult = { data: true };
   rls = new FakeClient(
@@ -62,10 +64,15 @@ beforeEach(() => {
     {},
     { case_intake_templates: () => ({ data: rows }) }
   );
-  admin = new FakeClient('admin', [], {
-    case_intake_template_set: () => setResult as never,
-    case_intake_template_approve: () => approveResult as never,
-  });
+  admin = new FakeClient(
+    'admin',
+    [],
+    {
+      case_intake_template_set: () => setResult as never,
+      case_intake_template_approve: () => approveResult as never,
+    },
+    { case_intake_templates: () => ({ data: stored }) }
+  );
   m.admin = admin.client;
   as('admin');
 });
@@ -136,6 +143,31 @@ describe('PUT intake template', () => {
         },
       },
     ]);
+  });
+
+  it('refuses a wording saved over one the screen never showed', async () => {
+    const at = '2026-11-24T10:00:00.123456+00:00';
+    stored = [{ updated_at: at }];
+    const stale = await put('document_classify', {
+      body: 'Mine',
+      updatedAt: '2026-11-23T10:00:00+00:00',
+    });
+    expect(stale.status).toBe(409);
+    expect((await stale.json()).code).toBe('TEMPLATE_CHANGED');
+    const none = await put('document_classify', {
+      body: 'Mine',
+      updatedAt: null,
+    });
+    expect(none.status).toBe(409);
+    expect(admin.rpcs).toHaveLength(0);
+    const ok = await put('document_classify', { body: 'Mine', updatedAt: at });
+    expect(ok.status).toBe(200);
+    stored = [];
+    const first = await put('document_classify', {
+      body: 'Mine',
+      updatedAt: null,
+    });
+    expect(first.status).toBe(200);
   });
 
   it('refuses an agent', async () => {

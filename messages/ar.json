@@ -11038,6 +11038,7 @@
       "approved": "معتمدة",
       "waiting": "بانتظار اعتماد المالك",
       "noWording": "لا صياغة بعد",
+      "storedNow": "المحفوظ الآن: {body}",
       "placeholders": "يمكنك استخدام: {list}",
       "save": "حفظ الصياغة",
       "approve": "اعتماد",

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import { Info, Loader2, RotateCcw } from 'lucide-react';
@@ -249,12 +249,35 @@ const INTAKE_URL = '/api/cases/config/intake-templates';
  * own (any edit withdraws its approval) and approved by an owner other
  * than whoever last edited it. Independent of the card's Save.
  */
+function LoadFailed({
+  text,
+  retry,
+  onRetry,
+}: {
+  text: string;
+  retry: string;
+  onRetry: () => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2" role="alert">
+      <p className="text-destructive text-sm">{text}</p>
+      <Button type="button" size="sm" variant="outline" onClick={onRetry}>
+        {retry}
+      </Button>
+    </div>
+  );
+}
+
 export function IntakeWording({ canEdit }: { canEdit: boolean }) {
   const t = useTranslations('CaseFilesSettings.wording');
+  const tc = useTranslations('CaseSettings');
   const failToast = useFailToast();
   const { accountRole } = useAuth();
   const owner = !!accountRole && isOwner(accountRole);
   const [open, setOpen] = useState(false);
+  // A failed first read is not "no wording", which could be saved over.
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const [saved, setSaved] = useState<IntakeTemplateView[] | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
@@ -264,14 +287,16 @@ export function IntakeWording({ canEdit }: { canEdit: boolean }) {
     let off = false;
     void call(INTAKE_URL).then((answer) => {
       if (off) return;
-      const rows = parseIntakeTemplates(answer.ok ? answer.body : null);
+      setLoadFailed(!answer.ok);
+      if (!answer.ok) return;
+      const rows = parseIntakeTemplates(answer.body);
       setSaved(rows);
       setDrafts(Object.fromEntries(rows.map((r) => [r.kind, r.body ?? ''])));
     });
     return () => {
       off = true;
     };
-  }, [open, saved]);
+  }, [open, saved, attempt]);
 
   function patch(kind: IntakeKind, change: Partial<IntakeTemplateView>) {
     setSaved((rows) =>
@@ -283,10 +308,13 @@ export function IntakeWording({ canEdit }: { canEdit: boolean }) {
     const text = drafts[kind] ?? '';
     if (templateBodyProblem(text)) return;
     setBusy(kind);
+    const shown = (saved ?? []).find((r) => r.kind === kind);
     const answer = await call(`${INTAKE_URL}/${kind}`, {
       method: 'PUT',
-      body: JSON.stringify({ body: text }),
+      body: JSON.stringify({ body: text, updatedAt: shown?.updatedAt ?? null }),
     });
+    // Somebody else's wording is shown beside what is typed here.
+    if (answer.status === 409) await refresh(saved ?? []);
     if (answer.ok) {
       // The version an approval names is the server's: without it, the
       // saver's own approve would read as somebody else's change.
@@ -348,7 +376,13 @@ export function IntakeWording({ canEdit }: { canEdit: boolean }) {
       {open ? (
         <div className="space-y-4">
           <p className="text-muted-foreground text-xs">{t('note')}</p>
-          {saved ? (
+          {!saved && loadFailed ? (
+            <LoadFailed
+              text={tc('loadFailed')}
+              retry={tc('reload')}
+              onRetry={() => setAttempt((n) => n + 1)}
+            />
+          ) : saved ? (
             saved.map((row) => {
               const text = drafts[row.kind] ?? '';
               const problem = templateBodyProblem(text);
@@ -386,6 +420,11 @@ export function IntakeWording({ canEdit }: { canEdit: boolean }) {
                       list: INTAKE_PLACEHOLDERS[row.kind].join(' '),
                     })}
                   </p>
+                  {changed && row.body !== null ? (
+                    <p className="text-muted-foreground text-xs whitespace-pre-wrap">
+                      {t('storedNow', { body: row.body })}
+                    </p>
+                  ) : null}
                   {changed && problem ? (
                     <p className="text-warning text-xs">
                       {t(`problems.${problem}`)}
@@ -593,8 +632,14 @@ export function FileSpecEditor({
     : null;
   const loadKey = url ? `${url}#${version}` : null;
 
+  const keyRef = useRef(loadKey);
+  useEffect(() => {
+    keyRef.current = loadKey;
+  }, [loadKey]);
   const load = useCallback(async (u: string, key: string) => {
     const answer = await call(u);
+    // Another product or bank is shown by now.
+    if (keyRef.current !== key) return;
     const view = answer.ok ? parseFileSpec(answer.body) : null;
     setLoaded({ key, view, expected: specExpected(answer.body) });
     setDraft(view ? specDraft(view) : null);
