@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { earlierQuestionAt, isNewestText, unansweredSince } from './stranded';
 import { salesChatOnce, type SalesChatCheck } from './not-sales-chat';
 import { supabaseAdmin } from './admin-client';
 import { loadAiConfig } from './config';
@@ -246,6 +247,10 @@ export interface DispatchArgs {
   /** The pipeline's one sales-chat decision for this message; without it
    *  the dispatch reads its own. */
   salesChat?: SalesChatCheck | null;
+  /** Something else took this message (a Flow, a journey, a case rating):
+   *  nothing is answered, but a question it superseded is flagged. Only
+   *  set when the message closes a burst (`earlierQuestionAt`). */
+  consumedBy?: string | null;
   /** Clock for the dispatch budget (`aiDispatchBudgetMs`). Tests only. */
   now?: () => number;
 }
@@ -459,6 +464,42 @@ export async function dispatchInboundToAiReply(
     }
   };
 
+  /**
+   * This message was answered elsewhere. A question of the same burst
+   * that stood down for it (`skipped_superseded`) has then lost its
+   * reply (stranded.ts): flag the chat. The outcome row goes first, so
+   * a slower dispatch of that question still finds it.
+   */
+  const skipConsumed = async (
+    dbc: SupabaseClient,
+    detail: string
+  ): Promise<AiReplyOutcome> => {
+    await record('skipped_automation', detail);
+    const since = inboundMessageId
+      ? await earlierQuestionAt(dbc, conversationId, inboundMessageId)
+      : null;
+    if (!since || !inboundMessageId) return 'skipped';
+    // The question's own dispatch waits this long before it stands down.
+    const waitMs = aiBurstWaitMs();
+    if (waitMs > 0) await new Promise((r) => setTimeout(r, waitMs));
+    // A newer message yet: its dispatch answers, or looks in its turn.
+    if (!(await isNewestText(dbc, conversationId, inboundMessageId))) {
+      return 'skipped';
+    }
+    const lost = await unansweredSince(dbc, {
+      accountId,
+      conversationId,
+      since,
+      outcome: 'skipped_superseded',
+    });
+    if (lost) {
+      // A question only stands down in a chat that is the bot's.
+      botsChat = true;
+      await flagUnanswered(UNANSWERED_STRANDED);
+    }
+    return 'skipped';
+  };
+
   try {
     db = supabaseAdmin();
     const dbc = db;
@@ -466,6 +507,9 @@ export async function dispatchInboundToAiReply(
     const config = await loadAiConfig(dbc, accountId);
     if (!config || !config.autoReplyEnabled) return 'skipped';
     recording = true;
+    if (args.consumedBy) {
+      return skipConsumed(dbc, `${args.consumedBy} answered this message.`);
+    }
 
     // A personal chat (a staff member's own number) is never the bot's:
     // stand down before the number lookup below, which would throw
@@ -589,8 +633,8 @@ export async function dispatchInboundToAiReply(
     // still stands the bot down: it is an auto-responder.
     if (!flowContext) {
       if (meaningTriggerActed) {
-        return skip(
-          'skipped_automation',
+        return skipConsumed(
+          dbc,
           'A meaning-trigger automation answered this message.'
         );
       }
@@ -612,8 +656,8 @@ export async function dispatchInboundToAiReply(
         })
       );
       if (matched) {
-        return skip(
-          'skipped_automation',
+        return skipConsumed(
+          dbc,
           `Automation “${matched.name ?? matched.id}” answers this message.`
         );
       }
@@ -666,10 +710,26 @@ export async function dispatchInboundToAiReply(
       const newest = await newestCustomerMessage(dbc, conversationId);
       newestAt = newest?.at ?? null;
       if (newest?.id && newest.id !== inboundMessageId) {
-        return skip(
+        const outcome = await skip(
           'skipped_superseded',
           'A newer customer message arrived; its reply answers both.'
         );
+        // Unless that message was already answered elsewhere, and looked
+        // for this one before the row above was there.
+        if (
+          newestAt &&
+          inboundText?.trim() &&
+          !isGreetingOrThanks(inboundText) &&
+          (await unansweredSince(dbc, {
+            accountId,
+            conversationId,
+            since: newestAt,
+            outcome: 'skipped_automation',
+          }))
+        ) {
+          await flagUnanswered(UNANSWERED_STRANDED);
+        }
+        return outcome;
       }
     }
 
@@ -1592,6 +1652,13 @@ export async function dispatchInboundToAiReply(
 /** The bell text when a dispatch failed; the error itself is recorded. */
 const UNANSWERED_ERROR =
   'The AI agent failed and did not answer. It is still on for this chat.';
+
+/** The bell text when the message a question stood down for never got
+ *  to the AI agent. */
+const UNANSWERED_STRANDED =
+  'The customer asked something just before a message that was answered ' +
+  'automatically, and the AI agent did not answer it. It is still on for ' +
+  'this chat.';
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);

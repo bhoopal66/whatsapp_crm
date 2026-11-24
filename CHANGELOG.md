@@ -22,6 +22,11 @@ and polish.
 
 ### Fixed
 
+- A question is no longer lost when the customer's next message is taken by
+  something else (a keyword automation, a Flow, a journey, a case rating):
+  the AI agent left the question to that message's reply, which never came.
+  The chat is now pinned as Important and the bell rings. No second reply
+  is sent and nothing is spent on the model.
 - Flows, campaign journeys and automations' message steps no longer answer
   in a chat that is not a sales chat (an HR chat, another department's
   inbox, a message on an HR line), as the AI agent already did not. The

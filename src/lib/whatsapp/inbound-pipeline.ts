@@ -59,6 +59,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { runAutomationsForTrigger } from '@/lib/automations/engine';
 import { dispatchInboundToFlows } from '@/lib/flows/engine';
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply';
+import { earlierQuestionAt } from '@/lib/ai/stranded';
 import { salesChatOnce } from '@/lib/ai/not-sales-chat';
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver';
 import { watchInboundMessage } from '@/lib/ai/typesafe-watch';
@@ -1518,6 +1519,36 @@ export async function processMessage(
       inboundText,
       meaningTriggerActed: meaningActed,
     });
+  }
+
+  // A message something else took never reaches the bot, so a question it
+  // superseded in the same burst would be nobody's: the bot then flags the
+  // chat (lib/ai/stranded.ts), after its burst wait, so `later`.
+  const consumedBy = journeyConsumed
+    ? 'A journey'
+    : csatConsumed
+      ? 'A case rating'
+      : flowConsumed && !flowBroke
+        ? 'A flow'
+        : null;
+  if (
+    consumedBy &&
+    inboundText.trim() &&
+    (await earlierQuestionAt(supabaseAdmin(), conversation.id, message.id))
+  ) {
+    const flagged = dispatchInboundToAiReply({
+      accountId,
+      conversationId: conversation.id,
+      contactId: contactRecord.id,
+      configOwnerUserId,
+      inboundProvider: channel.provider,
+      inboundChannelId: channel.id,
+      inboundMessageId: message.id,
+      inboundText,
+      consumedBy,
+    });
+    if (later) later.push(flagged);
+    else await flagged;
   }
 
   // message.received webhook (public API). Awaited — not fire-and-forget
