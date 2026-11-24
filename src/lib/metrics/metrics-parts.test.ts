@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { bearerMatches, metricsToken } from './auth';
+import {
+  parseCustomerDocumentStats,
+  readCustomerDocumentStats,
+} from './customer-documents';
 import { collectInboundQueue, readInboundQueueStats } from './inbound-queue';
 import { collectOutbox, parseOutboxStats, readOutboxStats } from './outbox';
 import { collectPosture, postureLogLine, startupPosture } from './posture';
@@ -137,6 +141,31 @@ describe('outbox stats', () => {
     const started = Date.now();
     expect(await readOutboxStats(db(new Promise(() => {})), 20)).toBeNull();
     expect(Date.now() - started).toBeLessThan(2000);
+  });
+});
+
+describe('customer document stats', () => {
+  const db = (rpc: unknown) =>
+    ({ rpc: () => ({ abortSignal: () => rpc }) }) as unknown as SupabaseClient;
+
+  it('drops anything malformed', () => {
+    expect(parseCustomerDocumentStats(null)).toBeNull();
+    expect(parseCustomerDocumentStats({ failed: 'x' })).toBeNull();
+    expect(
+      parseCustomerDocumentStats({
+        failed: 2,
+        oldest_pending_age_seconds: null,
+      })
+    ).toEqual({ failed: 2, oldestPendingAgeSeconds: null });
+  });
+
+  it('never throws and gives up on a call that never answers', async () => {
+    expect(
+      await readCustomerDocumentStats(db(Promise.reject(new Error('down'))))
+    ).toBeNull();
+    expect(
+      await readCustomerDocumentStats(db(new Promise(() => {})), 20)
+    ).toBeNull();
   });
 });
 

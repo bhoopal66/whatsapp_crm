@@ -35,6 +35,7 @@
 import {
   PDFDocument,
   StandardFonts,
+  degrees,
   type PDFFont,
   type PDFPage,
 } from 'pdf-lib';
@@ -47,6 +48,8 @@ import {
 } from './bytes';
 import { sha256Hex } from './checks';
 import { dubaiDay } from './day';
+import { exifOrientation } from './exif';
+import { flattenForm } from './flatten-form';
 import { CASE_FILES_BUCKET, isAlreadyExists } from './intake-file';
 import {
   CASE_FILES_REFUSALS,
@@ -374,11 +377,26 @@ function drawCover(
 async function appendDocument(
   doc: PDFDocument,
   bytes: Uint8Array,
-  fileId: string
+  fileId: string,
+  name: string
 ): Promise<void> {
   const kind = sniff(bytes);
   if (kind === 'pdf') {
     const src = await PDFDocument.load(bytes);
+    try {
+      flattenForm(src);
+    } catch (err) {
+      // pdf-lib's message may quote a value: only the kind of error.
+      console.error(
+        `[case-files] form of ${fileId} not flattened (${err instanceof Error ? err.name : '-'})`
+      );
+      throw new CaseFilesRefusedError(
+        'FORM_NOT_FLATTENED',
+        undefined,
+        undefined,
+        name
+      );
+    }
     const pages = await doc.copyPages(src, src.getPageIndices());
     for (const p of pages) doc.addPage(p);
     return;
@@ -389,14 +407,26 @@ async function appendDocument(
     const page = doc.addPage(A4);
     const boxW = A4[0] - 2 * MARGIN;
     const boxH = A4[1] - 2 * MARGIN;
-    const scale = Math.min(boxW / img.width, boxH / img.height);
-    const w = img.width * scale;
-    const h = img.height * scale;
+    const turn = kind === 'jpeg' ? exifOrientation(bytes) : 1;
+    const sideways = turn === 6 || turn === 8;
+    const scale = sideways
+      ? Math.min(boxW / img.height, boxH / img.width)
+      : Math.min(boxW / img.width, boxH / img.height);
+    const width = img.width * scale;
+    const height = img.height * scale;
+    // The box it fills on the page, and the corner it is turned about.
+    const w = sideways ? height : width;
+    const h = sideways ? width : height;
+    const x = (A4[0] - w) / 2;
+    const y = (A4[1] - h) / 2;
     page.drawImage(img, {
-      x: (A4[0] - w) / 2,
-      y: (A4[1] - h) / 2,
-      width: w,
-      height: h,
+      x: turn === 3 || turn === 8 ? x + w : x,
+      y: turn === 3 || turn === 6 ? y + h : y,
+      width,
+      height,
+      rotate: degrees(
+        turn === 3 ? 180 : turn === 6 ? -90 : turn === 8 ? 90 : 0
+      ),
     });
     return;
   }
@@ -415,7 +445,15 @@ async function renderPdf(
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
   drawCover(doc, info, manifest, font, bold);
   if (info.merged)
-    for (const d of documents) await appendDocument(doc, d.bytes, d.fileId);
+    for (const d of documents) {
+      const e = manifest.find((m) => m.fileId === d.fileId);
+      await appendDocument(
+        doc,
+        d.bytes,
+        d.fileId,
+        e?.renamedName ?? e?.docKey ?? d.fileId
+      );
+    }
   return doc.save();
 }
 

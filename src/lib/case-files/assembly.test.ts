@@ -1,4 +1,10 @@
-import { PDFDocument } from 'pdf-lib';
+import {
+  PDFDocument,
+  PDFHexString,
+  PDFName,
+  PDFRawStream,
+  decodePDFRawStream,
+} from 'pdf-lib';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -500,6 +506,170 @@ describe('assembleCaseFile', () => {
     });
     expect(out.manifest[1].renamedName).toBe('كشف حساب.pdf');
   });
+});
+
+describe('what the bank receives', () => {
+  const build = (w: Awaited<ReturnType<typeof world>>) =>
+    assembleCaseFile({
+      admin: w.admin,
+      actor: 'u-1',
+      caseId: CASE,
+      deps: w.deps,
+      now: NOW,
+    });
+  /** Every decoded stream of the stored PDF. */
+  async function streams(w: Awaited<ReturnType<typeof world>>) {
+    const out = await PDFDocument.load(w.uploads[0].body);
+    return out.context
+      .enumerateIndirectObjects()
+      .flatMap(([, o]) =>
+        o instanceof PDFRawStream &&
+        o.dict.get(PDFName.of('Subtype')) !== PDFName.of('Image')
+          ? [Buffer.from(decodePDFRawStream(o).decode()).toString('latin1')]
+          : []
+      );
+  }
+  const hex = (s: string) => Buffer.from(s).toString('hex').toUpperCase();
+
+  /** A filled form whose values have no stored appearance. */
+  async function form(value: string, saved: 'none' | 'stale' = 'none') {
+    const d = await PDFDocument.create();
+    const page = d.addPage([300, 300]);
+    const f = d.getForm();
+    const text = f.createTextField('name');
+    text.addToPage(page, { x: 10, y: 10, width: 200, height: 20 });
+    if (saved === 'stale') f.updateFieldAppearances();
+    text.acroField.dict.set(PDFName.of('V'), PDFHexString.fromText(value));
+    if (saved === 'none')
+      text.acroField.getWidgets()[0].dict.delete(PDFName.of('AP'));
+    else
+      f.acroForm.dict.set(PDFName.of('NeedAppearances'), d.context.obj(true));
+    const hidden = f.createTextField('internal');
+    hidden.setText('SECRET');
+    hidden.addToPage(page, { x: 10, y: 40, width: 200, height: 20 });
+    hidden.acroField.getWidgets()[0].setFlags(2);
+    const box = f.createCheckBox('agree');
+    box.addToPage(page, { x: 10, y: 70, width: 20, height: 20 });
+    box.defaultUpdateAppearances();
+    hidden.defaultUpdateAppearances(await d.embedFont('Helvetica'));
+    if (saved === 'none')
+      text.acroField.getWidgets()[0].dict.delete(PDFName.of('AP'));
+    // Real forms store no appearance for an unticked box.
+    (
+      box.acroField.getWidgets()[0].getAppearances()!.normal as unknown as {
+        delete(k: PDFName): void;
+      }
+    ).delete(PDFName.of('Off'));
+    return d.save({ updateFieldAppearances: false });
+  }
+
+  it.each(['none', 'stale'] as const)(
+    'draws the values of a fillable form (appearance: %s)',
+    async (saved) => {
+      const w = await world();
+      w.bytes['f-stmt'] = await form('AED 12500', saved);
+      await build(w);
+      const all = (await streams(w)).join('\n').toUpperCase();
+      const out = await PDFDocument.load(w.uploads[0].body);
+      const used = out
+        .getPages()
+        .map((p) => p.node.toString())
+        .join();
+      expect(all).toContain(hex('AED 12500'));
+      expect(used).not.toContain('/Widget');
+      // A hidden field is not drawn.
+      expect(all).not.toContain(hex('SECRET'));
+    }
+  );
+
+  it('refuses, naming the document, when a value cannot be drawn', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const w = await world();
+    w.bytes['f-stmt'] = await form('محمد');
+    const err = (await build(w).catch((e) => e)) as CaseFilesRefusedError;
+    expect(err).toBeInstanceOf(CaseFilesRefusedError);
+    expect(err.reason).toBe('FORM_NOT_FLATTENED');
+    expect(err.document).toBe('STATEMENT.pdf');
+    expect(w.uploads).toEqual([]);
+  });
+
+  /** `JPEG`, 300x100, with an EXIF orientation. */
+  function photo(turn: number, little: boolean) {
+    const u16 = (n: number) => (little ? [n & 255, n >> 8] : [n >> 8, n & 255]);
+    const u32 = (n: number) => (little ? [...u16(n), 0, 0] : [0, 0, ...u16(n)]);
+    const tiff = [
+      ...(little ? [0x49, 0x49] : [0x4d, 0x4d]),
+      ...u16(42),
+      ...u32(8),
+      ...u16(1),
+      ...u16(0x0112),
+      ...u16(3),
+      ...u32(1),
+      ...u16(turn),
+      0,
+      0,
+      ...u32(0),
+    ];
+    const app1 = [0x45, 0x78, 0x69, 0x66, 0, 0, ...tiff];
+    const jpeg = [...JPEG];
+    jpeg.splice(7, 4, 0, 100, 300 >> 8, 300 & 255);
+    jpeg.splice(2, 0, 0xff, 0xe1, 0, app1.length + 2, ...app1);
+    return Uint8Array.from(jpeg);
+  }
+
+  // Where the photo's right and up directions point on the page.
+  it.each([
+    [1, true, [1, 0], [0, 1]],
+    [3, true, [-1, 0], [0, -1]],
+    [6, true, [0, -1], [1, 0]],
+    [6, false, [0, -1], [1, 0]],
+    [8, false, [0, 1], [-1, 0]],
+  ])(
+    'a photo with EXIF orientation %i stands upright',
+    async (turn, little, right, up) => {
+      const w = await world();
+      w.bytes['f-photo'] = photo(turn, little);
+      await build(w);
+      const draws = (await streams(w)).filter(
+        (s) => / cm\n/.test(s) && / Do\n/.test(s) && !/ Tf/.test(s)
+      );
+      // The PNG is another page: take the 3:1 one.
+      const boxes = draws.map((s) => {
+        let m = [1, 0, 0, 1, 0, 0];
+        for (const [, nums] of s.matchAll(/^([-\d.e ]+) cm$/gm)) {
+          const [a, b, c, d, e, f] = nums.split(' ').map(Number);
+          m = [
+            a * m[0] + b * m[2],
+            a * m[1] + b * m[3],
+            c * m[0] + d * m[2],
+            c * m[1] + d * m[3],
+            e * m[0] + f * m[2] + m[4],
+            e * m[1] + f * m[3] + m[5],
+          ];
+        }
+        return m;
+      });
+      const m = boxes.find(
+        ([a, b, c, d]) =>
+          Math.abs(Math.hypot(a, b) / Math.hypot(c, d) - 3) < 0.01
+      )!;
+      const dir = (x: number, y: number) =>
+        [x, y].map((v) => Math.round(v / Math.hypot(x, y)) + 0);
+      expect(dir(m[0], m[1])).toEqual(right);
+      expect(dir(m[2], m[3])).toEqual(up);
+      for (const [x, y] of [
+        [0, 0],
+        [1, 1],
+      ]) {
+        const px = m[0] * x + m[2] * y + m[4];
+        const py = m[1] * x + m[3] * y + m[5];
+        expect(px).toBeGreaterThan(0);
+        expect(px).toBeLessThan(596);
+        expect(py).toBeGreaterThan(0);
+        expect(py).toBeLessThan(842);
+      }
+    }
+  );
 });
 
 describe('text helpers', () => {

@@ -12375,7 +12375,9 @@
     "showFewer": "Show fewer",
     "sidebarLabel": "Documents",
     "sidebarCount": "{count, plural, one {# file} other {# files}}",
-    "sidebarLink": "Open this customer's documents"
+    "sidebarLink": "Open this customer's documents",
+    "showNewest": "Show the newest {count}",
+    "newestOnly": "Only the newest {count} documents are listed here."
   },
   "CaseFiles": {
     "useAgain": "Use this one again",
@@ -12456,7 +12458,8 @@
       "BUILD_TOO_LARGE": "The case file would be too large to store (over 50 MB). Replace the largest documents with smaller copies, or assemble an index only.",
       "FILE_NOT_FOUND": "This file could not be found.",
       "NOT_CONFIGURED": "Downloads are not set up on this server.",
-      "generic": "Something went wrong. Try again."
+      "generic": "Something went wrong. Try again.",
+      "FORM_NOT_FLATTENED": "The form in “{document}” could not be read in full, so the case file was not assembled. Print that form to a new PDF, upload it, and try again."
     },
     "checks": {
       "detail": {
