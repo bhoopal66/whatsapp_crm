@@ -804,6 +804,14 @@ async function groupCandidate(
   return (data as GroupCandidate[] | null)?.[0] ?? null;
 }
 
+function groupSendFailed(): NotifyError {
+  return new NotifyError(
+    'group_send_failed',
+    "The update could not be sent into the customer's submission group. Nothing was sent — retry later with the same idempotency_key.",
+    502
+  );
+}
+
 /**
  * Posts the update into the group. Returns where it went, or null when it
  * should go 1:1 instead: the group refused it (no WhatsApp group, closed,
@@ -879,11 +887,7 @@ async function sendToGroup(
       gateway.refused();
       if (err.cause instanceof NotifyError) throw err.cause;
     }
-    throw new NotifyError(
-      'group_send_failed',
-      "The update could not be sent into the customer's submission group. Nothing was sent — retry later with the same idempotency_key.",
-      502
-    );
+    throw groupSendFailed();
   }
   switch (result.status) {
     case 'sent':
@@ -891,6 +895,8 @@ async function sendToGroup(
     case 'blocked':
       throw customerOptedOut();
     case 'refused':
+      // About this call, not about the group, which may be alive.
+      if (result.code === 'BAD_INPUT') throw groupSendFailed();
       last.messageId = result.messageId ?? last.messageId;
       return null;
     case 'duplicate':
