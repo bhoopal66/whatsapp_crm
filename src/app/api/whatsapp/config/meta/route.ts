@@ -236,12 +236,21 @@ export async function POST(request: Request) {
     // Look the existing row up first: the settings panel shows a masked
     // placeholder rather than the real token, so a re-save sends no
     // token at all and must reuse the stored one instead of erroring.
-    const { data: existingRow } = await supabase
+    const { data: existingRow, error: existingError } = await supabase
       .from('whatsapp_config')
-      .select('id, phone_number_id, waba_id')
+      .select('id, phone_number_id, waba_id, subscribed_apps_at')
       .eq('account_id', accountId)
       .eq('provider', 'meta')
       .maybeSingle();
+    if (existingError) {
+      // Read as "no number yet", this save became an INSERT that the
+      // one-Meta index refuses, after Meta had already been called.
+      console.error('[whatsapp/config/meta] row read failed:', existingError);
+      return NextResponse.json(
+        { error: 'Failed to validate configuration' },
+        { status: 500 }
+      );
+    }
     const [existing] = existingRow
       ? await withChannelSecrets([existingRow], ['access_token'])
       : [null];
@@ -422,7 +431,14 @@ export async function POST(request: Request) {
         : {}),
       status: 'connected',
       connected_at: new Date().toISOString(),
-      subscribed_apps_at: subscribedAt,
+      // A listing or subscribe that failed takes nothing away: nothing
+      // here unsubscribes, so the same WABA keeps its earlier stamp. The
+      // answer still reports this attempt (`subscribed`, `subscribe_error`).
+      subscribed_apps_at:
+        subscribedAt ??
+        (existing && existing.waba_id === wabaId
+          ? (existing.subscribed_apps_at ?? null)
+          : null),
       updated_at: new Date().toISOString(),
     };
 
@@ -441,11 +457,23 @@ export async function POST(request: Request) {
       }
     } else {
       // At most one primary per account (partial unique index, migration
-      // 046), so only claim it when nothing else is connected.
-      const { count: siblingCount } = await supabase
+      // 046), so only claim it when nothing else is connected. Shared
+      // numbers only: a personal one can never be the default (190).
+      const { count: siblingCount, error: siblingError } = await supabase
         .from('whatsapp_config')
         .select('id', { count: 'exact', head: true })
-        .eq('account_id', accountId);
+        .eq('account_id', accountId)
+        .eq('is_personal', false);
+      if (siblingError) {
+        console.error(
+          '[whatsapp/config/meta] sibling count failed:',
+          siblingError
+        );
+        return NextResponse.json(
+          { error: 'Failed to validate configuration' },
+          { status: 500 }
+        );
+      }
 
       const { error } = await supabase.from('whatsapp_config').insert({
         account_id: accountId,

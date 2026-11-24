@@ -319,9 +319,12 @@ export function MembersTab() {
       if (cres.ok) {
         const cdata = (await cres.json()) as {
           coordinators: Parameters<typeof banksByUser>[0];
+          phones?: Parameters<typeof phonesByUser>[0];
         };
         setCoordBanks(banksByUser(cdata.coordinators));
-        setCoordPhones(phonesByUser(cdata.coordinators));
+        // Everyone's, not the bank holders': a person without banks can
+        // have a saved number too.
+        setCoordPhones(phonesByUser(cdata.phones ?? cdata.coordinators));
       }
 
       if (!ires.ok) {
@@ -583,10 +586,17 @@ export function MembersTab() {
         )
       );
       const name = member.full_name || t('unnamed');
+      const { banned } = ((await res
+        .clone()
+        .json()
+        .catch(() => null)) ?? {}) as { banned?: boolean };
       toast.success(
         active
           ? t('reactivatedToast', { name })
-          : t('deactivatedToast', { name })
+          : banned === false
+            ? // Works in another workspace: the login stays open for it.
+              t('deactivatedHereToast', { name })
+            : t('deactivatedToast', { name })
       );
       await warnPersonalNumber(res, name);
       setDeactivatingMember(null);

@@ -9,6 +9,15 @@ vi.mock('./channels', () => ({
   loadLinkedChannelsForHealth: async () => h.channels,
 }));
 
+const samePhone = vi.hoisted(() => ({
+  check: vi.fn(),
+  disconnect: vi.fn(),
+}));
+vi.mock('./openwa-number', () => ({
+  phoneAlreadyConnected: samePhone.check,
+  disconnectOpenWANumber: samePhone.disconnect,
+}));
+
 import {
   channelHealthAlert,
   everyInterval,
@@ -731,6 +740,33 @@ describe('OpenWA numbers', () => {
       ];
       expect(rows).toHaveLength(1);
       expect(rows[0].type).toBe('channel_reconnected');
+    });
+
+    it('a first link of a phone connected elsewhere is removed, not stamped', async () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+      samePhone.check.mockResolvedValueOnce('already connected');
+      const row = { ...openwaRow('disconnected'), connectedAt: null };
+      h.channels = [row];
+      const { db, calls } = fakeAdmin({});
+      await runChannelHealthCheck(db, { probe: readyProbe, now: () => NOW });
+      expect(samePhone.disconnect).toHaveBeenCalledWith(
+        db,
+        row.accountId,
+        { id: row.id, phone_number_id: row.phoneNumberId },
+        { force: true }
+      );
+      expect(calls('whatsapp_config', 'update')).toEqual([]);
+    });
+
+    it('a failed same-phone read stamps and removes nothing', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      samePhone.disconnect.mockClear();
+      samePhone.check.mockRejectedValueOnce(new Error('connection reset'));
+      h.channels = [{ ...openwaRow('disconnected'), connectedAt: null }];
+      const { db, calls } = fakeAdmin({});
+      await runChannelHealthCheck(db, { probe: readyProbe, now: () => NOW });
+      expect(samePhone.disconnect).not.toHaveBeenCalled();
+      expect(calls('whatsapp_config', 'update')).toEqual([]);
     });
 
     it('a first link (never connected) is stamped with its number but not announced', async () => {

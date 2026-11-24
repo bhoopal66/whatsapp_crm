@@ -2493,6 +2493,7 @@
       "reactivate": "إعادة التفعيل",
       "deactivatedOn": "تم التعطيل {date}",
       "deactivatedToast": "تم تعطيل {name}. لم يعد بإمكانه تسجيل الدخول.",
+      "deactivatedHereToast": "تم تعطيل {name} في مساحة العمل هذه. لا يزال بإمكانه تسجيل الدخول إلى مساحة العمل الأخرى.",
       "personal": {
         "badge": "WhatsApp خاص",
         "allow": "السماح بـ WhatsApp خاص",

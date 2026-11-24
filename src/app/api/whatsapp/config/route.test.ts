@@ -402,6 +402,63 @@ describe('POST /api/whatsapp/config — failed reads and a failed save', () => {
     });
   });
 
+  it('refuses a rotation whose registration fails, keeping the stored secret', async () => {
+    // The gateway times out after applying the new address, then answers.
+    h.registerWebhook
+      .mockRejectedValueOnce(new Error('gateway timeout'))
+      .mockResolvedValueOnce({ success: true });
+    const res = await save({ rotate_secret: true });
+    expect(res.status).toBe(502);
+    const { error } = (await res.json()) as { error: string };
+    expect(error).toContain('secret was not changed');
+    expect(error).toContain('keeps receiving');
+    expect(h.updates).toHaveLength(0);
+    expect(h.registerWebhook).toHaveBeenCalledTimes(2);
+    expect(h.registerWebhook.mock.calls[1][0].webhookUrl).toContain(
+      'secret=secret'
+    );
+  });
+
+  it('refuses the rotation when the callback cannot be put back either', async () => {
+    h.registerWebhook
+      .mockRejectedValueOnce(new Error('gateway down'))
+      .mockRejectedValueOnce(new Error('gateway down'));
+    const res = await save({ rotate_secret: true });
+    expect(res.status).toBe(502);
+    expect(((await res.json()) as { error: string }).error).toContain(
+      'if messages stop arriving'
+    );
+    expect(h.updates).toHaveLength(0);
+  });
+
+  it('does not put the old callback on a channel of another phone', async () => {
+    h.registerWebhook.mockRejectedValueOnce(new Error('gateway down'));
+    h.getChannelInfo.mockResolvedValue(channelInfo('AUTH', '971599999999'));
+    const res = await save({ rotate_secret: true });
+    expect(res.status).toBe(502);
+    expect(h.updates).toHaveLength(0);
+    expect(h.registerWebhook).toHaveBeenCalledTimes(1);
+  });
+
+  it('still saves a re-save and a first connection whose registration fails', async () => {
+    h.registerWebhook.mockRejectedValueOnce(new Error('gateway down'));
+    const again = await save();
+    expect(again.status).toBe(200);
+    expect(h.updates[0].verify_token).toBe('enc:secret');
+
+    h.registerWebhook.mockRejectedValueOnce(new Error('gateway down'));
+    const first = await POST(
+      post({
+        token: 'tok',
+        channel_id: 'NEW-CHANNEL',
+        create: true,
+        rotate_secret: true,
+      })
+    );
+    expect(first.status).toBe(200);
+    expect(h.inserts).toHaveLength(1);
+  });
+
   it('has nothing to restore when a new number fails to insert', async () => {
     h.fail.insert = { message: 'insert failed' };
     const res = await POST(

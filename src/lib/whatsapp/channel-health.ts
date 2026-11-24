@@ -30,6 +30,7 @@ import {
   type WhatsAppProvider,
 } from './channels';
 import { sweepAbandonedOpenWASessions } from './openwa-cleanup';
+import { disconnectOpenWANumber, phoneAlreadyConnected } from './openwa-number';
 import { probeChannel, type ChannelProbe } from './provider';
 
 /** What one probe of a number came back with. */
@@ -598,7 +599,29 @@ async function applyTransition(
     verdict.notify === 'up' &&
     channel.connectedAt === null;
   const phone = livePhone?.replace(/\D/g, '') ?? '';
-  if (firstLink && phone) patch.waba_id = phone;
+  if (firstLink && phone) {
+    // The status route's same-phone guard, for a link this sweep sees
+    // first. A failed read throws: nothing is stamped or torn down, and
+    // the next sweep asks again.
+    const refusal = await phoneAlreadyConnected(
+      admin,
+      { id: channel.id, accountId: channel.accountId },
+      phone
+    );
+    if (refusal) {
+      console.warn(
+        `[channel-health] ${channel.id}: first link refused, same phone`
+      );
+      await disconnectOpenWANumber(
+        admin,
+        channel.accountId,
+        { id: channel.id, phone_number_id: channel.phoneNumberId },
+        { force: true }
+      );
+      return null;
+    }
+    patch.waba_id = phone;
+  }
 
   let update = admin
     .from('whatsapp_config')

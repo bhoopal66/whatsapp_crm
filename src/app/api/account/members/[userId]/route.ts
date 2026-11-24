@@ -342,6 +342,8 @@ async function setActive(
     return NextResponse.json({
       ok: true,
       active,
+      // The login was left open: the screen must not say otherwise.
+      banned: false,
       ...(await departed(admin, ctx.accountId, userId)),
     });
   }
@@ -363,12 +365,13 @@ async function setActive(
     active,
     ...(active
       ? {}
-      : await departed(admin, ctx.accountId, userId)),
+      : { banned: true, ...(await departed(admin, ctx.accountId, userId)) }),
   });
 }
 
 /**
- * Has the person a live row in another workspace? NULL when it cannot be
+ * Has the person a live row in another workspace that is not archived
+ * (105: nobody can work in an archived one)? NULL when it cannot be
  * read. Service role: the caller cannot read the person's rows in
  * workspaces they are not in themselves.
  */
@@ -383,7 +386,7 @@ async function worksElsewhere(
     .eq("user_id", userId)
     .is("deactivated_at", null)
     .neq("account_id", accountId)
-    .limit(1);
+    .limit(1000);
   if (error) {
     console.error(
       `[members route] could not read ${userId}'s other memberships:`,
@@ -391,7 +394,25 @@ async function worksElsewhere(
     );
     return null;
   }
-  return (data?.length ?? 0) > 0;
+  if (!data || data.length === 0) return false;
+
+  const { data: open, error: openError } = await admin
+    .from("accounts")
+    .select("id")
+    .in(
+      "id",
+      data.map((r) => r.account_id as string),
+    )
+    .is("archived_at", null)
+    .limit(1);
+  if (openError) {
+    console.error(
+      `[members route] could not read ${userId}'s other workspaces:`,
+      openError,
+    );
+    return null;
+  }
+  return (open?.length ?? 0) > 0;
 }
 
 /**

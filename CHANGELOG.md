@@ -71,6 +71,32 @@ and polish.
   that stops without an answer ten times is marked failed.
   **Migration required: 316** (`316_desk_rest.sql`).
 
+- **Deactivating says what happened to the login.** Somebody who also works
+  in another workspace keeps their login, and the message now says so
+  instead of "They can no longer sign in". An archived workspace no longer
+  counts as one they work in.
+- **A coordinator number shows without banks.** Settings → Members showed an
+  empty WhatsApp number for somebody who has one saved but holds no bank,
+  and it could not be cleared.
+- **One phone is connected once on OpenWA too.** A phone that scans a QR
+  while it is already connected as another Whapi or OpenWA number (in any
+  workspace) is refused with the reason and unlinked again; before, a
+  company phone scanned into "My WhatsApp" delivered every company chat a
+  second time as personal chats. A number that is already linked is never
+  unlinked by this.
+- **Saving the Meta number survives a failed read.** A failed read of the
+  stored number or of the number count answers an error instead of a save
+  that cannot work; personal numbers no longer keep the first shared Meta
+  number from being the default; a re-save whose WABA listing fails keeps
+  the working subscription.
+- **A routing save is checked whole before anything is written.** An unknown
+  surface or a removed number no longer leaves the default changed, a
+  refused number no longer clears other routes, and a save that fails
+  half-way says which part was saved.
+- **Rotate secret while Whapi is unreachable no longer stops inbound.** The
+  new secret was saved although Whapi still called the old address, so every
+  message on that number was rejected. The rotation is now refused, the
+  number keeps its secret, and the message says so.
 - **When a submission group ends, its bells follow.** The unread bell of an
   agent who loses the group opens the customer's page instead of "does not
   exist". **Migration required: 313**.

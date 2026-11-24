@@ -2493,6 +2493,7 @@
       "reactivate": "Reactivate",
       "deactivatedOn": "Deactivated {date}",
       "deactivatedToast": "Deactivated {name}. They can no longer sign in.",
+      "deactivatedHereToast": "Deactivated {name} in this workspace. They can still sign in to their other workspace.",
       "personal": {
         "badge": "Own WhatsApp",
         "allow": "Allow own WhatsApp",
