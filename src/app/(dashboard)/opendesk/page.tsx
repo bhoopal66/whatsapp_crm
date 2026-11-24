@@ -28,6 +28,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { dateFnsLocale } from '@/i18n/ui-locale';
 
 const PAGE_SIZE = 50;
 
@@ -67,7 +68,10 @@ function sanitizeSearch(raw: string): string {
 }
 
 const ago = (iso: string) =>
-  formatDistanceToNow(new Date(iso), { addSuffix: true });
+  formatDistanceToNow(new Date(iso), {
+    addSuffix: true,
+    locale: dateFnsLocale(),
+  });
 const when = (iso: string) => format(new Date(iso), 'd MMM yyyy, HH:mm');
 const phoneOf = (row: OpenDeskContact) =>
   row.phone ? `+${row.phone}` : (row.phone_raw ?? '—');

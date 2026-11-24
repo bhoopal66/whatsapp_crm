@@ -442,7 +442,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
           // Desktop: static, always visible — reset all the mobile framing.
           'lg:static lg:z-0 lg:w-60 lg:translate-x-0 lg:transition-none'
         )}
-        aria-label="Primary"
+        aria-label={t('primaryNav')}
         // Navigation is dark in both modes: users found a light sidebar
         // too bright next to light pages (2026-10-21). In light mode
         // data-nav swaps the near-black for the brand navy (globals.css).

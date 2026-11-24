@@ -89,6 +89,10 @@ and polish.
   groups, campaigns and HR automated messages; the error text goes, the
   campaign's failed count falls, and "Retry failed" does not send it
   again. **Migration required: 291**, after 289.
+- **Arabic and Korean screens.** The last English texts follow the chosen
+  language: chart days and dates, "3 minutes ago", who is online, the
+  read-only hints, the calendar's all-day row and the labels screen readers
+  use. Dates no longer follow the browser's language. No migration.
 - **Phone screens.** Settings → Team chat no longer scrolls the whole page
   sideways, wide tables everywhere scroll inside their own box, and the
   small "how is this calculated" marks are big enough to tap and show the

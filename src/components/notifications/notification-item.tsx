@@ -52,6 +52,7 @@ import {
 import { notificationRow } from '@/lib/notifications/target';
 import { cn } from '@/lib/utils';
 import { useNotifications } from './notifications-provider';
+import { dateFnsLocale } from '@/i18n/ui-locale';
 
 // Icon per notification type — a one-line add per new type.
 const TYPE_ICON: Record<Notification['type'], typeof Bell> = {
@@ -274,6 +275,7 @@ export function NotificationItem({
           <p className="text-muted-foreground mt-1 text-xs">
             {formatDistanceToNow(new Date(n.created_at), {
               addSuffix: true,
+              locale: dateFnsLocale(),
             })}
           </p>
         </div>

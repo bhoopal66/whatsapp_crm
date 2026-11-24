@@ -9,6 +9,7 @@ import interactionPlugin from '@fullcalendar/interaction';
 import listPlugin from '@fullcalendar/list';
 import multiMonthPlugin from '@fullcalendar/multimonth';
 import koLocale from '@fullcalendar/core/locales/ko';
+import arLocale from '@fullcalendar/core/locales/ar';
 import type {
   DatesSetArg,
   DayHeaderContentArg,
@@ -145,7 +146,7 @@ const RAIL_KEY = 'calendar.rail.v1';
  * DateEnv on the locales array, and a fresh one per render rebuilt the
  * date profile (and re-fired datesSet) on every render.
  */
-const FC_LOCALES = [koLocale];
+const FC_LOCALES = [koLocale, arLocale];
 
 const EVENT_TIME_FORMAT = {
   hour: 'numeric',

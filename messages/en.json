@@ -1,4 +1,7 @@
 {
+  "Common": {
+    "toasts": "Notifications"
+  },
   "LoginPage": {
     "titleAccept": "Sign in to accept",
     "titleWelcome": "Welcome back",
@@ -68,6 +71,7 @@
     "retry": "Try again"
   },
   "Sidebar": {
+    "primaryNav": "Main menu",
     "navLabel": "Sidebar navigation",
     "title": "Taamul Connect",
     "dashboard": "Dashboard",
@@ -1243,6 +1247,8 @@
   },
   "Pipelines": {
     "page": {
+      "selectAllOnPage": "Select all contacts on this page",
+      "selectOne": "Select {name}",
       "dealsLoadFailed": "The deals could not be loaded.",
       "retry": "Try again",
       "unknownStage": "New stage",
@@ -6944,6 +6950,10 @@
     }
   },
   "Presence": {
+    "onlineNow": "Online — active now",
+    "awayIdle": "Away — idle",
+    "offlineSince": "Offline — last seen {when}",
+    "offlineUnknown": "Offline",
     "available": "Available",
     "onCall": "On a call",
     "dnd": "Do not disturb",
