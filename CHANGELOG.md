@@ -44,6 +44,11 @@ and polish.
 
 ### Security
 
+- **The old one-shot campaign route is gone** (`POST
+  /api/whatsapp/broadcast`). Nothing has called it since campaigns moved to
+  the server, and it sent a template to any numbers it was given without
+  looking at opt-outs, do-not-contact or quiet hours. Campaigns and the
+  public API are unchanged. No migration.
 - **Small access points closed.** Case desk: an upload naming a company
   or customer the uploader has no case of waits for a sorter, and company
   contacts and cases are shown only as far as the reader may see them.

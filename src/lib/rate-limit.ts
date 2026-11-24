@@ -140,15 +140,10 @@ export const RATE_LIMITS = {
   /** Individual message send. 60/min per user = one per second
    *  sustained, comfortable for a live human typing. */
   send: { limit: 60, windowMs: 60_000 },
-  /** Broadcast dispatch. NOT one call per campaign: the wizard fans a
-   *  campaign out over `/api/whatsapp/broadcast` in batches of 10
-   *  recipients, roughly one call every 1–2 s, so a 1 000-recipient
-   *  send is ~100 calls over several minutes. This bucket was 5/min on
-   *  the assumption of one call per campaign, which meant everything
-   *  past the first ~50 recipients came back 429 and was recorded as a
-   *  failed recipient (issue #472). 60/min per user carries the wizard's
-   *  pacing with headroom while still bounding a script in a loop;
-   *  Meta's own per-number limits remain the real throughput ceiling. */
+  /** Campaign passes (`/api/whatsapp/broadcast/[id]/resume`): one call
+   *  works through many recipients on the server, and the page asks again
+   *  while some are left. 5/min once cut campaigns short (issue #472);
+   *  60/min per user bounds a script in a loop. */
   broadcast: { limit: 60, windowMs: 60_000 },
   /** Reaction add/swap/remove. More permissive than send — users
    *  fidget with reactions and a single "swap" is actually two calls
