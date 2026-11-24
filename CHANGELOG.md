@@ -22,6 +22,10 @@ and polish.
 
 ### Fixed
 
+- **A person working in one tab no longer blinks between online and away.**
+  Every open tab reported its own presence and a hidden one wrote `away` over
+  the one in use. One tab of the browser now reports for all of them. No
+  migration.
 - **The sidebar's numbers no longer blink to zero, and a hidden tab stops
   asking for them.** A failed poll keeps the last count, and the minute polls
   (groups, submission groups, overdue cases, HR, phone status, team chat) sleep
