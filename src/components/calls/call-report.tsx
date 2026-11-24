@@ -183,7 +183,7 @@ export function CallReport() {
       ) : !report || !hasCalls(report.total) ? (
         <p className="text-muted-foreground text-sm">{t('empty')}</p>
       ) : (
-        <section className="border-border bg-card overflow-x-auto rounded-xl border">
+        <section className="border-border bg-card relative overflow-x-auto rounded-xl border">
           <table className="w-full min-w-[48rem] text-sm">
             <thead className="text-muted-foreground border-border border-b text-xs">
               <tr>

@@ -176,7 +176,7 @@ export function PermissionsCard({
         ) : (
           <>
             {/* The table scrolls inside the card on a phone, never the page. */}
-            <div className="border-border max-w-full overflow-x-auto rounded-lg border">
+            <div className="border-border max-w-full relative overflow-x-auto rounded-lg border">
               <table className="w-full min-w-[40rem] border-collapse text-sm">
                 <caption className="sr-only">{t('title')}</caption>
                 <thead>

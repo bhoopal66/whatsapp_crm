@@ -865,7 +865,7 @@ function AuditCard() {
             {t('empty')}
           </p>
         ) : (
-          <div className="-mx-1 overflow-x-auto px-1">
+          <div className="-mx-1 relative overflow-x-auto px-1">
             <Table>
               <TableHeader>
                 <TableRow>

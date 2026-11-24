@@ -811,7 +811,7 @@ export function CallStatsReport() {
       return section(
         t('charts.heatTitle'),
         t('charts.heatDescription'),
-        <div className="overflow-x-auto">
+        <div className="relative overflow-x-auto">
           <div className="min-w-[36rem]">
             <div className="text-muted-foreground ms-9 grid grid-cols-24 gap-0.5 text-xs">
               {Array.from({ length: 24 }, (_, h) => (
@@ -956,7 +956,7 @@ export function CallStatsReport() {
           {t('people.hint')}
         </p>
       </header>
-      <div className="overflow-x-auto">
+      <div className="relative overflow-x-auto">
         <table className="w-full min-w-[56rem] text-sm">
           <thead className="text-muted-foreground border-border border-b text-xs">
             <tr>{PEOPLE_SORT_KEYS.map(sortHeader)}</tr>

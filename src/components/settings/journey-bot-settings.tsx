@@ -369,7 +369,7 @@ function TemplatesCard({
             {!hasMeta && !hasWhapi && (
               <p className="text-muted-foreground text-sm">{t('noNumbers')}</p>
             )}
-            <div className="-mx-1 overflow-x-auto px-1">
+            <div className="-mx-1 relative overflow-x-auto px-1">
               <table className="w-full min-w-[36rem] text-sm">
                 <thead>
                   <tr className="text-muted-foreground text-start text-xs">

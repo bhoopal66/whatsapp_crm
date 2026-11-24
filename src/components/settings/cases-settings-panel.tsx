@@ -454,7 +454,7 @@ export function CasesSettingsPanel() {
                 {t('bankHeading', { name: bank.name })}
               </h3>
               <Tabs value={tab} onValueChange={(v) => setTab(v as BankTab)}>
-                <div className="-mx-1 overflow-x-auto px-1 pb-1">
+                <div className="-mx-1 relative overflow-x-auto px-1 pb-1">
                   <TabsList aria-label={t('bankHeading', { name: bank.name })}>
                     {BANK_TABS.map((id) => (
                       <TabsTrigger
@@ -1465,7 +1465,7 @@ function SlaTab({ code }: { code: string }) {
     <Card>
       <CardContent className="space-y-4">
         <p className="text-muted-foreground text-sm">{t('help')}</p>
-        <div className="border-border overflow-x-auto rounded-lg border">
+        <div className="border-border relative overflow-x-auto rounded-lg border">
           <table className="w-full min-w-[36rem] text-sm">
             <thead className="bg-muted/50 text-muted-foreground text-xs">
               <tr>

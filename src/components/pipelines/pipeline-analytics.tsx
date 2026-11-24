@@ -169,7 +169,7 @@ function Metric({
               <button
                 type="button"
                 aria-label={t("howCalculated", { label })}
-                className="ms-auto rounded-sm text-muted-foreground hover:text-foreground focus-visible:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="relative ms-auto rounded-sm text-muted-foreground after:absolute after:-inset-2 hover:text-foreground focus-visible:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               />
             }
           >

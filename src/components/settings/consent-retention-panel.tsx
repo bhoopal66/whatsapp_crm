@@ -152,7 +152,7 @@ function BankPoliciesCard() {
         ) : rows.length === 0 ? (
           <p className="text-muted-foreground text-sm">{t('empty')}</p>
         ) : (
-          <div className="border-border overflow-x-auto rounded-lg border">
+          <div className="border-border relative overflow-x-auto rounded-lg border">
             <table className="w-full min-w-[640px] text-sm">
               <thead className="bg-muted/50 text-muted-foreground text-start text-xs">
                 <tr>
