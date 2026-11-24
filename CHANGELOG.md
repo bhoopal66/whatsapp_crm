@@ -34,6 +34,9 @@ and polish.
 
 ### Fixed
 
+- **A template Meta refuses says why.** Meta's answer is "Invalid
+  parameter" with the reason in a second text that was dropped; both are
+  shown now.
 - **Team chat: a forward or a shared call goes once, and whole.** Trying
   again after a lost answer no longer makes a second copy, and a forward
   that failed stays selected; a forward with a file missing is refused. An

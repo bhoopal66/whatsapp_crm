@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { listMessageTemplates } from './meta-api';
+import { listMessageTemplates, MetaError } from './meta-api';
 
 // Sync disables what the list does not name, so the list says whether it
 // is whole.
@@ -48,5 +48,36 @@ describe('listMessageTemplates', () => {
     }));
     expect((await list()).complete).toBe(false);
     expect(f).toHaveBeenCalledTimes(50);
+  });
+});
+
+describe("Meta's refusal of a template", () => {
+  const refused = async (error: object) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ error }, { status: 400 }))
+    );
+    return (await list().catch((e: unknown) => e)) as MetaError;
+  };
+
+  it('carries the text written for the author', async () => {
+    const err = await refused({
+      message: 'Invalid parameter',
+      code: 100,
+      error_subcode: 2388299,
+      error_user_title: 'Variables cannot be at the start or end',
+      error_user_msg: 'Change the template and submit it again.',
+    });
+    expect(err).toBeInstanceOf(MetaError);
+    expect(err.message).toBe(
+      'Invalid parameter (Variables cannot be at the start or end: Change the template and submit it again.)'
+    );
+    expect(err.code).toBe(100);
+    expect(err.subcode).toBe(2388299);
+  });
+
+  it('is the plain message when there is none', async () => {
+    const err = await refused({ message: 'Invalid parameter', code: 100 });
+    expect(err.message).toBe('Invalid parameter');
   });
 });

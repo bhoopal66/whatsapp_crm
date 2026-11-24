@@ -45,6 +45,8 @@ interface MetaErrorResponse {
     type?: string
     error_subcode?: number
     error_data?: { details?: string }
+    error_user_title?: string
+    error_user_msg?: string
   }
 }
 
@@ -182,6 +184,13 @@ export async function throwMetaError(response: Response, fallback: string): Prom
     if (typeof data.error?.code === 'number') code = data.error.code
     if (typeof data.error?.error_subcode === 'number') subcode = data.error.error_subcode
     if (data.error?.error_data?.details) details = data.error.error_data.details
+    // A refused template says "Invalid parameter" in `message` and what is
+    // wrong with it only here.
+    const why = [data.error?.error_user_title, data.error?.error_user_msg]
+      .map((s) => (typeof s === 'string' ? s.trim() : ''))
+      .filter(Boolean)
+      .join(': ')
+    if (why && !message.includes(why)) message = `${message} (${why})`
   } catch {
     // response body wasn't JSON — keep the fallback
   }
