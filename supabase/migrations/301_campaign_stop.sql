@@ -16,6 +16,9 @@
 --      is never held back.
 --   3. broadcast_stop(): the caller's rights, so admins, like resume and
 --      delete (broadcasts_update, migration 135).
+--   4. broadcasts.skip_recent_days: the frequency cap, for the check the
+--      delivery makes before each send. NULL: none. Until now it was only
+--      in audience_filter, read when the campaign was built.
 --
 -- Re-runnable.
 -- ============================================================
@@ -79,3 +82,6 @@ END;
 $$;
 REVOKE ALL ON FUNCTION public.broadcast_stop(uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.broadcast_stop(uuid) TO authenticated, service_role;
+
+ALTER TABLE public.broadcasts
+  ADD COLUMN IF NOT EXISTS skip_recent_days integer CHECK (skip_recent_days > 0);

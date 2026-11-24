@@ -38,6 +38,11 @@ function orTerm(term: string): (r: Row) => boolean {
 export interface FakeOptions {
   /** Return a message to fail this request. */
   fail?: (q: { table: string; patch: Row | null }) => string | null;
+  /** Return an error to refuse this insert. */
+  refuseInsert?: (
+    table: string,
+    rows: Row[]
+  ) => { code: string; message: string } | null;
   /** Called with every update that matched rows. */
   onUpdate?: (table: string, patch: Row, rows: Row[]) => void;
 }
@@ -51,6 +56,7 @@ export function fakeDb(
       const filters: ((r: Row) => boolean)[] = [];
       const orders: string[] = [];
       let patch: Row | null = null;
+      let inserted: Row[] | null = null;
       let start = 0;
       let limit = MAX_ROWS;
       let head = false;
@@ -61,6 +67,15 @@ export function fakeDb(
         const message = opts.fail?.({ table, patch }) ?? null;
         if (message) {
           return (memo = { data: null, count: null, error: { message } });
+        }
+        if (inserted) {
+          const error = opts.refuseInsert?.(table, inserted) ?? null;
+          if (!error) (tables[table] ??= []).push(...inserted);
+          return (memo = {
+            data: error ? null : inserted,
+            count: null,
+            error,
+          });
         }
         let rows = (tables[table] ?? []).filter((r) =>
           filters.every((f) => f(r))
@@ -108,8 +123,20 @@ export function fakeDb(
           patch = p;
           return b;
         },
+        insert: (p: Row | Row[]) => {
+          inserted = [p].flat().map((r, i) => ({ id: `new-${i}`, ...r }));
+          return b;
+        },
         eq: (c: string, v: unknown) => where((r) => r[c] === v),
-        in: (c: string, v: unknown[]) => where((r) => v.includes(r[c])),
+        neq: (c: string, v: unknown) =>
+          where((r) => r[c] != null && r[c] !== v),
+        in: (c: string, v: unknown[]) => {
+          // `table.col` filters on an embedded row.
+          const [col, nested] = c.split('.');
+          return where((r) =>
+            v.includes(nested ? (r[col] as Row | null)?.[nested] : r[col])
+          );
+        },
         lte: (c: string, v: string) =>
           where((r) => r[c] != null && String(r[c]) <= v),
         gte: (c: string, v: string) =>
@@ -134,6 +161,10 @@ export function fakeDb(
           start = from;
           limit = to - from + 1;
           return b;
+        },
+        single: async () => {
+          const res = run();
+          return { data: res.data?.[0] ?? null, error: res.error };
         },
         maybeSingle: async () => {
           const res = run();

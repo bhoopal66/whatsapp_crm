@@ -40,6 +40,11 @@ import { refusedByMeta } from '@/lib/whatsapp/template-offer';
 import { headerMediaProblem } from '@/lib/whatsapp/template-send-builder';
 import { isInQuietHours, type QuietHours } from '@/lib/broadcasts/quiet-hours';
 import {
+  capCutoff,
+  frequencyCapReason,
+  MESSAGED_STATUSES,
+} from '@/lib/broadcasts/frequency-cap';
+import {
   RESENDABLE_FILTER,
   SEND_UNCONFIRMED_REASON,
   SENT_NOT_RECORDED_REASON,
@@ -180,6 +185,11 @@ export interface BroadcastPlan {
    * again before every send. Null/undefined: the campaign has none.
    */
   quietHours?: QuietHours | null;
+  /**
+   * The campaign's frequency cap (migration 301), asked again before
+   * every send. Null/undefined: the campaign has none.
+   */
+  skipRecentDays?: number | null;
   planned: PlannedRecipient[];
   /** Phones rejected up front by validateContactPhone; no row is created. */
   rejected: number;
@@ -607,6 +617,30 @@ export async function deliverBroadcast(
           .update({
             status: 'failed',
             error_message: CONSENT_FAILURE_REASONS[refusal],
+          })
+          .eq('id', recipient.recipientRowId);
+        continue;
+      }
+    }
+    if (recipient.contactId && plan.skipRecentDays) {
+      const { data: recent, error } = await db
+        .from('broadcast_recipients')
+        .select('id')
+        .eq('contact_id', recipient.contactId)
+        .neq('broadcast_id', plan.broadcastId)
+        .in('status', MESSAGED_STATUSES)
+        .gte('sent_at', capCutoff(plan.skipRecentDays))
+        .limit(1);
+      if (error) {
+        stopped = 'the frequency cap check failed';
+        break;
+      }
+      if (recent && recent.length > 0) {
+        await db
+          .from('broadcast_recipients')
+          .update({
+            status: 'failed',
+            error_message: frequencyCapReason(plan.skipRecentDays),
           })
           .eq('id', recipient.recipientRowId);
         continue;

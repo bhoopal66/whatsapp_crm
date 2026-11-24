@@ -209,6 +209,71 @@ describe('do-not-contact', () => {
   });
 });
 
+describe('frequency cap at delivery', () => {
+  /** A row of another campaign for the second customer. */
+  const other = (w: ReturnType<typeof world>, row: Row) =>
+    w.broadcast_recipients.push({
+      id: 'other',
+      broadcast_id: 'bc-2',
+      contact_id: 'c00001',
+      ...row,
+    });
+  const capped = async (row: Row, skipRecentDays: number | null = 7) => {
+    const w = world(2, { skip_recent_days: skipRecentDays });
+    const { plan } = await resume(fakeDb(w));
+    other(w, row);
+    await deliverBroadcast(fakeDb(w), plan);
+    return w.broadcast_recipients.slice(0, 2);
+  };
+
+  it('skips a customer another campaign messaged after this one was built', async () => {
+    const rows = await capped({
+      status: 'delivered',
+      sent_at: '2026-11-17T08:00:00.000Z',
+    });
+    expect(sendTemplate).toHaveBeenCalledTimes(1);
+    expect(rows.map((r) => r.status)).toEqual(['sent', 'failed']);
+    expect(rows[1].error_message).toBe(
+      'Skipped: messaged by another campaign in the last 7 days'
+    );
+  });
+
+  it.each([
+    ['before the window', 'sent', '2026-11-16T07:59:59.000Z', 7],
+    ['failed', 'failed', '2026-11-22T08:00:00.000Z', 7],
+    ['pending', 'pending', null, 7],
+    ['a campaign without a cap', 'sent', '2026-11-22T08:00:00.000Z', null],
+  ])('sends: %s', async (_name, status, sent_at, days) => {
+    const rows = await capped({ status, sent_at }, days);
+    expect(rows.map((r) => r.status)).toEqual(['sent', 'sent']);
+  });
+
+  it('does not count what this campaign sent itself', async () => {
+    const rows = await capped({
+      broadcast_id: 'bc-1',
+      status: 'sent',
+      sent_at: '2026-11-22T08:00:00.000Z',
+    });
+    expect(rows.map((r) => r.status)).toEqual(['sent', 'sent']);
+  });
+
+  it('stops with the rest pending when it cannot be read', async () => {
+    const w = world(2);
+    let reads = 0;
+    const db = fakeDb(w, {
+      fail: ({ table, patch }) =>
+        table === 'broadcast_recipients' && !patch && ++reads === 1
+          ? 'timeout'
+          : null,
+    });
+    await deliverBroadcast(db, planFor(w, { skipRecentDays: 7 }));
+
+    expect(sendTemplate).not.toHaveBeenCalled();
+    expect(statuses(w)).toEqual(['pending', 'pending']);
+    expect(w.broadcasts[0].status).toBe('sending');
+  });
+});
+
 describe('quiet hours', () => {
   it('stops a pass they begin in, resumable', async () => {
     const w = world(3);

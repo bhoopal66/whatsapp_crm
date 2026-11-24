@@ -26,6 +26,15 @@ and polish.
 
 ### Fixed
 
+- **"Skip people messaged in the last N days" holds when campaigns overlap.**
+  It was decided only when a campaign was built, so two campaigns scheduled
+  together both kept the same people. The list now also leaves out everyone a
+  scheduled or running campaign is about to message (one left unfinished for
+  more than 7 days no longer counts), the estimate in the wizard counts the
+  cap, and each recipient is checked again just before the send: someone
+  another campaign messaged meanwhile is recorded as failed with "Skipped:
+  messaged by another campaign in the last N days". Campaigns made before this
+  release keep the old rule. **Migration required: 301** (before the build).
 - **An open tab notices what changed elsewhere.** When you switch workspace
   on another device, or your access to this workspace is deactivated while
   you have another, a bar above the page says so and offers Reload; nothing

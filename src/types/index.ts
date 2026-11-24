@@ -758,6 +758,8 @@ export interface Broadcast {
    * the broadcast cron both honour it. Null when none was set.
    */
   quiet_hours?: { start: string; end: string; tz: string } | null;
+  /** The frequency cap in days (migration 301). Null when it is off. */
+  skip_recent_days?: number | null;
   /** Media header URL chosen in the wizard (migration 053). */
   header_media_url?: string | null;
   /**

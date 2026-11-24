@@ -297,9 +297,9 @@ export async function planBroadcastResume(
 ): Promise<ResumePlan> {
   const { data: broadcast, error: bcError } = await db
     .from('broadcasts')
-    .select(
-      'id, status, template_name, template_language, header_media_url, quiet_hours'
-    )
+    // Every column: naming `skip_recent_days` would fail every campaign on
+    // a database before migration 301.
+    .select('*')
     .eq('id', broadcastId)
     .eq('account_id', accountId)
     .maybeSingle();
@@ -524,6 +524,7 @@ export async function planBroadcastResume(
     templateRow: resolvedTemplate.row,
     headerMediaUrl,
     quietHours,
+    skipRecentDays: broadcast.skip_recent_days ?? null,
     planned: slice.map(({ row, phone }) => ({
       recipientRowId: row.id,
       contactId: row.contact_id ?? null,

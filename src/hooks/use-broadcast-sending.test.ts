@@ -1,13 +1,22 @@
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 
 import { fakeDb, type Row } from '@/lib/whatsapp/broadcast.fake';
 
 // The hook module pulls in the browser Supabase client and the auth
 // context; neither is needed for the pure helper under test.
-vi.mock('@/lib/supabase/client', () => ({ createClient: () => ({}) }));
+const h = vi.hoisted(() => ({ client: {} as Record<string, unknown> }));
+vi.mock('@/lib/supabase/client', () => ({ createClient: () => h.client }));
 vi.mock('@/hooks/use-auth', () => ({ useAuth: () => ({ accountId: 'acct' }) }));
 
-import { deliverOnServer, resolveSendTime } from './use-broadcast-sending';
+import {
+  deliverOnServer,
+  estimateAudience,
+  resolveSendTime,
+  useBroadcastSending,
+  type AudienceConfig,
+} from './use-broadcast-sending';
 
 const DUBAI = { start: '21:00', end: '08:00', tz: 'Asia/Dubai' };
 
@@ -121,4 +130,129 @@ describe('deliverOnServer', () => {
     await run(t);
     expect(t.broadcasts[0].status).toBe('sent');
   });
+});
+
+describe('frequency cap when a campaign is built', () => {
+  const ago = (days: number) =>
+    new Date(Date.now() - days * 86_400_000).toISOString();
+  /** One recipient row per customer c0, c1, ... of another campaign. */
+  const ROWS: { status: string; sent_at?: string; broadcasts: Row | null }[] = [
+    { status: 'pending', broadcasts: { status: 'scheduled' } },
+    { status: 'pending', broadcasts: { status: 'sending' } },
+    // Appointed lately, built long ago: the appointment counts.
+    {
+      status: 'pending',
+      broadcasts: {
+        status: 'sending',
+        created_at: ago(30),
+        scheduled_at: ago(1),
+      },
+    },
+    { status: 'read', sent_at: ago(2), broadcasts: { status: 'sent' } },
+    // Not skipped: abandoned, stopped, already refused, outside the window.
+    {
+      status: 'pending',
+      broadcasts: { status: 'sending', created_at: ago(8) },
+    },
+    { status: 'pending', broadcasts: { status: 'stopped' } },
+    { status: 'failed', broadcasts: { status: 'sending' } },
+    { status: 'read', sent_at: ago(4), broadcasts: { status: 'sent' } },
+  ];
+  const KEPT = ['c4', 'c5', 'c6', 'c7'];
+  const tables = (): Record<string, Row[]> => ({
+    contacts: ROWS.map((_, i) => ({ id: `c${i}`, opted_out_at: null })),
+    broadcast_recipients: [
+      ...ROWS.map((r, i) => ({
+        id: `r${i}`,
+        contact_id: `c${i}`,
+        ...r,
+        broadcasts: { created_at: ago(1), scheduled_at: null, ...r.broadcasts },
+      })),
+      // A deleted contact's row.
+      {
+        id: 'r9',
+        contact_id: null,
+        status: 'pending',
+        broadcasts: { status: 'scheduled' },
+      },
+    ],
+    conversations: [],
+    broadcasts: [],
+  });
+  const audience = (skipRecentDays?: number): AudienceConfig => ({
+    type: 'all',
+    skipRecentDays,
+  });
+  const estimate = (days?: number, opts = {}) =>
+    estimateAudience(fakeDb(tables(), opts) as never, 'acct', audience(days));
+  const build = async (
+    t: Record<string, Row[]>,
+    days?: number,
+    opts: Parameters<typeof fakeDb>[1] = {}
+  ) => {
+    h.client = {
+      ...fakeDb(t, opts),
+      auth: {
+        getSession: async () => ({ data: { session: { user: { id: 'u' } } } }),
+      },
+    };
+    const render = vi.fn<(api: ReturnType<typeof useBroadcastSending>) => null>(
+      () => null
+    );
+    const Probe = () => render(useBroadcastSending());
+    renderToStaticMarkup(createElement(Probe));
+    await render.mock.calls[0][0].createAndSendBroadcast({
+      name: 'n',
+      template: { name: 't', language: 'en_US' } as never,
+      audience: audience(days),
+      variables: {},
+      scheduledAt: new Date(Date.now() + 3_600_000),
+    });
+    return t.broadcast_recipients
+      .filter((r) => r.broadcast_id)
+      .map((r) => r.contact_id);
+  };
+
+  it('leaves out whom other campaigns messaged or are about to', async () => {
+    const t = tables();
+    expect(await build(t, 3)).toEqual(KEPT);
+    expect(t.broadcasts[0]).toMatchObject({
+      skip_recent_days: 3,
+      audience_filter: { skipRecentDays: 3 },
+      total_recipients: 4,
+    });
+  });
+
+  it('the estimate counts the same', async () => {
+    expect((await estimate(3))?.recipients).toBe(KEPT.length);
+    expect((await estimate())?.recipients).toBe(ROWS.length);
+  });
+
+  it('a read that fails builds nothing', async () => {
+    let reads = 0;
+    const fail = ({ table }: { table: string }) =>
+      table === 'broadcast_recipients' && ++reads === 2 ? 'timeout' : null;
+    await expect(estimate(3, { fail })).rejects.toThrow('timeout');
+    reads = 0;
+    const t = tables();
+    await expect(build(t, 3, { fail })).rejects.toThrow('timeout');
+    expect(t.broadcasts).toEqual([]);
+  });
+
+  it('a campaign without a cap does not name the column', async () => {
+    const t = tables();
+    expect(await build(t)).toHaveLength(ROWS.length);
+    expect(t.broadcasts[0]).not.toHaveProperty('skip_recent_days');
+  });
+
+  it.each(['PGRST204', '42703'])(
+    'before migration 301 (%s) a capped campaign is still built',
+    async (code) => {
+      const t = tables();
+      const refuseInsert = (_: string, rows: Row[]) =>
+        'skip_recent_days' in rows[0] ? { code, message: 'no column' } : null;
+      expect(await build(t, 3, { refuseInsert })).toEqual(KEPT);
+      expect(t.broadcasts).toHaveLength(1);
+    }
+  );
 });

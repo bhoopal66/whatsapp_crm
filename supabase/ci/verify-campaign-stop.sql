@@ -1,5 +1,6 @@
 -- Verifies migration 301: broadcast_stop (who, from which status, counts),
--- and that the write-ahead mark holds only while a campaign is sending.
+-- that the write-ahead mark holds only while a campaign is sending, and
+-- skip_recent_days.
 -- Fixtures (cst-) are rolled back.
 DO $$
 DECLARE
@@ -82,6 +83,25 @@ BEGIN
       END;
       IF code IS DISTINCT FROM '55000' THEN RAISE EXCEPTION '301: stop from % gave %', s, code; END IF;
     END LOOP;
+
+    -- The frequency cap: none by default, never 0, writable by an admin.
+    SELECT skip_recent_days INTO n FROM public.broadcasts WHERE id = b;
+    IF n IS NOT NULL THEN RAISE EXCEPTION '301: skip_recent_days defaults to %', n; END IF;
+    code := NULL;
+    BEGIN
+      UPDATE public.broadcasts SET skip_recent_days = 0 WHERE id = b;
+    EXCEPTION WHEN OTHERS THEN code := SQLSTATE;
+    END;
+    IF code IS DISTINCT FROM '23514' THEN RAISE EXCEPTION '301: skip_recent_days 0 gave %', code; END IF;
+    SET LOCAL ROLE authenticated;
+    UPDATE public.broadcasts SET skip_recent_days = 7 WHERE id = b;
+    GET DIAGNOSTICS n = ROW_COUNT;
+    RESET ROLE;
+    IF n <> 1 THEN RAISE EXCEPTION '301: the admin could not set skip_recent_days'; END IF;
+    SELECT count(*) INTO n FROM pg_constraint
+     WHERE conrelid = 'public.broadcasts'::regclass AND contype = 'c'
+       AND pg_get_constraintdef(oid) LIKE '%skip_recent_days%';
+    IF n <> 1 THEN RAISE EXCEPTION '301: % skip_recent_days checks after a re-run', n; END IF;
     RAISE EXCEPTION 'cst-rollback';
   EXCEPTION WHEN OTHERS THEN
     IF SQLERRM <> 'cst-rollback' THEN RAISE; END IF;

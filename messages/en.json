@@ -1583,7 +1583,7 @@
         "excludeChatTags": "Exclude chat tags (optional)",
         "optedOutSkipped": "{count, plural, one {# customer who asked not to be messaged will be skipped.} other {# customers who asked not to be messaged will be skipped.}}",
         "frequencyCap": "Frequency cap",
-        "frequencyCapDesc": "Skip contacts who already received any campaign in the last N days. 0 = off.",
+        "frequencyCapDesc": "Skip contacts another campaign messaged in the last N days, or is about to message. Checked again when the campaign is sent. 0 = off.",
         "frequencyCapDays": "days",
         "field": "Field",
         "selectField": "Select a field...",
