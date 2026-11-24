@@ -23,7 +23,9 @@ it.
   can see the contact and, if any, the deal (`deal_room_leader_sees`); members
   of the room's channel; a bank guest only while their bank's `guests_allowed`
   switch is on, as a channel member, with a participant from their bank not
-  pending, rejected or removed. `deal_room_can_manage` adds agents who own the
+  pending, rejected, removed or left (312). `deal_room_open_to_guest` is that
+  one guest rule; the room's chat channel and `chat_people` ask it too, after
+  the membership row and for a guest only (staff must not pay per row). `deal_room_can_manage` adds agents who own the
   contact or administer the channel; guests never manage.
 - **Guests never read `deal_rooms`.** Staff and guests share the
   `authenticated` role, so column grants cannot hide its internal columns:

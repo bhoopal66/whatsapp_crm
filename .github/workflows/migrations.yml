@@ -1601,6 +1601,11 @@ jobs:
       - name: Verify erase own calls
         run: supabase db query --local --file supabase/ci/verify-erase-own-calls.sql
 
+      # Migration 312: a bank guest's access to a deal room, its chat channel
+      # and the people in it ends with the bank's last person in the group.
+      - name: Verify guest access ends
+        run: supabase db query --local --file supabase/ci/verify-guest-access-ends.sql
+
       # Migration 309: a case setting is saved, and a wording approved,
       # only over what the page had loaded.
       - name: Verify case config versions
