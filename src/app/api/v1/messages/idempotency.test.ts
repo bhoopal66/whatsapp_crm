@@ -218,7 +218,7 @@ describe('POST /api/v1/messages with a key', () => {
 
   it('answers in_progress while the first is being sent', async () => {
     let during;
-    gateway.mockImplementation(async () => {
+    gateway.mockImplementationOnce(async () => {
       during = await keyed();
       return { messageId: 'm-1', whatsappMessageId: 'wamid-1' };
     });
