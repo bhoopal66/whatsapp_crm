@@ -33,6 +33,8 @@ endpoints off and ring `webhook_disabled`; `webhook_endpoint_key` keeps one
 off while its key is revoked, until a PATCH by a live key takes it over. A
 session never writes the column (289's column grants). An expired key does
 not switch its endpoints off. Message events (`MESSAGE_EVENTS`) need
-`messages:read` as well. A new outbox payload that names a customer carries
+`messages:read` as well. Settings → API keys lists the endpoints
+(`/api/account/webhooks`, admin+: the URL's host only, never `secret`) and may
+only switch off or delete. A new outbox payload that names a customer carries
 `contact_id` or `conversation_id`, which is how the erase finds it.
 `verify-webhook-keys.sql`.
