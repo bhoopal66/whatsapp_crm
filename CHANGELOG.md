@@ -34,6 +34,9 @@ and polish.
 
 ### Fixed
 
+- **A paid SMS or RCS that may have gone out is never sent again.** A
+  timeout, a lost connection or a gateway error is now "unconfirmed", as on
+  WhatsApp; only a gateway that was never reached is tried again.
 - **A candidate's chat is never assigned to sales.** The "Assign" step of an
   automation and the rotation of campaign replies leave chats of HR, and of
   any other department, alone: who holds a chat may read it.

@@ -77,13 +77,28 @@ function byStatus(status: number): SendFailure {
   return unknown('error');
 }
 
+/**
+ * What the SMS and RCS senders say when the message may have gone out.
+ * Neither provider drops a second one, so these are never sent again.
+ */
+const MAYBE_SENT: ReadonlySet<string> = new Set([
+  'timeout',
+  'network',
+  'gateway_unavailable',
+  'gateway_error',
+  'provider_unavailable',
+  'no_task_id',
+  'no_message_id',
+  'unexpected_response',
+]);
+
 export function classifySendFailure(e: unknown): SendFailure {
-  // The RCS sender classifies its own failures (no WhatsApp codes apply).
-  if (e instanceof RcsSendError)
-    return { retryable: e.retryable, reason: e.reason };
-  // So does the SMS sender (Dinstar error codes, its own pace limit).
-  if (e instanceof DinstarSendError)
-    return { retryable: e.retryable, reason: e.reason };
+  // The RCS and SMS senders classify their own failures (no WhatsApp codes
+  // apply; Dinstar error codes, its own pace limit).
+  if (e instanceof RcsSendError || e instanceof DinstarSendError)
+    return MAYBE_SENT.has(e.reason)
+      ? unknown(e.reason)
+      : { retryable: e.retryable, reason: e.reason };
 
   if (e instanceof HrSendRefusal)
     return { retryable: e.retryable, reason: e.reason };

@@ -32,6 +32,7 @@
  * Server-only.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { neverConnected } from '@/lib/whatsapp/never-connected';
 import type { SendPort, TemplateSendRequest } from './ports';
 import type { RcsSendConfig } from './rcs-config';
 import { recipientNumber } from './recipient';
@@ -109,11 +110,13 @@ export function createRcsSendPort(
             },
             body: JSON.stringify(body),
           });
-        } catch {
+        } catch (err) {
           // Never surface the underlying error text: it may echo the request.
+          // Only a connection that never opened proves nothing was sent.
+          if (neverConnected(err)) throw new RcsSendError('not_reached', true);
           throw new RcsSendError(
             ctl.signal.aborted ? 'timeout' : 'network',
-            true
+            false
           );
         }
         // An unreadable body (bad JSON, a dropped stream, the timeout) is a
@@ -139,7 +142,7 @@ export function createRcsSendPort(
       }
       if (res.status === 429) throw new RcsSendError('rate_limited', true, 429);
       if (res.status >= 500)
-        throw new RcsSendError('provider_unavailable', true, res.status);
+        throw new RcsSendError('provider_unavailable', false, res.status);
       if (res.status === 401 || res.status === 403)
         throw new RcsSendError('unauthorized', false, res.status);
       throw new RcsSendError('rejected', false, res.status);

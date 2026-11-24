@@ -1,3 +1,4 @@
+import { DinstarSendError } from './dinstar';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { classifySendFailure } from './failure';
@@ -114,8 +115,8 @@ describe('createRcsSendPort', () => {
 
   it.each([
     [429, 'rate_limited', true],
-    [500, 'provider_unavailable', true],
-    [503, 'provider_unavailable', true],
+    [500, 'provider_unavailable', false],
+    [503, 'provider_unavailable', false],
     [401, 'unauthorized', false],
     [403, 'unauthorized', false],
     [400, 'rejected', false],
@@ -131,21 +132,21 @@ describe('createRcsSendPort', () => {
     ]);
   });
 
-  it('a network error is retryable and never echoes its text', async () => {
+  it('a lost connection is never resent and never echoes its text', async () => {
     const f = (async () => {
       throw new TypeError(`fetch failed ${TOKEN}`);
     }) as unknown as typeof fetch;
     const e = await failure(port(f).send(REQ));
-    expect([e.reason, e.retryable]).toEqual(['network', true]);
+    expect([e.reason, e.retryable]).toEqual(['network', false]);
   });
 
-  it('a timeout is retryable', async () => {
+  it('a timeout is never resent', async () => {
     const f = ((_u: string, init: RequestInit) =>
       new Promise((_ok, bad) =>
         init.signal!.addEventListener('abort', () => bad(new Error('aborted')))
       )) as unknown as typeof fetch;
     const e = await failure(port(f, CONV, 5).send(REQ));
-    expect([e.reason, e.retryable]).toEqual(['timeout', true]);
+    expect([e.reason, e.retryable]).toEqual(['timeout', false]);
   });
 
   describe('a body that never ends', () => {
@@ -186,7 +187,7 @@ describe('createRcsSendPort', () => {
       const e = await settle(503);
       expect([e.reason, e.retryable, e.status]).toEqual([
         'provider_unavailable',
-        true,
+        false,
         503,
       ]);
     });
@@ -213,14 +214,26 @@ describe('createRcsSendPort', () => {
 
 describe('classifySendFailure: RCS', () => {
   it.each([
-    ['timeout', true],
+    ['not_reached', true],
     ['rate_limited', true],
     ['unauthorized', false],
-    ['no_message_id', false],
   ])('%s keeps its own reason (retryable %s)', (reason, retryable) => {
     expect(classifySendFailure(new RcsSendError(reason, retryable))).toEqual({
       retryable,
       reason,
     });
   });
+
+  it.each(['timeout', 'network', 'provider_unavailable', 'no_message_id'])(
+    '%s may have gone out: unconfirmed, never resent',
+    (reason) => {
+      const sent = { retryable: false, reason, unconfirmed: true };
+      expect(classifySendFailure(new RcsSendError(reason, false))).toEqual(
+        sent
+      );
+      expect(classifySendFailure(new DinstarSendError(reason, false))).toEqual(
+        sent
+      );
+    }
+  );
 });

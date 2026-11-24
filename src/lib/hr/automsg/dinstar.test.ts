@@ -160,7 +160,7 @@ describe('createDinstarSmsSendPort', () => {
   it.each([
     [400, 'invalid_request', false],
     [413, 'too_large', false],
-    [500, 'gateway_error', true],
+    [500, 'gateway_error', false],
     [550, 'no_available_port', true],
     [999, 'unexpected_response', false],
   ])('error_code %i -> %s (retryable %s)', async (code, reason, retryable) => {
@@ -174,8 +174,8 @@ describe('createDinstarSmsSendPort', () => {
     [401, 'unauthorized', false],
     [403, 'unauthorized', false],
     [404, 'rejected', false],
-    [500, 'gateway_unavailable', true],
-    [503, 'gateway_unavailable', true],
+    [500, 'gateway_unavailable', false],
+    [503, 'gateway_unavailable', false],
   ])('http %i -> %s (retryable %s)', async (status, reason, retryable) => {
     const e = await failure(
       port(fetchOf(status, { error: PASSWORD }).f).send(REQ)
@@ -194,12 +194,20 @@ describe('createDinstarSmsSendPort', () => {
     expect([e.reason, e.retryable]).toEqual(['unexpected_response', false]);
   });
 
-  it('a network error is retryable and does not echo the request', async () => {
+  it('a gateway that was never reached is retryable', async () => {
+    const f = (async () => {
+      throw Object.assign(new Error('x'), { code: 'ENOTFOUND' });
+    }) as unknown as typeof fetch;
+    const e = await failure(port(f).send(REQ));
+    expect([e.reason, e.retryable]).toEqual(['not_reached', true]);
+  });
+
+  it('a lost connection is never resent and does not echo the request', async () => {
     const f = (async () => {
       throw new Error(`connect failed ${PASSWORD} +971501234567`);
     }) as unknown as typeof fetch;
     const e = await failure(port(f).send(REQ));
-    expect([e.reason, e.retryable]).toEqual(['network', true]);
+    expect([e.reason, e.retryable]).toEqual(['network', false]);
   });
 
   it('a stalled body read is terminal, never resent', async () => {
@@ -217,14 +225,14 @@ describe('createDinstarSmsSendPort', () => {
     expect([e.reason, e.retryable]).toEqual(['unexpected_response', false]);
   });
 
-  it('a request that never answers times out as retryable', async () => {
+  it('a request that never answers is never resent', async () => {
     const f = ((_u: string, init: RequestInit) =>
       new Promise((_, reject) =>
         init.signal?.addEventListener('abort', () => reject(new Error('x')))
       )) as unknown as typeof fetch;
     const p = createDinstarSmsSendPort(fakeDb(CONV, CONTACT), CFG, f, 20);
     const e = await failure(p.send(REQ));
-    expect([e.reason, e.retryable]).toEqual(['timeout', true]);
+    expect([e.reason, e.retryable]).toEqual(['timeout', false]);
   });
 
   it('refuses a text over 3 segments before any call', async () => {

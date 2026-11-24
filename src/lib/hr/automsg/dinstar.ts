@@ -25,10 +25,13 @@
  *   '<task_id>:<user_id>' (task_id, else sn): migration 226 matches the
  *   gateway's later pushes on the ':<user_id>' suffix and the number.
  * - Errors: DinstarSendError { reason, retryable, status }. error_code 400
- *   / 413, HTTP 401 / 403, other HTTP 4xx, a 202 without task_id / sn and
- *   an unknown error_code are terminal; error_code 500 / 550, HTTP 5xx,
- *   network errors, timeouts and the pace limit are retryable. The
- *   password and the number never appear in an error.
+ *   / 413, HTTP 401 / 403 and other HTTP 4xx are terminal; a gateway that
+ *   was never reached, error_code 550 and the pace limit are retryable.
+ *   A timeout, a lost connection, HTTP 5xx, error_code 500, a 202 without
+ *   task_id / sn and an unknown error_code may have been sent, so
+ *   `classifySendFailure` calls them unconfirmed: nothing on the gateway
+ *   drops a second text to the same person. The password and the number
+ *   never appear in an error.
  * - Pace: at most cfg.maxPerMinute sends a minute per gateway in this
  *   process (carriers throttle or block SIM cards that burst). The bucket
  *   lives at module level, keyed by the gateway URL, because the drain
@@ -47,6 +50,7 @@ import { createHash } from 'node:crypto';
 import { Agent, request as httpsRequest } from 'node:https';
 import type { PeerCertificate } from 'node:tls';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { neverConnected } from '@/lib/whatsapp/never-connected';
 import type { SendPort, TemplateSendRequest } from './ports';
 import { recipientNumber } from './recipient';
 import type { SmsSendConfig } from './sms-config';
@@ -212,11 +216,14 @@ export function createDinstarSmsSendPort(
             },
             body: JSON.stringify(body),
           });
-        } catch {
+        } catch (err) {
           // Never surface the underlying error text: it may echo the request.
+          // Only a connection that never opened proves nothing was sent.
+          if (neverConnected(err))
+            throw new DinstarSendError('not_reached', true);
           throw new DinstarSendError(
             ctl.signal.aborted ? 'timeout' : 'network',
-            true
+            false
           );
         }
         // An unreadable body is a null body: a 200 then ends as the
@@ -236,7 +243,7 @@ export function createDinstarSmsSendPort(
       if (res.status === 401 || res.status === 403)
         throw new DinstarSendError('unauthorized', false, res.status);
       if (res.status >= 500)
-        throw new DinstarSendError('gateway_unavailable', true, res.status);
+        throw new DinstarSendError('gateway_unavailable', false, res.status);
       if (!res.ok) throw new DinstarSendError('rejected', false, res.status);
 
       const j = json as {
@@ -265,7 +272,7 @@ export function createDinstarSmsSendPort(
       if (code === 413) throw new DinstarSendError('too_large', false, 413);
       if (code === 550)
         throw new DinstarSendError('no_available_port', true, 550);
-      if (code === 500) throw new DinstarSendError('gateway_error', true, 500);
+      if (code === 500) throw new DinstarSendError('gateway_error', false, 500);
       throw new DinstarSendError(
         'unexpected_response',
         false,
