@@ -62,7 +62,9 @@ export function CallsSection({
         missed: badge.missed ?? 0,
         today: Array.isArray(calls?.calls) ? calls.calls.length : 0,
       });
-    })();
+    })().catch(() => {
+      // A failed read keeps the last answer on screen.
+    });
     return () => {
       cancelled = true;
     };

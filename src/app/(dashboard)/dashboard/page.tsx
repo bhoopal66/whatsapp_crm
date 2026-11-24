@@ -97,7 +97,9 @@ export default function DashboardPage() {
     }
   );
   const widgets = homeWidgets(role, {
-    pbx: callsBadge.data?.hasPbx ?? false,
+    // A first load that failed cannot say there is no phone system: the
+    // card shows and reports its own failure (Retry).
+    pbx: callsBadge.data?.hasPbx ?? callsBadge.error,
     phoneNumbers: (numbers.data ?? []).some(isOutreachNumber),
     salesRestricted,
   });
