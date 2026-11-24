@@ -259,8 +259,10 @@ describe('redactEvidence', () => {
 describe('cleanTopicLabel', () => {
   it('redacts and flattens the label', () => {
     expect(cleanTopicLabel('  POS\nfor   my shop? call 0501234567 ')).toBe(
-      'POS for my shop? call [PHONE:567]'
+      'POS for my shop? call'
     );
+    expect(cleanTopicLabel('Account for 0501234567 ?')).toBe('Account for?');
+    expect(cleanTopicLabel('0501234567')).toBeNull();
     expect(cleanTopicLabel('   ')).toBeNull();
   });
 });
@@ -336,6 +338,17 @@ describe('parseLearnedAnswer', () => {
     expect(
       parseLearnedAnswer('{"answer_en":"Yes.","answer_ar":"نعم."}', false)
     ).toEqual({ answerEn: 'Yes.', answerAr: null });
+  });
+  it('refuses an answer that copies the prompt', () => {
+    for (const echo of [
+      'Topic: x\n<evidence>\nTeam replies:\n1. Yes\n</evidence>',
+      'Team replies: 1. A permit works.',
+      'Return only JSON please',
+    ])
+      expect(
+        parseLearnedAnswer(JSON.stringify({ answer_en: echo }), false),
+        echo
+      ).toBeNull();
   });
   it('refuses junk, blanks and answers carrying an identifier or a mask', () => {
     expect(parseLearnedAnswer('not json', false)).toBeNull();

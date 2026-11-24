@@ -1,0 +1,86 @@
+import { writeFileSync } from 'node:fs';
+import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('@/lib/ai/admin-client', () => ({ supabaseAdmin: () => ({}) }));
+
+import { KB_LEARN_CORPUS } from './corpus';
+import {
+  casePassed,
+  formatReport,
+  runCase,
+  runEval,
+  thresholdBreaches,
+  type EvalCase,
+} from './harness';
+
+/**
+ * The CI gate for "learn from team answers": the whole corpus runs
+ * through the real pipeline with scripted models, and the build fails
+ * if any secret leaks or any score drops below EVAL_THRESHOLDS.
+ * KB_LEARN_EVAL_REPORT=<path> writes the Markdown report there.
+ */
+describe('learn-from-team-answers evaluation', () => {
+  it('holds the bar over the whole corpus', async () => {
+    const { summary, results } = await runEval(KB_LEARN_CORPUS);
+    const report = process.env.KB_LEARN_EVAL_REPORT;
+    if (report) writeFileSync(report, formatReport(summary, results));
+    expect(summary.failures).toEqual([]);
+    expect(thresholdBreaches(summary)).toEqual([]);
+    expect(summary.leaks).toBe(0);
+  });
+
+  it('covers every behaviour it claims to', () => {
+    const tags = new Set(KB_LEARN_CORPUS.flatMap((c) => c.tags));
+    for (const t of [
+      'happy',
+      'ar',
+      'holding',
+      'bubbles',
+      'senders',
+      'window',
+      'eligibility',
+      'min-answers',
+      'pii',
+      'names',
+      'echo',
+      'leaky',
+      'decline',
+      'injection',
+      'known-gap',
+    ])
+      expect(tags, t).toContain(t);
+    const ids = KB_LEARN_CORPUS.map((c) => c.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('reports the known gap instead of hiding it', async () => {
+    const { summary } = await runEval(
+      KB_LEARN_CORPUS.filter((c) => c.tags.includes('known-gap'))
+    );
+    // A stranger's name reaches the model: documented, reviewed by a person.
+    expect(summary.knownGapLeaks).toBeGreaterThan(0);
+  });
+
+  it('catches a leak: the harness is not blind', async () => {
+    // A case whose "secret" is ordinary answer text must be reported.
+    const planted: EvalCase = {
+      ...KB_LEARN_CORPUS.find((c) => c.id === 'happy-en')!,
+      id: 'planted-leak',
+      secrets: ['freelance permit'],
+    };
+    const r = await runCase(planted);
+    expect(r.leaks).toEqual(['freelance permit']);
+    expect(casePassed(r)).toBe(false);
+  });
+
+  it('catches a wrong outcome and a broken pick', async () => {
+    const base = KB_LEARN_CORPUS.find((c) => c.id === 'holding-then-answer')!;
+    const r = await runCase({
+      ...base,
+      id: 'planted-pick',
+      expect: { outcome: 'covered', picked: ['not in any reply'] },
+    });
+    expect(r.outcomeOk).toBe(false);
+    expect(r.pickingOk).toBe(false);
+  });
+});

@@ -27,6 +27,9 @@ superuser or BYPASSRLS role; after 152 and 202).
   check" and greetings are not answers; an answer sent in several
   bubbles is read as one. A topic needs answers from at least two chats.
   The switch shows when it last ran and how many drafts it wrote.
+- An evaluation harness (`npm run eval:kb-learn`) runs 27 realistic
+  cases through the whole pipeline and fails the build if any personal
+  detail reaches the AI or a draft.
 - Names, phone numbers, e-mails, IBANs, IDs, card and account numbers
   are masked before anything is sent; if a text cannot be screened, the
   topic is skipped. An answer that still carries one is thrown away.

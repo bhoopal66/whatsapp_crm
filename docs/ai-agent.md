@@ -297,6 +297,17 @@ disagree; 081's check refuses to approve an answer that still has one.
 Under the switch, **Last run** shows when the weekly run last started
 and how many new drafts it wrote.
 
+**Evaluation harness.** `src/lib/kb/learn-eval/` runs a corpus of
+realistic chats (English, Arabic, holding replies, split bubbles,
+ineligible chats, every kind of identifier, injection attempts) through
+the real pipeline with scripted models (faithful, echo, leaky,
+declining). It scores leaks (must be 0), database ids sent (0), outcome,
+answer picking, the evidence fence and draft safety (all 100%), and
+reports documented gaps (a name nobody in the chat is known by) without
+failing. It runs with `npm test`, so CI fails on a regression;
+`npm run eval:kb-learn` also writes the report to `kb-learn-eval.md`. A
+new failure seen in production becomes a new case in `corpus.ts`.
+
 A topic is drafted once (`kb_learned_drafts`): the same gaps (half or
 more) or the same label under a new topic id count as the same topic.
 It is drafted again only if its draft was deleted or set to **Remove**.

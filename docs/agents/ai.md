@@ -100,3 +100,6 @@ redacted with `brainRedact` plus known names before `generateReply`
 answer is dropped if it carries an identifier or mask. Usage mode
 `kb_learn`: 290 restates 202's CHECK list, so apply in order, once.
 The bot's reply path and `kb_shortlist` are unchanged.
+`lib/kb/learn-eval/` is the gate: a pipeline change must keep its
+corpus at 0 leaks and 100% on every score; add a case for each new
+failure mode rather than loosening `EVAL_THRESHOLDS`.

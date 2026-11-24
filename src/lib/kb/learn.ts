@@ -266,12 +266,25 @@ export function redactEvidence(
 }
 
 /** The topic label as the entry's question: redacted, one line, clipped. */
+// What the redactor leaves in place of an identifier. A knowledge-base
+// question reads "Can I open an account?", not "… call me [PHONE:567]".
+const MASK_TOKEN =
+  /\[(?:EMAIL|IBAN|EID|CARD|OTP|ACCT|PASSPORT|PHONE:\d{3}|ID|NAME|withheld)\]/gu;
+
 export function cleanTopicLabel(label: string): string | null {
   if (typeof label !== 'string') return null;
   const r = brainRedact(label);
   if (!r.ok) return null;
-  const out = clip(r.text.replace(/\s+/g, ' ').trim(), MAX_LABEL_CHARS);
-  return out || null;
+  const out = clip(
+    r.text
+      .replace(MASK_TOKEN, ' ')
+      .replace(/\s+/g, ' ')
+      .replace(/\s+([?.!,؟،])/gu, '$1')
+      .trim(),
+    MAX_LABEL_CHARS
+  );
+  // Nothing but an identifier and punctuation: no question left.
+  return /[\p{L}]/u.test(out) ? out : null;
 }
 
 const ARABIC = /[؀-ۿݐ-ݿࢠ-ࣿﭐ-﷿ﹰ-﻿]/gu;
@@ -343,8 +356,14 @@ export interface LearnedAnswer {
 
 /** True when the text still carries something the redactor would mask,
  *  or a mask the model echoed. */
+// The prompt's own structure in an answer: the model copied its input
+// (found by the evaluation harness, learn-eval/corpus.ts "echo-model-clean").
+const PROMPT_ECHO =
+  /<\/?\s*evidence\b|^\s*(?:Topic|Customer questions|Team replies)\s*:|Return only JSON|answer_en/imu;
+
 function carriesIdentifier(text: string): boolean {
   if (echoesRedaction(text) || /\[NAME\]|\[ID\]/.test(text)) return true;
+  if (PROMPT_ECHO.test(text)) return true;
   const r = brainRedact(text);
   return !r.ok || r.text !== text;
 }
