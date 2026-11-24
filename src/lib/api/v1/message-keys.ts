@@ -230,9 +230,8 @@ function messageClaim(
         .eq('claim_token', token)
         .eq('state', 'claimed')
         .select('id');
-      if (error || !data || data.length === 0) {
-        throw unread('hand over', error ?? 'the claim was lost');
-      }
+      if (error) throw unread('hand over', error);
+      if (!data || data.length === 0) throw deliveryUnconfirmed();
     },
 
     async settle(outcome) {
@@ -253,8 +252,12 @@ function messageClaim(
           .update(fields)
           .eq('id', id)
           .eq('claim_token', token)
-          // Called unconfirmed meanwhile: this request knows better.
-          .in('state', ['claimed', 'unconfirmed']);
+          // Called unconfirmed meanwhile: only a delivery knows better. A
+          // `failed` would reopen a key its caller was told is spent.
+          .in(
+            'state',
+            outcome.state === 'sent' ? ['claimed', 'unconfirmed'] : ['claimed']
+          );
         if (!error) return;
         console.error('[api/v1/message-keys] settle:', error);
       }
