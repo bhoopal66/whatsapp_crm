@@ -27,8 +27,10 @@ contract.
   row lock `switch_account` takes (`… WHERE user_id = … ORDER BY id FOR
   UPDATE`).
 - **`add_workspace_member`** also takes back somebody this workspace removed
-  (`workspace_audit`) whose only row is their disposable private account
-  (306; a removed admin by the owner only). Else it
+  (306): its removal is their last one in `workspace_audit`, and their only
+  row is in the private account that removal made, which holds nothing (every
+  foreign key to `accounts` is asked); guest stays guest, staff stays staff,
+  a removed admin by the owner only, anything unproved `no_such_user`. Else it
   adds only someone live in a workspace where the
   caller is a live owner/admin; an unknown email and an ineligible one raise
   the same P0002 `no_such_user`.

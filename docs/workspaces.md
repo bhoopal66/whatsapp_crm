@@ -116,7 +116,9 @@ staff. A guest:
   any deactivation cleared. They cannot add people or create
   workspaces from there; an invitation brings them back, and so does
   adding them by email in the workspace that removed them (migration
-  306; by the owner, for a removed admin). A login a deactivation
+  306; by the owner, for a removed admin), as long as it was the last
+  to remove them and they have not used the new workspace since: opening
+  the app there is enough, and then only an invitation works. A login a deactivation
   disabled stays disabled until they are added back, with the password
   they had.
 

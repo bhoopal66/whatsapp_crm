@@ -55,8 +55,11 @@ and polish.
   Yeastar extension and its softphone with the leaver (those left behind
   are freed once). Add a person now takes back somebody this workspace
   removed, also one whose login was disabled first: they sign in with
-  their earlier password, and an admin the owner removed is the owner's to
-  add back. A deactivation that could not disable the login says what it
+  their earlier password. Only while this workspace's removal is their
+  last one anywhere and they have done nothing in the private account it
+  gave them (opening the app there counts); a bank guest comes back as a
+  bank guest and staff as staff, and an admin the owner removed is the
+  owner's to add back. A deactivation that could not disable the login says what it
   cleared instead of "nothing was changed", and a failed read of personal
   numbers no longer shows them as none. **Migration required: 306.**
 - **A candidate's STOP is never lost.** A STOP on an HR chat or an HR line
