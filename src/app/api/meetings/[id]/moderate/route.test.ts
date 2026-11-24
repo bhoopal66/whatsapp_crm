@@ -350,13 +350,22 @@ describe('POST /api/meetings/[id]/moderate', () => {
 
   it('answers 404 and cuts nothing when the write changed no row', async () => {
     mocks.adminRows = [];
-    for (const action of ['remove', 'mute', 'lower_hand']) {
+    for (const action of ['mute', 'lower_hand']) {
       const res = await moderate({ target: T, action });
       expect(res.status).toBe(404);
       expect(await res.json()).toEqual({
         error: 'That person is not in this meeting',
       });
     }
+    expect(mocks.cutSeats).not.toHaveBeenCalled();
+  });
+
+  it('answers ok to a removal whose seat closed meanwhile: they are barred', async () => {
+    mocks.adminRows = [];
+    const res = await moderate({ target: T, action: 'remove' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(mocks.adminUpsert).toHaveBeenCalledTimes(1);
     expect(mocks.cutSeats).not.toHaveBeenCalled();
   });
 
