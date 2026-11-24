@@ -101,6 +101,14 @@ and polish.
   customer. Ended groups with new messages are listed above the active
   ones, and opening the archive clears their count and bell. Part of
   migration 308.
+- **A typed case note survives a change of tab and is posted once.** The
+  text (and a post still on its way) is kept by the case page, Ctrl+Enter
+  pressed twice posts one note, and text written while a note was being
+  posted is no longer erased.
+- **Case settings: the database half of "somebody else changed this".**
+  **Migration required: 309.** Overloads of the stage-list, file-spec and
+  intake-wording approval functions that take what the page had loaded.
+  The screens do not call them yet.
 - **The privacy register no longer calls Draft with AI a reply.** The
   draft and the playground record their own purpose (`draft`,
   `playground`) in the AI transfer register instead of `reply`.

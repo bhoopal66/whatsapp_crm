@@ -1595,3 +1595,8 @@ jobs:
       # stored are the ones the page showed.
       - name: Verify coordinator banks expected
         run: supabase db query --local --file supabase/ci/verify-coordinator-banks-expected.sql
+
+      # Migration 309: a case setting is saved, and a wording approved,
+      # only over what the page had loaded.
+      - name: Verify case config versions
+        run: supabase db query --local --file supabase/ci/verify-case-config-versions.sql

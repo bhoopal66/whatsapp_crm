@@ -30,6 +30,7 @@ import {
   useCaseResource,
   useWhen,
 } from './tab-kit';
+import type { NoteDraft } from './use-note-drafts';
 
 const NOTE_MAX = 10000;
 
@@ -67,7 +68,11 @@ const handles = (v: unknown): string[] =>
     .map((h) => h.replace(/^@/, ''));
 
 /** Internal notes, newest first, with an @-mention composer. */
-export function NotesTab({ caseId, detail }: CaseTabProps) {
+export function NotesTab({
+  caseId,
+  detail,
+  draft,
+}: CaseTabProps & { draft: NoteDraft }) {
   const t = useTranslations('CasePage');
   const when = useWhen();
   const { members, nameOf } = useWorkspaceMembers();
@@ -75,8 +80,7 @@ export function NotesTab({ caseId, detail }: CaseTabProps) {
     `/api/cases/${caseId}/notes`,
     parse
   );
-  const [body, setBody] = useState('');
-  const [busy, setBusy] = useState(false);
+  const { body, busy, setBody } = draft;
   const [picking, setPicking] = useState(false);
   const [result, setResult] = useState<{
     mentioned: string[];
@@ -104,7 +108,11 @@ export function NotesTab({ caseId, detail }: CaseTabProps) {
   };
 
   const pick = (userId: string) => {
-    const r = insertMention(body, cursor.current, userId);
+    const r = insertMention(
+      body,
+      Math.min(cursor.current, body.length),
+      userId
+    );
     setBody(r.body);
     cursor.current = r.cursor;
     setPicking(false);
@@ -117,11 +125,11 @@ export function NotesTab({ caseId, detail }: CaseTabProps) {
   const post = async () => {
     const text = body.trim();
     if (!text) return toast.error(t('notes.errors.empty'));
-    setBusy(true);
+    if (!draft.begin()) return;
     const r = await sendCaseRequest(`/api/cases/${caseId}/notes`, 'POST', {
       body: text,
     });
-    setBusy(false);
+    draft.end();
     if (!r.ok) {
       const code = (r.json as { code?: unknown } | null)?.code;
       toast.error(t(toolErrorKey(r.status, code)));
@@ -132,8 +140,7 @@ export function NotesTab({ caseId, detail }: CaseTabProps) {
       mentioned: handles(res?.mentioned),
       ignored: handles(res?.ignored),
     });
-    setBody('');
-    cursor.current = 0;
+    draft.posted(text);
     toast.success(t('notes.posted'));
     void reload();
   };
