@@ -7792,7 +7792,10 @@
       "noTags": "No chat tags yet.",
       "save": "Save settings",
       "saved": "Settings saved",
-      "saveFailed": "Could not save the settings"
+      "saveFailed": "Could not save the settings",
+      "loadFailed": "재활용 설정을 불러오지 못했습니다.",
+      "conflict": "다른 사람이 이 설정을 변경했습니다. 아무것도 저장되지 않았습니다. 최신 설정을 보려면 다시 불러오세요.",
+      "reload": "다시 불러오기"
     }
   },
   "Reminders": {

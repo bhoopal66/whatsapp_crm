@@ -7792,7 +7792,10 @@
       "noTags": "No chat tags yet.",
       "save": "Save settings",
       "saved": "Settings saved",
-      "saveFailed": "Could not save the settings"
+      "saveFailed": "Could not save the settings",
+      "loadFailed": "Could not load the recycling settings.",
+      "conflict": "Somebody else changed these settings. Nothing was saved; reload to see the latest.",
+      "reload": "Reload"
     }
   },
   "Reminders": {
