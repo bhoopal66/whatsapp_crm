@@ -78,6 +78,29 @@ describe('hrLineRows', () => {
     ]);
   });
 
+  it('warns on a ticked number connected by somebody outside HR only', () => {
+    const owned: HrLineChannel[] = ['u1', 'u2', 'gone', null].map((u, i) => ({
+      id: `n${i}`,
+      provider: 'whapi',
+      label: `N${i}`,
+      waba_id: null,
+      user_id: u,
+    }));
+    const ids = owned.map((c) => c.id);
+    const warn = (selected: string[], inHr?: (u: string) => boolean | null) =>
+      hrLineRows(owned, selected, nameOf, undefined, inHr).map((r) => r.notHr);
+    const inHr = (u: string) => u === 'u1';
+    expect(warn(ids, inHr)).toEqual([
+      null,
+      { owner: 'Amal' },
+      { owner: null },
+      null,
+    ]);
+    expect(warn([], inHr)).toEqual([null, null, null, null]);
+    // Members not loaded yet: nothing is claimed about anybody.
+    expect(warn(ids)).toEqual([null, null, null, null]);
+  });
+
   it('is empty with no numbers', () => {
     expect(hrLineRows([], ['w1'], nameOf)).toEqual([]);
   });
@@ -171,6 +194,14 @@ describe('linesSaveError', () => {
     expect(wording('setup.lines.numberRemoved')).toBe(
       'A number was removed. The list has been reloaded; check it and save again.'
     );
+  });
+
+  it('explains a number connected outside HR and keeps the draft', () => {
+    expect(linesSaveError('LINE_OWNER_NOT_HR')).toEqual({
+      key: 'setup.lines.ownerNotHrRefused',
+      reload: false,
+    });
+    expect(wording('setup.lines.ownerNotHrRefused')).toMatch(/HR department/);
   });
 
   it('words every other refusal without reloading', () => {

@@ -146,8 +146,10 @@ chat like any other message.
   chat a day; a waiting draft expires after 24 hours.
 - **STOP.** A candidate who writes stop / unsubscribe (or the Arabic
   equivalents) is opted out (`contacts.opted_out_at`, the same opt-out
-  campaigns use) and their waiting drafts are withdrawn. This happens
-  only while AI drafts or automated messages are switched on.
+  campaigns use) and their waiting drafts are withdrawn. This happens on
+  every HR chat and HR line, also with AI drafts and automated messages
+  both switched off, and is tried again when the database is briefly
+  unavailable.
 - **Switches.** HR → Rules → Recruiter AI drafts: "Draft replies"
   is the master switch; each agent can be switched off on its own (its
   messages then go to a person). Admins and recruiter leads change

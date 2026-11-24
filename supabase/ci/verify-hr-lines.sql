@@ -116,6 +116,8 @@ BEGIN
   INSERT INTO hr_team_members (account_id, user_id, inbox, role)
   VALUES (a_acct, u_hr, 'recruiter', 'member');
 
+  -- 302: a new line's number is connected by somebody in HR.
+  UPDATE profiles SET department = 'hr' WHERE account_id = a_acct AND user_id IN (u_owner, u_hr);
   -- w2 is a personal number: personal numbers may be HR lines.
   UPDATE profiles SET may_connect_personal_whatsapp = true WHERE user_id = u_hr;
   INSERT INTO whatsapp_config (user_id, account_id, provider, phone_number_id, access_token)

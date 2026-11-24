@@ -260,13 +260,35 @@ export class PgAutoMsgStore implements AutoMsgStorePort {
     });
   }
 
-  /** Undecided rows, oldest first (SQL caps the limit at 1..500). */
-  async due(limit: number, accountId?: string): Promise<OutboxRow[]> {
-    const rows = await this.call<Json[] | null>('hr_automsg_due', {
-      p_limit: limit,
-      p_account_id: accountId ?? null,
-    });
-    return (rows ?? []).map(toOutboxRow);
+  /**
+   * Undecided rows, oldest first (SQL caps the limit at 1..500), without
+   * the ids already `seen`. A page after the first needs migration 302;
+   * on a database before it there is none.
+   */
+  async due(
+    limit: number,
+    accountId?: string,
+    seen: readonly string[] = []
+  ): Promise<OutboxRow[]> {
+    const args = { p_limit: limit, p_account_id: accountId ?? null };
+    if (seen.length === 0) {
+      const rows = await this.call<Json[] | null>('hr_automsg_due', args);
+      return (rows ?? []).map(toOutboxRow);
+    }
+    try {
+      const rows = await this.call<Json[] | null>('hr_automsg_due_page', {
+        ...args,
+        p_exclude: seen,
+      });
+      return (rows ?? []).map(toOutboxRow);
+    } catch (err) {
+      if (
+        err instanceof AutoMsgRpcError &&
+        (err.code === 'PGRST202' || err.code === '42883')
+      )
+        return [];
+      throw err;
+    }
   }
 
   /** Claims stuck 'sending' over 15 minutes -> needs_review. */

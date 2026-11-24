@@ -702,10 +702,10 @@ BEGIN
   -- older than 7 days, so no nudge either.
   UPDATE hr_automsg_triggers SET updated_at = now() - interval '30 days'
    WHERE account_id = a_acct AND trigger = 'reply_overdue_nudge';
-  UPDATE hr_conversations h SET last_outbound_at = now() - interval '8 days', last_inbound_at = now() - interval '9 days'
+  UPDATE hr_conversations h SET last_outbound_at = now() - interval '11 days', last_inbound_at = now() - interval '12 days'
    WHERE h.conversation_id = c7;
   r := r || '/' || pg_temp.hr_as(NULL, 'SELECT public.hr_automsg_enqueue_nudges(now())::text');
-  c := c || pg_temp.hr_chk('nudge queued for a waiting period from before the switch-on or older than 7 days', r, '0/0');
+  c := c || pg_temp.hr_chk('nudge queued for a waiting period from before the switch-on or overdue for more than 7 days (302)', r, '0/0');
   UPDATE hr_automsg_triggers SET updated_at = now() - interval '120 hours'
    WHERE account_id = a_acct AND trigger = 'reply_overdue_nudge';
   UPDATE hr_conversations h SET last_outbound_at = now() - interval '100 hours', last_inbound_at = now() - interval '120 hours'

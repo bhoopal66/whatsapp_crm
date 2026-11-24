@@ -12717,7 +12717,10 @@
         "saved": "HR lines saved.",
         "loadFailed": "Could not load the HR lines.",
         "stale": "Someone else changed the HR lines. The list has been reloaded; check it and save again.",
-        "numberRemoved": "A number was removed. The list has been reloaded; check it and save again."
+        "numberRemoved": "A number was removed. The list has been reloaded; check it and save again.",
+        "ownerNotHr": "{owner}, who connected this number, is not in the HR department, so HR may not see the people who write to it. Move {owner} to HR in Settings → Members, or untick the number.",
+        "ownerUnknown": "Someone unknown",
+        "ownerNotHrRefused": "Not saved: a number you ticked was connected by somebody outside the HR department, so HR would not see the people who write to it. Move that person to HR in Settings → Members, or untick the number."
       }
     },
     "list": {
