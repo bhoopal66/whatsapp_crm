@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
+import { useManagerNumbersToast } from '@/components/groups/manager-numbers-toast';
 import { ManagersPicker } from '@/components/groups/managers-picker';
 import { useWorkspaceMembers } from '@/components/meetings/use-workspace-members';
 import { Badge } from '@/components/ui/badge';
@@ -27,6 +28,7 @@ interface Manager {
 export function ManagersTab({ groupId, detail, reload }: GroupTabProps) {
   const t = useTranslations('Groups.page');
   const m = useTranslations('Groups.page.managersTab');
+  const toastNumbers = useManagerNumbersToast();
   const { user, accountRole } = useAuth();
   const { members } = useWorkspaceMembers();
   const url = `/api/whatsapp/groups/${groupId}/managers`;
@@ -84,24 +86,7 @@ export function ManagersTab({ groupId, detail, reload }: GroupTabProps) {
       } | null;
       if (json?.managers) apply(json.managers);
       toast.success(m('saved'));
-      const numbers = json?.numbers;
-      const who = (name: string) => name || m('unnamed');
-      for (const name of numbers?.added ?? []) {
-        toast.success(m('numberAdded', { name: who(name) }));
-      }
-      for (const name of numbers?.removed ?? []) {
-        toast.success(m('numberRemoved', { name: who(name) }));
-      }
-      for (const f of numbers?.failed ?? []) {
-        toast.error(
-          f.reason === 'refused'
-            ? m('numberRefused', { name: who(f.name) })
-            : m('numberFailed', {
-                name: who(f.name),
-                reason: t(`reasons.${reasonKey(f.reason)}`),
-              })
-        );
-      }
+      toastNumbers(json?.numbers);
       void reload();
     } catch {
       toast.error(t('reasons.unknown'));

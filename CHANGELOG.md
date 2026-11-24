@@ -22,6 +22,9 @@ and polish.
 
 ### Fixed
 
+- **Co-managers chosen while creating a WhatsApp group get their saved
+  number added to it**, as on the Managers tab, with the same limits and
+  the same messages. No migration.
 - **Creating a WhatsApp group whose answer was lost no longer invites a
   second one.** The wizard keeps what was entered and says to check Groups;
   the same name on the same number again within 5 minutes asks first

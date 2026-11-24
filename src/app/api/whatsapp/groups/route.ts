@@ -40,6 +40,7 @@ import {
   SUBMISSION_ROW_COLUMNS,
   type SubmissionListRow,
 } from '@/lib/groups/merge-list';
+import { syncManagerNumbers } from '@/lib/groups/manager-sync';
 import { screenRecipients } from '@/lib/groups/recipients';
 import { nameSearchPattern, parseCreate } from '@/lib/groups/requests';
 import {
@@ -457,9 +458,23 @@ export async function POST(request: Request) {
       else group = data as unknown as WhatsappGroupRow;
     }
 
+    // The chosen managers' saved numbers, as the managers PUT does it. Last:
+    // on little time left this is what may be cut short, and it says so.
+    const numbers = mgrError
+      ? null
+      : await syncManagerNumbers(
+          admin,
+          group,
+          managerIds.filter((id) => id !== ctx.userId),
+          [],
+          deadline,
+          ctx.userId
+        );
+
     return NextResponse.json(
       {
         group,
+        numbers,
         added: outcome.added,
         refused: outcome.refused,
         notAttempted: [...outcome.notAttempted, ...overLimit],

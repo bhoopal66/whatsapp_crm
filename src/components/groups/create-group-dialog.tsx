@@ -19,6 +19,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
+import { useManagerNumbersToast } from '@/components/groups/manager-numbers-toast';
 import { ManagersPicker } from '@/components/groups/managers-picker';
 import { CreateOutcomePanel } from '@/components/groups/create-outcome-panel';
 import { ConsentOverride } from '@/components/groups/consent-override';
@@ -34,6 +35,7 @@ import {
 import { canEditSettings } from '@/lib/auth/roles';
 import { canSyncGroups, isGroupCapableNumber } from '@/lib/groups/access';
 import type { AddMembersSummary } from '@/lib/groups/group-page';
+import type { ManagerNumbersReport } from '@/lib/groups/manager-numbers';
 import { GROUP_SETTINGS } from '@/lib/groups/types';
 import {
   buildCreateBody,
@@ -87,6 +89,7 @@ export function CreateGroupDialog({
   onCreated: (groupId: string | null) => void;
 }) {
   const t = useTranslations('Groups.create');
+  const toastNumbers = useManagerNumbersToast();
   const router = useRouter();
   const { user, accountRole, accountId } = useAuth();
   const numbers = useAccountNumbers(open);
@@ -186,6 +189,7 @@ export function CreateGroupDialog({
         return;
       }
       const result = parseCreateResult(json);
+      toastNumbers((json as { numbers?: ManagerNumbersReport | null }).numbers);
       onCreated(result.groupId);
       setPhase({
         kind: 'done',
