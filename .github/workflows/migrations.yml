@@ -1150,6 +1150,10 @@ jobs:
       - name: Verify desk WhatsApp routing and tray
         run: supabase db query --local --file supabase/ci/verify-desk-whatsapp-routing.sql
 
+      # Migration 303: the case desk and case cron fixes.
+      - name: Verify desk fixes
+        run: supabase db query --local --file supabase/ci/verify-desk-fixes.sql
+
       # Migration 231: one document across a company's bank cases (design
       # 035 slice B). A trigger refuses a cross-customer case file on
       # every insert; desk_doc_link needs the same company and a live

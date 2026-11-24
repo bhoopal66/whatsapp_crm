@@ -22,6 +22,14 @@ and polish.
 
 ### Fixed
 
+- **The case desk loses no document and files only where you may write.**
+  A WhatsApp document that could not be copied or routed waits in the tray,
+  with a link to its chat; the tray says how many wait and loads more;
+  filing from the tray needs the same right to the case as filing from the
+  queue; a copy made earlier is found instead of refused. "No activity"
+  rules count files and the group's messages; one failing rule no longer
+  stops the rest; the group-end retry takes turns (30 minutes apart).
+  **Migration required: 303.**
 - **An open tab notices what changed elsewhere.** When you switch workspace
   on another device, or your access to this workspace is deactivated while
   you have another, a bar above the page says so and offers Reload; nothing
