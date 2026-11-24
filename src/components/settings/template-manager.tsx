@@ -319,6 +319,14 @@ export function TemplateManager() {
       });
       const data = await res.json();
       if (!res.ok) {
+        if (data?.code === 'TEMPLATE_EXISTS') {
+          throw new Error(t('toastTemplateExists'));
+        }
+        if (data?.code === 'META_ACCEPTED_NOT_SAVED') {
+          // Part of it may be saved: the list shows what is.
+          await fetchTemplates();
+          throw new Error(t('toastMetaAcceptedNotSaved'));
+        }
         throw new Error(
           data?.error ||
             `${isEdit ? 'Edit' : 'Submit'} failed (HTTP ${res.status})`

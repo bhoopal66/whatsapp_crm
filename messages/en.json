@@ -2707,6 +2707,8 @@
       "toastSubmitFailed": "Failed to submit",
       "toastSubmitEditSuccess": "Edit submitted — Meta typically reviews within 24 hours.",
       "toastSubmitNewSuccess": "Submitted to Meta — typical review time is 24 hours. Status updates automatically.",
+      "toastTemplateExists": "A template with this name and language already exists. Edit it, or choose another name.",
+      "toastMetaAcceptedNotSaved": "Meta accepted this template, but it could not be saved completely here. Press Sync to bring it in.",
       "toastSaveEditDry": "Template updated (dry-run — no Meta call)",
       "toastSaveNewDry": "Template saved (dry-run — no Meta call)",
       "toastSyncCount": "Synced {total} {total, plural, =1 {template} other {templates}} from Meta",

@@ -2707,6 +2707,8 @@
       "toastSubmitFailed": "تعذر الإرسال",
       "toastSubmitEditSuccess": "تم إرسال التعديل — تراجع Meta عادةً خلال 24 ساعة.",
       "toastSubmitNewSuccess": "تم الإرسال إلى Meta — مدة المراجعة المعتادة 24 ساعة. تتحدث الحالة تلقائياً.",
+      "toastTemplateExists": "يوجد قالب بهذا الاسم وهذه اللغة بالفعل. عدّله أو اختر اسماً آخر.",
+      "toastMetaAcceptedNotSaved": "قبلت Meta هذا القالب، لكن تعذر حفظه هنا بالكامل. اضغط «مزامنة» لإحضاره.",
       "toastSaveEditDry": "تم تحديث القالب (تجريبي — دون اتصال بـ Meta)",
       "toastSaveNewDry": "تم حفظ القالب (تجريبي — دون اتصال بـ Meta)",
       "toastSyncCount": "تمت مزامنة {total} {total, plural, =1 {قالب} other {قوالب}} من Meta",

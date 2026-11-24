@@ -22,6 +22,13 @@ and polish.
 
 ### Fixed
 
+- **A new template cannot take the name of one Meta already has.** Saving
+  one under an existing name and language dropped the first one's link to
+  Meta and showed it as approved, and no Meta chat could send it until the
+  next Sync; it is now refused with a clear message. A template Meta refused
+  can still be submitted again and keeps its reason until Meta answers, and
+  one Meta accepted keeps its Meta id when the save then fails. No
+  migration.
 - **Templates can be reached while an attachment is staged**, from the
   same "+" menu, and the attachment stays as it is. No migration.
 - **A template sent from the customer page no longer says "sent".** It says
