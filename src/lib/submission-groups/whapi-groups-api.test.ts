@@ -34,7 +34,10 @@ import {
   createWhapiGroupsApi,
   SubmissionGroupChannelError,
 } from './whapi-groups-api';
-import { SubmissionGroupNumberDisconnectedError } from './service';
+import {
+  SubmissionGroupNotAttemptedError,
+  SubmissionGroupNumberDisconnectedError,
+} from './service';
 import {
   closeRemainingText,
   SubmissionGroupCloseIncompleteError,
@@ -275,6 +278,18 @@ describe('sendGroupText', () => {
       groupId: WA_GROUP,
       text: 'hi',
     });
+  });
+
+  it('a number that cannot be read is NotAttempted; a removed one is ChannelError', async () => {
+    h.sendGroupText.mockClear();
+    h.loadChannels.mockRejectedValueOnce(new Error('read failed'));
+    await expect(
+      api().sendGroupText('cfg-1', WA_GROUP, 'hi')
+    ).rejects.toBeInstanceOf(SubmissionGroupNotAttemptedError);
+    await expect(
+      api().sendGroupText('cfg-gone', WA_GROUP, 'hi')
+    ).rejects.toBeInstanceOf(SubmissionGroupChannelError);
+    expect(h.sendGroupText).not.toHaveBeenCalled();
   });
 });
 

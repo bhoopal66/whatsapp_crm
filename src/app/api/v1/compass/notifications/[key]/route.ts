@@ -10,7 +10,7 @@
 
 import { requireApiKey } from '@/lib/auth/api-context';
 import { ok, fail, toApiErrorResponse } from '@/lib/api/v1/respond';
-import { getNotificationByKey } from '@/lib/compass/notify';
+import { getNotificationByKey, NotifyError } from '@/lib/compass/notify';
 
 export async function GET(
   request: Request,
@@ -33,6 +33,10 @@ export async function GET(
     }
     return ok(notification);
   } catch (err) {
+    // A failed read is not an unknown key.
+    if (err instanceof NotifyError) {
+      return fail(err.code, err.message, err.status);
+    }
     return toApiErrorResponse(err);
   }
 }

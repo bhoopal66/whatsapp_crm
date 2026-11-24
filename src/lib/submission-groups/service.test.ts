@@ -7,6 +7,8 @@ import {
   SubmissionGroupChannelError,
   SubmissionGroupSendBlockedError,
   SubmissionGroupSendUnconfirmedError,
+  SubmissionGroupNotAttemptedError,
+  SubmissionGroupSystemNotSentError,
   SubmissionGroupSendRefusedError,
   SubmissionGroupSentNotRecordedError,
   SubmissionGroupService,
@@ -488,7 +490,7 @@ function setup(
 ) {
   const store = o.store ?? new FakeStore();
   const api = o.api ?? new FakeApi();
-  const consent: { answer: ConsentAnswer; asked: number } = {
+  const consent: { answer: ConsentAnswer; asked: number; error?: Error } = {
     answer: { allowed: true, phone: '971500000001' },
     asked: 0,
   };
@@ -497,6 +499,7 @@ function setup(
     api,
     consent: async () => {
       consent.asked++;
+      if (consent.error) throw consent.error;
       return consent.answer;
     },
     displayName: async (u) => NAMES[u] ?? null,
@@ -1810,6 +1813,82 @@ describe('SubmissionGroupService.sendSystem (170)', () => {
       /sendGroupText failed/
     );
     expect(s.store.messages.map((m) => m.sendStatus)).toEqual(['failed']);
+  });
+
+  it.each([
+    ['a timeout', new WhapiError('timed out', 503)],
+    ['a gateway 5xx', new WhapiError('bad gateway', 500)],
+    ['a lost connection', new Error('socket hang up')],
+  ])('%s may have gone out: Unconfirmed', async (_what, cause) => {
+    const s = setup();
+    const g = await opened(s);
+    s.api.sendGroupText = async () => {
+      throw cause;
+    };
+    const err = await s.svc.sendSystem(welcome(g.id)).catch((e) => e);
+    expect(err).toBeInstanceOf(SubmissionGroupSendUnconfirmedError);
+    expect(err).toMatchObject({ messageId: s.store.messages[0].id, cause });
+  });
+
+  it.each([
+    ['a gateway 4xx', new WhapiError('not a member', 403)],
+    ['a removed number', new SubmissionGroupChannelError('ch-1')],
+    [
+      'a number that could not be read',
+      new SubmissionGroupNotAttemptedError(new Error('read failed')),
+    ],
+  ])('%s sent nothing: SystemNotSent', async (_what, cause) => {
+    const s = setup();
+    const g = await opened(s);
+    s.api.sendGroupText = async () => {
+      throw cause;
+    };
+    const err = await s.svc.sendSystem(welcome(g.id)).catch((e) => e);
+    expect(err).toBeInstanceOf(SubmissionGroupSystemNotSentError);
+    expect(err).toMatchObject({ messageId: s.store.messages[0].id, cause });
+    expect(s.store.messages[0].sendStatus).toBe('failed');
+  });
+
+  it('a failed read, or a beforeGateway that throws, stops it before the gateway: SystemNotSent', async () => {
+    const boom = new Error('read: connection reset');
+    for (const how of ['get', 'consent', 'hook'] as const) {
+      const s = setup();
+      const g = await opened(s);
+      if (how === 'get') {
+        s.store.get = async () => {
+          throw boom;
+        };
+      }
+      if (how === 'consent') s.consent.error = boom;
+      const err = await s.svc
+        .sendSystem({
+          ...welcome(g.id),
+          beforeGateway: async () => {
+            if (how === 'hook') throw boom;
+          },
+        })
+        .catch((e) => e);
+      expect(err).toBeInstanceOf(SubmissionGroupSystemNotSentError);
+      expect(err).toMatchObject({
+        messageId: s.store.messages[0].id,
+        cause: boom,
+      });
+      expect(s.store.messages[0].sendStatus).toBe('failed');
+      expect(s.api.of('sendGroupText')).toEqual([]);
+    }
+  });
+
+  it('beforeGateway is told the stored message, before the gateway is called', async () => {
+    const s = setup();
+    const g = await opened(s);
+    const seen: unknown[] = [];
+    await s.svc.sendSystem({
+      ...welcome(g.id),
+      beforeGateway: async (id) => {
+        seen.push(id, s.api.of('sendGroupText').length);
+      },
+    });
+    expect(seen).toEqual([s.store.messages[0].id, 0]);
   });
 });
 

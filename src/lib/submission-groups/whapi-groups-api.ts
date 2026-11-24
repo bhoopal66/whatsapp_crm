@@ -193,7 +193,13 @@ export function createWhapiGroupsApi(
     },
 
     async sendGroupText(channelId, waGroupId, text) {
-      const channel = await channelFor(channelId);
+      let channel: WhatsAppChannel;
+      try {
+        channel = await channelFor(channelId);
+      } catch (err) {
+        if (err instanceof SubmissionGroupChannelError) throw err;
+        throw new SubmissionGroupNotAttemptedError(err);
+      }
       const sent = await groups.sendGroupText({
         channel,
         groupId: waGroupId,
