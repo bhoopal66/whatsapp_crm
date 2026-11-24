@@ -5,6 +5,7 @@ import { useEffect } from 'react';
 import { useTranslations } from 'next-intl';
 import { House, RotateCw, TriangleAlert } from 'lucide-react';
 import { Button, buttonVariants } from '@/components/ui/button';
+import { reportClientError } from '@/lib/browser-reports/send';
 
 /**
  * The dashboard screens' boundary. An error.tsx wraps its segment's
@@ -25,6 +26,7 @@ export default function DashboardError({
 
   useEffect(() => {
     console.error(error);
+    reportClientError('boundary', error);
   }, [error]);
 
   return (

@@ -7,6 +7,7 @@ import "./globals.css";
 import { ThemeProvider } from "@/hooks/use-theme";
 import { localeDir } from "@/i18n/locales";
 import { ThemedToaster } from "@/components/themed-toaster";
+import { ClientErrorListener } from "@/components/client-error-listener";
 import {
   DEFAULT_MODE,
   DEFAULT_THEME,
@@ -149,6 +150,7 @@ export default async function RootLayout({
           <ThemeProvider>
             {children}
             <ThemedToaster />
+            <ClientErrorListener />
           </ThemeProvider>
         </NextIntlClientProvider>
       </body>
