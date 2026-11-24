@@ -115,7 +115,10 @@ export function eventDragBody(
   if (delta === 0) return body;
   const rule = shiftRule(series.rrule, delta, { date: from, timeZone: zone });
   if (rule === null) return { error: 'series_rule_conflict' };
-  return rule === series.rrule ? body : { ...body, rrule: rule };
+  // Cancelled dates move too: the API cannot tell a 7-day drag of a weekly
+  // series (same rule) from one that only starts a week later.
+  const moved = { ...body, moveSeries: true };
+  return rule === series.rrule ? moved : { ...moved, rrule: rule };
 }
 
 /** The series' new first start and end after one occurrence moved. */

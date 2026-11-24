@@ -40,6 +40,11 @@ and polish.
   date is not one of the repeat days"); it used to be saved and the first
   date never showed or rang. An event already saved that way can still be
   edited in its other fields. No migration.
+- **Calendar: a series that starts later keeps its cancelled dates.** Changing
+  the start date of a repeating event moved every cancelled date, and every
+  date changed on its own, to another day (and showed the changed ones twice).
+  They now stay on their day and follow only the time, unless the whole series
+  moves: a drag of all events, or repeat days moved with the start.
 - **Compass updates: a status update is never posted twice into a
   submission group, and never lost to short failures.** A timeout or a
   restart mid-post answers `delivery_unconfirmed` and is not posted again
