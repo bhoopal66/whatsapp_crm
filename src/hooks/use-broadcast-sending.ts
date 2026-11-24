@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
+import { holdUnsaved } from '@/lib/app-update/unsaved';
 import { BATCH_SEND_ATTEMPTS, batchRetryDelayMs } from '@/lib/broadcast-retry';
 import { Contact, MessageTemplate } from '@/types';
 import { normalizePhone } from '@/lib/whatsapp/phone-utils';
@@ -1030,6 +1031,9 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
       payload.quietHours ?? null
     );
 
+    // From the first read to the last pass this tab drives the campaign,
+    // also after its screen broke: no reload nobody pressed until it ends.
+    const mayReload = holdUnsaved(() => true);
     try {
       // ── Step 0: Resolve current user ──────────────────────────────
       // broadcasts.user_id is NOT NULL + guarded by RLS
@@ -1232,6 +1236,7 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
 
       return { broadcastId: broadcast.id, scheduledFor: null };
     } finally {
+      mayReload();
       setIsProcessing(false);
     }
   }

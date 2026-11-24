@@ -48,3 +48,23 @@ export function takeReload(
     return false;
   }
 }
+
+export const SERVER_CHECK_TIMEOUT_MS = 4_000;
+
+/**
+ * Whether the app answers now. A chunk answered 502 during a restart, a
+ * Cloudflare 52x and Wi-Fi without internet look like a chunk a release
+ * deleted, and a reload then ends on an error page with no way back. The
+ * body is read too: a page put in between can answer 200.
+ */
+export async function serverAnswers(): Promise<boolean> {
+  try {
+    const res = await fetch('/api/healthz', {
+      cache: 'no-store',
+      signal: AbortSignal.timeout(SERVER_CHECK_TIMEOUT_MS),
+    });
+    return res.ok && (await res.json())?.ok === true;
+  } catch {
+    return false;
+  }
+}
