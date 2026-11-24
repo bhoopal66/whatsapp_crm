@@ -22,6 +22,10 @@ and polish.
 
 ### Fixed
 
+- **A message that failed to send no longer counts on the home screen.** It
+  counted as the answer in "First response time" (the card and the owner's
+  CSV) and was drawn as an outgoing message. Both figures can change for past
+  days. **Migration required: 296** (`296_home_figures.sql`).
 - **The call reports start the day at midnight in Dubai**, also for
   someone whose computer is set to another time zone: their report days
   held other calls than everyone else's. No migration.

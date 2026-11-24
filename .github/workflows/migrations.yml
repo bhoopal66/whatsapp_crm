@@ -1524,3 +1524,8 @@ jobs:
       # only after remove or delete); a non-admin cannot read the ledger.
       - name: Verify kb learn
         run: supabase db query --local --file supabase/ci/verify-kb-learn.sql
+
+      # Migration 296: the home screen's figures. A failed send is no
+      # outgoing message and no answer.
+      - name: Verify home figures
+        run: supabase db query --local --file supabase/ci/verify-home-figures.sql
