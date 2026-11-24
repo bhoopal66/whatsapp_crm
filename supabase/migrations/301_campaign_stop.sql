@@ -23,6 +23,8 @@
 -- Re-runnable.
 -- ============================================================
 
+SET lock_timeout = '5s';
+
 -- One statement: the table is never without the check.
 ALTER TABLE public.broadcasts
   DROP CONSTRAINT IF EXISTS broadcasts_status_check,
@@ -88,3 +90,5 @@ GRANT EXECUTE ON FUNCTION public.broadcast_stop(uuid) TO authenticated, service_
 
 ALTER TABLE public.broadcasts
   ADD COLUMN IF NOT EXISTS skip_recent_days integer CHECK (skip_recent_days > 0);
+
+RESET lock_timeout;

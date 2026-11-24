@@ -182,3 +182,5 @@ REVOKE ALL ON FUNCTION public.case_doc_mark_requested(uuid, uuid, text[], timest
 GRANT EXECUTE ON FUNCTION public.case_doc_mark_requested(uuid, uuid, text[], timestamptz) TO service_role;
 
 NOTIFY pgrst, 'reload schema';
+
+RESET lock_timeout;

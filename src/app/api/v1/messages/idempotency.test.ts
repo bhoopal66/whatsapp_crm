@@ -275,15 +275,46 @@ describe('POST /api/v1/messages with a key', () => {
     expect(gateway).toHaveBeenCalledTimes(2);
   });
 
-  it('does not send once the claim was called unconfirmed', async () => {
-    h.send.mockImplementation(async (_db, _acct, p: Params) => {
-      h.rows[0].state = 'unconfirmed';
+  it('never reopens a key another request called unconfirmed', async () => {
+    // The first stalls over two minutes before the gateway.
+    let second;
+    h.send.mockImplementationOnce(async (_db, _acct, p: Params) => {
+      h.rows[0].claimed_at = new Date(Date.now() - 121_000).toISOString();
+      second = await keyed();
       await p.beforeGateway?.();
       return gateway();
     });
-    expect(await keyed()).toMatchObject({ status: 503, code: 'unavailable' });
+    const unconfirmed = { status: 409, code: 'delivery_unconfirmed' };
+    expect(await keyed()).toMatchObject(unconfirmed);
+    expect(second).toMatchObject(unconfirmed);
+    expect(h.rows[0].state).toBe('unconfirmed');
+    expect(await keyed()).toMatchObject(unconfirmed);
     expect(gateway).not.toHaveBeenCalled();
-    expect(h.rows[0].state).toBe('failed');
+  });
+
+  it('keeps unconfirmed over a refusal that comes late', async () => {
+    let second;
+    gateway.mockImplementationOnce(async () => {
+      h.rows[0].claimed_at = new Date(Date.now() - 121_000).toISOString();
+      second = await keyed();
+      throw new SendMessageError('whatsapp_error', 'refused', 502, true);
+    });
+    expect(await keyed()).toMatchObject({ code: 'whatsapp_error' });
+    expect(second).toMatchObject({ code: 'delivery_unconfirmed' });
+    expect(h.rows[0].state).toBe('unconfirmed');
+    expect(await keyed()).toMatchObject({ code: 'delivery_unconfirmed' });
+    expect(gateway).toHaveBeenCalledTimes(1);
+  });
+
+  it('takes a delivery over unconfirmed', async () => {
+    gateway.mockImplementationOnce(async () => {
+      h.rows[0].claimed_at = new Date(Date.now() - 121_000).toISOString();
+      await keyed();
+      return { messageId: 'm-1', whatsappMessageId: 'wamid-1' };
+    });
+    expect(await keyed()).toMatchObject({ status: 201 });
+    expect(await keyed()).toMatchObject({ data: { replayed: true } });
+    expect(gateway).toHaveBeenCalledTimes(1);
   });
 
   it('answers 201 even when the outcome cannot be stored', async () => {

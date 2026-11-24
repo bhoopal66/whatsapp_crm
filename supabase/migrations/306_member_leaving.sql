@@ -14,17 +14,35 @@
 -- 3. add_workspace_member (083, last restated by 175) takes back somebody
 --    its workspace removed, when all they have is the empty private
 --    account the removal gave them: the row is moved as
---    provision_account_member moves a new login's. Until now that was
---    `no_such_user`, and a person deactivated before the removal (their
---    login still banned) could not use an invitation either. The app
---    lifts the ban of whoever it adds (lib/account/add-member.ts); the
---    password is never touched. Owner-only for a removed admin, the
---    mirror of 287's removal rule. Removals older than 092's audit are
---    not known and stay `no_such_user`.
+--    provision_account_member moves a new login's, and that account is
+--    deleted. Until now that was `no_such_user`, and a person deactivated
+--    before the removal (their login still banned) could not use an
+--    invitation either. The app lifts the ban of whoever it adds
+--    (lib/account/add-member.ts); the password is never touched.
+--
+--    It deletes an account and opens a login, so anything not proved is
+--    `no_such_user`, under the per-person lock:
+--      - the last removal of that person anywhere (092) is this
+--        workspace's, by somebody else. Removals older than 092, or by
+--        the server, are not known;
+--      - their one profile is as remove_account_member (287) left it, in
+--        an account of their own made by that removal: the same instant,
+--        both now() of one transaction;
+--      - that account holds nothing but their profile and the one audit
+--        row the removal wrote there (all a removal seeds). Every foreign
+--        key to accounts is asked, so a later table is covered too;
+--        disposable_personal_account's list ends at 129. The presence
+--        row of a person who opened the app since counts as well;
+--      - a guest comes back as a guest, staff as staff (as in
+--        set_member_role).
+--    Owner-only (42501) for a removed admin, the mirror of 287's removal
+--    rule. Who lost a race to another admin hears `already a member`.
 --
 -- Both functions are the catalog's bodies with the marked lines added;
 -- signatures, search_path and grants (CREATE OR REPLACE keeps them) are
--- unchanged. Re-applying 071 or 175 undoes this: apply in order.
+-- unchanged; add_workspace_member also runs with row_security off, so a
+-- read that a policy would narrow fails instead of finding nothing.
+-- Re-applying 071 or 175 undoes this: apply in order.
 -- Re-runnable. supabase/ci/verify-member-leaving.sql asserts it.
 -- ============================================================
 
@@ -84,6 +102,7 @@ CREATE OR REPLACE FUNCTION public.add_workspace_member(p_email text, p_role acco
  LANGUAGE plpgsql
  SECURITY DEFINER
  SET search_path TO 'public', 'pg_temp'
+ SET row_security TO 'off'
 AS $function$
 DECLARE
   v_account UUID;
@@ -97,7 +116,11 @@ DECLARE
   v_full TEXT;
   v_email TEXT;
   v_avatar TEXT;
+  v_removal workspace_audit;
   v_removed_role TEXT;
+  v_private UUID;
+  v_ref RECORD;
+  v_held BOOLEAN;
 BEGIN
   IF auth.uid() IS NULL THEN
     RAISE EXCEPTION 'Unauthorized' USING ERRCODE = '42501';
@@ -145,28 +168,87 @@ BEGIN
                      AND c.user_id = auth.uid() AND c.deactivated_at IS NULL
                      AND c.account_role IN ('owner', 'admin'))) THEN
     -- 306: or somebody this workspace removed, who has had nothing since
-    -- but the empty private account the removal gave them.
-    IF v_user IS NOT NULL THEN
+    -- but the empty private account the removal gave them. Every EXIT is
+    -- a condition that does not hold.
+    <<add_back>>
+    BEGIN
+      EXIT add_back WHEN v_user IS NULL;
       PERFORM 1 FROM profiles WHERE user_id = v_user ORDER BY id FOR UPDATE;
-      SELECT w.detail ->> 'role' INTO v_removed_role
-        FROM workspace_audit w
-       WHERE w.account_id = v_account AND w.target_user_id = v_user
-         AND w.action = 'member_removed'
-         AND w.actor_id <> v_user  -- never NULL: somebody here removed them
-       ORDER BY w.at DESC LIMIT 1;
-      IF FOUND AND disposable_personal_account(v_user) IS NOT NULL THEN
-        -- remove_account_member's rule (287): only the owner removes an
-        -- admin, so only the owner takes one back, in any role.
-        IF v_role <> 'owner'
-           AND (v_removed_role IN ('owner', 'admin')
-                OR member_lately_admin(v_account, v_user)) THEN
-          RAISE EXCEPTION 'Only the owner can add back an admin who was removed'
-            USING ERRCODE = '42501';
-        END IF;
-        PERFORM provision_account_member(v_user, v_account, p_role, v_code);
-        RETURN v_user;
+      -- Asked again under the lock: another admin may have been first.
+      IF EXISTS (SELECT 1 FROM profiles WHERE user_id = v_user AND account_id = v_account) THEN
+        RAISE EXCEPTION 'That person is already a member of this workspace'
+          USING ERRCODE = '23505';
       END IF;
-    END IF;
+
+      -- The last removal anywhere, judged only after it is picked.
+      SELECT * INTO v_removal FROM workspace_audit w
+       WHERE w.target_user_id = v_user AND w.action = 'member_removed'
+       ORDER BY w.at DESC, w.id LIMIT 1;
+      EXIT add_back WHEN NOT FOUND
+        OR v_removal.account_id <> v_account
+        OR v_removal.actor_id IS NULL OR v_removal.actor_id = v_user
+        OR EXISTS (SELECT 1 FROM workspace_audit w
+                    WHERE w.target_user_id = v_user AND w.action = 'member_removed'
+                      AND w.at = v_removal.at AND w.id <> v_removal.id);
+      v_removed_role := v_removal.detail ->> 'role';
+      EXIT add_back WHEN v_removed_role IS NULL
+        OR v_removed_role NOT IN ('bank_guest', 'viewer', 'agent', 'team_leader', 'admin')
+        OR (v_removed_role = 'bank_guest') <> (p_role = 'bank_guest');
+
+      SELECT a.id INTO v_private
+        FROM profiles p JOIN accounts a ON a.id = p.account_id
+       WHERE p.user_id = v_user AND a.owner_user_id = v_user
+         AND a.created_at = v_removal.at;
+      EXIT add_back WHEN NOT FOUND;
+      -- Against FOR UPDATE no row can be filed under it meanwhile: a
+      -- foreign key check needs the account's key share.
+      PERFORM 1 FROM accounts WHERE id = v_private FOR UPDATE;
+      EXIT add_back WHEN NOT EXISTS (
+          SELECT 1 FROM profiles p JOIN accounts a ON a.id = p.account_id
+           WHERE p.user_id = v_user AND a.id = v_private
+             AND a.owner_user_id = v_user AND a.created_at = v_removal.at
+             AND a.archived_at IS NULL
+             AND p.account_role = CASE WHEN v_removed_role = 'bank_guest'
+                                       THEN 'bank_guest' ELSE 'viewer' END::account_role_enum
+             AND p.is_active AND p.deactivated_at IS NULL)
+        OR (SELECT count(*) FROM profiles WHERE user_id = v_user) <> 1
+        OR (SELECT count(*) FROM profiles WHERE account_id = v_private) <> 1
+        OR disposable_personal_account(v_user) IS DISTINCT FROM v_private
+        OR (SELECT count(*) <> 1
+                   OR NOT bool_and(w.action = 'member_added' AND w.at = v_removal.at
+                                   AND w.target_user_id IS NOT DISTINCT FROM v_user
+                                   AND w.actor_id IS NOT DISTINCT FROM v_removal.actor_id)
+              FROM workspace_audit w WHERE w.account_id = v_private);
+      FOR v_ref IN
+        SELECT n.nspname, c.relname,
+               (SELECT att.attname FROM pg_catalog.pg_attribute att
+                 WHERE att.attrelid = k.conrelid
+                   AND att.attnum = k.conkey[array_position(k.confkey, (
+                     SELECT i.attnum FROM pg_catalog.pg_attribute i
+                      WHERE i.attrelid = k.confrelid AND i.attname = 'id'))]) AS col
+          FROM pg_catalog.pg_constraint k
+          JOIN pg_catalog.pg_class c ON c.oid = k.conrelid
+          JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+         WHERE k.contype = 'f' AND k.confrelid = 'public.accounts'::regclass
+           AND k.conrelid NOT IN ('public.profiles'::regclass, 'public.workspace_audit'::regclass)
+      LOOP
+        EXIT add_back WHEN v_ref.col IS NULL;  -- not by id: cannot be asked
+        EXECUTE format('SELECT EXISTS (SELECT 1 FROM %I.%I WHERE %I = $1)',
+                       v_ref.nspname, v_ref.relname, v_ref.col)
+          INTO v_held USING v_private;
+        EXIT add_back WHEN v_held;
+      END LOOP;
+
+      -- remove_account_member's rule (287): only the owner removes an
+      -- admin, so only the owner takes one back, in any role.
+      IF v_role <> 'owner'
+         AND (v_removed_role = 'admin' OR member_lately_admin(v_account, v_user)) THEN
+        RAISE EXCEPTION 'Only the owner can add back an admin who was removed'
+          USING ERRCODE = '42501';
+      END IF;
+      PERFORM provision_account_member(v_user, v_account, p_role, v_code);
+      RETURN v_user;
+    END add_back;
     RAISE EXCEPTION 'no_such_user' USING ERRCODE = 'P0002';
   END IF;
 
