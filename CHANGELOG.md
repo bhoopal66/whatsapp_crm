@@ -22,6 +22,14 @@ and polish.
 
 ### Fixed
 
+- **Home screen figures that looked exact but were not.** A task list cut at
+  200 now shows "200+" and no "due today" figure; the Hot, Upset and Pinned
+  tiles count the chats the list they open shows (other people's personal
+  chats and department chats no longer inflate them); the pipeline ring is
+  drawn when one stage holds every deal; a failed phone-system count no
+  longer hides the Calls card and row; the WhatsApp numbers card leaves out
+  staff's personal numbers. No migration.
+
 - **Templates can be reached while an attachment is staged**, from the
   same "+" menu, and the attachment stays as it is. No migration.
 - **A template sent from the customer page no longer says "sent".** It says
