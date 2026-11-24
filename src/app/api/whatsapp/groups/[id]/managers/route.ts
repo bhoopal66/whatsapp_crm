@@ -11,12 +11,15 @@
 // Managers and their saved numbers are linked (2026-11-21): once the
 // rows are written, a new manager's saved number (`staff_saved_phone`,
 // migration 219) is added to the WhatsApp group and a dropped
-// manager's is removed; someone with no saved number just sends from
-// the app. This is best effort after the write and never fails it: the
-// answer's `numbers` says what happened, including `refused` (WhatsApp
-// wouldn't add them: share the invite link) and the group blocks
-// (number_removed, left, not_group_admin). Our own number is never
-// touched. The reverse direction is a trigger in 219.
+// manager's is removed (`staff_removal_phone`, 299: a deactivated or
+// demoted person's too); a new manager with no saved number just sends
+// from the app, a dropped one is reported (`no_saved_number`): their
+// phone may still be in the group. This is best effort after the write
+// and never fails it: the answer's `numbers` says what happened,
+// including `refused` (WhatsApp wouldn't add them: share the invite
+// link) and the group blocks (number_removed, left, not_group_admin).
+// Our own number is never touched. The reverse direction is a trigger
+// in 219.
 // ============================================================
 
 import { NextResponse } from 'next/server';
@@ -151,11 +154,12 @@ async function syncManagerNumbers(
       if (p.full_name) names.set(p.user_id, p.full_name);
     }
     const phones = new Map<string, string | null>();
+    const leaving = new Set(removed);
     for (const userId of people) {
-      const { data, error } = await admin.rpc('staff_saved_phone', {
-        p_account: group.account_id,
-        p_user: userId,
-      });
+      const { data, error } = await admin.rpc(
+        leaving.has(userId) ? 'staff_removal_phone' : 'staff_saved_phone',
+        { p_account: group.account_id, p_user: userId }
+      );
       if (error) {
         console.error('[groups] saved number lookup failed', error);
         report.failed.push({
@@ -164,7 +168,14 @@ async function syncManagerNumbers(
         });
         continue;
       }
-      phones.set(userId, typeof data === 'string' && data ? data : null);
+      const phone = typeof data === 'string' && data ? data : null;
+      phones.set(userId, phone);
+      if (!phone && leaving.has(userId)) {
+        report.failed.push({
+          name: names.get(userId) ?? '',
+          reason: 'no_saved_number',
+        });
+      }
     }
     const lookedUp = (ids: string[]) => ids.filter((u) => phones.has(u));
     const block: NumberBlock | null =

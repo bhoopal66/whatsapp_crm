@@ -33,7 +33,10 @@ import { WhapiError } from '@/lib/whatsapp/whapi-api';
 import { OpenWAError } from '@/lib/whatsapp/openwa-api';
 import { OpenWAGroupUnsupportedError } from '@/lib/whatsapp/openwa-groups';
 
+import { submissionGroupIds } from './submission-ids';
 import { parseGroupSettings, type WhatsappGroupRow } from './types';
+
+export { submissionGroupIds };
 
 export const GROUP_COLUMNS =
   'id, account_id, channel_id, wa_group_id, name, description, icon_url, participants_count, settings, our_role, created_by, created_at, synced_at, last_message_at, left_at';
@@ -138,8 +141,10 @@ type Caller = { supabase: SupabaseClient; accountId: string };
 
 /**
  * The group, read through the caller's RLS (invisible → 404); with
- * `manage`, also `whatsapp_group_can_manage` (→ 403). A failed read is
- * 503, never a 404/403 on a blip.
+ * `manage`, also `whatsapp_group_can_manage` (→ 403). The mirror of a
+ * submission group is 404 for everyone, admins too: its screens and its
+ * rules are the submission module's (299 hides it in SQL as well). A
+ * failed read is 503, never a 404/403 on a blip.
  */
 export async function loadGroupForCaller(
   ctx: Caller,
@@ -160,6 +165,15 @@ export async function loadGroupForCaller(
   }
   if (!data) throw new GroupHttpError(404, 'not_found', 'Group not found');
   const group = data as WhatsappGroupRow;
+  const submission = await submissionGroupIds(supabaseAdmin(), ctx.accountId, [
+    group.wa_group_id,
+  ]).catch((err) => {
+    console.error('[groups] submission check failed', err);
+    throw new GroupHttpError(503, 'unavailable', 'Could not load the group');
+  });
+  if (submission.has(group.wa_group_id)) {
+    throw new GroupHttpError(404, 'not_found', 'Group not found');
+  }
   if (opts.manage && !(await callerCanManage(ctx.supabase, id))) {
     throw new GroupHttpError(403, 'not_allowed', "You can't manage this group");
   }
@@ -254,24 +268,6 @@ export function leaveFailureReason(err: unknown): string {
     return groupFailure('channel_disconnected').error;
   }
   return groupFailure(describeGroupFailure(err)).error;
-}
-
-/** Of these WhatsApp ids, the ones that are submission groups. */
-export async function submissionGroupIds(
-  admin: SupabaseClient,
-  accountId: string,
-  waGroupIds: string[]
-): Promise<Set<string>> {
-  if (waGroupIds.length === 0) return new Set();
-  const { data, error } = await admin
-    .from('submission_groups')
-    .select('wa_group_id')
-    .eq('account_id', accountId)
-    .in('wa_group_id', waGroupIds);
-  if (error) throw error;
-  return new Set(
-    ((data ?? []) as Array<{ wa_group_id: string }>).map((r) => r.wa_group_id)
-  );
 }
 
 const PAGE = 1000;

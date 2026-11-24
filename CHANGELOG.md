@@ -299,6 +299,18 @@ superuser or BYPASSRLS role; after 152 and 202).
 
 ### Security
 
+- **A submission group is never an ordinary group.** A submission group
+  made by our own number was also listed as an ordinary WhatsApp group,
+  where its creator, its managers and their team leaders could read and
+  manage it whatever the submission's own list said. Such a row is now
+  nobody's, admins included: not listed, not opened, no new messages or
+  events stored in it. Submission groups are read and managed only as
+  submission groups. The existing rows are hidden, not deleted.
+  **A colleague's phone is taken out of a group also after they were
+  deactivated or changed role**, and when they have no saved number of
+  their own the screen says so instead of nothing. **Migration required:
+  299**, before the build; needs a superuser or BYPASSRLS role. Applying
+  114, 218 or 286 again calls for 299 again.
 - **The old one-shot campaign route is gone** (`POST
   /api/whatsapp/broadcast`). Nothing has called it since campaigns moved to
   the server, and it sent a template to any numbers it was given without

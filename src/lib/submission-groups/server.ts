@@ -72,6 +72,7 @@ function staffNumberDeps(
   const api = createWhapiGroupsApi(admin, accountId);
   return {
     savedPhone: (account, user) => store.staffSavedPhone(account, user),
+    removalPhone: (account, user) => store.staffRemovalPhone(account, user),
     customerPhone: async (contactId) =>
       (await store.contactConsent(contactId)).phone,
     getParticipants: (c, g) => api.getParticipants(c, g),

@@ -14,6 +14,10 @@ the contract.
   inbox, flows, automations, AI and webhooks never see it.
 - **Writes go through the routes** (`/api/whatsapp/groups/*`) on the
   service role, after an RLS-client check of the caller (`loadGroupForCaller`).
+- **A submission group is never one of these (299).** Its mirror row (same
+  account and WhatsApp id) is hidden by both id functions, 404 in
+  `loadGroupForCaller` (admins too) and skipped inbound; the row is not
+  deleted. `verify-submission-groups-not-groups.sql`.
 - **Access lives twice:** the SQL predicates and `lib/groups/access.ts`;
   change one, change both. `verify-whatsapp-groups.sql` asserts the SQL.
 - **Inbound** (webhook events, join requests, bells) is `lib/groups/inbound.ts`.
@@ -29,7 +33,9 @@ the contract.
   and Sync skip tombstoned groups; Sync skips submission groups too.
 - **Staff numbers (219).** A live agent/team leader's saved number
   (`coordinator_phones`) follows group access both ways: the managers
-  PUT adds/removes it (`lib/groups/manager-numbers.ts`), the
+  PUT adds/removes it (`lib/groups/manager-numbers.ts`; a removal reads
+  `staff_removal_phone`, 299, which a deactivation does not empty, and
+  reports `no_saved_number`), the
   `whatsapp_group_participants_staff_manager` trigger (AFTER INSERT
   only, so a snapshot upsert never re-grants a removed manager; for the
   same reason a snapshot naming nobody deletes nobody) makes

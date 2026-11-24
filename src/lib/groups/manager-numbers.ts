@@ -1,10 +1,11 @@
 // A group's managers and their saved numbers move together: a person
 // made a manager has their saved number (`staff_saved_phone`, from
 // `coordinator_phones`) added to the WhatsApp group, and a manager who
-// is dropped has it removed. The reverse direction (a saved number
-// that joins the group becomes a manager) is a trigger in migration
-// 219. This module is the pure decision; the managers route does the
-// I/O. Nothing here may fail the manager write itself.
+// is dropped has it removed (`staff_removal_phone`, 299). The reverse
+// direction (a saved number that joins the group becomes a manager) is a
+// trigger in migration 219. This module is the pure decision; the
+// managers route does the I/O. Nothing here may fail the manager write
+// itself.
 
 import type { GroupActionBlock } from './access';
 
@@ -51,10 +52,11 @@ const digitsOf = (value: string | null | undefined): string =>
 
 /**
  * Which saved numbers to add to or remove from the WhatsApp group.
- * A person with no saved number is left out (they send from the app as
- * before). Our own number is never touched; an added number already in
- * the group and a removed number not in it need nothing. A participant
- * WhatsApp shows only by its LID (`<digits>@lid`) never matches.
+ * A person with no saved number is left out (an added one sends from the
+ * app as before; the route reports a removed one). Our own number is
+ * never touched; an added number already in the group and a removed
+ * number not in it need nothing. A participant WhatsApp shows only by its
+ * LID (`<digits>@lid`) never matches.
  */
 export function planManagerNumbers(args: {
   added: readonly string[];

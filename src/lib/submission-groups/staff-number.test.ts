@@ -25,6 +25,7 @@ const group = (over: Partial<SubmissionGroup> = {}) =>
 
 const deps = (over: Partial<StaffNumberDeps> = {}): StaffNumberDeps => ({
   savedPhone: vi.fn().mockResolvedValue(STAFF),
+  removalPhone: vi.fn().mockResolvedValue(STAFF),
   customerPhone: vi.fn().mockResolvedValue(CUSTOMER),
   getParticipants: vi.fn().mockResolvedValue([CUSTOMER]),
   addParticipant: vi.fn().mockResolvedValue('added'),
@@ -44,6 +45,7 @@ describe('planStaffNumber', () => {
 
   it.each([
     [null, {}, 'none', 'no_saved_number'],
+    [null, { waMode: 'none' }, 'skipped', 'no_whatsapp'],
     [STAFF, { status: 'ENDED' }, 'skipped', 'not_active'],
     [STAFF, { waMode: 'none' }, 'skipped', 'no_whatsapp'],
     [STAFF, { channelId: null }, 'skipped', 'detached'],
@@ -92,6 +94,7 @@ describe('addStaffNumber', () => {
   });
 
   it('calls no gateway without a saved number', async () => {
+    // An addition never falls back to the removal number.
     const d = deps({ savedPhone: vi.fn().mockResolvedValue(null) });
     expect((await addStaffNumber(d, group(), 'u1')).status).toBe('none');
     expect(d.getParticipants).not.toHaveBeenCalled();
@@ -107,6 +110,27 @@ describe('removeStaffNumber', () => {
       status: 'removed',
     });
     expect(d.removeParticipant).toHaveBeenCalledWith('ch1', 'wa1@g.us', STAFF);
+  });
+
+  it('removes the number of someone who is no longer live staff (299)', async () => {
+    const d = deps({
+      savedPhone: vi.fn().mockResolvedValue(null),
+      getParticipants: vi.fn().mockResolvedValue([CUSTOMER, STAFF]),
+    });
+    expect(await removeStaffNumber(d, group(), 'u1')).toEqual({
+      status: 'removed',
+    });
+    expect(d.removalPhone).toHaveBeenCalledWith('a1', 'u1');
+    expect(d.removeParticipant).toHaveBeenCalledWith('ch1', 'wa1@g.us', STAFF);
+  });
+
+  it('says so when there is no number to remove', async () => {
+    const d = deps({ removalPhone: vi.fn().mockResolvedValue(null) });
+    expect(await removeStaffNumber(d, group(), 'u1')).toEqual({
+      status: 'none',
+      reason: 'no_saved_number',
+    });
+    expect(d.getParticipants).not.toHaveBeenCalled();
   });
 
   it('removes nothing when the number is not in the group or the group has no WhatsApp side', async () => {

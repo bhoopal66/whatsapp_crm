@@ -644,8 +644,8 @@ async function processWhapiGroups(
     console.error('[whapi-webhook] group messages failed:', error)
   }
   try {
-    // Submission groups (module 018a) are not in `whatsapp_groups`, so
-    // the write above counted them as unknown. A failure clears `ok` so
+    // The write above skips submission groups (module 018a), even one
+    // mirrored in `whatsapp_groups` (299). A failure clears `ok` so
     // the delivery is not confirmed and Whapi redelivers it: both writes
     // are idempotent on (group, message id), so a replay is safe.
     const sg = await recordSubmissionGroupInbound(
