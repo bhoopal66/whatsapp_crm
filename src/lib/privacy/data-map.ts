@@ -958,10 +958,17 @@ export const NOT_PERSONAL: Readonly<Record<string, string>> =
             // customer's label goes with the next daily recompute.
             'kb_gap_topics',
             'kb_gap_topic_members',
-            // 290: gap ids and a SHA-256 of the topic's label per learned draft; no
-            // message text. The entry's question and answers (kb_entries) are the
-            // model's, stored only when they carry no known name or identifier.
+            // 290: gap ids and a keyed hash (HMAC, secret not in the
+            // database) of the topic's label per learned draft, and when a
+            // gap was last looked at; no message text. Erasing a customer
+            // deletes their gaps: the ids leave the ledger, and an
+            // unapproved draft left with fewer than two chats is deleted
+            // (trigger). An approved entry stays. The entry's question and
+            // answers (kb_entries) are the model's, screened for known names
+            // and identifiers; a name nobody saved, or a nickname, can still
+            // be in one, which is why an admin must read every draft.
             'kb_learned_drafts',
+            'kb_learn_looks',
             'ai_knowledge_chunks',
             'ai_knowledge_documents',
             'ts_label',

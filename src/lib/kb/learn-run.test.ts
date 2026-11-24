@@ -71,6 +71,7 @@ const reply = (text: string, minutes = 20): ThreadMessage => ({
   content_type: 'text',
   content_text: text,
   template_name: null,
+  status: 'sent',
   created_at: at(minutes),
 });
 
@@ -135,6 +136,7 @@ function fakeStore(
     thread: async (_a, conversationId) => threads[conversationId] ?? null,
     knownNames: async () => [],
     recordDiscard: async () => {},
+    noteLook: async () => {},
     recordDraft: async (args) => {
       recorded.push(args);
       return 'drafted';
@@ -995,15 +997,17 @@ describe('supabaseKbLearnStore.knownNames', () => {
         }
       )
     ).knownNames(ACCOUNT);
-    expect(names).toHaveLength(1005);
+    // Case names are people or companies: kept as both.
+    expect(names).toHaveLength(1006);
     for (const n of [
-      'Person 1000',
-      'Last Page Co',
-      'Yusuf Ali',
-      'Case Co',
-      'Bank Person',
+      { name: 'Person 1000', kind: 'person' },
+      { name: 'Last Page Co', kind: 'company' },
+      { name: 'Yusuf Ali', kind: 'person' },
+      { name: 'Case Co', kind: 'company' },
+      { name: 'Bank Person', kind: 'person' },
+      { name: 'Bank Person', kind: 'company' },
     ])
-      expect(names).toContain(n);
+      expect(names).toContainEqual(n);
   });
   it('throws when any source fails', async () => {
     for (const t of [
@@ -1083,5 +1087,51 @@ describe('supabaseKbLearnStore runs', () => {
         evidenceCount: 2,
       })
     ).rejects.toThrow('not written');
+  });
+});
+
+describe('looks and claims', () => {
+  it('one account whose claim throws does not end the pass', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const store = fakeStore({
+      dueAccounts: async () => ['bad', ACCOUNT],
+      claimRun: async (id) => {
+        if (id === 'bad') throw new Error('claim: down');
+        return true;
+      },
+    });
+    const res = await runKbLearning(deps(store));
+    expect(res).toEqual({ accounts: 1, drafted: 1 });
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('bad'));
+    error.mockRestore();
+  });
+
+  it('notes every topic looked at, and whether the model failed', async () => {
+    const looks: [string[], boolean][] = [];
+    const noteLook: KbLearnStore['noteLook'] = async (_a, ids, failed) => {
+      looks.push([ids, failed]);
+    };
+    const quiet = fakeStore({ noteLook, threads: {} });
+    await learnAccount(deps(quiet), ACCOUNT, CONFIG, 1e9);
+    const failing = deps(fakeStore({ noteLook }), {
+      generate: vi.fn(async () => {
+        throw new Error('network');
+      }),
+    });
+    await learnAccount(failing, ACCOUNT, CONFIG, 1e9);
+    expect(looks).toEqual([
+      [['g1', 'g2'], false],
+      [['g1', 'g2'], true],
+    ]);
+  });
+
+  it('the topic key is an HMAC with a secret the database does not hold', () => {
+    const before = process.env.ENCRYPTION_KEY;
+    const one = topicKey(ACCOUNT, 'x');
+    process.env.ENCRYPTION_KEY = 'another secret';
+    expect(topicKey(ACCOUNT, 'x')).not.toBe(one);
+    delete process.env.ENCRYPTION_KEY;
+    expect(() => topicKey(ACCOUNT, 'x')).toThrow();
+    process.env.ENCRYPTION_KEY = before;
   });
 });

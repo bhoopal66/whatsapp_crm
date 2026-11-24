@@ -97,10 +97,14 @@ joined, `pickTeamAnswer`); a topic needs `MIN_ANSWERS_PER_TOPIC` (2). Drafts are
 `kb_learn_record_draft` (service role), always status `draft`, source
 `learned`, ref `LRN-…`; it refuses while the switch is off and when the
 topic has a live draft (`kb_learned_drafts`: same gaps ≥ half, or same
-`topic_key`, a SHA-256 of the label; a deleted or `remove` draft frees the topic). A discarded
+`topic_key`, an HMAC of the label with `ENCRYPTION_KEY`, so only the app
+makes it; a deleted or `remove` draft frees the topic). A deleted gap
+leaves the ledger and takes a thin unapproved draft with it (trigger
+`kb_learn_gaps_deleted`). A discarded
 one (`kb_learn_record_discard`) holds it for 28 days, as does a declined, malformed or cut-off answer;
-`kb_learn_open_topics` leaves all of these out and orders each topic's
-gaps newest first. `loadConfig` requires the AI master switch on. The label is a
+`kb_learn_open_topics` leaves all of these out by gaps (the run checks
+the key), puts topics looked at longest ago first (`kb_learn_looks`,
+`noteLook`) and orders each topic's gaps newest first. `loadConfig` requires the AI master switch on. The label is a
 customer's message: never sent or stored. Chats pass `notSalesChat`
 (`lib/ai/not-sales-chat.ts`, shared with auto-reply; `readOnly` here) for
 the chat and every message's number; every read throws. Evidence is

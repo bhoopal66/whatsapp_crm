@@ -27,7 +27,7 @@
  * Server-only, service role. Never throws; starts no new account or topic
  * after its time budget.
  */
-import { createHash } from 'node:crypto';
+import { createHmac } from 'node:crypto';
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
@@ -57,7 +57,11 @@ import {
   type ThreadMessage,
 } from './learn';
 import type { KbLearnRunError } from './learn-settings';
-import { buildNameMatcher, type NameMatcher } from './known-names';
+import {
+  buildNameMatcher,
+  type KnownName,
+  type NameMatcher,
+} from './known-names';
 
 /** The cron pass starts no new account after this long. */
 export const PASS_BUDGET_MS = 45_000;
@@ -139,7 +143,7 @@ export interface KbLearnStore {
   ): Promise<boolean>;
   /** Every person and company name known to the account. Throws when any
    *  part of it cannot be read. */
-  knownNames(accountId: string): Promise<string[]>;
+  knownNames(accountId: string): Promise<KnownName[]>;
   /** Notes that the model's text was thrown away, or that it declined,
    *  so the topic is not asked again for 28 days. */
   recordDiscard(
@@ -147,6 +151,14 @@ export interface KbLearnStore {
       RecordDraftArgs,
       'accountId' | 'topicId' | 'topicKey' | 'gapIds' | 'evidenceCount'
     >
+  ): Promise<void>;
+  /** Notes that a topic was looked at and what came of it, so busy topics
+   *  without answers wait behind the rest and one that failed at the
+   *  model three times backs off. */
+  noteLook(
+    accountId: string,
+    gapIds: string[],
+    modelFailed: boolean
   ): Promise<void>;
   gaps(accountId: string, ids: string[]): Promise<LearnGap[]>;
   thread(
@@ -199,8 +211,9 @@ const message = (err: unknown) =>
   err instanceof Error ? err.message : String(err);
 
 /**
- * The ledger's key for a topic whose gaps changed on a recompute: a hash,
- * because the label is a customer's own message. Per account, so equal
+ * The ledger's key for a topic whose gaps changed on a recompute: an HMAC
+ * with the app's secret, which the database does not hold, because the
+ * label is a customer's own message. Per account, so equal
  * labels in two workspaces do not match.
  */
 export function topicKey(accountId: string, label: string): string {
@@ -208,7 +221,12 @@ export function topicKey(accountId: string, label: string): string {
     .replace(/\s+/g, ' ')
     .trim()
     .toLowerCase();
-  return createHash('sha256').update(`${accountId}\n${norm}`).digest('hex');
+  const secret = process.env.ENCRYPTION_KEY;
+  // Fail closed: without the secret the key could be guessed from a label.
+  if (!secret) throw new Error('topicKey: ENCRYPTION_KEY is not set');
+  return createHmac('sha256', `kb-learn:${secret}`)
+    .update(`${accountId}\n${norm}`)
+    .digest('hex');
 }
 
 /**
@@ -220,7 +238,7 @@ export async function learnTopic(
   accountId: string,
   config: AiConfig,
   topic: LearnTopic,
-  accountNames: readonly string[],
+  accountNames: readonly KnownName[],
   accountMatcher: NameMatcher = buildNameMatcher(accountNames)
 ): Promise<TopicOutcome> {
   const { store } = deps;
@@ -399,7 +417,7 @@ export async function learnAccount(
   try {
     let left: number;
     let topics: LearnTopic[];
-    let names: string[];
+    let names: KnownName[];
     try {
       // A retry asks only what is left of the week's ten.
       left = MAX_TOPICS_PER_RUN - (await deps.store.askedThisWeek(accountId));
@@ -433,6 +451,17 @@ export async function learnAccount(
           matcher
         );
         if (out.reason === 'disabled') return run;
+        try {
+          await deps.store.noteLook(
+            accountId,
+            topic.gapIds,
+            out.reason === 'model'
+          );
+        } catch (err) {
+          console.warn(
+            `[kb-learn] a look was not noted for account ${accountId}: ${message(err)}`
+          );
+        }
         // A topic the model was asked about counts toward the cap.
         const asked = out.drafted || ASKED.has(out.reason ?? '');
         if (asked) run.tried++;
@@ -491,7 +520,15 @@ export async function runKbLearning(
           `[kb-learn] could not load the AI config for account ${accountId}: ${message(err)}`
         );
       }
-      if (!(await deps.store.claimRun(accountId))) continue;
+      // One account's claim failing never ends the pass for the others.
+      try {
+        if (!(await deps.store.claimRun(accountId))) continue;
+      } catch (err) {
+        console.error(
+          `[kb-learn] could not claim the run for account ${accountId}: ${message(err)}`
+        );
+        continue;
+      }
       accounts++;
       const res: AccountRun = config?.apiKey
         ? await learnAccount(deps, accountId, config, passDeadline)
@@ -521,9 +558,9 @@ export async function runKbLearning(
  * the companies of cases, and the bank people cases were discussed with.
  */
 const NAME_SOURCES = [
-  ['contacts', ['name', 'company']],
-  ['profiles', ['full_name']],
-  ['submission_groups', ['customer_name']],
+  ['contacts', { name: 'person', company: 'company' }],
+  ['profiles', { full_name: 'person' }],
+  ['submission_groups', { customer_name: 'company' }],
 ] as const;
 const NAMES_PAGE = 1000;
 
@@ -597,6 +634,14 @@ export function supabaseKbLearnStore(db: SupabaseClient): KbLearnStore {
       });
       if (error) throw new Error(`drafted: ${error.message}`);
       return data === true;
+    },
+    async noteLook(accountId, gapIds, modelFailed) {
+      const { error } = await db.rpc('kb_learn_note_look', {
+        p_account: accountId,
+        p_gap_ids: gapIds,
+        p_model_failed: modelFailed,
+      });
+      if (error) throw new Error(`look: ${error.message}`);
     },
     async gaps(accountId, ids) {
       if (ids.length === 0) return [];
@@ -733,8 +778,11 @@ export function supabaseKbLearnStore(db: SupabaseClient): KbLearnStore {
       };
     },
     async knownNames(accountId) {
-      const names = new Set<string>();
-      for (const [table, columns] of NAME_SOURCES) {
+      const names = new Map<string, KnownName>();
+      const keep = (name: string, kind: 'person' | 'company') =>
+        names.set(`${kind}:${name}`, { name, kind });
+      for (const [table, kinds] of NAME_SOURCES) {
+        const columns = Object.keys(kinds);
         // By id, until an empty page: PostgREST cuts an unpaged read at
         // its row cap without saying so.
         let after: string | null = null;
@@ -753,7 +801,8 @@ export function supabaseKbLearnStore(db: SupabaseClient): KbLearnStore {
           const rows = data as unknown as Record<string, string | null>[];
           if (rows.length === 0) break;
           for (const row of rows)
-            for (const col of columns) if (row[col]) names.add(row[col]);
+            for (const [col, kind] of Object.entries(kinds))
+              if (row[col]) keep(row[col], kind);
           after = rows[rows.length - 1]!.id;
         }
       }
@@ -768,10 +817,14 @@ export function supabaseKbLearnStore(db: SupabaseClient): KbLearnStore {
         if (!Array.isArray(data)) throw new Error('names (cases): no rows');
         const page = data as string[];
         if (page.length === 0) break;
-        for (const name of page) names.add(name);
+        // Bank people and companies in one list: read as either.
+        for (const name of page) {
+          keep(name, 'person');
+          keep(name, 'company');
+        }
         last = page[page.length - 1]!;
       }
-      return [...names];
+      return [...names.values()];
     },
     async recordDiscard(a) {
       const { data, error } = await db.rpc('kb_learn_record_discard', {
