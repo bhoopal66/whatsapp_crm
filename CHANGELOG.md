@@ -34,6 +34,11 @@ and polish.
 
 ### Fixed
 
+- **Words typed to a group wait for you.** Opening another group, case or
+  tab no longer empties the box of a WhatsApp group, submission group or
+  case: the words are there on coming back (until the browser tab closes;
+  never for the next person to sign in), also when the send was refused
+  after you left. No migration.
 - **Erasing one customer no longer erases another's calls.** A call whose
   number fitted two customers stayed with both even after staff linked it
   to one: erasing the other deleted its recording and notes for good, and

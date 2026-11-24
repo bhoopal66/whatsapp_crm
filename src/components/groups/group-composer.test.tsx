@@ -11,6 +11,8 @@ vi.mock('@/components/inbox/quick-reply-picker', () => ({
   QuickReplyPicker: () => null,
 }));
 
+import { groupTextDrafts } from '@/lib/groups/text-drafts';
+
 import { GroupComposer } from './group-composer';
 
 // Server-side render only (no DOM here): both group chats mount this
@@ -44,6 +46,17 @@ describe('GroupComposer', () => {
     const html = render({});
     expect(html).toContain('aria-label="Record a voice note"');
     expect(html).not.toContain('aria-label="Send"');
+  });
+
+  it('opens on what was typed in this chat, by this login only', () => {
+    groupTextDrafts.write('u', 'group:g', 'half a sentence');
+    const html = render({});
+    expect(html).toContain('half a sentence</textarea>');
+    expect(html).toContain('aria-label="Send"');
+    for (const other of [{ chatKey: 'group:h' }, { userId: 'next' }]) {
+      expect(render(other)).not.toContain('half a sentence');
+    }
+    groupTextDrafts.write('u', 'group:g', '');
   });
 
   it('shows why it is disabled instead of the notice', () => {
