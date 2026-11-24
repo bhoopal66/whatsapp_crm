@@ -53,8 +53,9 @@ and polish.
 - **An open tab notices what changed elsewhere.** When you switch workspace
   on another device, or your access to this workspace is deactivated while
   you have another, a bar above the page says so and offers Reload; nothing
-  reloads by itself, so typed text is safe. A new role or department takes
-  effect in open tabs without a reload. Checked when you return to the tab
+  reloads by itself, so typed text is safe (text typed behind an open dialog
+  counts too). A new role or department takes effect in open tabs without a
+  reload, even when the department check fails. Checked when you return to the tab
   (at most every 2 minutes) and about once an hour. No migration.
 - **A slow or lost connection no longer shows the sign-in page.** While the
   app cannot find out whether you are signed in it says "Reconnecting…", with
@@ -71,7 +72,8 @@ and polish.
   chats shared with a coordinator, reminder suggestions, a chat's timeline
   notes, the HR panel, the groups list and the calendar now read again when a
   laptop wakes or the network returns, without a spinner; a read that fails
-  leaves what is shown. No migration.
+  leaves what is shown. The chats shared with a coordinator are never those
+  of the person or workspace before a switch. No migration.
 - **A person working in one tab no longer blinks between online and away.**
   Every open tab reported its own presence and a hidden one wrote `away` over
   the one in use. One tab of the browser now reports for all of them. No

@@ -82,7 +82,7 @@ describe.each([
   });
 
   it('waits for the person while something is typed', async () => {
-    fields = [{ tagName: 'TEXTAREA', value: 'Dear', closest: () => null }];
+    fields = [{ tagName: 'TEXTAREA', value: 'Dear', getAttribute: () => null }];
     expect(await show(Screen)).toContain('update.reload');
     expect(reload).not.toHaveBeenCalled();
   });
@@ -131,7 +131,9 @@ describe.each([
     [
       'typing',
       () => {
-        fields = [{ tagName: 'TEXTAREA', value: 'Dear', closest: () => null }];
+        fields = [
+          { tagName: 'TEXTAREA', value: 'Dear', getAttribute: () => null },
+        ];
         return () => {};
       },
     ],

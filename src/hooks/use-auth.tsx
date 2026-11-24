@@ -903,13 +903,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             shown.account_id,
             department,
           );
-          if (restricted === null || late()) return;
+          if (late()) return;
         }
         const profile = {
           ...shown,
           account_role: role,
           department,
-          sales_restricted: isSalesRestricted({ role, department, restricted }),
+          // Not known (the department read failed): keep what was shown,
+          // but a role the restriction never applies to is never kept.
+          sales_restricted: isSalesRestricted({
+            role,
+            department,
+            restricted: restricted ?? shown.sales_restricted === true,
+          }),
           may_review_all_calls:
             row.may_review_all_calls === true && !isBankGuestRole(role),
         };

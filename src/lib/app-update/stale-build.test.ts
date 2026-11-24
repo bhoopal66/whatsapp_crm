@@ -87,7 +87,7 @@ describe('what a reload would lose', () => {
     tagName: 'INPUT',
     type: 'text',
     value: 'hello',
-    closest: () => null,
+    getAttribute: () => null,
     ...over,
   });
 
@@ -107,7 +107,21 @@ describe('what a reload would lose', () => {
     ['a search box', field({ type: 'search' }), false],
     ['a checkbox', field({ type: 'checkbox', value: 'on' }), false],
     ['a read-only field', field({ readOnly: true }), false],
-    ["a widget's mirror", field({ closest: () => ({}) }), false],
+    [
+      "a widget's mirror",
+      field({ getAttribute: (n) => (n === 'tabindex' ? '-1' : null) }),
+      false,
+    ],
+    [
+      'a hidden field',
+      field({ getAttribute: (n) => (n === 'aria-hidden' ? 'true' : null) }),
+      false,
+    ],
+    [
+      'text behind an open dialog (only an ancestor is aria-hidden)',
+      field({ tagName: 'TEXTAREA', getAttribute: () => null }),
+      true,
+    ],
   ])('%s', (_what, el, expected) => {
     expect(fieldHasText(el)).toBe(expected);
     expect(textOnPage({ querySelectorAll: () => [el] })).toBe(expected);

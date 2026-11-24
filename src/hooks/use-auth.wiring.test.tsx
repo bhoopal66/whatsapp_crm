@@ -498,7 +498,7 @@ describe('a change made elsewhere', () => {
     });
   });
 
-  it('waits when whether the department is restricted is not known', async () => {
+  it('takes the role and department when the restricted answer is not known', async () => {
     await start();
     db.rows = [{ ...AGENT, department: 'hr' }];
     for (const answer of [
@@ -507,15 +507,38 @@ describe('a change made elsewhere', () => {
     ]) {
       db.restricted = answer;
       expect(await token()).toMatchObject({
-        accountRole: 'admin',
-        department: 'sales',
+        accountRole: 'agent',
+        department: 'hr',
         salesRestricted: false,
       });
+      // Back to the first state for the next answer.
+      db.rows = [{ ...ROW }];
+      await token();
+      db.rows = [{ ...AGENT, department: 'hr' }];
     }
     db.restricted = { data: true, error: null };
     expect(await token()).toMatchObject({
       accountRole: 'agent',
       salesRestricted: true,
+    });
+  });
+
+  it('keeps the restriction shown when the answer is not known, but not for an admin', async () => {
+    await start();
+    db.rows = [{ ...AGENT, department: 'hr' }];
+    db.restricted = { data: true, error: null };
+    expect(await token()).toMatchObject({ salesRestricted: true });
+    db.rows = [{ ...AGENT, account_role: 'team_leader', department: 'it' }];
+    db.restricted = { data: null, error: { message: 'timeout' } };
+    expect(await token()).toMatchObject({
+      accountRole: 'team_leader',
+      department: 'it',
+      salesRestricted: true,
+    });
+    db.rows = [{ ...ROW }];
+    expect(await token()).toMatchObject({
+      accountRole: 'admin',
+      salesRestricted: false,
     });
   });
 });
