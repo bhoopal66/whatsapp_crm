@@ -174,17 +174,11 @@ import {
 } from '@/lib/coordinators/ui';
 import { useInsightSettings } from '@/hooks/use-insight-settings';
 import { ReminderDialog } from './chat-reminder-button';
-import {
-  REMINDER_SUGGESTION_COLUMNS,
-  type ReminderSuggestion,
-} from '@/lib/reminders/types';
+import { useReminderSuggestions } from './use-reminder-suggestions';
 import {
   reminderNote,
   reminderTitleKey,
   suggestionActionResult,
-  withSuggestion,
-  mergeLoadedSuggestions,
-  withoutSuggestion,
   type ReminderChip,
   type SuggestionActionOutcome,
 } from '@/lib/reminders/suggestion-view';
@@ -369,9 +363,6 @@ function messagesPageQuery(conversationId: string) {
     .order('id', { ascending: false })
     .limit(MESSAGE_PAGE_SIZE);
 }
-
-/** No suggestions: a stable empty map for a chat not yet read. */
-const EMPTY_SUGGESTIONS: ReadonlyMap<string, ReminderSuggestion> = new Map();
 
 export function MessageThread({
   conversation,
@@ -1161,8 +1152,6 @@ export function MessageThread({
   // names a later time. Only while the account's switch is on and Jev
   // can run, and only for someone who could file the task from the
   // header's "Remind me" (agent and up, not a share-only coordinator).
-  // Kept with the chat it was read for, so a late answer for the chat
-  // left behind shows nothing. Never in client-cache / session-cache.
   const tReminder = useTranslations('Inbox.reminderSuggestion');
   const { settings: insightSettings, available: insightsAvailable } =
     useInsightSettings();
@@ -1175,104 +1164,11 @@ export function MessageThread({
       conversation &&
       isShareOnlyViewer(accountRole, viewerId, conversation, !!sharedBank)
     );
-  const [reminderState, setReminderState] = useState<{
-    conversationId: string | undefined;
-    map: ReadonlyMap<string, ReminderSuggestion>;
-    /** Date.now() when the map last changed: the chips' "now". */
-    at: number;
-  }>(() => ({ conversationId: undefined, map: new Map(), at: 0 }));
-  const suggestionsByMessageId =
-    reminderState.conversationId === conversationId
-      ? reminderState.map
-      : EMPTY_SUGGESTIONS;
-
-  useEffect(() => {
-    if (!conversationId || !reminderChipsOn) return;
-    let live = true;
-    // A failed read is no chips, never an error.
-    void createClient()
-      .from('message_reminder_suggestions')
-      .select(REMINDER_SUGGESTION_COLUMNS)
-      .eq('conversation_id', conversationId)
-      .order('created_at', { ascending: false })
-      .limit(200)
-      .then(
-        ({ data, error }) => {
-          if (!live || error || !Array.isArray(data)) return;
-          // Newest first: the first row read for a message wins.
-          const map = new Map<string, ReminderSuggestion>();
-          for (const row of data as unknown as ReminderSuggestion[]) {
-            if (!map.has(row.message_id)) map.set(row.message_id, row);
-          }
-          // Realtime may have delivered rows while the read was in
-          // flight; they are newer than the read, so they win.
-          const at = Date.now();
-          setReminderState((prev) => ({
-            conversationId,
-            map: mergeLoadedSuggestions(
-              map,
-              prev.conversationId === conversationId ? prev.map : new Map()
-            ),
-            at,
-          }));
-        },
-        () => {}
-      );
-    return () => {
-      live = false;
-    };
-  }, [conversationId, reminderChipsOn]);
-
-  // "Now" for the chips only moved when the map did, so a chat left
-  // open showed "Today 15:00" at 16:00. While any suggestion is held,
-  // tick it every minute (rows without one never receive it).
-  const hasSuggestions = suggestionsByMessageId.size > 0;
-  useEffect(() => {
-    if (!hasSuggestions) return;
-    const timer = setInterval(
-      () => setReminderState((prev) => ({ ...prev, at: Date.now() })),
-      60_000
-    );
-    return () => clearInterval(timer);
-  }, [hasSuggestions, conversationId]);
-
-  useEffect(() => {
-    if (!conversationId || !reminderChipsOn) return;
-    const supabase = createClient();
-    const channel = supabase
-      .channel(`reminder-suggestions:${conversationId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'message_reminder_suggestions',
-          filter: `conversation_id=eq.${conversationId}`,
-        },
-        (payload) => {
-          const at = Date.now();
-          setReminderState((prev) => {
-            const base =
-              prev.conversationId === conversationId
-                ? prev.map
-                : EMPTY_SUGGESTIONS;
-            if (payload.eventType === 'DELETE') {
-              const id = (payload.old as { id?: string } | null)?.id;
-              return id
-                ? { conversationId, map: withoutSuggestion(base, id), at }
-                : prev;
-            }
-            const row = payload.new as ReminderSuggestion;
-            if (row.conversation_id !== conversationId) return prev;
-            return { conversationId, map: withSuggestion(base, row), at };
-          });
-        }
-      )
-      .subscribe();
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [conversationId, reminderChipsOn]);
+  const {
+    byMessageId: suggestionsByMessageId,
+    at: suggestionsAt,
+    merge: mergeSuggestion,
+  } = useReminderSuggestions(conversationId, reminderChipsOn);
 
   /** POST an action; merges the row it answers with (a 409 silently). */
   const postReminderAction = useCallback(
@@ -1296,21 +1192,10 @@ export function MessageThread({
         res?.status ?? null,
         json
       );
-      if (suggestion) {
-        const at = Date.now();
-        setReminderState((prev) =>
-          prev.conversationId === suggestion.conversation_id
-            ? {
-                conversationId: prev.conversationId,
-                map: withSuggestion(prev.map, suggestion),
-                at,
-              }
-            : prev
-        );
-      }
+      if (suggestion) mergeSuggestion(suggestion);
       return outcome;
     },
-    []
+    [mergeSuggestion]
   );
 
   const [addingReminder, setAddingReminder] = useState<{
@@ -2571,7 +2456,7 @@ export function MessageThread({
                           }
                           reminderNowMs={
                             suggestionsByMessageId.has(msg.id)
-                              ? reminderState.at
+                              ? suggestionsAt
                               : undefined
                           }
                         />

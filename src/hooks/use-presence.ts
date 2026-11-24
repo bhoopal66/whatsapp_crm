@@ -5,6 +5,7 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
+import { startCatchUp } from "@/lib/realtime/catch-up";
 import {
   derivePresence,
   type PresenceRow,
@@ -43,7 +44,8 @@ interface UsePresenceResult {
 /**
  * Live presence for every member of the caller's account. Reads the
  * `member_presence` table (RLS-scoped to the account), subscribes to
- * Realtime changes, and re-derives "offline" on a local timer.
+ * Realtime changes, reads again after a gap in them, and re-derives
+ * "offline" on a local timer.
  *
  * Account comes from useAuth; pass `enabled: false` to opt a consumer
  * out (e.g. while a parent sheet is closed).
@@ -82,6 +84,44 @@ export function usePresence(enabled = true): UsePresenceResult {
       });
     };
 
+    const snapshot = async () => {
+      const { data, error } = await supabase
+        .from("member_presence")
+        .select("user_id, status, last_seen_at")
+        .eq("account_id", accountId);
+      if (error) throw error;
+      return (data ?? []) as {
+        user_id: string;
+        status: StoredPresence;
+        last_seen_at: string;
+      }[];
+    };
+
+    const merge = (snapshotRows: Awaited<ReturnType<typeof snapshot>>) => {
+      setRows((prev) => {
+        const next = new Map(prev);
+        for (const r of snapshotRows) {
+          const incoming: PresenceRow = {
+            status: r.status,
+            last_seen_at: r.last_seen_at,
+          };
+          const existing = next.get(r.user_id);
+          // A live event that arrived first must win over a staler
+          // snapshot row.
+          if (
+            !existing ||
+            new Date(incoming.last_seen_at) >= new Date(existing.last_seen_at)
+          ) {
+            next.set(r.user_id, incoming);
+          }
+        }
+        return next;
+      });
+    };
+
+    // What the channel missed while it was down is never sent again.
+    const live = startCatchUp(snapshot, merge);
+
     // Subscribe FIRST, then snapshot. The snapshot MERGES into whatever
     // Realtime has already delivered (keeping the newer last_seen_at)
     // rather than replacing the map — so an event that lands while the
@@ -117,44 +157,23 @@ export function usePresence(enabled = true): UsePresenceResult {
           );
         },
       )
-      .subscribe();
+      .subscribe(live.onStatus);
 
-    supabase
-      .from("member_presence")
-      .select("user_id, status, last_seen_at")
-      .eq("account_id", accountId)
-      .then(({ data, error }) => {
+    snapshot().then(
+      (snapshotRows) => {
+        if (!cancelled) merge(snapshotRows);
+      },
+      (error: { message: string }) => {
         if (cancelled) return;
-        if (error) {
-          console.error("[usePresence] initial fetch error:", error.message);
-          return;
-        }
-        setRows((prev) => {
-          const next = new Map(prev);
-          for (const r of data ?? []) {
-            const userId = r.user_id as string;
-            const incoming: PresenceRow = {
-              status: r.status as StoredPresence,
-              last_seen_at: r.last_seen_at as string,
-            };
-            const existing = next.get(userId);
-            // A live event that arrived first must win over a staler
-            // snapshot row.
-            if (
-              !existing ||
-              new Date(incoming.last_seen_at) >= new Date(existing.last_seen_at)
-            ) {
-              next.set(userId, incoming);
-            }
-          }
-          return next;
-        });
-      });
+        console.error("[usePresence] initial fetch error:", error.message);
+      },
+    );
 
     const tick = setInterval(() => setNow(Date.now()), RE_DERIVE_MS);
 
     return () => {
       cancelled = true;
+      live.stop();
       clearInterval(tick);
       supabase.removeChannel(channel);
     };

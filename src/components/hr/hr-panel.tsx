@@ -32,6 +32,7 @@ import {
 } from '@/lib/client-cache';
 import { isBankGuest } from '@/lib/auth/roles';
 import { assignableMembers, assignConversation } from '@/lib/inbox/assign';
+import { startCatchUp, type LiveRead } from '@/lib/realtime/catch-up';
 import type { Profile } from '@/types';
 import {
   hrClose,
@@ -86,6 +87,25 @@ interface HrPanelProps {
   assignedAgentId?: string | null;
   /** The inbox page's `handleAssignChange`, as the thread header calls it. */
   onAssignChange?: (conversationId: string, userId: string | null) => void;
+}
+
+type HrRead = Awaited<ReturnType<typeof readHr>>;
+
+/** The chat's HR row and every stage it reached. */
+async function readHr(conversationId: string) {
+  const sb = createClient();
+  const [rowRes, historyRes] = await Promise.all([
+    sb
+      .from('hr_conversations')
+      .select('*')
+      .eq('conversation_id', conversationId)
+      .maybeSingle(),
+    sb
+      .from('hr_stage_history')
+      .select('to_stage')
+      .eq('conversation_id', conversationId),
+  ]);
+  return { rowRes, historyRes };
 }
 
 export function HrPanel({
@@ -231,22 +251,8 @@ export function HrPanel({
   );
 
   // The row and the furthest stage ever reached.
-  useEffect(() => {
-    if (!hasAccess) return;
-    const id = conversationId;
-    const sb = createClient();
-    void (async () => {
-      const [rowRes, historyRes] = await Promise.all([
-        sb
-          .from('hr_conversations')
-          .select('*')
-          .eq('conversation_id', id)
-          .maybeSingle(),
-        sb
-          .from('hr_stage_history')
-          .select('to_stage')
-          .eq('conversation_id', id),
-      ]);
+  const show = useCallback(
+    (id: string, { rowRes, historyRes }: HrRead) => {
       if (!isCurrent(id)) return;
       const next = (rowRes.data as HrConversation | null) ?? null;
       setRow(next);
@@ -260,8 +266,14 @@ export function HrPanel({
       );
       setLoaded(true);
       if (next) void loadTasks(id);
-    })();
-  }, [conversationId, hasAccess, isCurrent, loadTasks]);
+    },
+    [isCurrent, loadTasks]
+  );
+  useEffect(() => {
+    if (!hasAccess) return;
+    const id = conversationId;
+    void readHr(id).then((read) => show(id, read));
+  }, [conversationId, hasAccess, show]);
 
   // The inbox's HR team, which narrows a lead's Owner choices. Only a
   // lead or an admin picks others, so nobody else pays for the read. The
@@ -332,11 +344,14 @@ export function HrPanel({
     setPendingClose(null);
   }, [rowInbox, rowClosed]);
 
-  // Live: another person's write (or a rule's flag) lands here too.
+  // Live: another person's write (or a rule's flag) lands here too. A
+  // catch-up read in flight may be older than it, so it is dropped.
+  const liveRef = useRef<LiveRead | null>(null);
   const onChangeRef = useRef<(next: HrConversation | null) => void>(() => {});
   useEffect(() => {
     onChangeRef.current = (next) => {
       if (!isCurrent(conversationId)) return;
+      liveRef.current?.changed();
       const prev = rowRef.current;
       setRow(next);
       if (next) {
@@ -355,6 +370,18 @@ export function HrPanel({
   });
   useEffect(() => {
     if (!hasAccess) return;
+    // After a gap in realtime: what the first load read. A failed read
+    // leaves the panel as it is.
+    const live = startCatchUp(
+      async () => {
+        const read = await readHr(conversationId);
+        const error = read.rowRes.error ?? read.historyRes.error;
+        if (error) throw error;
+        return read;
+      },
+      (read) => show(conversationId, read)
+    );
+    liveRef.current = live;
     const sb = createClient();
     const channel = sb
       .channel(`hr-panel:${conversationId}`)
@@ -374,11 +401,13 @@ export function HrPanel({
           );
         }
       )
-      .subscribe();
+      .subscribe(live.onStatus);
     return () => {
+      live.stop();
+      liveRef.current = null;
       void sb.removeChannel(channel);
     };
-  }, [conversationId, hasAccess]);
+  }, [conversationId, hasAccess, show]);
 
   const run = useCallback(
     async (write: () => Promise<HrResult<HrConversation>>) => {
@@ -398,6 +427,7 @@ export function HrPanel({
         toast.error(t(`error.${res.error}`));
         return false;
       }
+      liveRef.current?.changed();
       setRow(res.data);
       setFurthest((f) => laterStage(f, res.data.stage_key));
       // Rules open tasks on stage and topic changes.

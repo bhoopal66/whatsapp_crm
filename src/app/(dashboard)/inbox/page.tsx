@@ -310,8 +310,9 @@ export function InboxPageInner({
 
   // Chats shared with me as a coordinator (migration 133), with the
   // bank each came under: they count as mine on the personal inbox and
-  // carry a "Shared" label. Re-read with every resync.
-  const sharedBanks = useMyCoordinatorShares(resyncToken + deltaSync.token);
+  // carry a "Shared" label. Re-read with a full resync; after a gap in
+  // realtime the hook re-reads by itself, so the delta is not passed.
+  const sharedBanks = useMyCoordinatorShares(resyncToken);
   // Keyed on the ids, so a re-read finding the same shares does not
   // refetch the list.
   const sharedKey = sharedBanks ? [...sharedBanks.keys()].sort().join(',') : '';
