@@ -169,6 +169,7 @@ beforeEach(() => {
     conversations: [{ id: 'conv-1', account_id: ACCOUNT, contact_id: 'c1' }],
     accounts: [{ id: ACCOUNT, default_currency: 'AED' }],
     custom_fields: [{ id: 'f1', account_id: ACCOUNT }],
+    profiles: [{ user_id: 'u2', account_id: ACCOUNT, account_role: 'agent' }],
     automations: [
       {
         id: 'a1',
@@ -394,6 +395,42 @@ describe('a contact_field condition', () => {
     steps(field('company'));
     await trigger('new_message_received');
     expect(log().steps_executed[0].detail).toBe('branch=yes');
+  });
+});
+
+describe('assign to a specific person', () => {
+  const person = () => h.db.profiles[0] as Row;
+  const holder = () => h.db.conversations[0].assigned_agent_id;
+  beforeEach(() => {
+    h.db.conversations[0].assigned_agent_id = 'u9';
+    steps(['assign_conversation', { mode: 'specific', agent_id: 'u2' }], CLOSE);
+  });
+
+  it.each([
+    ['deactivated', { deactivated_at: '2026-11-01T00:00:00Z' }],
+    ['of another account', { account_id: 'acct-2' }],
+    ['a bank guest', { account_role: 'bank_guest' }],
+  ])('someone %s is skipped, with the reason', async (_who, patch) => {
+    Object.assign(person(), patch);
+    await trigger('new_message_received');
+    expect(holder()).toBe('u9');
+    expect(log().steps_executed.map((s) => [s.status, s.detail])).toEqual([
+      ['skipped', 'skipped: the person is no longer active staff'],
+      ['success', 'conversation closed'],
+    ]);
+  });
+
+  it('a person who cannot be checked fails the step', async () => {
+    h.refuse.add('profiles.select:account_role');
+    await trigger('new_message_received');
+    expect(holder()).toBe('u9');
+    expect(log().steps_executed).toMatchObject([{ status: 'failed' }]);
+    expect(JSON.stringify(log())).not.toContain('secret');
+  });
+
+  it('control: active staff takes the chat, over its holder', async () => {
+    await trigger('new_message_received');
+    expect(holder()).toBe('u2');
   });
 });
 

@@ -22,6 +22,9 @@ and polish.
 
 ### Fixed
 
+- **"Assign to a specific person" skips someone who left** (deactivated, not
+  staff, or no longer in the workspace), with the reason in the run log,
+  instead of giving them the chat. No migration.
 - **A "Contact field" condition whose read failed** fails its step instead
   of taking the "no" branch, and the field is picked from a list (name,
   phone, email, company); an unknown saved name cannot be activated. No

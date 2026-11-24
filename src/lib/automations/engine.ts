@@ -21,6 +21,7 @@ import type {
   AssignConversationStepConfig,
 } from '@/types'
 import { supabaseAdmin } from './admin-client'
+import { isActiveStaff } from '@/lib/auth/active-staff'
 import { salesAnswersOff, type SalesChatCheck } from '@/lib/ai/not-sales-chat'
 import { judgeMeanings, loadMeaningTurns, meaningCandidate } from '@/lib/insights/meaning'
 import { writeConversationChatTags } from '@/lib/chat-tags/server'
@@ -564,7 +565,9 @@ async function runStepList(args: Run, frame: Frame): Promise<RunOutcome> {
       }
 
       const skipReason =
-        (await notSalesSkipReason(step, args)) ?? (await optOutSkipReason(step, args))
+        (await notSalesSkipReason(step, args)) ??
+        (await optOutSkipReason(step, args)) ??
+        (await assigneeSkipReason(step, args))
       if (skipReason) {
         results.push({
           step_id: step.id,
@@ -1073,6 +1076,27 @@ async function optOutSkipReason(
   )
   if (refusal === 'do_not_contact') return SKIPPED_DO_NOT_CONTACT
   return refusal && !args.customerJustWrote ? SKIPPED_OPTED_OUT : null
+}
+
+/**
+ * Why "assign to a specific person" must not run, or null to run it: the
+ * person named in the saved step was deactivated, left the account or is
+ * not staff (the same check as a flow's hand-off).
+ */
+async function assigneeSkipReason(
+  step: AutomationStep,
+  args: ExecuteArgs,
+): Promise<string | null> {
+  if (step.step_type !== 'assign_conversation') return null
+  const cfg = step.step_config as AssignConversationStepConfig
+  if (cfg.enabled === false || cfg.mode === 'round_robin' || !cfg.agent_id) return null
+  const person = await isActiveStaff(
+    supabaseAdmin(),
+    args.automation.account_id,
+    cfg.agent_id,
+  )
+  failOnWriteError(person.error, 'assign_conversation: the person could not be checked')
+  return person.ok ? null : 'skipped: the person is no longer active staff'
 }
 
 /** Fails the step with a short reason; the database's own text only goes
