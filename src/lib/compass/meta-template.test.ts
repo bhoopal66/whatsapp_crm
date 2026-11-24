@@ -37,10 +37,7 @@ describe('compassTemplateFor', () => {
   it('reads company and bank out of a submitted message', () => {
     const hit = compassTemplateFor('case.submitted', SUBMITTED_TEXT);
     expect(hit?.template.name).toBe('compass_case_submitted');
-    expect(hit?.params).toEqual([
-      'BLUE PALM TRADING L.L.C',
-      'MASHREQ',
-    ]);
+    expect(hit?.params).toEqual(['BLUE PALM TRADING L.L.C', 'MASHREQ']);
   });
 
   it('reads company and bank out of an approved message', () => {
@@ -122,6 +119,20 @@ describe('compassTemplateProblem', () => {
   it('accepts the approved row with the same body', () => {
     expect(
       compassTemplateProblem(t, { status: 'APPROVED', body_text: t.body })
+    ).toBeNull();
+  });
+  it('never takes a row Meta refused when it was submitted', () => {
+    const row = { status: 'APPROVED' as const, body_text: t.body };
+    expect(
+      compassTemplateProblem(t, { ...row, submission_error: 'Bad footer' })
+    ).toBe('not_approved');
+    // One Meta knows is judged by its status alone.
+    expect(
+      compassTemplateProblem(t, {
+        ...row,
+        submission_error: 'Bad footer',
+        meta_template_id: 'M1',
+      })
     ).toBeNull();
   });
   it('names what is wrong otherwise', () => {

@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { MessageTemplateStatus } from '@/types';
 import {
+  broadcastTemplateSendsFrom,
   chatTemplateSendsFrom,
   contactTemplateSendsFrom,
   offerTemplates,
@@ -167,5 +168,36 @@ describe('the picker', () => {
     expect(src('contacts/contact-outreach.tsx')).toContain(
       'sendsFrom={contactTemplateSendsFrom(prediction)}'
     );
+  });
+});
+
+describe('broadcastTemplateSendsFrom', () => {
+  const meta = { id: 'm', provider: 'meta', is_primary: false };
+  const whapi = { id: 'w', provider: 'whapi', is_primary: true };
+  const mine = {
+    id: 'p',
+    provider: 'openwa',
+    is_primary: false,
+    is_personal: true,
+  };
+
+  it('is the route, else the primary number', () => {
+    expect(broadcastTemplateSendsFrom([meta, whapi], 'm')).toBe('meta');
+    expect(broadcastTemplateSendsFrom([meta, whapi], 'w')).toBe('linked');
+    expect(broadcastTemplateSendsFrom([meta, whapi], null)).toBe('linked');
+    expect(broadcastTemplateSendsFrom([meta, whapi], 'gone')).toBe('linked');
+  });
+
+  it('is certain without the route only with one kind of number', () => {
+    expect(broadcastTemplateSendsFrom([meta, whapi], undefined)).toBe(
+      'unknown'
+    );
+    expect(broadcastTemplateSendsFrom([meta, mine], undefined)).toBe('meta');
+    expect(broadcastTemplateSendsFrom([whapi], undefined)).toBe('linked');
+  });
+
+  it('is unknown without numbers, and never a personal one', () => {
+    expect(broadcastTemplateSendsFrom(null, 'm')).toBe('unknown');
+    expect(broadcastTemplateSendsFrom([mine], 'p')).toBe('unknown');
   });
 });

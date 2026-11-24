@@ -148,3 +148,32 @@ export function contactTemplateSendsFrom(
   if (!prediction.templateChannel) return 'unknown';
   return prediction.templateChannel.provider === 'meta' ? 'meta' : 'linked';
 }
+
+/**
+ * What a campaign goes out on: the workspace's `broadcast` route, else its
+ * primary number (`resolveChannelForSurface`). `routedId` is undefined
+ * while the route is not read; then only numbers of one kind are certain.
+ */
+export function broadcastTemplateSendsFrom(
+  numbers:
+    | readonly {
+        id: string;
+        provider: string;
+        is_primary: boolean;
+        is_personal?: boolean;
+      }[]
+    | null
+    | undefined,
+  routedId: string | null | undefined
+): TemplateSendsFrom {
+  const company = (numbers ?? []).filter((n) => !n.is_personal);
+  if (company.length === 0) return 'unknown';
+  const metas = company.filter((n) => n.provider === 'meta').length;
+  if (metas === company.length) return 'meta';
+  if (metas === 0) return 'linked';
+  if (routedId === undefined) return 'unknown';
+  const from =
+    company.find((n) => n.id === routedId) ?? company.find((n) => n.is_primary);
+  if (!from) return 'unknown';
+  return from.provider === 'meta' ? 'meta' : 'linked';
+}

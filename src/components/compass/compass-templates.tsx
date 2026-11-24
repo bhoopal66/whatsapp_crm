@@ -36,7 +36,9 @@ export function CompassTemplates({ accountId }: { accountId: string }) {
     void (async () => {
       const { data, error: err } = await createClient()
         .from('message_templates')
-        .select('name, language, status, body_text, rejection_reason')
+        .select(
+          'name, language, status, body_text, rejection_reason, meta_template_id, submission_error'
+        )
         .eq('account_id', accountId)
         .in(
           'name',

@@ -150,12 +150,17 @@ export type CompassTemplateProblem = 'missing' | 'not_approved' | 'changed';
  */
 export function compassTemplateProblem(
   template: CompassTemplate,
-  row: Pick<MessageTemplate, 'status' | 'body_text'> | null
+  row:
+    | (Pick<MessageTemplate, 'status' | 'body_text'> &
+        Partial<Pick<MessageTemplate, 'meta_template_id' | 'submission_error'>>)
+    | null
 ): CompassTemplateProblem | null {
   if (!row) return 'missing';
   if (String(row.status ?? '').toUpperCase() !== 'APPROVED') {
     return 'not_approved';
   }
+  // Refused when it was submitted: a save marks it approved all the same.
+  if (row.submission_error && !row.meta_template_id) return 'not_approved';
   if (
     tidy(row.body_text ?? '') !== tidy(template.body) ||
     new Set(extractVariableKeys(row.body_text ?? '')).size !== 2

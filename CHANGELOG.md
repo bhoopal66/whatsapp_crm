@@ -22,6 +22,10 @@ and polish.
 
 ### Fixed
 
+- **A template Meta refused is not used where only its status was looked
+  at.** The campaign wizard shows it with the reason and it cannot be chosen
+  when campaigns go out on the Meta number, and a Compass update never uses
+  one. No migration.
 - **The template that was picked is the one that is sent.** Two teammates
   can each have a template of the same name and language, and the server
   sent whichever came first. It sends the picked one, and where nothing
