@@ -691,6 +691,30 @@ export async function POST(request: Request) {
       console.error('[whatsapp/config] webhook registration failed:', registrationError)
     }
 
+    // Except when it would replace a secret that works. The channel still
+    // calls the old URL, so storing the new secret would reject every
+    // inbound message on this number: the rotation is refused and nothing
+    // is written. The failed PATCH may have reached Whapi all the same (a
+    // timeout), so the old callback is put back, best effort; not when the
+    // token belongs to another phone than the row, whose callback is on a
+    // different channel.
+    if (registrationError && rotateSecret && existing && previousSecret) {
+      let restored = false
+      if (!(existing.waba_id && channel.phone && existing.waba_id !== channel.phone)) {
+        restored = await putCallbackBack(request, token, previousSecret)
+      }
+      return NextResponse.json(
+        {
+          error:
+            `The webhook secret was not changed: Whapi could not be given the new address (${registrationError}). ` +
+            (restored
+              ? 'This number keeps receiving on the current secret. Try again in a few minutes.'
+              : 'The current secret stays in use. Try again in a few minutes; if messages stop arriving, save the token again to register the webhook.'),
+        },
+        { status: 502 }
+      )
+    }
+
     // "Connected" means the channel is reachable and paired; inbound
     // readiness is `registered_at`. A re-save derives it by the health
     // monitor's rule (channel-health.ts): AUTH is up, QR and ERROR are
@@ -742,17 +766,7 @@ export async function POST(request: Request) {
       if (existing.waba_id && channel.phone && existing.waba_id !== channel.phone) {
         return
       }
-      let restoreUrl: string | null = null
-      try {
-        restoreUrl = buildWebhookUrl(resolveOrigin(request), previousSecret)
-        await registerWebhook({ token, webhookUrl: restoreUrl })
-      } catch (err) {
-        console.error(
-          '[whatsapp/config] restoring the previous webhook failed:',
-          restoreUrl ? redactWebhookUrl(restoreUrl) : '(no url)',
-          explainWhapiError(err)
-        )
-      }
+      await putCallbackBack(request, token, previousSecret)
     }
 
     let savedId: string | null = existing?.id ?? null
@@ -866,6 +880,31 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error('Error in WhatsApp config POST:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
+}
+
+/**
+ * Point the channel's callback back at the secret the row still holds.
+ * Best effort: a failure is logged, and the caller's own answer stands.
+ * Returns whether Whapi confirmed it.
+ */
+async function putCallbackBack(
+  request: Request,
+  token: string,
+  previousSecret: string
+): Promise<boolean> {
+  let restoreUrl: string | null = null
+  try {
+    restoreUrl = buildWebhookUrl(resolveOrigin(request), previousSecret)
+    await registerWebhook({ token, webhookUrl: restoreUrl })
+    return true
+  } catch (err) {
+    console.error(
+      '[whatsapp/config] restoring the previous webhook failed:',
+      restoreUrl ? redactWebhookUrl(restoreUrl) : '(no url)',
+      explainWhapiError(err)
+    )
+    return false
   }
 }
 

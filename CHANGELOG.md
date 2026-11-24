@@ -34,6 +34,10 @@ and polish.
 
 ### Fixed
 
+- **Rotate secret while Whapi is unreachable no longer stops inbound.** The
+  new secret was saved although Whapi still called the old address, so every
+  message on that number was rejected. The rotation is now refused, the
+  number keeps its secret, and the message says so.
 - **When a submission group ends, its bells follow.** The unread bell of an
   agent who loses the group opens the customer's page instead of "does not
   exist". **Migration required: 313**.
