@@ -78,4 +78,12 @@ describe('loadCallsBadge', () => {
       missed: null,
     });
   });
+
+  it('throws when the extension count fails, rather than saying "no PBX"', async () => {
+    const { db } = fakeDb(
+      Promise.resolve({ count: null, error: { message: 'x' } }),
+      Promise.resolve({ count: 5, error: null })
+    );
+    await expect(loadCallsBadge(db, 'u1')).rejects.toThrow();
+  });
 });

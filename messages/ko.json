@@ -286,7 +286,8 @@
         },
         "overdueTasks": {
           "label": "기한 지난 작업",
-          "hint": "{count, plural, =0 {오늘 남은 마감 없음} other {오늘 마감 #개}}"
+          "hint": "{count, plural, =0 {오늘 남은 마감 없음} other {오늘 마감 #개}}",
+          "hintCut": "표시된 것보다 많음"
         },
         "missedCalls": {
           "label": "부재중 전화",
@@ -303,6 +304,8 @@
         "title": "내 할 일",
         "subtitle": "기한 지남 {overdue}개 · 오늘 마감 {today}개",
         "subtitleOpen": "{count, plural, other {열린 작업 #개}}",
+        "subtitleCutOverdue": "기한 지남 {overdue}",
+        "subtitleCutOpen": "열린 작업 {count}개",
         "groups": {
           "overdue": "기한 지남",
           "today": "오늘",

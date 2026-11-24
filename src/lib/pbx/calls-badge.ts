@@ -10,6 +10,10 @@ import type { SupabaseClient } from '@supabase/supabase-js';
  * confines the count to the active workspace, so there is no account
  * filter. `missed` is null when it could not be counted: the pills show
  * nothing then, the home's tile "–". `tasks.assigned_to` is an auth user id (migration 085).
+ *
+ * Throws when the extension count fails: "no PBX" would be a guess, and
+ * every caller keeps its last answer (or, on a first load, none) rather
+ * than hiding the Calls row and card.
  */
 export async function loadCallsBadge(
   db: SupabaseClient,
@@ -24,7 +28,8 @@ export async function loadCallsBadge(
       .eq('status', 'open')
       .eq('assigned_to', userId),
   ]);
-  const hasPbx = !exts.error && (exts.count ?? 0) > 0;
+  if (exts.error) throw new Error('pbx_extensions count failed');
+  const hasPbx = (exts.count ?? 0) > 0;
   return {
     hasPbx,
     missed: !hasPbx ? 0 : tasks.error ? null : (tasks.count ?? 0),

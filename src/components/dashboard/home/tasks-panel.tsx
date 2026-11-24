@@ -27,6 +27,8 @@ import {
   type DueLabel,
   type TaskBuckets,
 } from '@/lib/dashboard/home/tasks';
+import { formatCount } from '@/lib/dashboard/home/attention';
+import type { OpenTasks } from '@/lib/dashboard/home/sources';
 import { createClient } from '@/lib/supabase/client';
 import type { Task, TaskKind } from '@/lib/tasks/types';
 import { cn } from '@/lib/utils';
@@ -35,7 +37,7 @@ import { useWidgetData, type WidgetData } from './use-widget-data';
 
 export interface TasksPanelProps {
   /** The person's open tasks; `update` patches the list after a tick. */
-  tasks: WidgetData<Task[]>;
+  tasks: WidgetData<OpenTasks>;
   /** A tick started (`pending`) or was refused (`!pending`); a done id stays reported so a stale refresh cannot bring it back. */
   onCompleting?: (id: string, pending: boolean) => void;
   className?: string;
@@ -96,7 +98,8 @@ export function TasksPanel({
     setClock({ list: tasks.data, now: new Date() });
   const now = clock.now;
 
-  const list = tasks.data ?? [];
+  const list = tasks.data?.tasks ?? [];
+  const truncated = tasks.data?.truncated ?? false;
   const contactIds = taskContactIds(list);
   const names = useWidgetData(
     contactIds.length ? `task-contacts:${contactIds.join(',')}` : null,
@@ -105,7 +108,10 @@ export function TasksPanel({
 
   const complete = async (task: Task) => {
     onCompleting?.(task.id, true);
-    tasks.update((l) => l.filter((x) => x.id !== task.id));
+    tasks.update((l) => ({
+      ...l,
+      tasks: l.tasks.filter((x) => x.id !== task.id),
+    }));
     const res = await fetch(`/api/tasks/${task.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -113,14 +119,25 @@ export function TasksPanel({
     }).catch(() => null);
     if (res?.ok) return;
     onCompleting?.(task.id, false);
-    tasks.update((l) => (l.some((x) => x.id === task.id) ? l : [...l, task]));
+    tasks.update((l) =>
+      l.tasks.some((x) => x.id === task.id)
+        ? l
+        : { ...l, tasks: [...l.tasks, task] }
+    );
     toast.error(t('doneFailed'));
   };
 
   const buckets = bucketTasks(list, now);
   const counts = taskCounts(list, now);
-  const subtitle =
-    counts.overdue || counts.today
+  // A list cut at the cap cannot say how many are due today: the figures
+  // are floors, and the "due today" one is left out.
+  const subtitle = truncated
+    ? counts.overdue
+      ? t('subtitleCutOverdue', { overdue: formatCount(counts.overdue, true) })
+      : counts.open
+        ? t('subtitleCutOpen', { count: formatCount(counts.open, true) })
+        : undefined
+    : counts.overdue || counts.today
       ? t('subtitle', { overdue: counts.overdue, today: counts.today })
       : counts.open
         ? t('subtitleOpen', { count: counts.open })

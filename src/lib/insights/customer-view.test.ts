@@ -235,7 +235,7 @@ describe('home tiles', () => {
       { ...base, unread_count: 1, insight_lead_temp: 1, insight_upset: 0.1 },
       { ...base, unread_count: 0, insight_lead_temp: 3, insight_upset: 1 },
     ];
-    expect(countInsightTiles(rows, false)).toEqual({
+    expect(countInsightTiles(rows, false, null)).toEqual({
       hotWaiting: 1,
       upsetWaiting: 1,
     });
@@ -247,14 +247,26 @@ describe('home tiles', () => {
     const rows = [
       { ...campaign, unread_count: 1, insight_lead_temp: 3, insight_upset: 1 },
     ];
-    expect(countInsightTiles(rows, true)).toEqual({
+    expect(countInsightTiles(rows, true, null)).toEqual({
       hotWaiting: 0,
       upsetWaiting: 0,
     });
-    expect(countInsightTiles(rows, false)).toEqual({
+    expect(countInsightTiles(rows, false, null)).toEqual({
       hotWaiting: 1,
       upsetWaiting: 1,
     });
+  });
+
+  it("leave out someone else's personal chat and a department's, as the list does", () => {
+    const hot = { unread_count: 1, insight_lead_temp: 3 };
+    const rows = [
+      { ...base, ...hot, personal_owner_id: 'mate' },
+      { ...base, ...hot, inbox_department: 'hr' as const, user_id: 'mate' },
+      { ...base, ...hot },
+    ];
+    expect(countInsightTiles(rows, false, 'me').hotWaiting).toBe(1);
+    expect(countInsightTiles(rows, false, 'me', true).hotWaiting).toBe(2);
+    expect(countInsightTiles(rows, false, 'me', true, 'hr').hotWaiting).toBe(3);
   });
 
   it('links the Pinned tile to the inbox Pinned chip', () => {
