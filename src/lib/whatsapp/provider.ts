@@ -50,6 +50,7 @@ import * as openwa from './openwa-api';
 import { neverConnected } from './never-connected';
 import { TemplateParamError } from './template-send-builder';
 import * as whapi from './whapi-api';
+import { renderedForLinkedDevice } from './template-body';
 
 export interface ProviderSendResult {
   /** The gateway's message id — persisted as `messages.message_id`. */
@@ -249,7 +250,7 @@ export async function sendTemplate(
       const res = await whapi.sendTemplateMessage({
         token: channel.accessToken,
         to,
-        template,
+        template: renderedForLinkedDevice(template, messageParams),
         bodyParams,
         headerMediaUrl,
         quotedMessageId,
@@ -286,12 +287,12 @@ export async function sendTemplate(
       return { messageId: res.messageId, provider: 'meta' };
     }
     case 'openwa': {
-      // Rendered locally like Whapi; `messageParams` is Meta's registry
-      // shape and has nothing to address here.
+      // Rendered locally like Whapi; of `messageParams` (Meta's registry
+      // shape) only the header's value has a place here.
       const res = await openwa.sendTemplateMessage({
         ...openwaCredentials(channel),
         to,
-        template,
+        template: renderedForLinkedDevice(template, messageParams),
         bodyParams,
         headerMediaUrl,
         quotedMessageId,
