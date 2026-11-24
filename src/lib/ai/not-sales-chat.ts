@@ -58,3 +58,75 @@ export async function notSalesChat(
     ? onLine
     : null;
 }
+
+/** The one decision about an inbound message's chat (`salesChatOnce`). */
+export interface SalesChatDecision {
+  /** A chat on a staff member's own number. */
+  personal: boolean;
+  /** Why this is not a sales chat, or null. */
+  notSales: string | null;
+  /** The check could not be read: sales answers stand down. */
+  error: string | null;
+}
+
+export type SalesChatCheck = () => Promise<SalesChatDecision>;
+
+/**
+ * Whether the chat is a sales chat, read at most once per inbound
+ * message: Flows, automations' message steps, journeys and the bot share
+ * the answer, and an account with none of them on pays no read. Never
+ * rejects.
+ */
+export function salesChatOnce(
+  db: () => SupabaseClient,
+  args: { conversationId: string; inboundChannelId: string | null }
+): SalesChatCheck {
+  let decision: Promise<SalesChatDecision> | null = null;
+  return () => (decision ??= decideSalesChat(db, args));
+}
+
+async function decideSalesChat(
+  db: () => SupabaseClient,
+  args: { conversationId: string; inboundChannelId: string | null }
+): Promise<SalesChatDecision> {
+  try {
+    const client = db();
+    const { data, error } = await client
+      .from('conversations')
+      .select('personal_owner_id, inbox_department')
+      .eq('id', args.conversationId)
+      .maybeSingle();
+    if (data?.personal_owner_id) {
+      return { personal: true, notSales: null, error: null };
+    }
+    if (error) throw new Error(`department lookup: ${error.message}`);
+    const notSales = await notSalesChat(client, {
+      conversationId: args.conversationId,
+      inboxDepartment: data?.inbox_department ?? null,
+      inboundChannelId: args.inboundChannelId,
+    });
+    return { personal: false, notSales, error: null };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[sales chat] not checked, sales answers stand down:', {
+      conversationId: args.conversationId,
+      error: message,
+    });
+    return { personal: false, notSales: null, error: message };
+  }
+}
+
+/**
+ * Why the sales answers (Flows, journeys, automations' message steps)
+ * must not go out in this chat, or null. No check given (no inbound
+ * message is being handled) is no reason.
+ */
+export async function salesAnswersOff(
+  check: SalesChatCheck | null | undefined
+): Promise<string | null> {
+  if (!check) return null;
+  const d = await check();
+  if (d.error) return 'Could not check whether this is a sales chat.';
+  if (d.personal) return 'This is a personal chat.';
+  return d.notSales;
+}

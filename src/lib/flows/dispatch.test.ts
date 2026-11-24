@@ -688,3 +688,74 @@ describe('dispatchInboundToFlows — a broken run hands the message back (054)',
     );
   });
 });
+
+describe('dispatchInboundToFlows — only in a sales chat', () => {
+  const chat = (notSales: string | null, error: string | null = null) =>
+    vi.fn(async () => ({ personal: false, notSales, error }));
+  const text: ParsedInbound = {
+    kind: 'text',
+    text: 'order status',
+    meta_message_id: 'm1',
+  };
+  const inChat = (
+    salesChat: ReturnType<typeof chat>,
+    over: Record<string, unknown> = {}
+  ) =>
+    dispatchInboundToFlows({
+      accountId: 'acct-1',
+      userId: 'u-1',
+      contactId: 'ct-1',
+      conversationId: 'cv-1',
+      message: text,
+      isFirstInboundMessage: false,
+      salesChat,
+      ...over,
+    });
+
+  it.each([
+    ['an HR chat', chat('This is an HR chat.')],
+    ['a chat that could not be checked', chat(null, 'boom')],
+  ])('starts no flow in %s', async (_name, salesChat) => {
+    h.state.flows = [KEYWORD_FLOW];
+    expect(await inChat(salesChat)).toEqual({
+      consumed: false,
+      outcome: 'no_match',
+    });
+    expect(startedRuns()).toHaveLength(0);
+    expect(engineSendText).not.toHaveBeenCalled();
+  });
+
+  it('starts it in a sales chat', async () => {
+    h.state.flows = [KEYWORD_FLOW];
+    expect((await inChat(chat(null))).consumed).toBe(true);
+    expect(startedRuns()).toHaveLength(1);
+  });
+
+  it("starts no campaign's flow in an HR chat", async () => {
+    h.state.flows = [MANUAL_FLOW];
+    await inChat(chat('This is an HR chat.'), {
+      campaign: { broadcastId: 'bc-1', followUpFlowId: 'flow-campaign' },
+    });
+    expect(startedRuns()).toHaveLength(0);
+  });
+
+  it('leaves a run that is waiting as it is', async () => {
+    h.state.flows = [KEYWORD_FLOW];
+    h.state.activeRuns = [
+      {
+        id: 'run-1',
+        flow_id: 'flow-1',
+        account_id: 'acct-1',
+        conversation_id: 'cv-1',
+        contact_id: 'ct-1',
+        current_node_key: 'greet',
+        vars: {},
+        reprompt_count: 0,
+        last_advanced_at: new Date().toISOString(),
+      },
+    ];
+    expect((await inChat(chat('This is an HR chat.'))).consumed).toBe(false);
+    expect(h.state.updates).toHaveLength(0);
+    expect(engineSendText).not.toHaveBeenCalled();
+  });
+});

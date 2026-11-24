@@ -52,6 +52,7 @@ import {
   notifyHandoff,
   type AiFlowContext,
 } from '@/lib/ai/auto-reply';
+import { salesAnswersOff } from '@/lib/ai/not-sales-chat';
 import { dispatchChatTagSet } from '@/lib/automations/chat-tag-dispatch';
 import { writeConversationChatTags } from '@/lib/chat-tags/server';
 import type { ChatTagsPatch } from '@/types';
@@ -1214,6 +1215,15 @@ export async function dispatchInboundToFlows(
       // A flow that could not be read is not a flow switched off.
       const runFlow = await loadFlow(db, activeRun.flow_id);
       if (!runFlow || runFlow.status === 'active') {
+        // An HR candidate's message is not an answer to a sales menu. The
+        // run is left as it is: it may be waiting in a sales chat.
+        if (await salesAnswersOff(input.salesChat)) {
+          return {
+            consumed: false,
+            flow_run_id: activeRun.id,
+            outcome: 'no_match',
+          };
+        }
         // One SELECT for the whole flow's nodes — advance loop is now
         // in-memory. See loadAllNodes.
         const consent = await flowConsent(db, input.accountId, input.contactId);
@@ -1247,6 +1257,9 @@ export async function dispatchInboundToFlows(
         campaignFlow.status === 'active' &&
         campaignFlow.entry_node_id
       ) {
+        if (await salesAnswersOff(input.salesChat)) {
+          return { consumed: false, outcome: 'no_match' };
+        }
         const nodes = await loadAllNodes(db, campaignFlow.id);
         return startNewRun(db, campaignFlow, input, nodes, {
           broadcastId: input.campaign.broadcastId,
@@ -1269,6 +1282,9 @@ export async function dispatchInboundToFlows(
       input.conversationId
     );
     if (!flow || !flow.entry_node_id) {
+      return { consumed: false, outcome: 'no_match' };
+    }
+    if (await salesAnswersOff(input.salesChat)) {
       return { consumed: false, outcome: 'no_match' };
     }
     const nodes = await loadAllNodes(db, flow.id);
@@ -1496,6 +1512,9 @@ async function handleReplyForActiveRun(
         configOwnerUserId: input.userId,
         inboundProvider: input.inboundProvider,
         inboundChannelId: input.inboundChannelId ?? null,
+        // The decision is about the chat the message came in on.
+        salesChat:
+          run.conversation_id === input.conversationId ? input.salesChat : null,
         flowContext,
         // Traces the TypeSafe decisions for this off-script reply (063),
         // and names the message the gates judge.

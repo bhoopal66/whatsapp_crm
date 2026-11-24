@@ -69,3 +69,10 @@ Cron / GitHub Actions / any pinger):
   `creating`, and stale invite claims.
 - `GET /api/pbx/cron` (migration 089) — recordings, call-backs, event
   retries, purge.
+
+- **Only in a sales chat.** `salesChatOnce` (`lib/ai/not-sales-chat.ts`) is
+  one lazy decision per inbound message, passed as `salesChat` to Flows,
+  journeys, automations and the AI reply. Not a sales chat, or unreadable:
+  no flow or journey takes the message and message steps are skipped
+  (`sales_answers_off` carries that across a wait); internal steps run. A
+  new customer-facing dispatcher takes the check too.

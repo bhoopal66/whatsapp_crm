@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { afterEach, describe, it, expect, vi, beforeEach } from 'vitest';
 import { AiError, type AiConfig } from './types';
 import type { KnowledgeRetrieval } from './knowledge';
 import {
@@ -37,6 +37,8 @@ const h = vi.hoisted(() => ({
     outcomes: [] as Record<string, unknown>[],
     inserts: [] as { table: string; row: unknown }[],
     /** Customer messages, newest first (burst check), per test. */
+    /** Outcome rows of earlier dispatches, newest first. */
+    events: [] as { outcome: string; created_at: string }[],
     customerMessages: [] as {
       message_id: string;
       created_at: string;
@@ -167,7 +169,22 @@ vi.mock('./admin-client', () => ({
         return chain;
       }
       if (table === 'ai_reply_events' || table === 'notifications') {
+        let since = '';
+        const read = {
+          select: () => read,
+          eq: () => read,
+          gte: (_c: string, v: string) => {
+            since = v;
+            return read;
+          },
+          order: () => read,
+          limit: async () => ({
+            data: h.state.events.filter((e) => e.created_at >= since),
+            error: null,
+          }),
+        };
         return {
+          ...read,
           insert: (row: unknown) => {
             h.state.inserts.push({ table, row });
             return Promise.resolve({ error: null });
@@ -462,6 +479,7 @@ beforeEach(() => {
   h.state.outcomes = [];
   h.state.inserts = [];
   h.state.customerMessages = [];
+  h.state.events = [];
   h.state.convLive = null;
   h.state.convReads = 0;
   h.state.profiles = [];
@@ -3355,5 +3373,133 @@ describe('dispatchInboundToAiReply — a knowledge search that failed', () => {
     ask('yes please');
     h.retrieveKnowledge.mockResolvedValue(retrieval([], failed));
     expect(await dispatchInboundToAiReply(ARGS)).toBe('replied');
+  });
+});
+
+describe('dispatchInboundToAiReply — a burst whose newest message went elsewhere', () => {
+  const T = Date.parse('2026-10-09T10:00:00Z');
+  const at = (msAgo: number) => new Date(T - msAgo).toISOString();
+  const QUESTION = {
+    message_id: 'wamid-a',
+    created_at: at(5_000),
+    content_text: 'What are the charges?',
+  };
+  const RATING = {
+    message_id: 'wamid-b',
+    created_at: at(0),
+    content_text: '5',
+  };
+  const newest = {
+    ...ARGS,
+    inboundMessageId: 'wamid-b',
+    inboundText: '5',
+  };
+  const superseded = { outcome: 'skipped_superseded', created_at: at(-1_000) };
+  beforeEach(() => {
+    vi.stubEnv('AI_BURST_WAIT_MS', '0');
+    h.state.customerMessages = [RATING, QUESTION];
+    h.state.events = [superseded];
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('flags the question a rating, flow or journey superseded', async () => {
+    expect(
+      await dispatchInboundToAiReply({
+        ...newest,
+        consumedBy: 'A case rating',
+      })
+    ).toBe('skipped');
+    expect(h.state.flags).toHaveLength(1);
+    expect(h.engineSendText).not.toHaveBeenCalled();
+    expect(h.generateReply).not.toHaveBeenCalled();
+    expect(h.state.outcomes).toHaveLength(1);
+    expect(lastOutcome()).toBe('skipped_automation');
+  });
+
+  it('flags the question a keyword automation superseded', async () => {
+    await dispatchInboundToAiReply({ ...newest, meaningTriggerActed: true });
+    expect(h.state.flags).toHaveLength(1);
+    expect(h.state.outcomes).toHaveLength(1);
+  });
+
+  it.each([
+    [
+      'it was answered since',
+      () => {
+        h.state.events = [
+          { outcome: 'replied', created_at: at(-2_000) },
+          superseded,
+        ];
+      },
+    ],
+    [
+      'its own dispatch never stood down',
+      () => {
+        h.state.events = [];
+      },
+    ],
+    [
+      'it was only a greeting',
+      () => {
+        h.state.customerMessages = [
+          RATING,
+          { ...QUESTION, content_text: 'Hi' },
+        ];
+      },
+    ],
+    [
+      'a newer message will be answered',
+      () => {
+        h.state.customerMessages = [
+          {
+            message_id: 'wamid-c',
+            created_at: at(-3_000),
+            content_text: 'ok?',
+          },
+          RATING,
+          QUESTION,
+        ];
+      },
+    ],
+    [
+      'it is older than a burst',
+      () => {
+        h.state.customerMessages = [
+          RATING,
+          { ...QUESTION, created_at: at(600_000) },
+        ];
+      },
+    ],
+  ])('does not flag when %s', async (_name, arrange) => {
+    arrange();
+    await dispatchInboundToAiReply({ ...newest, consumedBy: 'A flow' });
+    expect(h.state.flags).toHaveLength(0);
+    expect(h.state.outcomes).toHaveLength(1);
+  });
+
+  it('the question itself flags when the newer message was already consumed', async () => {
+    h.state.events = [
+      { outcome: 'skipped_automation', created_at: at(-1_000) },
+    ];
+    await dispatchInboundToAiReply({
+      ...ARGS,
+      inboundMessageId: 'wamid-a',
+      inboundText: QUESTION.content_text,
+    });
+    expect(lastOutcome()).toBe('skipped_superseded');
+    expect(h.state.flags).toHaveLength(1);
+    expect(h.engineSendText).not.toHaveBeenCalled();
+  });
+
+  it('the question stands down in silence while the newer one is open', async () => {
+    h.state.events = [];
+    await dispatchInboundToAiReply({
+      ...ARGS,
+      inboundMessageId: 'wamid-a',
+      inboundText: QUESTION.content_text,
+    });
+    expect(h.state.flags).toHaveLength(0);
   });
 });

@@ -21,6 +21,7 @@ type Result = { data: unknown; error: unknown };
 /** The customer_documents row the recording of message 'row-1' made. */
 const DOC_ROW_ID = '22222222-2222-4222-8222-222222222222';
 
+const strandedAt = vi.hoisted(() => ({ value: null as string | null }));
 const h = vi.hoisted(() => ({
   // The workspace's "understand meaning" switch (Smart insights).
   meaningOn: true,
@@ -155,6 +156,9 @@ function fakeDb() {
   };
 }
 
+vi.mock('@/lib/ai/stranded', () => ({
+  earlierQuestionAt: async () => strandedAt.value,
+}));
 vi.mock('@/lib/flows/admin-client', () => ({ supabaseAdmin: () => fakeDb() }));
 vi.mock('@/lib/contacts/dedupe', () => ({
   findExistingContact: async () => ({
@@ -1670,5 +1674,36 @@ describe('processMessage — an open case without a group hears the customer', (
       error.mock.calls.filter(([m]) => String(m).startsWith('[cases]'))
     ).toHaveLength(2);
     error.mockRestore();
+  });
+});
+
+describe('the sales-chat decision', () => {
+  it('flows, the journey, every automation and the bot share the same sales-chat check', async () => {
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+    const check = h.flows.mock.calls[0][0].salesChat;
+    expect(check).toBeTypeOf('function');
+    expect(h.journey.mock.calls[0][0].salesChat).toBe(check);
+    expect(h.automations.mock.calls.length).toBeGreaterThan(0);
+    for (const [args] of h.automations.mock.calls) {
+      expect(args.salesChat).toBe(check);
+    }
+    expect(h.ai.mock.calls[0][0].salesChat).toBe(check);
+  });
+});
+
+describe('a consumed message that closes a burst', () => {
+  it.each([
+    ['an earlier question', '2026-10-09T10:00:00Z', 1],
+    ['nothing before it', null, 0],
+  ])('goes to the bot as consumed: %s', async (_name, value, calls) => {
+    strandedAt.value = value;
+    try {
+      h.flows.mockResolvedValue({ consumed: true, outcome: 'advanced' });
+      await processMessage(message, 'acct-1', 'owner-1', channel);
+    } finally {
+      strandedAt.value = null;
+    }
+    expect(h.ai).toHaveBeenCalledTimes(calls);
+    if (calls) expect(h.ai.mock.calls[0][0].consumedBy).toBe('A flow');
   });
 });
