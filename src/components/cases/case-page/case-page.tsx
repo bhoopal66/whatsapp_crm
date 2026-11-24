@@ -75,6 +75,7 @@ import { SlaChip } from './sla-chip';
 import { SnoozeDialog } from './snooze-dialog';
 import { TasksTab } from './tasks-tab';
 import { TimelineTab } from './timeline-tab';
+import { useNoteDrafts } from './use-note-drafts';
 
 /** Matches the presence TTL's spirit: others show within one poll. */
 const PRESENCE_POLL_MS = 20_000;
@@ -82,13 +83,15 @@ const PRESENCE_POLL_MS = 20_000;
 type State = 'loading' | 'ok' | 'gone' | 'forbidden' | 'error';
 type Open = 'move' | 'edit' | 'reassign' | 'docs' | 'snooze' | null;
 
-const TAB_BODY: Record<CaseTab, (p: CaseTabProps) => React.ReactNode> = {
+const TAB_BODY: Record<
+  Exclude<CaseTab, 'notes'>,
+  (p: CaseTabProps) => React.ReactNode
+> = {
   overview: OverviewTab,
   timeline: TimelineTab,
   conversation: ConversationTab,
   tasks: TasksTab,
   documents: DocumentsTab,
-  notes: NotesTab,
   'bank-contacts': BankContactsTab,
   memory: MemoryTab,
   brain: BrainTab,
@@ -134,6 +137,8 @@ export function CasePage({ caseId }: { caseId: string }) {
   const [state, setState] = useState<State>('loading');
   const [detail, setDetail] = useState<CaseDetail | null>(null);
   const [open, setOpen] = useState<Open>(null);
+  // Here, not in the tab: the text must survive a change of tab.
+  const noteDraft = useNoteDrafts(caseId);
   const [recentRequest, setRecentRequest] =
     useState<ReturnType<typeof requestedRecently>>(null);
   const [acting, setActing] = useState(false);
@@ -698,10 +703,15 @@ export function CasePage({ caseId }: { caseId: string }) {
           ))}
         </TabsList>
         {visibleCaseTabs(canSeeAudit, brainOn).map((name) => {
-          const Body = TAB_BODY[name];
+          const Body = name === 'notes' ? null : TAB_BODY[name];
           return (
             <TabsContent key={name} value={name} className="min-h-0 flex-1">
-              {activeTab === name && <Body {...tabProps} />}
+              {activeTab === name &&
+                (Body ? (
+                  <Body {...tabProps} />
+                ) : (
+                  <NotesTab key={caseId} {...tabProps} draft={noteDraft} />
+                ))}
             </TabsContent>
           );
         })}
