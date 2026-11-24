@@ -207,8 +207,9 @@ export async function getCurrentAccount(): Promise<AccountContext> {
     .maybeSingle();
 
   if (accountErr) {
+    // As the profile read above: a failed read is not a refusal.
     console.error("[getCurrentAccount] account fetch error:", accountErr);
-    throw new ForbiddenError("Could not load account context");
+    throw new AuthUnavailableError("Could not load account context");
   }
   if (!account) {
     // account_id points at no readable account row — orphaned profile

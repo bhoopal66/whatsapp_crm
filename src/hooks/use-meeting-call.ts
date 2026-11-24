@@ -1452,8 +1452,10 @@ export class MeetingCallEngine {
 
   private async onSeatAnswer(res: ApiAnswer) {
     if (res.status === 401 || res.status === 403) return this.refused();
-    // No answer (0) and a server fault say nothing about our access.
-    if (res.status !== 0 && res.status < 500) this.refusedSince = null;
+    // Refused twice in a row ends the call. Any other answer breaks the
+    // row, no answer (0) and a server fault included: kept over a sleep,
+    // one stray refusal and another minutes later would have ended it.
+    this.refusedSince = null;
     if (res.status === 409) return this.ended();
     if (res.status !== 404 || !this.isLive()) return;
     // 404: the seat was closed under us — by the host (removed_at), or

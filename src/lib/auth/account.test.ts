@@ -303,7 +303,8 @@ describe("getCurrentAccount", () => {
     });
     createClient.mockReturnValue(client);
     const err = await getCurrentAccount().catch((e) => e);
-    expect(err).toBeInstanceOf(ForbiddenError);
+    expect(err).not.toBeInstanceOf(ForbiddenError);
+    expect(toErrorResponse(err).status).toBe(503);
     expect(err.message).toBe("Could not load account context");
   });
 
