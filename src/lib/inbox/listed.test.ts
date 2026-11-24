@@ -5,7 +5,7 @@ import { isListedInInbox } from './listed';
 const base = {
   campaign_broadcast_id: null,
   human_engaged_at: null,
-  assigned_agent_id: null,
+  assigned_agent_id: undefined,
   ai_autoreply_disabled: false,
   ai_reply_count: 0,
   chat_tag_id: null,
