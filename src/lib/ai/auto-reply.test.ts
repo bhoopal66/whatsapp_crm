@@ -38,7 +38,11 @@ const h = vi.hoisted(() => ({
     inserts: [] as { table: string; row: unknown }[],
     /** Customer messages, newest first (burst check), per test. */
     /** Outcome rows of earlier dispatches, newest first. */
-    events: [] as { outcome: string; created_at: string }[],
+    events: [] as {
+      outcome: string;
+      created_at: string;
+      detail?: string | null;
+    }[],
     customerMessages: [] as {
       message_id: string;
       created_at: string;
@@ -170,8 +174,12 @@ vi.mock('./admin-client', () => ({
       }
       if (table === 'ai_reply_events' || table === 'notifications') {
         let since = '';
+        let columns: string[] = [];
         const read = {
-          select: () => read,
+          select: (list: string) => {
+            columns = list.split(', ');
+            return read;
+          },
           eq: () => read,
           gte: (_c: string, v: string) => {
             since = v;
@@ -179,7 +187,13 @@ vi.mock('./admin-client', () => ({
           },
           order: () => read,
           limit: async () => ({
-            data: h.state.events.filter((e) => e.created_at >= since),
+            data: h.state.events
+              .filter((e) => e.created_at >= since)
+              .map((e) =>
+                Object.fromEntries(
+                  Object.entries(e).filter(([k]) => columns.includes(k))
+                )
+              ),
             error: null,
           }),
         };
@@ -3294,6 +3308,13 @@ describe('dispatchInboundToAiReply — a burst inside a flow', () => {
     expect(h.state.outcomes.map((o) => o.ai_last_outcome)).toEqual([
       'skipped_superseded',
     ]);
+
+    // A greeting says so, as outside a flow (stranded.ts).
+    h.state.customerMessages = [message('wamid-1')];
+    expect(
+      await dispatchInboundToAiReply({ ...FLOW_ARGS, inboundText: 'Hi' })
+    ).toBe('superseded');
+    expect(h.state.outcomes[1].ai_last_outcome_detail).toContain('greeting');
   });
 
   it('answers when its message is still the newest, or that cannot be read', async () => {
@@ -3559,6 +3580,48 @@ describe('dispatchInboundToAiReply — a burst whose newest message went elsewhe
     }
     expect(reads).toBe(1);
     expect(h.state.outcomes).toEqual([]);
+  });
+
+  describe('a greeting between them', () => {
+    /** The row the greeting's own dispatch leaves behind. */
+    async function greetingRow() {
+      await dispatchInboundToAiReply({
+        ...ARGS,
+        inboundMessageId: 'wamid-hi',
+        inboundText: 'Hi',
+      });
+      expect(lastOutcome()).toBe('skipped_superseded');
+      const detail = h.state.outcomes.at(-1)!.ai_last_outcome_detail as string;
+      h.state.outcomes = [];
+      return { ...superseded, detail, created_at: at(-3_000) };
+    }
+
+    it('does not flag a question that was answered', async () => {
+      h.state.events = [
+        await greetingRow(),
+        { outcome: 'replied', created_at: at(-1_000) },
+      ];
+      await dispatchInboundToAiReply({ ...newest, consumedBy: 'A flow' });
+      expect(h.state.flags).toHaveLength(0);
+      expect(h.state.outcomes).toHaveLength(0);
+    });
+
+    it('still flags one that stood down before it', async () => {
+      h.state.events = [await greetingRow(), superseded];
+      await dispatchInboundToAiReply({ ...newest, consumedBy: 'A flow' });
+      expect(h.state.flags).toHaveLength(1);
+    });
+
+    it('a question stands down in other words', async () => {
+      await dispatchInboundToAiReply({
+        ...ARGS,
+        inboundMessageId: 'wamid-a',
+        inboundText: QUESTION.content_text,
+      });
+      expect(h.state.outcomes.at(-1)!.ai_last_outcome_detail).toBe(
+        'A newer customer message arrived; its reply answers both.'
+      );
+    });
   });
 
   it('the question itself flags when the newer message was already consumed', async () => {

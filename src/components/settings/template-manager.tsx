@@ -365,6 +365,12 @@ export function TemplateManager() {
         if (data?.code === 'TEMPLATE_EXISTS') {
           throw new Error(t('toastTemplateExists'));
         }
+        if (data?.code === 'META_HAS_IT') {
+          throw new Error(t('toastMetaHasIt'));
+        }
+        if (data?.code === 'META_NO_ANSWER') {
+          throw new Error(t('toastMetaNoAnswer'));
+        }
         if (data?.code === 'META_ACCEPTED_NOT_SAVED') {
           // Part of it may be saved: the list shows what is.
           await fetchTemplates();
@@ -406,7 +412,10 @@ export function TemplateManager() {
       if (!res.ok) {
         switch (data?.code) {
           case 'TEMPLATE_EXISTS':
+          case 'META_HAS_IT':
             throw new Error(t('toastMetaHasIt'));
+          case 'META_NO_ANSWER':
+            throw new Error(t('toastMetaNoAnswer'));
           case 'TEMPLATE_GONE':
             throw new Error(t('toastTemplateGone'));
           case 'META_ACCEPTED_NOT_SAVED':

@@ -113,6 +113,15 @@ export class MetaError extends Error {
   }
 
   /**
+   * True when a template was not created because Meta already has one of
+   * this name in this language (#100, subcode 2388024). Not 2388023: that
+   * one is being deleted at Meta, and cannot be sent.
+   */
+  get isTemplateDuplicate(): boolean {
+    return this.subcode === 2388024
+  }
+
+  /**
    * True when Meta refused the send for a missing parameter (#131008) —
    * in practice a template variable that resolved blank, which Meta
    * treats as absent. The send builder refuses blank body values first;

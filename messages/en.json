@@ -2666,6 +2666,7 @@
         "authentication": "Authentication templates cannot be submitted from here. Create it in WhatsApp Manager, then press Sync."
       },
       "toastMetaHasIt": "Meta already has a template with this name and language. Press Sync to bring it in.",
+      "toastMetaNoAnswer": "Meta did not answer. The template may have been submitted: press Sync in a minute.",
       "toastTemplateGone": "This template was deleted or renamed. The list has been refreshed.",
       "syncing": "Syncing…",
       "syncTitle": "Pull approved templates from your Meta WhatsApp Business Account",

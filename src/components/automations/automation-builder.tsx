@@ -14,6 +14,7 @@ import { useTranslations } from "next-intl"
 import {
   headerTakesValue,
   resolveTemplateValues,
+  valuesByPlaceholder,
   type TemplateStepValues,
 } from "@/lib/automations/template-values"
 import { renderTemplateBody } from "@/lib/whatsapp/template-body"
@@ -914,6 +915,8 @@ function TemplateValueFields({
   const header = headerTakesValue(template)
   if (keys.length === 0 && !header) return null
   const { params, headerText } = resolveTemplateValues(template, values)
+  // What the preview shows, whatever keys the step was saved under.
+  const current = valuesByPlaceholder(template, values)
   // An empty value stays as its placeholder in the preview.
   const filled = (text: string, list: string[]) =>
     renderTemplateBody(
@@ -934,11 +937,9 @@ function TemplateValueFields({
       {keys.map((key) => (
         <FieldBlock key={key} label={t("templates.value", { name: `{{${key}}}` })}>
           <Input
-            value={values.variables?.[key] ?? ""}
+            value={current[key]}
             onChange={(e) =>
-              onValues({
-                variables: { ...values.variables, [key]: e.target.value },
-              })
+              onValues({ variables: { ...current, [key]: e.target.value } })
             }
             className="text-foreground"
           />
