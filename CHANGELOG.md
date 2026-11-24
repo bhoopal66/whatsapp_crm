@@ -160,8 +160,12 @@ and polish.
   and the remove, deactivate and delete-team dialogs name such numbers. A
   number allocated only to a team with nobody in it is also for admins now.
 - **Two admins no longer overwrite each other** on who may use a number or
-  who is in a team: a save made on an out-of-date list is refused, and the
-  screen shows what is stored. **Migration required: 314** (before the build).
+  who is in a team: a save made on an out-of-date list is refused, the
+  admin's choice stays on screen and a notice names what is stored; Reload
+  shows it. The access dialog counts only people who can still sign in, an
+  empty list is not saved while the teams are not loaded, and the team editor
+  names the numbers it would leave to owners and admins.
+  **Migration required: 314** (before the build).
 
 - **When a submission group ends, its bells follow.** The unread bell of an
   agent who loses the group opens the customer's page instead of "does not

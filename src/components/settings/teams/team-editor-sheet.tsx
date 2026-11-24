@@ -58,6 +58,8 @@ import {
 import { channelNameWithPhone } from '@/lib/whatsapp/channel-management';
 import type { AccountNumber } from '@/hooks/use-whatsapp-numbers';
 import type { AccountMember } from '@/types';
+import { ChangedNotice } from '../changed-notice';
+import { NumbersLeftToAdmins } from '../numbers-left-to-admins';
 import { MemberAvatar, RoleChip } from './people';
 
 /** Sentinel for "no leader" — a Select cannot carry an empty value. */
@@ -68,6 +70,9 @@ export function TeamEditorSheet({
   teams,
   members,
   numbers,
+  changed,
+  onReload,
+  onRetry,
   onClose,
   onSave,
 }: {
@@ -76,6 +81,11 @@ export function TeamEditorSheet({
   teams: Team[];
   members: AccountMember[];
   numbers: AccountNumber[] | null;
+  /** Another admin saved meanwhile: the team as stored, null = unread. */
+  changed: { stored: Team | null } | null;
+  /** Edit the stored team from here on. */
+  onReload: () => void;
+  onRetry: () => Promise<void>;
   onClose: () => void;
   /** Resolves true when the save stuck (the sheet then closes). */
   onSave: (team: Team, patch: TeamPatch) => Promise<boolean>;
@@ -84,12 +94,14 @@ export function TeamEditorSheet({
   // draft rather than the last one.
   return team ? (
     <EditorBody
-      // The stored members too: after a 409 the draft starts again from them.
-      key={`${team.id}:${team.member_ids.join()}`}
+      key={team.id}
       team={team}
       teams={teams}
       members={members}
       numbers={numbers}
+      changed={changed}
+      onReload={onReload}
+      onRetry={onRetry}
       onClose={onClose}
       onSave={onSave}
     />
@@ -101,6 +113,9 @@ function EditorBody({
   teams,
   members,
   numbers,
+  changed,
+  onReload,
+  onRetry,
   onClose,
   onSave,
 }: {
@@ -108,6 +123,9 @@ function EditorBody({
   teams: Team[];
   members: AccountMember[];
   numbers: AccountNumber[] | null;
+  changed: { stored: Team | null } | null;
+  onReload: () => void;
+  onRetry: () => Promise<void>;
   onClose: () => void;
   onSave: (team: Team, patch: TeamPatch) => Promise<boolean>;
 }) {
@@ -115,6 +133,7 @@ function EditorBody({
   const [draft, setDraft] = useState<TeamDraft>(() => draftOf(team));
   const [query, setQuery] = useState('');
   const [saving, setSaving] = useState(false);
+  const [rereading, setRereading] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   // Set when the discard prompt came from the Numbers & access link, so
   // confirming it goes there rather than only closing the sheet.
@@ -189,7 +208,7 @@ function EditorBody({
   }
 
   async function save() {
-    if (!dirty || nameProblem || saving) return;
+    if (!dirty || nameProblem || saving || changed) return;
     setSaving(true);
     try {
       await onSave(team, patch);
@@ -368,6 +387,14 @@ function EditorBody({
               <p className="text-muted-foreground text-xs">
                 {t('oneTeamHint')}
               </p>
+              <NumbersLeftToAdmins
+                leaving={
+                  team.channel_ids.length > 0 &&
+                  (patch.member_ids || 'leader_user_id' in patch)
+                    ? { team: { id: team.id, ...draft } }
+                    : null
+                }
+              />
             </section>
 
             {/* WhatsApp numbers — read-only; Numbers & access owns them */}
@@ -420,6 +447,38 @@ function EditorBody({
             </section>
           </div>
 
+          {changed ? (
+            <div className="border-border border-t px-5 py-3">
+              <ChangedNotice
+                text={
+                  changed.stored
+                    ? t('membersChangedStored', {
+                        names:
+                          changed.stored.member_ids
+                            .map((id) => {
+                              const m = byId.get(id);
+                              return m ? displayName(m) : t('formerMember');
+                            })
+                            .join(', ') || t('noMembers'),
+                      })
+                    : t('membersChangedUnread')
+                }
+                busy={saving || rereading}
+                label={changed.stored ? undefined : t('retry')}
+                onReload={async () => {
+                  if (changed.stored) {
+                    onReload();
+                    setDraft(draftOf(changed.stored));
+                    return;
+                  }
+                  setRereading(true);
+                  await onRetry();
+                  setRereading(false);
+                }}
+              />
+            </div>
+          ) : null}
+
           <SheetFooter className="border-border bg-muted/40 flex-row items-center justify-between gap-2 border-t px-5 py-3">
             <span className="text-muted-foreground truncate text-xs">
               {dirty ? t('unsavedChanges') : t('noChanges')}
@@ -434,7 +493,9 @@ function EditorBody({
               </Button>
               <Button
                 onClick={() => void save()}
-                disabled={!dirty || nameProblem !== null || saving}
+                disabled={
+                  !dirty || nameProblem !== null || saving || changed !== null
+                }
               >
                 {saving ? <Loader2 className="size-4 animate-spin" /> : null}
                 {saving ? t('saving') : t('save')}

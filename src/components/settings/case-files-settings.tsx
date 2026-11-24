@@ -54,6 +54,9 @@ import {
   type SpecRowDraft,
 } from '@/lib/case-files/settings-view';
 import { cn } from '@/lib/utils';
+import { ChangedNotice } from './changed-notice';
+
+export { ChangedNotice };
 
 type Answer = { ok: boolean; status: number; body: unknown };
 
@@ -583,35 +586,6 @@ function useSpecProblemText() {
       : problem.kind === 'duplicatePosition'
         ? t('duplicatePosition', { position: problem.position })
         : t(problem.kind, { doc: labelOf(problem.docKey) });
-}
-
-/** Somebody else saved the list on screen; what was typed stays until Reload. */
-export function ChangedNotice({
-  text,
-  busy,
-  onReload,
-}: {
-  text: string;
-  busy: boolean;
-  onReload: () => Promise<void>;
-}) {
-  const t = useTranslations('CaseSettings');
-  return (
-    <div
-      role="alert"
-      className="border-warning/30 bg-warning-soft text-warning flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm"
-    >
-      <p>{text}</p>
-      <Button
-        size="sm"
-        variant="outline"
-        disabled={busy}
-        onClick={() => void onReload()}
-      >
-        {t('reload')}
-      </Button>
-    </div>
-  );
 }
 
 /**

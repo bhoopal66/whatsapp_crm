@@ -23,6 +23,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -109,6 +110,16 @@ export function TeamsTab() {
   const numbers = useAccountNumbers(true, numbersKey);
 
   const [editing, setEditing] = useState<Team | null>(null);
+  // Another admin saved meanwhile: the team as stored now, null when it
+  // could not be read. The editor keeps its draft until Reload.
+  const [changed, setChanged] = useState<{ stored: Team | null } | null>(null);
+  // The team whose editor is open, for a save that ends after it closed.
+  const editingId = useRef<string | null>(null);
+  function edit(team: Team | null) {
+    editingId.current = team?.id ?? null;
+    setEditing(team);
+    setChanged(null);
+  }
   const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState('');
   const [creating, setCreating] = useState(false);
@@ -187,12 +198,26 @@ export function TeamsTab() {
       setCreateOpen(false);
       toast.success(t('created', { name }));
       // Straight on to leader, members and numbers.
-      setEditing(created);
+      edit(created);
     } catch {
       toast.error(t('createFailed'));
     } finally {
       setCreating(false);
     }
+  }
+
+  /** What is stored, into the open editor; false when it was closed. */
+  async function readStored(team: Team): Promise<boolean> {
+    const next = await load(true);
+    if (editingId.current !== team.id) return false;
+    const stored = next?.find((x) => x.id === team.id);
+    if (next && !stored) {
+      toast.error(t('teamGone', { name: team.name }));
+      edit(null);
+      return true;
+    }
+    setChanged({ stored: stored ?? null });
+    return true;
   }
 
   async function handleSave(team: Team, patch: TeamPatch): Promise<boolean> {
@@ -209,11 +234,9 @@ export function TeamsTab() {
             .json()
             .catch(() => ({}));
           if (body?.code === 'members_changed') {
-            // Another admin saved meanwhile: the editor reopens on what
-            // is stored and the change is made again.
-            toast.error(t('membersChanged'));
-            const stored = (await load(true))?.find((x) => x.id === team.id);
-            setEditing(stored ?? null);
+            if (!(await readStored(team))) {
+              toast.error(t('membersChanged', { name: team.name }));
+            }
             return false;
           }
         }
@@ -228,7 +251,7 @@ export function TeamsTab() {
       setTeams((prev) => prev.map((x) => (x.id === team.id ? updated : x)));
       invalidateTeamCaches();
       setNumbersKey((k) => k + 1);
-      setEditing(null);
+      if (editingId.current === team.id) edit(null);
       toast.success(t('saved', { name: updated.name }));
       return true;
     } catch {
@@ -342,7 +365,7 @@ export function TeamsTab() {
                   byId={byId}
                   numberById={numberById}
                   numbersLoaded={numbers !== null}
-                  onEdit={() => setEditing(team)}
+                  onEdit={() => edit(team)}
                   onDelete={() => setDeleting(team)}
                 />
               ))}
@@ -393,7 +416,12 @@ export function TeamsTab() {
         teams={teams}
         members={members}
         numbers={numbers}
-        onClose={() => setEditing(null)}
+        changed={changed}
+        onReload={() => edit(changed?.stored ?? editing)}
+        onRetry={async () => {
+          if (editing) await readStored(editing);
+        }}
+        onClose={() => edit(null)}
         onSave={handleSave}
       />
 
