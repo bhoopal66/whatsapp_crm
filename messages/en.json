@@ -8011,6 +8011,7 @@
         "nobody": "Nobody to invite",
         "send": "{count, plural, =0 {Send invites} one {Invite # person} other {Invite # people}}",
         "sent": "{count, plural, =0 {They were already invited} one {# person invited} other {# people invited}}",
+        "needsReadmit": "{name} was removed from this meeting. Let them back in from the people list.",
         "failed": "Couldn't send the invites.",
         "copyLink": "Copy meeting link",
         "linkCopied": "Meeting link copied",

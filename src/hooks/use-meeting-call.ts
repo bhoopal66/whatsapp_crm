@@ -2073,8 +2073,17 @@ export class MeetingCallEngine {
 
   invite = async (userIds: string[]) => {
     const res = await this.api('invite', 'POST', { userIds });
-    const invited = (res.body as { invited?: unknown } | null)?.invited;
-    return res.ok && Array.isArray(invited) ? (invited as string[]) : null;
+    const answer = res.body as {
+      invited?: unknown;
+      needs_readmit?: unknown;
+    } | null;
+    if (!res.ok || !Array.isArray(answer?.invited)) return null;
+    return {
+      invited: answer.invited as string[],
+      needsReadmit: Array.isArray(answer.needs_readmit)
+        ? (answer.needs_readmit as string[])
+        : [],
+    };
   };
 
   setRecordingFlag = async (on: boolean) => {
