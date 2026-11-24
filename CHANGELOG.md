@@ -12,6 +12,14 @@ and polish.
 
 ## [Unreleased]
 
+### Added
+
+- **A screen that breaks in someone's browser reaches the server log**
+  (`[client-error]`), with the screen and the place in the code and nothing
+  typed on it; and the browser's reports of what the Content-Security-Policy
+  would block are logged by rule and origin (`[csp]`), so the policy can be
+  enforced on evidence. See `docs/monitoring.md`. No migration.
+
 ### Fixed
 
 - **OpenWA numbers past the tenth were never checked.** The gateway takes

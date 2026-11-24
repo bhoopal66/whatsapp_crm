@@ -5,6 +5,7 @@ import { useEffect } from 'react';
 import { useTranslations } from 'next-intl';
 import { House, RotateCw, TriangleAlert } from 'lucide-react';
 import { Button, buttonVariants } from '@/components/ui/button';
+import { reportClientError } from '@/lib/browser-reports/send';
 
 /**
  * Root route-segment boundary. It catches a render crash anywhere the
@@ -34,6 +35,7 @@ export default function RootError({
 
   useEffect(() => {
     console.error(error);
+    reportClientError('boundary', error);
   }, [error]);
 
   return (

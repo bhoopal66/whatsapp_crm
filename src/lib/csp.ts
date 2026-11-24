@@ -92,5 +92,8 @@ export function contentSecurityPolicy(env: CspEnv): string {
     "frame-ancestors 'none'",
     "base-uri 'self'",
     "form-action 'self'",
+    // What the policy would block, logged by rule and origin, so it can be
+    // enforced on evidence (src/app/api/csp-report).
+    'report-uri /api/csp-report',
   ].join('; ');
 }

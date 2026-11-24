@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useSyncExternalStore, type CSSProperties } from 'react';
 import { House, RotateCw, TriangleAlert } from 'lucide-react';
 import { Button, buttonVariants } from '@/components/ui/button';
+import { reportClientError } from '@/lib/browser-reports/send';
 import {
   DEFAULT_MODE,
   DEFAULT_THEME,
@@ -106,6 +107,7 @@ export default function GlobalError({
 
   useEffect(() => {
     console.error(error);
+    reportClientError('global', error);
   }, [error]);
 
   // The layout's boot script applied the saved accent and mode before

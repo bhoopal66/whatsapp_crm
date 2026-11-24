@@ -23,6 +23,21 @@ variable `UPTIME_URL` is set to the site's address (Settings → Secrets and
 variables → Actions → Variables). GitHub may start a scheduled run some
 minutes late, so this is a safety net, not a pager.
 
+## What staff browsers report
+
+Two lines in the server log, nothing stored:
+
+- `[client-error] <kind> <path> user=<first 8 of the id> <message> | <frames>`:
+  a screen broke in a signed-in person's browser (an error screen, or an
+  error nothing caught). Ids, numbers, emails and long quotes are masked in
+  the browser and again on the server; nothing typed is sent. The same break
+  is logged once per ten minutes with how often it was held back; network
+  losses and browser extensions are left out.
+- `[csp] <rule> would block <origin> on <path>`: what the
+  Content-Security-Policy (still report-only) would have blocked, once per
+  six hours each. When nothing of ours has shown up for a couple of weeks,
+  the header in `next.config.ts` can be enforced.
+
 ## Metrics
 
 `GET /api/metrics` serves the Prometheus text format (0.0.4).
