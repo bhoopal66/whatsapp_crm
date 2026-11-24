@@ -1070,11 +1070,114 @@ describe('group messages and receipts', () => {
       expect(removeParticipants).toHaveBeenCalledTimes(1);
     });
 
-    it('an ordinary message is not tried twice', async () => {
-      const { db, rpc } = fakeDb({ tables: listed, blips: { deal_rooms: 1 } });
-      await run(db, stop('hello'));
+    it('gets no second opt-out from the retries of the rest', async () => {
+      const { db, rpc } = fakeDb({ tables: listed, blips: { deal_rooms: 9 } });
+      await run(db, stop());
       expect(rpc).not.toHaveBeenCalled();
       expect(removeParticipants).not.toHaveBeenCalled();
+    });
+  });
+
+  // Meta has its 200 already and delivers nothing again.
+  describe('everything else outlives a database blip too', () => {
+    const refused = { data: null, error: { code: '57P03', message: 'down' } };
+    const receipt = (id: string) => ({
+      id,
+      status: 'read',
+      recipient_type: 'group',
+      recipient_id: GROUP,
+      recipient_participant_id: '971501111111',
+    });
+    const text = (id: string) => ({
+      id,
+      from: '971501234567',
+      group_id: GROUP,
+      type: 'text',
+      text: { body: 'hello' },
+    });
+
+    it('a message: its room and its row', async () => {
+      const { db, rpc } = fakeDb({
+        tables: { deal_rooms: ROOM },
+        blips: { deal_rooms: 1 },
+      });
+      rpc.mockImplementationOnce((async () => refused) as never);
+      await run(db, { messages: [text('wamid.1')] });
+      expect(rpc).toHaveBeenCalledTimes(2);
+      expect(rpc).toHaveBeenLastCalledWith(
+        'deal_room_record_message',
+        expect.objectContaining({ p_wa_message_id: 'wamid.1' })
+      );
+      expect(removeParticipants).not.toHaveBeenCalled();
+    });
+
+    it('a receipt and a person who joined', async () => {
+      const { db, rpc } = fakeDb({ tables: { deal_rooms: ROOM } });
+      rpc.mockImplementationOnce((async () => refused) as never);
+      await run(db, { statuses: [receipt('wamid.o')] });
+      expect(rpc).toHaveBeenCalledTimes(2);
+      rpc.mockClear();
+      rpc.mockImplementationOnce((async () => refused) as never);
+      await run(db, {
+        groups: [
+          {
+            type: 'group_participants_add',
+            group_id: GROUP,
+            added_participants: [{ wa_id: '971501111111' }],
+          },
+        ],
+      });
+      expect(rpc.mock.calls.map(([fn]) => fn)).toEqual([
+        'deal_room_participant_event',
+        'deal_room_participant_event',
+      ]);
+    });
+
+    it('a file that does not download, or does not upload, at first', async () => {
+      const { db, rpc, upload } = fakeDb({ tables: { deal_rooms: ROOM } });
+      downloadMedia.mockRejectedValueOnce(new Error('timeout'));
+      upload.mockResolvedValueOnce({ error: { message: '503' } } as never);
+      await run(db, {
+        messages: [
+          {
+            id: 'wamid.3',
+            from: '971501234567',
+            group_id: GROUP,
+            type: 'document',
+            document: { id: 'media-1', filename: 'offer.pdf' },
+          },
+        ],
+      });
+      expect(upload).toHaveBeenCalledTimes(2);
+      const [, args] = rpc.mock.lastCall as unknown as [
+        string,
+        { p_media: { storage_path?: string; error?: string } },
+      ];
+      expect(args.p_media.storage_path).toMatch(/wamid\.3-offer\.pdf$/);
+      expect(args.p_media.error).toBeUndefined();
+    });
+
+    it('three retries a delivery, then the next item is still tried', async () => {
+      const { db, rpc } = fakeDb({ tables: { deal_rooms: ROOM } });
+      rpc.mockImplementation((async () => refused) as never);
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      await run(db, {
+        statuses: [receipt('wamid.1'), receipt('wamid.2'), receipt('wamid.3')],
+      });
+      expect(
+        rpc.mock.calls.map(
+          (c) =>
+            (c as unknown as [string, { p_wa_message_id: string }])[1]
+              .p_wa_message_id
+        )
+      ).toEqual([
+        'wamid.1',
+        'wamid.1',
+        'wamid.1',
+        'wamid.1',
+        'wamid.2',
+        'wamid.3',
+      ]);
     });
   });
 

@@ -225,18 +225,25 @@ class UnknownGroup extends Error {}
 
 /** Before the one retry of a STOP's database work. */
 const STOP_RETRY_MS = 500;
+/** Before the retries one delivery may spend on everything else. */
+const RETRY_MS = [500, 2_000, 8_000];
 
 /**
- * Meta delivers a STOP once (the route has answered 200), so a database
- * blip must not lose it: run again after a short pause.
+ * Meta delivers everything once (the route has answered 200), so a blip
+ * must not lose it: run again after each of `pauses`, taken as they are used.
  */
-async function withRetry<T>(run: () => Promise<T>): Promise<T> {
-  try {
-    return await run();
-  } catch (err) {
-    if (err instanceof UnknownGroup) throw err;
-    await new Promise((r) => setTimeout(r, STOP_RETRY_MS));
-    return run();
+async function withRetry<T>(
+  run: () => Promise<T>,
+  pauses = [STOP_RETRY_MS]
+): Promise<T> {
+  for (;;) {
+    try {
+      return await run();
+    } catch (err) {
+      const pause = err instanceof UnknownGroup ? undefined : pauses.shift();
+      if (pause === undefined) throw err;
+      await new Promise((r) => setTimeout(r, pause));
+    }
   }
 }
 
@@ -245,6 +252,8 @@ export async function handleGroupWebhook(
 ): Promise<void> {
   const { db, accountId } = args;
   const rooms = new Map<string, Room | null>();
+  // Shared by the whole delivery: a database that stays down holds it 10 s.
+  const pauses = [...RETRY_MS];
 
   // The room of this ACCOUNT for a group id; the id alone is global.
   async function room(groupId: string): Promise<Room> {
@@ -344,9 +353,15 @@ export async function handleGroupWebhook(
 
   const value = obj(args.value);
   const events = (Array.isArray(value.groups) ? value.groups : []).map(obj);
-  await each(events, 'group event', (event) => groupEvent(event));
+  // Both are safe to run again; a bell rung before the blip rings again.
+  await each(events, 'group event', (event) =>
+    withRetry(() => groupEvent(event), pauses)
+  );
+  // Retries its own database work, never the opt-out of a STOP.
   await each(groupMessages(value), 'group message', (m) => inbound(m));
-  await each(groupStatuses(value), 'group receipt', (s) => receipt(s));
+  await each(groupStatuses(value), 'group receipt', (s) =>
+    withRetry(() => receipt(s), pauses)
+  );
 
   async function groupEvent(event: Json): Promise<void> {
     const type = str(event.type);
@@ -592,7 +607,7 @@ export async function handleGroupWebhook(
     const type = str(m.type) ?? 'unsupported';
     const stop = type === 'text' && isOptOutText(str(obj(m.text).body));
     const attempt = <T>(run: () => Promise<T>) =>
-      stop ? withRetry(run) : run();
+      withRetry(run, stop ? undefined : pauses);
     const r = await attempt(() => room(groupId));
     const rawMedia = MEDIA_TYPES.has(type) ? obj(m[type]) : null;
     let body = str(obj(m.text).body) ?? str(rawMedia?.caption);
@@ -660,25 +675,30 @@ export async function handleGroupWebhook(
     try {
       const mediaId = str(raw.id);
       if (!mediaId) throw new Error('no media id');
-      const { url, mimeType: reported } = await getMediaUrl({
-        mediaId,
-        accessToken: args.accessToken,
-      });
-      const { buffer } = await downloadMedia({
-        downloadUrl: url,
-        accessToken: args.accessToken,
-        maxBytes: WHATSAPP_MAX_FILE_BYTES,
-      });
+      const { buffer, reported } = await withRetry(async () => {
+        const { url, mimeType } = await getMediaUrl({
+          mediaId,
+          accessToken: args.accessToken,
+        });
+        const { buffer } = await downloadMedia({
+          downloadUrl: url,
+          accessToken: args.accessToken,
+          maxBytes: WHATSAPP_MAX_FILE_BYTES,
+        });
+        return { buffer, reported: mimeType };
+      }, pauses);
       // The participant chose this type: never store it as such (164).
       const mimeType = safeStoredMime(reported);
       const safe = (s: string) =>
         s.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 120);
       const name = str(raw.filename) ?? `${type}-${messageId.slice(-12)}`;
       const path = `account-${accountId}/room-${r.id}/${safe(messageId)}-${safe(name)}`;
-      const { error: upErr } = await db.storage
-        .from(DEAL_FILES_BUCKET)
-        .upload(path, buffer, { contentType: mimeType, upsert: true });
-      if (upErr) throw new Error(`upload failed: ${upErr.message}`);
+      await withRetry(async () => {
+        const { error: upErr } = await db.storage
+          .from(DEAL_FILES_BUCKET)
+          .upload(path, buffer, { contentType: mimeType, upsert: true });
+        if (upErr) throw new Error(`upload failed: ${upErr.message}`);
+      }, pauses);
       const { data: file, error } = await db
         .from('deal_files')
         .insert({
