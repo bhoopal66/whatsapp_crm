@@ -112,10 +112,11 @@ export function CaseFilesSection({
     parseCaseFiles
   );
   const view = useMemo(() => (data ? buildCaseFilesView(data) : null), [data]);
-  const { data: buildData, reload: reloadBuild } = useCaseResource(
-    `/api/cases/${caseId}/build`,
-    parseCaseBuild
-  );
+  const {
+    data: buildData,
+    failed: buildFailed,
+    reload: reloadBuild,
+  } = useCaseResource(`/api/cases/${caseId}/build`, parseCaseBuild);
   const build = buildData?.build ?? null;
   const [dialog, setDialog] = useState<{
     kind: 'attach' | 'upload';
@@ -167,7 +168,18 @@ export function CaseFilesSection({
         </div>
       )}
 
-      {(view.ready || build) && (
+      {/* Not read yet, or the last read failed: not the same as "none". */}
+      {(buildFailed || (view.ready && !buildData)) && (
+        <div className="bg-card-2 rounded-md border">
+          <TabStatus
+            failed={buildFailed}
+            loading={t('loading')}
+            error={t('buildLoadFailed')}
+            onRetry={() => void reloadBuild()}
+          />
+        </div>
+      )}
+      {!buildFailed && buildData && (view.ready || build) && (
         <BuildCard
           caseId={caseId}
           ready={view.ready}
@@ -360,8 +372,20 @@ function DocRow({
   );
 }
 
-/** GET a download answer and open its signed URL in a new tab. */
-async function openDownload(url: string, t: (key: string) => string) {
+/**
+ * GET a download answer and open its URL in a new tab. The URL shows the
+ * file (it is no attachment), so it needs a tab of its own, and Safari
+ * blocks, silently, a tab opened after an await: it is opened on the
+ * click, then sent to the URL, or closed when there is none.
+ */
+export async function openDownload(url: string, t: (key: string) => string) {
+  const tab = window.open('about:blank', '_blank');
+  if (!tab) {
+    toast.error(t('downloadBlocked'));
+    return;
+  }
+  // By hand: with the 'noopener' feature window.open answers null.
+  tab.opener = null;
   let status = 0;
   let json: unknown = null;
   try {
@@ -373,10 +397,11 @@ async function openDownload(url: string, t: (key: string) => string) {
   }
   const target = status >= 200 && status < 300 ? parseDownloadUrl(json) : null;
   if (!target) {
+    tab.close();
     toast.error(t(buildErrorKey(status, codeOf(json))));
     return;
   }
-  window.open(target, '_blank', 'noopener,noreferrer');
+  tab.location.replace(target);
 }
 
 function DownloadButton({

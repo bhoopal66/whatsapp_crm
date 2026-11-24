@@ -153,6 +153,8 @@ const CONFLICT_TEXT: Record<string, string> = {
   CASE_EXISTS: 'An open case already exists for this customer and bank',
   // 297; answered with `by` and `at`.
   REQUESTED_RECENTLY: 'The documents were requested a few minutes ago',
+  // 309: compared with the list the screen had loaded.
+  STAGES_CHANGED: 'Another admin changed this list meanwhile',
 };
 
 /** 185: a snooze on a closed case is a conflict (SPEC_020c §9). */

@@ -105,6 +105,56 @@ describe('PUT stages', () => {
     expect(m.setStages).toHaveBeenCalledWith('u-1', 'acct-1', 'ADCB', []);
   });
 
+  it('passes the loaded list on and saves', async () => {
+    m.setStages.mockResolvedValue({
+      saved: true,
+      count: 1,
+      mappings: [],
+      sla: [],
+    });
+    const res = await put({ stages: ['A'], expected: [' Old', 'B'] });
+    expect(await res.json()).toEqual({ count: 1 });
+    expect(m.setStages).toHaveBeenCalledWith('u-1', 'acct-1', 'ADCB', ['A'], {
+      expected: [' Old', 'B'],
+      confirmDropped: false,
+    });
+  });
+
+  it('answers 409 STAGE_IN_USE with the uses until confirmed', async () => {
+    const uses = {
+      mappings: [{ status: 'Under review', stage: 'Old' }],
+      sla: [{ stage: 'Old', timer: 'bank_response' }],
+    };
+    m.setStages.mockResolvedValue({ saved: false, count: 0, ...uses });
+    const res = await put({ stages: ['A'], expected: ['Old'] });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ code: 'STAGE_IN_USE', ...uses });
+    m.setStages.mockResolvedValue({ saved: true, count: 1, ...uses });
+    const again = await put({
+      stages: ['A'],
+      expected: ['Old'],
+      confirmDropped: true,
+    });
+    expect(again.status).toBe(200);
+    expect(m.setStages.mock.calls.at(-1)?.[4]).toEqual({
+      expected: ['Old'],
+      confirmDropped: true,
+    });
+  });
+
+  it('answers 409 STAGES_CHANGED', async () => {
+    m.setStages.mockRejectedValue(new CaseRefusedError('STAGES_CHANGED'));
+    const res = await put({ stages: ['A'], expected: ['Old'] });
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe('STAGES_CHANGED');
+  });
+
+  it('answers 400 for an expected list that is none', async () => {
+    for (const expected of ['A', [1], null])
+      expect((await put({ stages: ['A'], expected })).status).toBe(400);
+    expect(m.setStages).not.toHaveBeenCalled();
+  });
+
   it('answers 403 to an agent', async () => {
     as('agent');
     expect((await put({ stages: ['A'] })).status).toBe(403);

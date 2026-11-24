@@ -10717,7 +10717,12 @@
         "firstFinal": "첫 단계는 최종 단계(“{stage}”)일 수 없습니다. 진행 단계를 맨 위로 옮기세요.",
         "finalSpelling": "최종 단계는 정확히 “{stage}”(으)로 써야 합니다.",
         "missingFinal": "“{stage}”이(가) 없습니다. Approved, Declined, Withdrawn, Closed가 모두 목록에 있어야 합니다."
-      }
+      },
+      "dropTitle": "아직 사용 중인 단계",
+      "dropMappings": "삭제된 단계로 케이스를 옮기는 Compass 상태: {list}.",
+      "dropSla": "삭제된 단계의 기한 규칙: {list}.",
+      "dropBody": "저장하면 더 이상 작동하지 않습니다. 그래도 저장할까요?",
+      "dropConfirm": "그래도 저장"
     },
     "templates": {
       "help": "직원이 이 은행의 케이스에 한 번에 추가할 수 있는 작업입니다.",
@@ -10795,8 +10800,10 @@
       "stageNotConfigured": "그 단계는 이제 이 은행의 목록에 없습니다. 새로고침 후 다시 시도하세요.",
       "invalid": "허용되지 않는 값입니다.",
       "notAllowed": "소유자와 관리자만 이 설정을 바꿀 수 있습니다.",
-      "generic": "저장하지 못했습니다: {error}"
-    }
+      "generic": "저장하지 못했습니다: {error}",
+      "stagesChanged": "다른 관리자가 이 목록을 변경했습니다. 새로고침하여 확인한 뒤 다시 변경하세요."
+    },
+    "reload": "새로고침"
   },
   "CaseRules": {
     "settings": {
@@ -11052,7 +11059,9 @@
       "notAllowed": "소유자와 관리자만 변경할 수 있습니다.",
       "selfApproval": "직접 수정한 문구는 다른 소유자가 승인해야 합니다.",
       "templateInvalid": "문구가 올바르지 않습니다. 1자에서 1,000자 사이로 작성하세요.",
-      "generic": "저장하지 못했습니다 ({error})."
+      "generic": "저장하지 못했습니다 ({error}).",
+      "specChanged": "다른 관리자가 이 사양을 변경했습니다. 새로고침하여 확인한 뒤 다시 변경하세요.",
+      "templateChanged": "그 사이 문구가 변경되었습니다. 새 문구를 읽은 뒤 승인하세요."
     },
     "spec": {
       "title": "서류 파일",
@@ -12477,7 +12486,9 @@
       "REUSE_WOULD_FAIL": "지금은 검사를 통과하지 못하는 이전 버전이어서 아무것도 변경하지 않았습니다.",
       "STORAGE_UNAVAILABLE": "파일 저장소가 응답하지 않습니다. 잠시 후 다시 시도하세요.",
       "generic": "문제가 발생했습니다. 다시 시도하세요."
-    }
+    },
+    "downloadBlocked": "브라우저가 새 탭을 차단했습니다. 이 사이트의 팝업을 허용하고 다시 시도하세요.",
+    "buildLoadFailed": "조합된 케이스 파일을 불러오지 못했습니다."
   },
   "CaseSnooze": {
     "snooze": "다시 알림",

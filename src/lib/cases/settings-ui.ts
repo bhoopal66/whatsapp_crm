@@ -124,6 +124,7 @@ export function stagesBody(stages: readonly string[]): { stages: string[] } {
 /** A 422 code of the config routes -> its key under `CaseSettings.errors`. */
 const ERROR_KEYS: Record<string, string> = {
   STAGE_IN_USE: 'stageInUse',
+  STAGES_CHANGED: 'stagesChanged',
   PRESUB_STAGES_REQUIRED: 'presubRequired',
   BANK_STAGES_FIRST_FINAL: 'firstFinal',
   BANK_STAGES_MISSING_FINAL: 'missingFinal',
@@ -145,6 +146,27 @@ export function configErrorKey(body: unknown): string {
       ? (body as { code?: unknown }).code
       : undefined;
   return (typeof code === 'string' && ERROR_KEYS[code]) || 'generic';
+}
+
+/** What still uses the stages a PUT would drop (409 STAGE_IN_USE, 309). */
+export interface DroppedStageUses {
+  mappings: { status: string; stage: string }[];
+  sla: { stage: string; timer: string }[];
+}
+
+/**
+ * The uses a 409 STAGE_IN_USE lists, or null for any other answer (the
+ * 422 of the same code means an open case is at the stage: a refusal,
+ * not a question).
+ */
+export function droppedStageUses(
+  status: number,
+  body: unknown
+): DroppedStageUses | null {
+  const b = body as Record<string, unknown> | null;
+  if (status !== 409 || b?.code !== 'STAGE_IN_USE') return null;
+  const list = <T>(v: unknown) => (Array.isArray(v) ? (v as T[]) : []);
+  return { mappings: list(b.mappings), sla: list(b.sla) };
 }
 
 /** The `error` text of a failed write's body, if any. */

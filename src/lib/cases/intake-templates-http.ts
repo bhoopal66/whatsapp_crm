@@ -39,6 +39,21 @@ export function intakeBody(value: unknown): string {
   return value;
 }
 
+/**
+ * The approve POST's optional `updatedAt`, passed on as text (a Date would
+ * drop its microseconds), or a 400.
+ */
+export function intakeVersion(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  if (
+    typeof value !== 'string' ||
+    !/^\d{4}-\d{2}-\d{2}T[\d:.]+(Z|[+-]\d{2}:\d{2})$/.test(value) ||
+    Number.isNaN(Date.parse(value))
+  )
+    throw new CaseHttpError(400, 'updatedAt is not a date');
+  return value;
+}
+
 const REFUSALS: Readonly<Record<string, { status: number; text: string }>> = {
   NOT_ALLOWED: { status: 403, text: 'Not allowed' },
   SELF_APPROVAL: {
@@ -46,6 +61,7 @@ const REFUSALS: Readonly<Record<string, { status: number; text: string }>> = {
     text: 'Someone else must approve wording you changed last',
   },
   TEMPLATE_INVALID: { status: 422, text: INVALID_TEXT },
+  TEMPLATE_CHANGED: { status: 409, text: 'The wording was changed meanwhile' },
   TEMPLATE_NOT_FOUND: { status: 404, text: 'No wording saved for that kind' },
 };
 

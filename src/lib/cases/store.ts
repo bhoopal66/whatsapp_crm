@@ -165,6 +165,20 @@ export function fail(fn: string, error: DbError): never {
   throw new CaseStoreError(fn, error.code ?? null);
 }
 
+/** The list a stage editor had loaded, and whether dropping is confirmed. */
+export interface StageListCheck {
+  expected: readonly string[];
+  confirmDropped: boolean;
+}
+
+/** `case_bank_stages_set` (309): `saved` false leaves everything as it was. */
+export interface StageListSave {
+  saved: boolean;
+  count: number;
+  mappings: { status: string; stage: string }[];
+  sla: { stage: string; timer: string }[];
+}
+
 export class CaseStore {
   constructor(
     private readonly db: SupabaseClient,
@@ -714,13 +728,42 @@ export class CaseStore {
     accountId: string,
     bankCode: string,
     stages: readonly string[]
-  ): Promise<number> {
+  ): Promise<number>;
+  /**
+   * The same against the list the caller had loaded (309): STAGES_CHANGED
+   * when it is no longer the one stored, and nothing is saved while a
+   * Compass status or a deadline rule uses a dropped stage, unless confirmed.
+   */
+  async setStages(
+    actor: string,
+    accountId: string,
+    bankCode: string,
+    stages: readonly string[],
+    check: StageListCheck
+  ): Promise<StageListSave>;
+  async setStages(
+    actor: string,
+    accountId: string,
+    bankCode: string,
+    stages: readonly string[],
+    check?: StageListCheck
+  ): Promise<number | StageListSave> {
     const data = await this.rpc('case_bank_stages_set', {
       p_actor: actor,
       p_account: accountId,
       p_bank_code: bankCode,
       p_stages: [...stages],
+      ...(check
+        ? { p_expected: [...check.expected], p_confirm: check.confirmDropped }
+        : {}),
     });
-    return Number(data ?? 0);
+    if (!check) return Number(data ?? 0);
+    const r = (data ?? {}) as Record<string, unknown>;
+    return {
+      saved: r.saved === true,
+      count: Number(r.count ?? 0),
+      mappings: Array.isArray(r.mappings) ? r.mappings : [],
+      sla: Array.isArray(r.sla) ? r.sla : [],
+    };
   }
 }

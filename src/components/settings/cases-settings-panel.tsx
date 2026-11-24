@@ -42,6 +42,7 @@ import {
   STAGE_NAME_MAX,
   configErrorKey,
   configErrorText,
+  droppedStageUses,
   groupByProduct,
   keyFromLabel,
   moveStage,
@@ -54,13 +55,18 @@ import {
   validateStages,
   type CaseSwitchKey,
   type DocumentRequirement,
+  type DroppedStageUses,
   type SlaConfigRow,
   type SlaTimerKey,
   type StageProblem,
 } from '@/lib/cases/settings-ui';
 import { cn } from '@/lib/utils';
 
-import { CaseFilesSettingsCard, FileSpecEditor } from './case-files-settings';
+import {
+  CaseFilesSettingsCard,
+  ChangedNotice,
+  FileSpecEditor,
+} from './case-files-settings';
 import { ReviewSettingsCard } from '@/components/cases/case-page/review-drafts-section';
 import { CaseRulesSettingsCard } from './case-rules-settings';
 import { CaseMacrosSettingsCard } from './case-macros-settings';
@@ -454,7 +460,7 @@ export function CasesSettingsPanel() {
                 {t('bankHeading', { name: bank.name })}
               </h3>
               <Tabs value={tab} onValueChange={(v) => setTab(v as BankTab)}>
-                <div className="-mx-1 relative overflow-x-auto px-1 pb-1">
+                <div className="relative -mx-1 overflow-x-auto px-1 pb-1">
                   <TabsList aria-label={t('bankHeading', { name: bank.name })}>
                     {BANK_TABS.map((id) => (
                       <TabsTrigger
@@ -680,7 +686,7 @@ function useStageProblemText() {
   };
 }
 
-function StagesEditor({
+export function StagesEditor({
   code,
   onSaved,
 }: {
@@ -701,6 +707,12 @@ function StagesEditor({
   const [adding, setAdding] = useState('');
   const [busy, setBusy] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
+  // Another admin saved this bank's list since it was loaded.
+  const [changed, setChanged] = useState(false);
+  // A save that waits for the admin: what still uses the dropped stages.
+  const [dropping, setDropping] = useState<
+    ({ stages: string[]; reset: boolean } & DroppedStageUses) | null
+  >(null);
 
   if (loadFailed)
     return (
@@ -717,17 +729,52 @@ function StagesEditor({
   const dirty =
     JSON.stringify(stagesBody(draft).stages) !== JSON.stringify(stored.stages);
 
-  async function put(stages: string[], reset: boolean) {
+  /** Names the Compass statuses and the deadline rules that would stay behind. */
+  function dropText({ mappings, sla }: DroppedStageUses): string {
+    return [
+      mappings.length
+        ? t('dropMappings', {
+            list: mappings.map((m) => `${m.status} (${m.stage})`).join(', '),
+          })
+        : null,
+      sla.length
+        ? t('dropSla', {
+            list: sla
+              .map((r) => {
+                const timer = SLA_TIMERS.find((k) => k === r.timer);
+                return `${r.stage} (${timer ? tc(`sla.timers.${timer}`) : r.timer})`;
+              })
+              .join(', '),
+          })
+        : null,
+      t('dropBody'),
+    ]
+      .filter(Boolean)
+      .join(' ');
+  }
+
+  async function put(stages: string[], reset: boolean, confirmDropped = false) {
     setBusy(true);
     const answer = await call(bankUrl(code, 'stages'), {
       method: 'PUT',
-      body: JSON.stringify({ stages }),
+      body: JSON.stringify({
+        stages,
+        expected: stored?.stages,
+        ...(confirmDropped ? { confirmDropped: true } : {}),
+      }),
     });
     setBusy(false);
     if (!answer.ok) {
-      failToast(answer);
+      const uses = droppedStageUses(answer.status, answer.body);
+      if (uses) setDropping({ stages, reset, ...uses });
+      else if (
+        (answer.body as { code?: unknown } | null)?.code === 'STAGES_CHANGED'
+      )
+        setChanged(true);
+      else failToast(answer);
       return;
     }
+    setChanged(false);
     toast.success(reset ? t('resetDone') : t('saved'));
     await load();
     setEdits(null);
@@ -839,6 +886,20 @@ function StagesEditor({
           </div>
         ) : null}
 
+        {changed ? (
+          <ChangedNotice
+            text={tc('errors.stagesChanged')}
+            busy={busy}
+            onReload={async () => {
+              setBusy(true);
+              await load();
+              setEdits(null);
+              setChanged(false);
+              setBusy(false);
+            }}
+          />
+        ) : null}
+
         <div className="flex flex-wrap gap-2">
           <Button
             disabled={busy || !dirty || !!problem}
@@ -875,6 +936,21 @@ function StagesEditor({
         onConfirm={() => {
           setConfirmReset(false);
           void put([], true);
+        }}
+        destructive
+      />
+      <ConfirmDialog
+        open={!!dropping}
+        onOpenChange={(open) => {
+          if (!open) setDropping(null);
+        }}
+        title={t('dropTitle')}
+        description={dropping ? dropText(dropping) : ''}
+        cancelLabel={tc('cancel')}
+        confirmLabel={t('dropConfirm')}
+        onConfirm={() => {
+          if (dropping) void put(dropping.stages, dropping.reset, true);
+          setDropping(null);
         }}
         destructive
       />

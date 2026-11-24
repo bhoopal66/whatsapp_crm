@@ -124,6 +124,16 @@ describe('case access mirrors match migration 122', () => {
       (m) => m[1]
     );
     expect(hints297).toEqual(['REQUESTED_RECENTLY']);
+    // 309 adds the stage list's version check; its file-spec and wording
+    // refusals belong to other layers (CASE_FILES_REFUSALS, the intake
+    // templates routes).
+    const ours309 = ['STAGES_CHANGED'];
+    const sql309 = readFileSync(
+      join(process.cwd(), 'supabase/migrations/309_case_config_versions.sql'),
+      'utf8'
+    );
+    for (const h of [...ours309, 'SPEC_CHANGED', 'TEMPLATE_CHANGED'])
+      expect(sql309).toContain(`HINT = '${h}'`);
     expect(new Set(CASE_REFUSALS)).toEqual(
       new Set([
         ...hints,
@@ -132,6 +142,7 @@ describe('case access mirrors match migration 122', () => {
         ...ours151,
         ...ours186,
         ...hints297,
+        ...ours309,
       ])
     );
   });

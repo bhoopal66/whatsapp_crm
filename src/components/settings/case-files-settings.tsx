@@ -35,8 +35,10 @@ import {
   parseFileSpec,
   parseIntakeTemplates,
   readyStageOptions,
+  refreshedDrafts,
   specBody,
   specDraft,
+  specExpected,
   specRowsFromDraft,
   templateBodyProblem,
   validateReadyStages,
@@ -247,7 +249,7 @@ const INTAKE_URL = '/api/cases/config/intake-templates';
  * own (any edit withdraws its approval) and approved by an owner other
  * than whoever last edited it. Independent of the card's Save.
  */
-function IntakeWording({ canEdit }: { canEdit: boolean }) {
+export function IntakeWording({ canEdit }: { canEdit: boolean }) {
   const t = useTranslations('CaseFilesSettings.wording');
   const failToast = useFailToast();
   const { accountRole } = useAuth();
@@ -285,20 +287,51 @@ function IntakeWording({ canEdit }: { canEdit: boolean }) {
       method: 'PUT',
       body: JSON.stringify({ body: text }),
     });
+    if (answer.ok) {
+      // The version an approval names is the server's: without it, the
+      // saver's own approve would read as somebody else's change.
+      const now = (saved ?? []).map((r) =>
+        r.kind === kind
+          ? { ...r, body: text, approved: false, updatedAt: null }
+          : r
+      );
+      setSaved(now);
+      await refresh(now);
+    }
     setBusy(null);
     if (!answer.ok) return failToast(answer);
-    patch(kind, { body: text, approved: false });
     toast.success(t('saved'));
   }
 
-  async function approve(kind: IntakeKind) {
+  /** Re-reads the list; a failed read leaves what is shown. */
+  async function refresh(before: IntakeTemplateView[]) {
+    const answer = await call(INTAKE_URL);
+    if (!answer.ok) return;
+    const rows = parseIntakeTemplates(answer.body);
+    setSaved(rows);
+    setDrafts((d) => refreshedDrafts(before, rows, d));
+  }
+
+  async function approve(kind: IntakeKind, updatedAt: string) {
     setBusy(kind);
     const answer = await call(`${INTAKE_URL}/${kind}/approve`, {
       method: 'POST',
+      body: JSON.stringify({ updatedAt }),
     });
+    // Refused over a change: show the wording as it is now.
+    if (answer.status === 409) await refresh(saved ?? []);
     setBusy(null);
     if (!answer.ok) return failToast(answer);
-    patch(kind, { approved: true });
+    const row = answer.body as Partial<IntakeTemplateView> | null;
+    const body = typeof row?.body === 'string' ? row.body : null;
+    patch(kind, {
+      approved: true,
+      ...(body !== null ? { body } : {}),
+      ...(typeof row?.updatedAt === 'string'
+        ? { updatedAt: row.updatedAt }
+        : {}),
+    });
+    if (body !== null) setDrafts((d) => ({ ...d, [kind]: body }));
     toast.success(t('approvedToast'));
   }
 
@@ -359,12 +392,14 @@ function IntakeWording({ canEdit }: { canEdit: boolean }) {
                     </p>
                   ) : null}
                   <div className="flex justify-end gap-2">
-                    {owner && row.body !== null && !row.approved && !changed ? (
+                    {owner && row.updatedAt && !row.approved && !changed ? (
                       <Button
                         size="sm"
                         variant="outline"
                         disabled={busy !== null}
-                        onClick={() => void approve(row.kind)}
+                        onClick={() =>
+                          row.updatedAt && void approve(row.kind, row.updatedAt)
+                        }
                       >
                         {busy === row.kind ? (
                           <Loader2 className="size-4 animate-spin" />
@@ -486,6 +521,35 @@ function useSpecProblemText() {
         : t(problem.kind, { doc: labelOf(problem.docKey) });
 }
 
+/** Somebody else saved the list on screen; what was typed stays until Reload. */
+export function ChangedNotice({
+  text,
+  busy,
+  onReload,
+}: {
+  text: string;
+  busy: boolean;
+  onReload: () => Promise<void>;
+}) {
+  const t = useTranslations('CaseSettings');
+  return (
+    <div
+      role="alert"
+      className="border-warning/30 bg-warning-soft text-warning flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm"
+    >
+      <p>{text}</p>
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={busy}
+        onClick={() => void onReload()}
+      >
+        {t('reload')}
+      </Button>
+    </div>
+  );
+}
+
 /**
  * One bank + product's file spec (migration 181), under the bank's
  * required documents: per document its position, whether it is
@@ -506,6 +570,7 @@ export function FileSpecEditor({
 }) {
   const t = useTranslations('CaseFilesSettings.spec');
   const tc = useTranslations('CaseSettings');
+  const te = useTranslations('CaseFilesSettings.errors');
   const failToast = useFailToast();
   const problemText = useSpecProblemText();
   const canEdit = useCan('edit-settings');
@@ -515,7 +580,10 @@ export function FileSpecEditor({
   const [loaded, setLoaded] = useState<{
     key: string;
     view: FileSpecView | null;
+    expected: unknown[] | undefined;
   } | null>(null);
+  // The load another admin's save made stale (SPEC_CHANGED).
+  const [changedKey, setChangedKey] = useState<string | null>(null);
   const [draft, setDraft] = useState<SpecDraft | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
@@ -528,7 +596,7 @@ export function FileSpecEditor({
   const load = useCallback(async (u: string, key: string) => {
     const answer = await call(u);
     const view = answer.ok ? parseFileSpec(answer.body) : null;
-    setLoaded({ key, view });
+    setLoaded({ key, view, expected: specExpected(answer.body) });
     setDraft(view ? specDraft(view) : null);
   }, []);
 
@@ -538,7 +606,8 @@ export function FileSpecEditor({
     void call(url).then((answer) => {
       if (off) return;
       const view = answer.ok ? parseFileSpec(answer.body) : null;
-      setLoaded({ key: loadKey, view });
+      setLoaded({ key: loadKey, view, expected: specExpected(answer.body) });
+      setChangedKey(null);
       setDraft(view ? specDraft(view) : null);
     });
     return () => {
@@ -561,10 +630,17 @@ export function FileSpecEditor({
     setBusy(true);
     const answer = await call(
       `/api/cases/config/banks/${encodeURIComponent(code)}/file-specs`,
-      { method: 'PUT', body: JSON.stringify(send) }
+      {
+        method: 'PUT',
+        body: JSON.stringify({ ...send, expected: current?.expected }),
+      }
     );
     setBusy(false);
-    if (!answer.ok) return failToast(answer);
+    if (!answer.ok) {
+      const code = (answer.body as { code?: unknown } | null)?.code;
+      if (code === 'SPEC_CHANGED') return setChangedKey(loadKey);
+      return failToast(answer);
+    }
     toast.success(reset ? t('resetDone') : t('saved'));
     await load(url, loadKey);
   }
@@ -792,6 +868,20 @@ export function FileSpecEditor({
               >
                 {problemText(problem, labelOf)}
               </p>
+            ) : null}
+
+            {changedKey !== null && changedKey === loadKey ? (
+              <ChangedNotice
+                text={te('specChanged')}
+                busy={busy}
+                onReload={async () => {
+                  if (!url) return;
+                  setBusy(true);
+                  await load(url, loadKey);
+                  setChangedKey(null);
+                  setBusy(false);
+                }}
+              />
             ) : null}
 
             {canEdit ? (
