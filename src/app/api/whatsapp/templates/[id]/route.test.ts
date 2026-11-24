@@ -107,6 +107,23 @@ describe('editing a template', () => {
     ]);
   });
 
+  it('says that nothing went to Meta', async () => {
+    const res = await edit({ meta_template_id: null });
+    expect((await res.json()).meta).toEqual({
+      submitted: false,
+      reason: 'edit',
+    });
+  });
+
+  it('does not lift a refusal: Meta still does not know it', async () => {
+    const res = await edit({
+      meta_template_id: null,
+      status: 'APPROVED',
+      submission_error: 'Bad footer',
+    });
+    expect((await res.json()).template.submission_error).toBe('Bad footer');
+  });
+
   it('a draft kept here goes live with the edit', async () => {
     await edit({ meta_template_id: null, status: 'DRAFT' });
     expect(ctx.writes).toMatchObject([{ status: 'APPROVED' }]);

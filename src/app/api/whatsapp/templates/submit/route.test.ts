@@ -156,14 +156,27 @@ describe('templates submit: the order of things', () => {
   });
 
   it.each([
-    ['the numbers cannot be read', () => Promise.reject(new Error('down'))],
-    ['no Meta number is connected', () => Promise.resolve([])],
-  ])('keeps it when Meta was not asked: %s', async (_, load) => {
+    [
+      'the numbers cannot be read',
+      'meta_unavailable',
+      () => Promise.reject(new Error('down')),
+    ],
+    [
+      'the Meta number has no business account',
+      'meta_unavailable',
+      () => Promise.resolve([{ id: 'ch-1', provider: 'meta', wabaId: null }]),
+    ],
+    [
+      'no Meta number is connected',
+      'no_meta_number',
+      () => Promise.resolve([{ id: 'ch-2', provider: 'whapi' }]),
+    ],
+  ])('keeps it when Meta was not asked: %s', async (_, reason, load) => {
     mocks.channels.mockImplementation(load);
     rows().push(row({ submission_error: 'Bad header' }));
     const { status, body } = await submit();
     expect(status).toBe(200);
-    expect(body.meta).toEqual({ submitted: false });
+    expect(body.meta).toEqual({ submitted: false, reason });
     expect(rows()[0]).toMatchObject({
       submission_error: 'Bad header',
       body_text: 'New text',

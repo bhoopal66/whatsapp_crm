@@ -697,6 +697,44 @@ describe('createBroadcast header media (Meta)', () => {
     language: 'en',
   };
 
+  it.each([
+    ['meta', 'refused'],
+    ['whapi', 'created'],
+  ])(
+    'a template Meta refused, on a %s number: %s',
+    async (provider, outcome) => {
+      const { db, calls } = makeDb(
+        {
+          data: [
+            { broadcast_id: 'b-1', recipient_id: 'r-1', contact_id: 'c1' },
+          ],
+          error: null,
+        },
+        {
+          provider: provider as 'meta',
+          template: {
+            ...VIDEO,
+            header_type: undefined,
+            meta_template_id: null,
+            submission_error: 'Bad footer',
+          },
+        }
+      );
+      const err = await createBroadcast(db, 'acc', 'user', {
+        templateName: 'pos_intro_offer_video',
+        recipients: [{ to: '+14155550123' }],
+      }).catch((e: unknown) => e);
+
+      if (outcome === 'created') {
+        expect(err).not.toBeInstanceOf(Error);
+        return;
+      }
+      expect(err).toMatchObject({ code: 'template_refused', status: 409 });
+      expect((err as Error).message).toContain('Bad footer');
+      expect(calls.rpc).toHaveLength(0);
+    }
+  );
+
   it('refuses a media template with no media before anything is persisted', async () => {
     const { db, calls } = makeDb(
       {

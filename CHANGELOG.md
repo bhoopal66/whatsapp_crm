@@ -35,6 +35,21 @@ and polish.
   them vanished. The filters now narrow the search itself; a search that
   finds more than it lists says "First 500 matches".
   **Migration required: 298.**
+- **Settings → Templates says what happened to a saved template:** submitted
+  to Meta, saved for linked numbers only, or refused by Meta, with Meta's
+  reason in the message and on the row. It always said "Submitted to Meta".
+  An edit says it is not sent to Meta, and no longer clears a refusal. No
+  migration.
+- **A campaign on the Meta number is refused when Meta refused its
+  template**, with Meta's reason: when the API creates it (409, code
+  `template_refused`), when it is resumed, and when its time comes. It then
+  shows as failed instead of failing every recipient or coming due again;
+  Resume works once the template is accepted. A template that could not be
+  read is tried again. No migration.
+- **The template delete dialog is true:** the template is removed from this
+  CRM only. It stays at Meta, and Sync brings it back unless it is deleted
+  in WhatsApp Manager. No migration.
+
 - **A failed filter change no longer leaves the old figures under the new
   filter.** The funnel report and Team activity now show figures only under
   the filter they were fetched for; after a failed load the error with Retry

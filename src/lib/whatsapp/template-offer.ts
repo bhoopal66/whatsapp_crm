@@ -45,13 +45,20 @@ function isHidden(row: OfferRow): boolean {
   );
 }
 
+/**
+ * Refused when it was submitted: Meta does not know this template, and a
+ * send from the Meta number fails whatever its status says.
+ */
+export function refusedByMeta(row: Omit<OfferRow, 'status'>): boolean {
+  return !row.meta_template_id && Boolean(row.submission_error);
+}
+
 function metaBlock(row: OfferRow): TemplateBlock | null {
   if (!row.meta_template_id) {
-    // Refused when it was submitted: Meta does not know it. Without a
-    // refusal nobody here can tell: a template made in WhatsApp Manager and
+    // Without a refusal nobody here can tell: a template made in WhatsApp Manager and
     // written here by hand is approved there and was never synced, so it
     // stays on offer and Meta answers.
-    return row.status === 'APPROVED' && !row.submission_error
+    return row.status === 'APPROVED' && !refusedByMeta(row)
       ? null
       : 'not_approved';
   }

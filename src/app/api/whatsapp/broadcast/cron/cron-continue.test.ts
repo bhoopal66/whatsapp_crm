@@ -490,3 +490,52 @@ describe('a database that does not answer', () => {
     expect(w.broadcast_recipients[0].error_message).toBeNull();
   });
 });
+
+describe('a template Meta refused', () => {
+  const refused = (broadcast: Row) => {
+    const w = world([2], broadcast);
+    Object.assign(w.message_templates[0], {
+      meta_template_id: null,
+      submission_error: 'Bad footer',
+    });
+    return w;
+  };
+
+  it.each([
+    ['when its time comes', { status: 'scheduled' }],
+    ['when it is continued', { status: 'sending' }],
+  ])('%s: failed with the reason, nothing sent', async (_, broadcast) => {
+    const w = use(refused(broadcast));
+    await tick();
+    await runPasses();
+
+    expect(h.send).not.toHaveBeenCalled();
+    expect(w.broadcasts[0]).toMatchObject({
+      status: 'failed',
+      delivery_locked_at: null,
+    });
+    expect(w.broadcast_recipients).toMatchObject([
+      {
+        status: 'pending',
+        error_message: expect.stringContaining('Bad footer'),
+      },
+      { status: 'pending', error_message: null },
+    ]);
+    // Not a loop: the next tick has nothing to look at.
+    later(60 * MIN);
+    expect(await tick()).toMatchObject({ started: 0, skipped: 0 });
+  });
+
+  it('a template that could not be read leaves the campaign due', async () => {
+    const w = use(world([1], { status: 'scheduled' }), ({ table }) =>
+      table === 'message_templates' ? 'down' : null
+    );
+    await tick();
+    await runPasses();
+    expect(h.send).not.toHaveBeenCalled();
+    expect(w.broadcasts[0]).toMatchObject({
+      status: 'scheduled',
+      delivery_locked_at: null,
+    });
+  });
+});

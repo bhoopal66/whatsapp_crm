@@ -6,11 +6,14 @@ vi.mock('react', async (importOriginal) => {
   return mockReact(await importOriginal<typeof import('react')>());
 });
 vi.mock('next-intl', () => {
-  const key = (k: string) => k;
+  const key = (k: string, values?: { reason?: string }) =>
+    values?.reason ? `${k}: ${values.reason}` : k;
   const t = Object.assign(key, { rich: key, raw: key });
   return { useTranslations: () => t };
 });
-vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
+vi.mock('sonner', () => ({
+  toast: { error: vi.fn(), success: vi.fn(), warning: vi.fn() },
+}));
 vi.mock('@/hooks/use-auth', () => ({
   useAuth: () => ({ user: { id: 'u' }, loading: false }),
 }));
@@ -33,7 +36,9 @@ vi.mock('@/lib/supabase/client', () => ({
 
 import { findElements, render, resetHooks, settle } from '@/test/hook-renderer';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { toast } from 'sonner';
 
 import { TemplateManager } from './template-manager';
 
@@ -63,4 +68,75 @@ describe('the "not linked to Meta" badge', () => {
     state.numbers = [{ id: 'w', provider: 'whapi' }];
     expect(await badged()).toEqual([]);
   });
+});
+
+describe('what a save says', () => {
+  /** Every toast the save showed, as [kind, text]. */
+  async function saved(meta: unknown) {
+    const answer = { ok: true, json: async () => ({ success: true, meta }) };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => answer)
+    );
+    render(TemplateManager);
+    await settle();
+    const [submit] = findElements(
+      render(TemplateManager),
+      (el) => el.type === Button && el.props.children === 'submitApproval'
+    );
+    await (submit.props.onClick as () => Promise<void>)();
+    vi.unstubAllGlobals();
+    return (['success', 'warning', 'error'] as const).flatMap((kind) =>
+      vi.mocked(toast[kind]).mock.calls.map(([text]) => [kind, text])
+    );
+  }
+  beforeEach(() => vi.clearAllMocks());
+
+  it.each([
+    [
+      { submitted: true, status: 'PENDING' },
+      'success',
+      'toastSubmitNewSuccess',
+    ],
+    [
+      { submitted: true, status: 'REJECTED' },
+      'error',
+      'toastMetaRefused: REJECTED',
+    ],
+    [
+      { submitted: false, error: 'Bad footer' },
+      'error',
+      'toastMetaRefused: Bad footer',
+    ],
+    [
+      { submitted: false, reason: 'no_meta_number' },
+      'success',
+      'toastSavedLinkedOnly',
+    ],
+    [
+      { submitted: false, reason: 'meta_unavailable' },
+      'warning',
+      'toastSavedMetaUnavailable',
+    ],
+    [{ submitted: false, reason: 'edit' }, 'success', 'toastEditSaved'],
+  ])('%j', async (meta, kind, text) => {
+    expect(await saved(meta)).toEqual([[kind, text]]);
+  });
+
+  it('is never "submitted" for an answer that does not say so', async () => {
+    expect(await saved(undefined)).toEqual([
+      ['warning', 'toastSavedMetaUnavailable'],
+    ]);
+  });
+});
+
+it('a refused row says who refused it, and why', async () => {
+  render(TemplateManager);
+  await settle();
+  expect(
+    findElements(
+      render(TemplateManager),
+      (el) => el.props.children === 'metaRefusedIt: No'
+    )
+  ).toHaveLength(1);
 });

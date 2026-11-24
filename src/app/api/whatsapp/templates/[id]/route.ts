@@ -10,6 +10,7 @@ import {
   validateTemplatePayload,
   type TemplatePayload,
 } from '@/lib/whatsapp/template-validators'
+import type { TemplateMetaAnswer } from '@/lib/whatsapp/template-save-outcome';
 import { AuthUnavailableError } from '@/lib/auth/auth-unavailable';
 
 /**
@@ -135,13 +136,11 @@ export async function PATCH(
         buttons: payload.buttons ?? null,
         sample_values: payload.sample_values ?? null,
         // Edits are live immediately — there is nothing to review. A
-        // verdict of Meta's on an old row stays, with its reason.
+        // verdict of Meta's on an old row stays, with its reason, and so
+        // does a refused submission: nothing was sent, so Meta still does
+        // not know this template.
         ...(LOCAL_STATUSES.has(existing.status ?? 'DRAFT')
-          ? {
-              status: 'APPROVED',
-              submission_error: null,
-              rejection_reason: null,
-            }
+          ? { status: 'APPROVED', rejection_reason: null }
           : {}),
         last_submitted_at: new Date().toISOString(),
       })
@@ -161,7 +160,9 @@ export async function PATCH(
 
     if (!row) return metaTemplateRefusal()
 
-    return NextResponse.json({ success: true, template: row })
+    // The screen says what became of it at Meta: nothing, by an edit.
+    const meta: TemplateMetaAnswer = { submitted: false, reason: 'edit' };
+    return NextResponse.json({ success: true, template: row, meta })
   } catch (error) {
     if (error instanceof UnauthorizedError || error instanceof ForbiddenError || error instanceof AuthUnavailableError) {
       return toErrorResponse(error)

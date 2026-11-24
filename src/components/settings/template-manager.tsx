@@ -9,7 +9,6 @@ import {
   AlertCircle,
   X,
   Pencil,
-  RotateCcw,
   Upload,
   RefreshCw,
 } from 'lucide-react';
@@ -51,6 +50,7 @@ import type {
   TemplateSampleValues,
 } from '@/types';
 import { templateStatusConfig } from '@/lib/template-status';
+import { templateSaveOutcome } from '@/lib/whatsapp/template-save-outcome';
 import { useAccountNumbers } from '@/hooks/use-whatsapp-numbers';
 import {
   extractVariableIndices,
@@ -155,8 +155,7 @@ export function TemplateManager() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   // Template selected for the confirm-delete dialog. The destructive
-  // action goes through this two-step so a slip on the trash icon
-  // doesn't take the template off Meta as well as locally.
+  // action goes through this two-step against a slip on the trash icon.
   const [templateToDelete, setTemplateToDelete] =
     useState<MessageTemplate | null>(null);
   // Header-media upload (issue #230 for images; video and document
@@ -338,9 +337,29 @@ export function TemplateManager() {
       // Refresh first, then close — re-opening the dialog
       // immediately should not show a stale list.
       if (user) await fetchTemplates();
-      toast.success(
-        isEdit ? t('toastSubmitEditSuccess') : t('toastSubmitNewSuccess')
-      );
+      // Saved either way; what Meta did with it is in the answer.
+      const outcome = templateSaveOutcome(data?.meta);
+      switch (outcome.kind) {
+        case 'submitted':
+          toast.success(t('toastSubmitNewSuccess'));
+          break;
+        case 'edited':
+          toast.success(t('toastEditSaved'));
+          break;
+        case 'no_meta_number':
+          toast.success(t('toastSavedLinkedOnly'));
+          break;
+        case 'meta_unavailable':
+          toast.warning(t('toastSavedMetaUnavailable'));
+          break;
+        case 'refused':
+          toast.error(t('toastMetaRefused', { reason: outcome.reason }), {
+            duration: 15_000,
+          });
+          break;
+        default:
+          outcome satisfies never;
+      }
       setDialogOpen(false);
       setForm(emptyForm);
       setEditingId(null);
@@ -357,9 +376,8 @@ export function TemplateManager() {
     if (!target || deletingId) return;
     setDeletingId(target.id);
     try {
-      // Route handler scopes the Meta delete via hsm_id (so sibling
-      // language variants survive) and falls through to remove the
-      // local row. Local-only rows skip the Meta call.
+      // Removes the row here only. Meta's own delete takes every language
+      // and blocks the name for 30 days, so nothing here calls it.
       const res = await fetch(`/api/whatsapp/templates/${target.id}`, {
         method: 'DELETE',
       });
@@ -596,8 +614,15 @@ export function TemplateManager() {
                       <div className="border-destructive/30 bg-destructive-soft text-destructive flex items-start gap-1.5 rounded border px-2 py-1.5 text-xs">
                         <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
                         <span>
-                          {template.rejection_reason ||
-                            template.submission_error}
+                          {/* Its badge may say Approved (for linked
+                              numbers), so the row says who refused. */}
+                          {template.submission_error &&
+                          !template.meta_template_id
+                            ? t('metaRefusedIt', {
+                                reason: template.submission_error,
+                              })
+                            : template.rejection_reason ||
+                              template.submission_error}
                         </span>
                       </div>
                     )}
@@ -620,31 +645,20 @@ export function TemplateManager() {
                         </Button>
                       </span>
                     )}
-                    {statusKey === 'APPROVED' && !template.meta_template_id && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => openEdit(template)}
-                        title={t('editTitle')}
-                        aria-label={t('editLabel')}
-                        className="text-muted-foreground hover:text-primary hover:bg-primary/10 h-8 px-2"
-                      >
-                        <Pencil className="size-3.5" />
-                        {t('edit')}
-                      </Button>
-                    )}
                     {!template.meta_template_id &&
-                      (statusKey === 'REJECTED' || statusKey === 'PAUSED') && (
+                      (statusKey === 'APPROVED' ||
+                        statusKey === 'REJECTED' ||
+                        statusKey === 'PAUSED') && (
                         <Button
                           variant="ghost"
                           size="sm"
                           onClick={() => openEdit(template)}
-                          title={t('resubmitTitle')}
-                          aria-label={t('resubmitLabel')}
+                          title={t('editTitle')}
+                          aria-label={t('editLabel')}
                           className="text-muted-foreground hover:text-primary hover:bg-primary/10 h-8 px-2"
                         >
-                          <RotateCcw className="size-3.5" />
-                          {t('resubmit')}
+                          <Pencil className="size-3.5" />
+                          {t('edit')}
                         </Button>
                       )}
                     <Button
@@ -652,16 +666,8 @@ export function TemplateManager() {
                       size="icon"
                       onClick={() => setTemplateToDelete(template)}
                       disabled={deletingId === template.id}
-                      aria-label={
-                        template.meta_template_id
-                          ? t('deleteMetaLocallyAria')
-                          : t('deleteLocallyAria')
-                      }
-                      title={
-                        template.meta_template_id
-                          ? t('deleteMetaLocallyTitle')
-                          : t('deleteLocallyTitle')
-                      }
+                      aria-label={t('deleteLocallyAria')}
+                      title={t('deleteLocallyTitle')}
                       className="text-muted-foreground hover:bg-destructive-soft hover:text-destructive h-8 w-8"
                     >
                       {deletingId === template.id ? (
@@ -1139,7 +1145,7 @@ export function TemplateManager() {
                   {editingId ? t('saving') : t('submitting')}
                 </>
               ) : editingId ? (
-                t('saveResubmit')
+                t('saveEdit')
               ) : (
                 t('submitApproval')
               )}
@@ -1148,9 +1154,8 @@ export function TemplateManager() {
         </DialogContent>
       </Dialog>
 
-      {/* Confirm-delete dialog. Surfacing the meta_template_id case
-          separately so users understand a real Meta delete is happening,
-          not just a local cleanup. */}
+      {/* Confirm-delete dialog. A template Meta has stays there, and the
+          next Sync brings it back: said apart from one kept only here. */}
       <Dialog
         open={templateToDelete !== null}
         onOpenChange={(open) => {

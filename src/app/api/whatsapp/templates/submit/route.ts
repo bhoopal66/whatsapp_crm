@@ -15,6 +15,7 @@ import { buildMetaTemplatePayload } from '@/lib/whatsapp/template-components';
 import { submitMessageTemplate, MetaError } from '@/lib/whatsapp/meta-api';
 import { normalizeStatus } from '@/lib/whatsapp/template-status-normalize';
 import { loadChannels } from '@/lib/whatsapp/channels';
+import type { TemplateMetaAnswer } from '@/lib/whatsapp/template-save-outcome';
 import { AuthUnavailableError } from '@/lib/auth/auth-unavailable';
 
 /**
@@ -144,7 +145,7 @@ function contentColumns(payload: TemplatePayload) {
 type Verdict =
   | { kind: 'taken'; id: string; status: string }
   | { kind: 'refused'; message: string }
-  | { kind: 'not_asked' };
+  | { kind: 'not_asked'; reason: 'no_meta_number' | 'meta_unavailable' };
 
 interface VerdictColumns {
   status: string;
@@ -260,17 +261,27 @@ export async function POST(request: Request) {
     // user's work. The verdict arrives later on the
     // `message_template_status_update` webhook.
     let channels: Awaited<ReturnType<typeof loadChannels>> = [];
+    let channelsRead = true;
     try {
       channels = await loadChannels(supabase, accountId);
     } catch (err) {
       // Channel lookup failed entirely — the local save still stands.
+      channelsRead = false;
       console.warn(
         '[templates/submit] could not check for a Meta channel:',
         err instanceof Error ? err.message : err
       );
     }
-    let verdict: Verdict = { kind: 'not_asked' };
     const meta = channels.find((c) => c.provider === 'meta' && c.wabaId);
+    // Told to the author: a Meta number that could not be used (not read,
+    // or without its WhatsApp Business Account) is not "there is none".
+    let verdict: Verdict = {
+      kind: 'not_asked',
+      reason:
+        channelsRead && !channels.some((c) => c.provider === 'meta')
+          ? 'no_meta_number'
+          : 'meta_unavailable',
+    };
     if (meta?.wabaId) {
       try {
         const result = await submitMessageTemplate({
@@ -344,16 +355,12 @@ export async function POST(request: Request) {
       );
     }
 
-    const metaSubmission: {
-      submitted: boolean;
-      status?: string;
-      error?: string;
-    } =
+    const metaSubmission: TemplateMetaAnswer =
       verdict.kind === 'taken'
         ? { submitted: true, status: verdict.status }
         : verdict.kind === 'refused'
           ? { submitted: false, error: verdict.message }
-          : { submitted: false };
+          : { submitted: false, reason: verdict.reason };
 
     return NextResponse.json({
       success: true,

@@ -50,6 +50,7 @@ import {
   reconcileBroadcastStatuses,
 } from '@/lib/whatsapp/broadcast-core';
 import {
+  failRefusedCampaign,
   mayContinueBroadcast,
   recordContinueRefusal,
   type ContinueCandidate,
@@ -196,6 +197,11 @@ export async function GET(request: Request) {
         `[broadcast-cron] planning ${row.id} failed:`,
         err instanceof Error ? err.message : err
       );
+      if (err instanceof BroadcastError && err.code === 'template_refused') {
+        await failRefusedCampaign(admin, row.id, err.message);
+        skipped++;
+        continue;
+      }
       await admin
         .from('broadcasts')
         .update({ status: 'failed', updated_at: now.toISOString() })
@@ -309,7 +315,18 @@ async function continueBroadcast(
         `[broadcast-cron] continuing ${row.id} failed:`,
         err instanceof Error ? err.message : err
       );
-      if (claimed && code && code !== 'internal' && code !== 'quiet_hours') {
+      if (claimed && code === 'template_refused') {
+        await failRefusedCampaign(
+          admin,
+          row.id,
+          (err as BroadcastError).message
+        ).catch(() => {});
+      } else if (
+        claimed &&
+        code &&
+        code !== 'internal' &&
+        code !== 'quiet_hours'
+      ) {
         await recordContinueRefusal(
           admin,
           row.id,

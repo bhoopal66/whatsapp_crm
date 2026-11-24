@@ -36,6 +36,7 @@ import {
 } from '@/lib/whatsapp/phone-utils';
 import { validateContactPhone } from '@/lib/contacts/phone-validation';
 import { resolveTemplateRow } from '@/lib/whatsapp/template-body';
+import { refusedByMeta } from '@/lib/whatsapp/template-offer';
 import { headerMediaProblem } from '@/lib/whatsapp/template-send-builder';
 import { isInQuietHours, type QuietHours } from '@/lib/broadcasts/quiet-hours';
 import {
@@ -81,6 +82,38 @@ export function assertHeaderMedia(
   if (problem) {
     throw new BroadcastError('template_media_missing', problem, 400);
   }
+}
+
+/**
+ * Throw `template_refused` for a campaign that would go out on the Meta
+ * number with a template Meta refused: every send would fail. The wizard
+ * does not offer one, but a campaign is also made by the API, resumed,
+ * or re-routed to the Meta number after it was made. A linked number
+ * renders the row itself, so Meta's verdict does not matter there.
+ *
+ * `status` is the caller's: the wizard reads a 409 from Resume as "a
+ * pass is running" and waits for it, so a resume never answers one.
+ */
+export function assertTemplateNotRefused(
+  template: MessageTemplate,
+  channel: Pick<WhatsAppChannel, 'provider'>,
+  status: 400 | 409
+): void {
+  if (channel.provider !== 'meta' || !refusedByMeta(template)) return;
+  throw new BroadcastError(
+    'template_refused',
+    `Meta refused the template "${template.name}", so the Meta number cannot send it: ${template.submission_error}`,
+    status
+  );
+}
+
+/** A failed read of the template: never "there is none". Try again. */
+export function templateReadFailed(): BroadcastError {
+  return new BroadcastError(
+    'internal',
+    'The template could not be read. Try again in a moment.',
+    503
+  );
 }
 
 export interface BroadcastRecipientInput {
@@ -282,6 +315,7 @@ export async function createBroadcast(
       500
     );
   }
+  if (resolvedTemplate.readFailed) throw templateReadFailed();
   if (!resolvedTemplate.row) {
     throw new BroadcastError(
       'template_not_found',
@@ -290,6 +324,7 @@ export async function createBroadcast(
     );
   }
   const templateRow = resolvedTemplate.row;
+  assertTemplateNotRefused(templateRow, channel, 409);
 
   // A media header with no media fails every recipient identically at
   // send time on Meta; say so once, before anything is persisted.
