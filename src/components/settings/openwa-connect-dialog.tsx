@@ -35,6 +35,7 @@ import {
 } from '@/components/ui/dialog';
 import { MAX_CHANNEL_LABEL_LEN } from '@/lib/whatsapp/channel-management';
 import {
+  PHONE_ALREADY_CONNECTED,
   openwaPollDelayMs,
   connectReducer,
   initialConnectState,
@@ -168,6 +169,12 @@ export function OpenWAConnectDialog({
             phone: typeof body.phone === 'string' ? body.phone : null,
             at: Date.now(),
           });
+        } else if (
+          res.status === 409 &&
+          body?.code === PHONE_ALREADY_CONNECTED &&
+          typeof body.error === 'string'
+        ) {
+          dispatch({ type: 'refused', error: body.error });
         } else {
           dispatch({ type: 'pollFailed', at: Date.now() });
         }

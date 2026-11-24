@@ -34,6 +34,12 @@ and polish.
 
 ### Fixed
 
+- **One phone is connected once on OpenWA too.** A phone that scans a QR
+  while it is already connected as another Whapi or OpenWA number (in any
+  workspace) is refused with the reason and unlinked again; before, a
+  company phone scanned into "My WhatsApp" delivered every company chat a
+  second time as personal chats. A number that is already linked is never
+  unlinked by this.
 - **Saving the Meta number survives a failed read.** A failed read of the
   stored number or of the number count answers an error instead of a save
   that cannot work; personal numbers no longer keep the first shared Meta
