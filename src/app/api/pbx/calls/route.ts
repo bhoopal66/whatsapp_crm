@@ -5,7 +5,7 @@
 //       answeredAt, endedAt, ringSeconds, talkSeconds, remoteNumber, didNumber, extension,
 //       contactId, contactName, doNotContactAt, doNotContactReason,
 //       userId, userName, rangNames, disposition, notes, recordingState,
-//       recordingDeleted, legalHold }],
+//       recordingDeleted, legalHold, task? }],
 //       numbers?: [{ didNumber, calls, lastAt }] }
 // didNumber: the number the customer dialled (calls.did_number).
 // pbxCallId: the PBX's own id (calls.pbx_call_id), the one a live call
@@ -25,6 +25,9 @@
 // rangNames: who an inbound call rang, first rung first
 // (calls.meta.rang_user_ids, kept by the PBX processor), named as in
 // the caller's workspace: one person holds a profile per workspace.
+// task: missed / my_missed only: the call's callback task, { status,
+// name } or null, whoever holds it (read on the service role, for the
+// calls this list returned, so a colleague's call back is seen).
 // recordingDeleted: the stored audio was deleted under the retention
 // period (the recording row's erased_at, migration 093); legalHold: an
 // admin's legal hold keeps it.
@@ -51,6 +54,7 @@
 
 import { NextResponse } from 'next/server';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
+import { pbxServiceDb } from '@/lib/pbx/admin';
 import { canViewAllCalls } from '@/lib/auth/roles';
 import { internalPeerExtension } from '@/lib/pbx/call-legs';
 import { reviewerContactNames, seesAllCalls } from '@/lib/pbx/call-reviewers';
@@ -65,6 +69,7 @@ import {
   unroutedNumbers,
   type UnroutedNumber,
 } from '@/lib/pbx/calls';
+import { missedCallTasks } from '@/lib/pbx/missed-tasks';
 
 /** PostgREST's default max-rows, so a page shorter than this is the last. */
 const PAGE = 1000;
@@ -254,7 +259,8 @@ export async function GET(request: Request) {
     const recorded = rows
       .filter((r) => r.recording_state === 'fetched')
       .map((r) => r.id);
-    const [contacts, people, recordings] = await Promise.all([
+    const listsMissed = q.scope === 'missed' || q.scope === 'my_missed';
+    const [contacts, people, recordings, tasks] = await Promise.all([
       contactIds.length
         ? ctx.supabase
             .from('contacts')
@@ -274,6 +280,11 @@ export async function GET(request: Request) {
             .select('call_id, legal_hold, erased_at')
             .in('call_id', recorded)
         : { data: [], error: null },
+      // A failure fails the list: calls without badges would say nobody
+      // has called back.
+      listsMissed && rows.length
+        ? missedCallTasks(pbxServiceDb(), ctx.accountId, rows)
+        : null,
     ]);
     if (recordings.error)
       throw new Error(
@@ -369,6 +380,7 @@ export async function GET(request: Request) {
           recordingState: r.recording_state,
           recordingDeleted: !!recording.get(r.id)?.erased_at,
           legalHold: recording.get(r.id)?.legal_hold === true,
+          ...(listsMissed && { task: tasks?.get(r.id) ?? null }),
         };
       }),
       ...(numbers && { numbers }),

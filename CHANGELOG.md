@@ -22,6 +22,10 @@ and polish.
 
 ### Fixed
 
+- **A missed call shows its callback task whoever holds it.** When a ring
+  group rang two people, only the one holding the task saw a badge on
+  "My missed calls", and the other rang the customer again. Every missed
+  call now says "Open: Sara" or "Done by Sara". No migration.
 - **Someone deactivated or removed leaves the video meeting they are in.**
   Their seat is closed and their media cut as the admin does it (a check
   every minute catches what that misses), and their own window ends with

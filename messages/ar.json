@@ -7097,7 +7097,6 @@
     },
     "mineHint": "المكالمات التي أجريتها أو أجبتها أو رنّ لها هاتفك، الأحدث أولاً",
     "missedHint": "الفائتة خلال آخر 7 أيام، الأحدث أولاً",
-    "tasksTruncated": "تُعرض أول {count, number} من مهام المكالمات الفائتة. قد تكون لمكالمة بلا علامة مهمة أيضاً.",
     "missedWho": {
       "label": "المكالمات الفائتة لمن",
       "mine": "خاصتي",
@@ -7113,7 +7112,9 @@
     "colleagueExtension": "الامتداد {extension}",
     "colleaguePair": "{from} ← {to}",
     "taskOpen": "المهمة مفتوحة",
+    "taskOpenBy": "مفتوحة: {name}",
     "taskDone": "المهمة منجزة",
+    "taskDoneBy": "أنجزها {name}",
     "loadFailed": "تعذر تحميل المكالمات",
     "playRecording": "تشغيل التسجيل",
     "hideRecording": "إخفاء التسجيل",

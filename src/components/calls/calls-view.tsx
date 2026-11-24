@@ -38,20 +38,16 @@ import {
   type CallSides,
   type InternalSide,
 } from '@/lib/pbx/call-ui';
-import {
-  CALLS_LIST_LIMIT,
-  loadCallsList,
-  type CallsList,
-} from '@/lib/pbx/calls-list';
+import { loadCallsList, type CallsList } from '@/lib/pbx/calls-list';
 import { listPlayerOffered, nextOpenPlayer } from '@/lib/pbx/list-player';
 import {
   callHeading,
   callTone,
-  missedTaskFor,
   splitCallLog,
   type Part,
   type TimelineCall,
 } from '@/lib/pbx/timeline';
+import { missedBadge, type MissedCallTask } from '@/lib/pbx/missed-tasks';
 import { cn } from '@/lib/utils';
 
 type CallRow = TimelineCall & {
@@ -64,6 +60,8 @@ type CallRow = TimelineCall & {
   didNumber?: string | null;
   /** Internal calls only: both extensions and their people. */
   party?: CallSides;
+  /** Missed calls only: the callback task, whoever holds it. */
+  task?: MissedCallTask | null;
 };
 interface Loaded extends CallsList<CallRow> {
   tab: CallsTab;
@@ -125,8 +123,6 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
             tab,
             wide,
             calls: [],
-            tasks: [],
-            tasksTruncated: false,
             numbers: [],
             failed: true,
           });
@@ -142,8 +138,7 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
 
   const row = (c: CallRow) => {
     const h = callHeading(c, { timeZone, locale });
-    const task =
-      tab === 'missed' ? missedTaskFor(c.id, current?.tasks ?? []) : null;
+    const badge = c.task ? missedBadge(c.task) : null;
     const missed = callTone(c) === 'missed';
     const Icon = missed ? PhoneMissed : Phone;
     const internal =
@@ -202,16 +197,16 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
               {details.join(' · ')}
             </p>
           </div>
-          {task && (
+          {badge && (
             <span
               className={cn(
                 'rounded-full px-2 py-0.5 text-xs',
-                task.status === 'open'
+                c.task?.status === 'open'
                   ? 'bg-warning-soft text-warning font-medium'
                   : 'bg-muted text-muted-foreground'
               )}
             >
-              {task.status === 'open' ? t('taskOpen') : t('taskDone')}
+              {t(badge.key, { name: badge.name })}
             </span>
           )}
           {back && (
@@ -407,14 +402,7 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
           {list(split.older, t('older'))}
         </>
       ) : (
-        <>
-          {current.tasksTruncated && (
-            <p role="status" className="text-warning text-sm">
-              {t('tasksTruncated', { count: CALLS_LIST_LIMIT })}
-            </p>
-          )}
-          {list(current.calls)}
-        </>
+        list(current.calls)
       )}
     </div>
   );

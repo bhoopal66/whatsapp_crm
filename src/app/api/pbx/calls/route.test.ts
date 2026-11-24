@@ -522,6 +522,103 @@ describe('GET /api/pbx/calls', () => {
     });
   });
 
+  describe('a missed call’s task', () => {
+    const missed = (p: Row = {}) =>
+      call({
+        status: 'no_answer',
+        user_id: null,
+        meta: { rang_user_ids: ['sara', 'me'] },
+        ...p,
+      });
+    const task = (p: Row): Row => ({
+      account_id: A,
+      source: 'pbx',
+      kind: 'missed_call',
+      status: 'open',
+      assigned_to: null,
+      completed_by: null,
+      updated_at: '2026-10-12T08:05:00.000Z',
+      source_ref: null,
+      meta: {},
+      ...p,
+    });
+    const tasksOf = async (qs: string) =>
+      ((await get(qs)).body.calls as { id: string; task?: unknown }[]).map(
+        (c) => [c.id, c.task]
+      );
+    let service: FakeDb;
+    beforeEach(() => {
+      service = createFakeDb({
+        profiles: [
+          { user_id: 'sara', account_id: A, full_name: 'Sara' },
+          { user_id: 'omar', account_id: A, full_name: 'Omar' },
+          { user_id: 'sara', account_id: 'elsewhere', full_name: 'S. Other' },
+        ],
+        tasks: [],
+      });
+      mocks.service = service.db;
+    });
+
+    it('says who holds it, whose it is not, on my own missed calls', async () => {
+      // RLS shows the caller no task of Sara's.
+      rls.tables.calls.push(missed(), missed(), missed(), missed(), missed());
+      service.tables.tasks.push(
+        task({ source_ref: 'call:call-1', assigned_to: 'sara' }),
+        // A repeat call, folded into the open task.
+        task({
+          source_ref: 'call:older',
+          assigned_to: 'sara',
+          meta: { call_ids: ['older', 'call-2'] },
+        }),
+        task({
+          source_ref: 'call:call-3',
+          status: 'done',
+          assigned_to: 'sara',
+          completed_by: 'omar',
+        }),
+        // A call closed it (process.ts): no one completed it by hand.
+        task({
+          source_ref: 'call:call-4',
+          status: 'done',
+          assigned_to: 'sara',
+          meta: { spoke_user_id: 'omar' },
+        })
+      );
+      const want = [
+        ['call-1', { status: 'open', name: 'Sara' }],
+        ['call-2', { status: 'open', name: 'Sara' }],
+        ['call-3', { status: 'done', name: 'Omar' }],
+        ['call-4', { status: 'done', name: 'Omar' }],
+        ['call-5', null],
+      ];
+      expect((await tasksOf('scope=my_missed')).sort()).toEqual(want);
+      as('admin');
+      expect((await tasksOf('scope=missed')).sort()).toEqual(want);
+      // Other lists have no badge, and read no task.
+      service.log.length = 0;
+      expect((await tasksOf('scope=mine'))[0][1]).toBeUndefined();
+      expect(service.log).toEqual([]);
+    });
+
+    it('is this account’s PBX task only, and nothing of a call the caller cannot see', async () => {
+      rls.tables.calls.push(missed(), missed({ meta: {}, id: 'hidden' }));
+      service.tables.tasks.push(
+        task({ source_ref: 'call:call-1', account_id: 'elsewhere' }),
+        task({ source_ref: 'call:call-1', source: 'automation' }),
+        task({ source_ref: 'call:hidden', assigned_to: 'sara' })
+      );
+      const { body } = await get('scope=my_missed');
+      expect(await tasksOf('scope=my_missed')).toEqual([['call-1', null]]);
+      expect(JSON.stringify(body)).not.toContain('hidden');
+    });
+
+    it('fails the list, rather than list calls without badges, when the read fails', async () => {
+      rls.tables.calls.push(missed());
+      service.fail('tasks', 'select', { message: 'down' });
+      expect((await get('scope=my_missed')).status).toBe(403); // toErrorResponse
+    });
+  });
+
   it('refuses a bank guest', async () => {
     as('bank_guest');
     expect((await get()).status).toBe(403);
