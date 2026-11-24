@@ -10,6 +10,7 @@ function num(
     waba_id: string | null;
     is_primary: boolean;
     status: string;
+    is_personal: boolean;
   }> = {}
 ) {
   return {
@@ -34,6 +35,16 @@ describe('numberState', () => {
 });
 
 describe('numberHealth', () => {
+  it("leaves out staff's personal numbers", () => {
+    const h = numberHealth([
+      num('a'),
+      num('p', { is_personal: true, status: 'disconnected' }),
+    ]);
+    expect(h.total).toBe(1);
+    expect(h.summary).toBe('all_connected');
+    expect(h.rows.map((r) => r.number.id)).toEqual(['a']);
+  });
+
   it('reads all connected', () => {
     const h = numberHealth([num('a'), num('b'), num('c')]);
     expect(h).toMatchObject({
