@@ -379,6 +379,15 @@ describe('applyGroupEvents: a join request', () => {
         profiles: [
           { user_id: 'owner', account_id: ACCT, account_role: 'owner' },
           { user_id: 'agent', account_id: ACCT, account_role: 'agent' },
+          // The managers are staff of the workspace too; one has left it.
+          { user_id: 'm1', account_id: ACCT, account_role: 'agent' },
+          { user_id: 'm2', account_id: ACCT, account_role: 'agent' },
+          {
+            user_id: 'gone',
+            account_id: ACCT,
+            account_role: 'agent',
+            deactivated_at: '2026-11-01T00:00:00Z',
+          },
         ],
         notifications: [],
         ...extra,
@@ -402,6 +411,18 @@ describe('applyGroupEvents: a join request', () => {
       title: 'Join request: Deal team',
       meta: { group_id: 'g-1', wa_ids: ['971501111111'] },
     });
+  });
+
+  it('falls back when every manager is deactivated, and never rings one', async () => {
+    const gone = { group_id: 'g-1', account_id: ACCT, user_id: 'gone' };
+    const only = setup({ whatsapp_group_managers: [gone] });
+    await applyGroupEvents(only.admin, channel, [event]);
+    expect(bells(only.db).map((n) => n.user_id)).toEqual(['owner']);
+    const both = setup({
+      whatsapp_group_managers: [gone, { ...gone, user_id: 'm1' }],
+    });
+    await applyGroupEvents(both.admin, channel, [event]);
+    expect(bells(both.db).map((n) => n.user_id)).toEqual(['m1']);
   });
 
   it('falls back to owners and admins when nobody manages it', async () => {

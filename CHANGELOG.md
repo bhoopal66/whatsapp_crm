@@ -22,6 +22,8 @@ and polish.
 
 ### Fixed
 
+- **Groups: a join request no longer rings only a deactivated login.** Live
+  managers are rung; with none, the owners and admins.
 - **Groups: every way of adding or messaging people has the hourly limit.**
   Creating a group, sending the invite link and a manager's saved number
   now spend the same limits as adding members (60 people an hour per person,
