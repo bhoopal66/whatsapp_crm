@@ -34,6 +34,9 @@ and polish.
 
 ### Fixed
 
+- **A submission group whose case cannot be opened no longer holds up the
+  others.** The cron took the newest 20 each run; it now tries the ones
+  that have not failed first, and starts from another failed one each run.
 - **A candidate's message is no longer read as a sales lead.** Smart
   insights, automatic chat tags, the attention pin and campaign reply
   sorting now leave HR chats, other departments' chats and HR lines alone
