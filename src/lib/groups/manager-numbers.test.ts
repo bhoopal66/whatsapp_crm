@@ -28,6 +28,23 @@ describe('planManagerNumbers', () => {
     block: null,
   };
 
+  it('reports a removed number that only a hidden member could be', () => {
+    const args = {
+      ...base,
+      added: [],
+      removed: ['k'],
+      phones: new Map([['k', '971500000001']]),
+    };
+    expect(planManagerNumbers(args)).toEqual({
+      add: [],
+      remove: [],
+      skipped: [{ name: 'Kabita', reason: 'number_unconfirmed' }],
+    });
+    expect(
+      planManagerNumbers({ ...args, participants: ['971500000002'] }).skipped
+    ).toEqual([]);
+  });
+
   it('adds a new manager number and removes a dropped one', () => {
     const plan = planManagerNumbers({
       ...base,
@@ -49,6 +66,9 @@ describe('planManagerNumbers', () => {
   it('skips numbers already in (or already out of) the group and our own', () => {
     const plan = planManagerNumbers({
       ...base,
+      // Every member's number is shown: with a LID among them, an absent
+      // number is reported instead (the test above).
+      participants: ['971500000002'],
       added: ['r', 'o'],
       removed: ['k'],
       phones: new Map([

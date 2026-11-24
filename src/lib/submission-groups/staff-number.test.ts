@@ -112,6 +112,17 @@ describe('removeStaffNumber', () => {
     expect(d.removeParticipant).toHaveBeenCalledWith('ch1', 'wa1@g.us', STAFF);
   });
 
+  it('cannot confirm a removal beside a member WhatsApp hides', async () => {
+    const d = deps({
+      getParticipants: vi.fn().mockResolvedValue([CUSTOMER, '12345678@lid']),
+    });
+    expect(await removeStaffNumber(d, group(), 'u1')).toEqual({
+      status: 'failed',
+      reason: 'number_unconfirmed',
+    });
+    expect(d.removeParticipant).not.toHaveBeenCalled();
+  });
+
   it('removes the number of someone who is no longer live staff (299)', async () => {
     const d = deps({
       savedPhone: vi.fn().mockResolvedValue(null),

@@ -8578,6 +8578,7 @@
     "sync": "Sync from WhatsApp",
     "syncing": "Syncing…",
     "syncDone": "{synced, plural, =1 {# group} other {# groups}} synced · {created} new · {left} left",
+    "syncIncomplete": "The gateway's list looked incomplete; nothing was marked as left. Try again in a few minutes.",
     "syncFailed": "Couldn't sync groups: {reason}",
     "loadFailed": "Couldn't load groups. Try again in a moment.",
     "emptyTitle": "No groups yet",
@@ -8664,6 +8665,8 @@
         "rate_limited": "too many requests, wait a moment and try again",
         "channel_disconnected": "the number is disconnected",
         "billing": "the WhatsApp number's subscription needs attention",
+        "too_many_adds": "Too many people were added in the last hour. Try again within the hour.",
+        "too_many_creates": "Too many groups were created on this number in the last 24 hours. Try again tomorrow or use another number.",
         "gateway_unavailable": "WhatsApp didn't respond, try again",
         "unknown": "something went wrong"
       },
@@ -8766,6 +8769,7 @@
         "no_participants": "None of those people could be added to a group. Check the numbers and try again.",
         "saved_failed_run_sync": "The group was created on WhatsApp but couldn't be saved here. An admin can run Sync to bring it in — don't create it again.",
         "send_unconfirmed": "This message may have been sent: check the chat before sending it again.",
+        "number_unconfirmed": "The number could not be confirmed as removed: WhatsApp hides some members' numbers. Check the group.",
         "no_saved_number": "No number of their own is saved. If their phone is in the group, remove it on the Members tab."
       },
       "membersTab": {
@@ -8992,6 +8996,7 @@
       "numberAdded": "Their WhatsApp number was added to the group.",
       "numberRefused": "WhatsApp would not add their number. Share the group's invite link with them.",
       "numberFailed": "Access saved, but their WhatsApp number could not be updated in the group.",
+      "numberUnconfirmed": "Access removed, but it could not be confirmed that their number left: WhatsApp hides some members' numbers. Check the group.",
       "numberUnknown": "Access removed, but no WhatsApp number of their own is saved, so nothing was taken out of the group. If their phone is in it, remove it in WhatsApp.",
       "numberRemoved": "Their WhatsApp number was removed from the group.",
       "title": "People",

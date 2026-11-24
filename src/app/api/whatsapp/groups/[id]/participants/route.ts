@@ -16,6 +16,7 @@ import { NextResponse } from 'next/server';
 
 import { assertSalesAccess, getCurrentAccount } from '@/lib/auth/account';
 import { groupAddBlock } from '@/lib/groups/access';
+import { addBudget } from '@/lib/groups/add-budget';
 import {
   namesOurNumber,
   requireConsentOverride,
@@ -41,11 +42,6 @@ import {
   promoteAdmins,
   removeParticipants,
 } from '@/lib/whatsapp/groups';
-import {
-  checkRateLimit,
-  RATE_LIMITS,
-  rateLimitRemaining,
-} from '@/lib/rate-limit';
 import { normalizePhone } from '@/lib/whatsapp/phone-utils';
 
 export const maxDuration = 60;
@@ -90,24 +86,9 @@ export async function POST(request: Request, { params }: Params) {
     // Mass-adding is what gets a number restricted: counted in people, for
     // the person adding and for the number.
     const waIds = screened.recipients.map((r) => r.waId);
-    const budgets = [
-      [`group-add:${ctx.userId}`, RATE_LIMITS.groupAddPerson],
-      [`group-add-number:${channel.id}`, RATE_LIMITS.groupAddNumber],
-    ] as const;
-    const allowed = Math.min(
-      waIds.length,
-      ...budgets.map(([key, rule]) => rateLimitRemaining(key, rule))
-    );
-    if (allowed === 0 && waIds.length > 0) {
-      throw new GroupHttpError(
-        429,
-        'too_many_adds',
-        'Too many people were added in the last hour'
-      );
-    }
-    for (let i = 0; i < allowed; i++) {
-      for (const [key, rule] of budgets) checkRateLimit(key, rule);
-    }
+    const budget = addBudget(ctx.userId, channel.id);
+    const allowed = budget.spend(waIds.length);
+    if (allowed === 0 && waIds.length > 0) throw budget.refusal();
     const overLimit = waIds.slice(allowed);
     logConsentOverride(
       group.id,

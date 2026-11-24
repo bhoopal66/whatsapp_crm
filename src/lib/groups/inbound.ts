@@ -419,7 +419,7 @@ async function applyParticipants(
 const JOIN_REQUEST_DEDUP_MS = 10 * 60_000;
 
 /**
- * Ring the group's managers (else the workspace's owners and admins)
+ * Ring the group's live managers (else the workspace's owners and admins)
  * that someone asked to join. Failure-isolated: a bell that cannot be
  * written is logged, never thrown, so the event still applies.
  */
@@ -439,6 +439,20 @@ async function notifyJoinRequest(
     let recipients = ((managers.data ?? []) as Array<{ user_id: string }>).map(
       (r) => r.user_id
     );
+    // A deactivated manager keeps their row: alone, they would get the
+    // only bell.
+    if (recipients.length > 0) {
+      const live = await admin
+        .from('profiles')
+        .select('user_id')
+        .eq('account_id', accountId)
+        .in('user_id', recipients)
+        .is('deactivated_at', null);
+      if (live.error) throw live.error;
+      recipients = ((live.data ?? []) as Array<{ user_id: string }>).map(
+        (r) => r.user_id
+      );
+    }
     if (recipients.length === 0) {
       const staff = await admin
         .from('profiles')

@@ -564,7 +564,9 @@ export function staffNumberNote(
     case 'refused':
       return { tone: 'warning', key: 'numberRefused' } as const;
     case 'failed':
-      return { tone: 'warning', key: 'numberFailed' } as const;
+      return number.reason === 'number_unconfirmed'
+        ? ({ tone: 'warning', key: 'numberUnconfirmed' } as const)
+        : ({ tone: 'warning', key: 'numberFailed' } as const);
     case 'none':
       return change === 'remove' && number.reason === 'no_saved_number'
         ? ({ tone: 'warning', key: 'numberUnknown' } as const)

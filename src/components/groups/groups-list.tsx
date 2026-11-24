@@ -231,6 +231,9 @@ export function GroupsList({ selectedId }: { selectedId: string | null }) {
           left: n(json.left),
         })
       );
+      if (json.incomplete === true) {
+        toast.warning(t('syncIncomplete'), { duration: 10_000 });
+      }
       void load();
     } catch {
       toast.error(t('syncFailed', { reason: 'network' }));
@@ -365,7 +368,7 @@ export function GroupsList({ selectedId }: { selectedId: string | null }) {
         <div className="shrink-0 space-y-2 px-3 pt-3 pb-2">
           <div className="relative">
             <Search
-              className="text-wa-icon pointer-events-none absolute top-1/2 start-3.5 size-4 -translate-y-1/2"
+              className="text-wa-icon pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2"
               aria-hidden
             />
             <Input

@@ -286,9 +286,10 @@ export async function listGroupSummaries(
     path: '/groups',
     route: 'session',
   });
-  const list = Array.isArray(raw) ? raw : [];
+  // Read as an empty list, it would have Sync mark every group left.
+  if (!Array.isArray(raw)) throw new Error('OpenWA answered no list of groups');
   const out: { id: string; name: string }[] = [];
-  for (const item of list) {
+  for (const item of raw) {
     const r = rec(item);
     const id = serializedId(r.id);
     if (!id || !GROUP_ID_RE.test(id)) continue;

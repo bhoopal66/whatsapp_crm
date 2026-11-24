@@ -11,6 +11,7 @@
 import { NextResponse } from 'next/server';
 
 import { assertSalesAccess, getCurrentAccount } from '@/lib/auth/account';
+import { addBudget } from '@/lib/groups/add-budget';
 import {
   INVITE_STOP_ON,
   isFreshInvite,
@@ -131,6 +132,11 @@ export async function POST(request: Request, { params }: Params) {
     const screened = await screenRecipients(ctx, supabaseAdmin(), action, {
       overrideConsent: action.overrideConsent,
     });
+    // A stranger messaged counts as one added (add-budget.ts).
+    const adds = addBudget(ctx.userId, channel.id);
+    if (screened.recipients.length > 0 && adds.remaining() === 0) {
+      throw adds.refusal();
+    }
     logConsentOverride(group.id, ctx.userId, screened.overridden);
     const results: SendResult[] = [
       ...screened.skipped.map((s) => ({
@@ -176,6 +182,7 @@ export async function POST(request: Request, { params }: Params) {
       for (const waId of plan.batches[i]) {
         const base = { waId, contactId: contactOf.get(waId) ?? null };
         if (!stopped && !withinBudget(budget)) stopped = 'time_budget';
+        if (!stopped && adds.spend(1) === 0) stopped = 'too_many_adds';
         if (stopped) {
           results.push({ ...base, status: 'not_attempted', reason: stopped });
           continue;

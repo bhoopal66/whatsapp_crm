@@ -1772,36 +1772,44 @@ export const MAX_GROUPS_PER_SYNC = 2_000
 /**
  * Walk every page of `GET /groups`, up to `maxGroups`. Stops on an empty
  * or short page, or once `total` is reached, whichever comes first.
+ * `complete: false` when the rows read are not the number's whole set: a
+ * row dropped as unparseable, an answer with no list, a list that ends
+ * short of its own total, or the cap. A caller that marks unlisted groups
+ * as left must not do so from such a list.
  */
-export async function* iterateGroups(
+export async function walkAllGroups(
   args: IterateGroupsArgs,
-): AsyncGenerator<WhapiGroup> {
+): Promise<{ groups: WhapiGroup[]; complete: boolean }> {
   const { token, pageSize = 100, maxGroups = MAX_GROUPS_PER_SYNC } = args
   const size = Math.min(500, Math.max(1, pageSize))
+  const groups: WhapiGroup[] = []
+  let complete = true
   let offset = 0
-  let yielded = 0
-  while (yielded < maxGroups) {
+  while (groups.length < maxGroups) {
     const page = await listGroups({ token, count: size, offset })
+    if (!page.listed || page.groups.length !== page.rawCount) complete = false
     for (const group of page.groups) {
-      if (yielded >= maxGroups) return
-      yield group
-      yielded++
+      if (groups.length >= maxGroups) return { groups, complete: false }
+      groups.push(group)
     }
+    const read = offset + page.rawCount
     // Advance by the page size asked for, not the rows parsed: a row
     // dropped as unusable must not shift the next page's offset.
     offset += size
     // The raw row count decides the last page: a row dropped as
     // unparseable must not end the walk early (sync would mark the
     // later groups left).
-    if (page.rawCount < size) return
-    if (page.total !== null && offset >= page.total) return
+    if (page.rawCount < size) {
+      if (page.total !== null && read < page.total) complete = false
+      return { groups, complete }
+    }
+    if (page.total !== null && offset >= page.total) return { groups, complete }
   }
+  return { groups, complete: false }
 }
 
 export async function listAllGroups(args: IterateGroupsArgs): Promise<WhapiGroup[]> {
-  const out: WhapiGroup[] = []
-  for await (const g of iterateGroups(args)) out.push(g)
-  return out
+  return (await walkAllGroups(args)).groups
 }
 
 export interface CreateGroupArgs {

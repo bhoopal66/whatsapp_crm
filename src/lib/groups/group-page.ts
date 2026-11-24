@@ -47,6 +47,7 @@ export const GROUP_REASON_CODES = [
   'saved_failed_run_sync',
   'send_unconfirmed',
   'no_saved_number',
+  'number_unconfirmed',
   'unknown',
 ] as const;
 export type GroupReasonCode = (typeof GROUP_REASON_CODES)[number];

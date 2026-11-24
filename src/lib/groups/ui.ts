@@ -495,6 +495,8 @@ const CREATE_ERROR_KEYS = [
   'channel_disconnected',
   'billing',
   'gateway_unavailable',
+  'too_many_adds',
+  'too_many_creates',
 ] as const;
 export type CreateErrorKey = (typeof CREATE_ERROR_KEYS)[number] | 'unknown';
 
@@ -565,7 +567,9 @@ export function formatWaId(waId: string): string {
  * escaped; a phone query also matches on its digits alone.
  */
 export function contactSearchFilter(query: string): string | null {
-  const q = latinDigits(query).replace(/[,()*%\\"']/g, ' ').trim();
+  const q = latinDigits(query)
+    .replace(/[,()*%\\"']/g, ' ')
+    .trim();
   if (q.length < 2) return null;
   const parts = [`name.ilike.*${q}*`, `phone.ilike.*${q}*`];
   const digits = latinDigits(q).replace(/\D/g, '');

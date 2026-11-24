@@ -51,6 +51,21 @@ and polish.
 - **Automations honour "Do not contact".** A customer marked so is sent no
   automation message (text, buttons, list, template), not even right after
   they wrote; before, only "opted out" was checked. No migration.
+- **Groups: removing somebody WhatsApp shows without a number is reported.**
+  Their phone stayed in the group and nothing was said; now the person who
+  removed them is told to check the group (normal and submission groups).
+- **Groups: a join request no longer rings only a deactivated login.** Live
+  managers are rung; with none, the owners and admins.
+- **Groups: every way of adding or messaging people has the hourly limit.**
+  Creating a group, sending the invite link and a manager's saved number
+  now spend the same limits as adding members (60 people an hour per person,
+  120 per number), and one number creates at most 10 groups a day.
+- **Groups: Sync no longer believes an empty or damaged list.** A gateway
+  that has just re-paired answers with no groups, and every group on the
+  number was marked "left" and refused sends. An empty list, a row that
+  cannot be read or a list short of its own total now marks nothing, and
+  the person is told. A number that really left everything is recorded by
+  a second Sync ten minutes to an hour later.
 - **Numbers typed in Arabic digits work.** Contact search, the inbox,
   groups and forward searches read Arabic-Indic and Persian digits as 0-9,
   and a number typed or imported with them keeps its digits.
