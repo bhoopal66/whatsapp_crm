@@ -52,7 +52,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { createClient } from '@/lib/supabase/client';
-import { signOutReleasingPush } from '@/lib/push/sign-out';
+import { signOutThisDevice } from '@/lib/auth/sign-out';
 import { cn } from '@/lib/utils';
 
 interface PeekOk {
@@ -208,8 +208,11 @@ export default function JoinPage() {
   const handleSignOutAndRetry = useCallback(async () => {
     setSigningOut(true);
     try {
-      const supabase = createClient();
-      await signOutReleasingPush(() => supabase.auth.signOut());
+      if (!(await signOutThisDevice(createClient().auth))) {
+        toast.error('Could not sign out, try again.');
+        setSigningOut(false);
+        return;
+      }
       // Hard reload so the new auth state propagates everywhere
       // (middleware, AuthProvider). Preserves the invite token in
       // the URL so the rebuilt page renders the signed-out CTA path.

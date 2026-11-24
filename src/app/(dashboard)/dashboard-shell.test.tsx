@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
     loading: false,
     profileLoading: false,
     accountRole: 'agent' as string | null,
+    sessionStalled: false,
   },
 }));
 
@@ -42,6 +43,9 @@ vi.mock('@/components/layout/mobile-tab-bar', () => ({
 vi.mock('@/components/layout/tab-title', () => ({ TabTitle: () => null }));
 vi.mock('@/components/layout/account-access-alert', () => ({
   AccountAccessAlert: () => null,
+}));
+vi.mock('@/components/layout/session-reconnecting', () => ({
+  SessionReconnecting: () => 'RECONNECTING',
 }));
 vi.mock('@/components/layout/push-prompt', () => ({ PushPrompt: () => null }));
 vi.mock('@/components/presence/presence-heartbeat', () => ({
@@ -121,7 +125,23 @@ describe('DashboardShell guest gating', () => {
   });
 });
 
+describe('DashboardShell without a known session', () => {
+  it('says it is reconnecting instead of going blank', () => {
+    mocks.auth.user = null;
+    mocks.auth.loading = true;
+    mocks.auth.sessionStalled = true;
+    expect(render(null, '/inbox')).toBe('RECONNECTING');
+    mocks.auth.sessionStalled = false;
+    expect(render(null, '/inbox')).not.toContain('RECONNECTING');
+  });
+});
+
 describe('DashboardShell main', () => {
+  beforeEach(() => {
+    mocks.auth.user = { id: 'u1' };
+    mocks.auth.loading = false;
+  });
+
   it('is full-bleed in the meeting room and team chat only', () => {
     const fullBleed = 'flex min-h-0 flex-1 flex-col overflow-hidden';
     expect(render('agent', '/meetings/m1/room')).toContain(fullBleed);
