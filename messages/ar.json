@@ -286,7 +286,8 @@
         },
         "overdueTasks": {
           "label": "مهام متأخرة",
-          "hint": "{count, plural, =0 {لا شيء آخر مستحق اليوم} other {# مستحقة اليوم}}"
+          "hint": "{count, plural, =0 {لا شيء آخر مستحق اليوم} other {# مستحقة اليوم}}",
+          "hintCut": "أكثر مما هو معروض هنا"
         },
         "missedCalls": {
           "label": "مكالمات فائتة",
@@ -303,6 +304,8 @@
         "title": "مهامي",
         "subtitle": "{overdue} متأخرة · {today} مستحقة اليوم",
         "subtitleOpen": "{count, plural, one {# مهمة مفتوحة} other {# مهام مفتوحة}}",
+        "subtitleCutOverdue": "{overdue} متأخرة",
+        "subtitleCutOpen": "{count} مهام مفتوحة",
         "groups": {
           "overdue": "متأخرة",
           "today": "اليوم",

@@ -28,11 +28,7 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/use-auth';
 import type { AccountNumber } from '@/hooks/use-whatsapp-numbers';
 import { firstName, greetingKey } from '@/lib/dashboard/home/greeting';
-import {
-  fetchMyOpenTasks,
-  fetchOpenCases,
-  HOME_LIST_LIMIT,
-} from '@/lib/dashboard/home/sources';
+import { fetchMyOpenTasks, fetchOpenCases } from '@/lib/dashboard/home/sources';
 import { isOutreachNumber } from '@/lib/dashboard/home/outreach';
 import { homeWidgets } from '@/lib/dashboard/home/widgets';
 import { missedCallCount } from '@/lib/dashboard/missed-calls';
@@ -117,21 +113,22 @@ export default function DashboardPage() {
   const tasks = useWidgetData(
     show('tasks') && userId ? `tasks:${userId}:${refreshKey}` : null,
     () =>
-      fetchMyOpenTasks().then((list) =>
-        list.filter((t) => !completing.current.has(t.id))
-      )
+      fetchMyOpenTasks().then((open) => ({
+        ...open,
+        tasks: open.tasks.filter((t) => !completing.current.has(t.id)),
+      }))
   );
   // The open missed-call tasks are the badge's rule; once the list is
   // loaded it follows a tick at once.
   // From the shared list, so ticking one off moves the tile at once. A
   // full list may have been cut at the cap: then the badge's exact head
   // count is the floor.
-  const listedMissed = tasks.data?.filter(
+  const listedMissed = tasks.data?.tasks.filter(
     (t) => t.kind === 'missed_call'
   ).length;
   const missedCalls = missedCallCount(
     listedMissed,
-    (tasks.data?.length ?? 0) >= HOME_LIST_LIMIT,
+    tasks.data?.truncated ?? false,
     callsBadge.data?.missed ?? null
   );
   const cases = useWidgetData(

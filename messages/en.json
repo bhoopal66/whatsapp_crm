@@ -286,7 +286,8 @@
         },
         "overdueTasks": {
           "label": "Overdue tasks",
-          "hint": "{count, plural, =0 {Nothing else due today} other {# due today}}"
+          "hint": "{count, plural, =0 {Nothing else due today} other {# due today}}",
+          "hintCut": "More than shown here"
         },
         "missedCalls": {
           "label": "Missed calls",
@@ -303,6 +304,8 @@
         "title": "My tasks",
         "subtitle": "{overdue} overdue · {today} due today",
         "subtitleOpen": "{count, plural, one {# open task} other {# open tasks}}",
+        "subtitleCutOverdue": "{overdue} overdue",
+        "subtitleCutOpen": "{count} open tasks",
         "groups": {
           "overdue": "Overdue",
           "today": "Today",

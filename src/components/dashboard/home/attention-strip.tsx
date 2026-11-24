@@ -29,7 +29,7 @@ import {
   tileState,
 } from '@/lib/dashboard/home/attention';
 import { viewerInboxDepartment } from '@/lib/inbox/departments';
-import type { OpenCases } from '@/lib/dashboard/home/sources';
+import type { OpenCases, OpenTasks } from '@/lib/dashboard/home/sources';
 import { taskCounts } from '@/lib/dashboard/home/tasks';
 import type { CampaignInboxFields } from '@/lib/inbox/campaign-inbox';
 import {
@@ -53,7 +53,7 @@ import { useWidgetData, type WidgetData } from './use-widget-data';
 export interface AttentionStripProps {
   refreshKey: number;
   /** The person's open tasks (the page's; the tasks panel shares it). Null: the role holds no tasks. */
-  tasks: WidgetData<Task[]> | null;
+  tasks: WidgetData<OpenTasks> | null;
   /** Open cases (the page's; the cases card shares it). Null: the role gets no cases. */
   cases: WidgetData<OpenCases> | null;
   /** Open missed-call tasks assigned to this person (a null count is
@@ -232,7 +232,9 @@ export function AttentionStrip({
         ownDepartment
       )
     : null;
-  const taskFigures = tasks?.data ? taskCounts(tasks.data, clock.now) : null;
+  const taskFigures = tasks?.data
+    ? taskCounts(tasks.data.tasks, clock.now)
+    : null;
   const caseFigures = cases?.data ? overdueCases(cases.data.rows) : null;
 
   const tiles: (TileProps & { key: string })[] = [
@@ -304,8 +306,13 @@ export function AttentionStrip({
       label: t('overdueTasks.label'),
       tone: 'destructive',
       count: taskFigures?.overdue ?? null,
+      display: taskFigures
+        ? formatCount(taskFigures.overdue, tasks.data?.truncated)
+        : undefined,
       error: tasks.error && !tasks.data,
-      hint: t('overdueTasks.hint', { count: taskFigures?.today ?? 0 }),
+      hint: tasks.data?.truncated
+        ? t('overdueTasks.hintCut')
+        : t('overdueTasks.hint', { count: taskFigures?.today ?? 0 }),
     });
   }
   if (missedCalls !== null) {
