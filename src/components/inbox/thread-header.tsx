@@ -35,11 +35,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { ConfirmDialog } from '@/components/ui-ext/confirm-dialog';
-import {
-  assignChangeKind,
-  type AssignChangeKind,
-} from '@/lib/inbox/assign-confirm';
+import { assignChangeKind } from '@/lib/inbox/assign-confirm';
 import type { ConversationHandler } from '@/lib/inbox/handler';
 import { cn } from '@/lib/utils';
 import type { Contact, Profile } from '@/types';
@@ -48,6 +44,7 @@ import type {
   ConversationListItem,
 } from '@/lib/inbox/conversations';
 
+import { AssignConfirmDialog } from './assign-confirm-dialog';
 import { ContactAvatar } from './contact-avatar';
 import { ShareToChatButton } from '@/components/chat/share-to-chat-dialog';
 import { CallButton } from '@/components/pbx/call-button';
@@ -97,8 +94,16 @@ export interface ThreadHeaderProps {
   /** The current assignee's name, for the confirmation's wording. */
   assignedAgentName: string | null;
   currentUserId: string | null;
-  /** Called only after the person confirms the change. */
-  onAssign: (agentId: string | null) => void;
+  /**
+   * Called only after the person confirms the change, with the assignee
+   * the question showed. `askAgain` is called when someone else assigned
+   * the chat meanwhile (`assignedAgentId` then shows who).
+   */
+  onAssign: (
+    agentId: string | null,
+    expected: string | null,
+    askAgain: () => void
+  ) => void;
   onChatTagsChange: (conversationId: string, patch: ChatTagRowPatch) => void;
   /** The refresh button renders only when this is provided. */
   onRefresh?: () => void;
@@ -222,23 +227,27 @@ export function ThreadHeader({
   // that lands after the agent opened another chat is dropped.
   const [pendingAssign, setPendingAssign] = useState<{
     conversationId: string;
-    kind: AssignChangeKind;
     agentId: string | null;
     name: string | null;
+    meanwhile: boolean;
   } | null>(null);
   const askAssign = (agentId: string | null, name: string | null) => {
-    const kind = assignChangeKind(assignedAgentId, agentId);
-    if (!kind) return;
-    setPendingAssign({ conversationId: conversation.id, kind, agentId, name });
+    if (!assignChangeKind(assignedAgentId, agentId)) return;
+    setPendingAssign({
+      conversationId: conversation.id,
+      agentId,
+      name,
+      meanwhile: false,
+    });
   };
   const confirmAssign = () => {
     const pending = pendingAssign;
     setPendingAssign(null);
     if (!pending || pending.conversationId !== conversation.id) return;
-    onAssign(pending.agentId);
+    onAssign(pending.agentId, assignedAgentId, () =>
+      setPendingAssign({ ...pending, meanwhile: true })
+    );
   };
-  const fromName = assignedAgentName ?? t('unknownAgent');
-  const toName = pendingAssign?.name ?? '';
 
   const identity = (
     <>
@@ -460,46 +469,18 @@ export function ThreadHeader({
               </DropdownMenuContent>
             </DropdownMenu>
           )}
-          <ConfirmDialog
+          <AssignConfirmDialog
             open={
               pendingAssign !== null &&
               pendingAssign.conversationId === conversation.id
             }
-            onOpenChange={(open) => {
-              if (!open) setPendingAssign(null);
-            }}
-            title={
-              pendingAssign?.kind === 'reassign'
-                ? t('confirmReassignTitle')
-                : pendingAssign?.kind === 'unassign'
-                  ? t('confirmUnassignTitle')
-                  : t('confirmAssignTitle')
-            }
-            description={
-              pendingAssign?.kind === 'reassign'
-                ? t('confirmReassignBody', {
-                    customer: displayName,
-                    from: fromName,
-                    to: toName,
-                  })
-                : pendingAssign?.kind === 'unassign'
-                  ? t('confirmUnassignBody', {
-                      customer: displayName,
-                      name: fromName,
-                    })
-                  : t('confirmAssignBody', {
-                      customer: displayName,
-                      name: toName,
-                    })
-            }
-            cancelLabel={t('confirmAssignCancel')}
-            confirmLabel={
-              pendingAssign?.kind === 'reassign'
-                ? t('confirmReassignAction')
-                : pendingAssign?.kind === 'unassign'
-                  ? t('unassign')
-                  : t('assign')
-            }
+            customer={displayName}
+            currentId={assignedAgentId}
+            currentName={assignedAgentName ?? t('unknownAgent')}
+            nextId={pendingAssign?.agentId ?? null}
+            nextName={pendingAssign?.name ?? ''}
+            meanwhile={pendingAssign?.meanwhile ?? false}
+            onCancel={() => setPendingAssign(null)}
             onConfirm={confirmAssign}
           />
 

@@ -31,7 +31,8 @@ import {
   teamRosterCacheKey,
 } from '@/lib/client-cache';
 import { isBankGuest } from '@/lib/auth/roles';
-import { assignableMembers, assignConversation } from '@/lib/inbox/assign';
+import { AssignConfirmDialog } from '@/components/inbox/assign-confirm-dialog';
+import { assignableMembers, assignFromScreen } from '@/lib/inbox/assign';
 import { startCatchUp, type LiveRead } from '@/lib/realtime/catch-up';
 import type { Profile } from '@/types';
 import {
@@ -116,10 +117,12 @@ export function HrPanel({
   onAssignChange,
 }: HrPanelProps) {
   const t = useTranslations('Hr');
+  const tRows = useTranslations('InboxRows');
   const { accountId, user, accountRole, profileLoading } = useAuth();
   const userId = user?.id ?? null;
 
-  // The owner as last written here, until the page's row catches up.
+  // The owner as the database last answered here, until the page's row
+  // catches up.
   const [owner, setOwner] = useState<string | null>(assignedAgentId);
   useEffect(() => {
     setOwner(assignedAgentId);
@@ -139,6 +142,10 @@ export function HrPanel({
   const [doneBusy, setDoneBusy] = useState<Set<string>>(new Set());
   const [pendingClose, setPendingClose] = useState<CloseChoice | null>(null);
   const [ask, setAsk] = useState<ReasonAsk | null>(null);
+  // An owner pick that found another owner than this panel showed.
+  const [ownerAgain, setOwnerAgain] = useState<{ next: string | null } | null>(
+    null
+  );
   const [reason, setReason] = useState('');
 
   // The id this panel answers for; any late response for another chat
@@ -319,16 +326,24 @@ export function HrPanel({
 
   const changeOwner = async (next: string | null) => {
     const id = conversationId;
-    const prev = owner;
-    setOwner(next);
-    const result = await assignConversation(createClient(), id, next);
-    if (!result.ok) {
-      console.error('Failed to update assignment:', result.error);
-      toast.error('Failed to update assignment');
-      if (isCurrent(id)) setOwner(prev);
-      return;
-    }
-    onAssignChange?.(id, next);
+    const fail = (key: 'assignFailed' | 'assignMoved') =>
+      toast.error(tRows(key));
+    setOwnerAgain(null);
+    setBusy(true);
+    await assignFromScreen(
+      createClient(),
+      { conversationId: id, expected: owner, userId: next },
+      {
+        patch: (_, assignedTo) => {
+          if (isCurrent(id)) setOwner(assignedTo);
+          onAssignChange?.(id, assignedTo);
+        },
+        askAgain: () =>
+          isCurrent(id) ? setOwnerAgain({ next }) : fail('assignFailed'),
+        fail,
+      }
+    );
+    if (isCurrent(id)) setBusy(false);
   };
 
   const rowRef = useRef<HrConversation | null>(null);
@@ -571,6 +586,18 @@ export function HrPanel({
           />
         </>
       )}
+
+      <AssignConfirmDialog
+        open={ownerAgain !== null}
+        customer={contactName}
+        currentId={owner}
+        currentName={owner ? nameOf(owner) : ''}
+        nextId={ownerAgain?.next ?? null}
+        nextName={ownerAgain?.next ? nameOf(ownerAgain.next) : ''}
+        meanwhile
+        onCancel={() => setOwnerAgain(null)}
+        onConfirm={() => void changeOwner(ownerAgain?.next ?? null)}
+      />
 
       <Dialog open={ask !== null} onOpenChange={(o) => !o && setAsk(null)}>
         <DialogContent className="sm:max-w-sm">

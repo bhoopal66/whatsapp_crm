@@ -34,6 +34,11 @@ and polish.
 
 ### Fixed
 
+- **Assigning a chat no longer claims a change that was not made, or
+  overwrites a colleague's.** The inbox list, the chat header and the HR
+  panel show the assignee the database returned. If someone else assigned
+  the chat after your screen was loaded you are told who and asked again,
+  and if the chat is no longer yours to see you are asked to reload.
 - **The privacy register no longer calls Draft with AI a reply.** The
   draft and the playground record their own purpose (`draft`,
   `playground`) in the AI transfer register instead of `reply`.

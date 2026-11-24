@@ -187,10 +187,10 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { ConfirmDialog } from '@/components/ui-ext/confirm-dialog';
+import { AssignConfirmDialog } from './assign-confirm-dialog';
 import { MemberPresenceDot } from './thread-presence';
 import { RowChatTags } from './row-chat-tags';
-import { assignableMembers, assignConversation } from '@/lib/inbox/assign';
+import { assignableMembers, assignFromScreen } from '@/lib/inbox/assign';
 import {
   rowAssignee,
   rowHasDetailLine,
@@ -693,7 +693,6 @@ export function ConversationList({
 }: ConversationListProps) {
   const t = useTranslations('Inbox.conversationList');
   const tRowsList = useTranslations('InboxRows');
-  const tThread = useTranslations('Inbox.messageThread');
   const tInsights = useTranslations('InsightsUi.list');
   const tSaved = useTranslations('SavedViews');
   const tSearch = useTranslations('ContactSearch');
@@ -1530,7 +1529,17 @@ export function ConversationList({
     customer: string;
     userId: string;
     name: string;
+    /** The assignee last known, once the row has left the list. */
+    expected: string | null;
+    meanwhile: boolean;
   } | null>(null);
+  // The assignee the question shows: the row's own, as realtime keeps it.
+  const pendingRow = pendingRowAssign
+    ? conversations.find((c) => c.id === pendingRowAssign.conversationId)
+    : undefined;
+  const pendingRowAssignee = pendingRow
+    ? (pendingRow.assigned_agent_id ?? null)
+    : (pendingRowAssign?.expected ?? null);
   const requestRowAssign = useCallback(
     (conv: ConversationListItem, userId: string, name: string) => {
       setPendingRowAssign({
@@ -1538,6 +1547,8 @@ export function ConversationList({
         customer: conv.contact?.name || conv.contact?.phone || t('unknown'),
         userId,
         name,
+        expected: conv.assigned_agent_id ?? null,
+        meanwhile: false,
       });
     },
     [t]
@@ -1546,18 +1557,21 @@ export function ConversationList({
     const pending = pendingRowAssign;
     setPendingRowAssign(null);
     if (!pending) return;
-    const result = await assignConversation(
+    await assignFromScreen(
       createClient(),
-      pending.conversationId,
-      pending.userId
+      {
+        conversationId: pending.conversationId,
+        expected: pendingRowAssignee,
+        userId: pending.userId,
+      },
+      {
+        patch: (id, assignedAgentId) => onAssignChange?.(id, assignedAgentId),
+        askAgain: (expected) =>
+          setPendingRowAssign({ ...pending, expected, meanwhile: true }),
+        fail: (key) => toast.error(tRowsList(key)),
+      }
     );
-    if (!result.ok) {
-      console.error('Failed to update assignment:', result.error);
-      toast.error(tRowsList('assignFailed'));
-      return;
-    }
-    onAssignChange?.(pending.conversationId, pending.userId);
-  }, [pendingRowAssign, onAssignChange, tRowsList]);
+  }, [pendingRowAssign, pendingRowAssignee, onAssignChange, tRowsList]);
 
   // Company options are derived from the loaded conversations — there's no
   // separate companies table, and only companies with a live conversation
@@ -2414,18 +2428,15 @@ export function ConversationList({
 
       {/* The row's Assign asks first, in the thread header's words:
           assigning decides who can see the customer's history. */}
-      <ConfirmDialog
+      <AssignConfirmDialog
         open={pendingRowAssign !== null}
-        onOpenChange={(open) => {
-          if (!open) setPendingRowAssign(null);
-        }}
-        title={tThread('confirmAssignTitle')}
-        description={tThread('confirmAssignBody', {
-          customer: pendingRowAssign?.customer ?? '',
-          name: pendingRowAssign?.name ?? '',
-        })}
-        cancelLabel={tThread('confirmAssignCancel')}
-        confirmLabel={tThread('assign')}
+        customer={pendingRowAssign?.customer ?? ''}
+        currentId={pendingRowAssignee}
+        currentName={pendingRowAssignee ? memberName(pendingRowAssignee) : ''}
+        nextId={pendingRowAssign?.userId ?? null}
+        nextName={pendingRowAssign?.name ?? ''}
+        meanwhile={pendingRowAssign?.meanwhile ?? false}
+        onCancel={() => setPendingRowAssign(null)}
         onConfirm={() => void confirmRowAssign()}
       />
     </div>
