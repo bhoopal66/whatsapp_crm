@@ -1540,3 +1540,10 @@ jobs:
       # currency; a deal created without one takes its account's.
       - name: Verify home figures
         run: supabase db query --local --file supabase/ci/verify-home-figures.sql
+
+      # Migration 297: a case's document request goes out once. A second
+      # claim within 10 minutes is refused with who and when, unless
+      # forced; a released claim refuses nothing; a call without p_claim
+      # never claims and is never refused; only the service role calls.
+      - name: Verify case document request once
+        run: supabase db query --local --file supabase/ci/verify-case-doc-request-once.sql

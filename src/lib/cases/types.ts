@@ -190,6 +190,8 @@ export const CASE_REFUSALS = [
   // 186 (case macros); ACTION_INVALID is 124's code, reused.
   'NAME_INVALID',
   'MACRO_NOT_FOUND',
+  // 297 (a document request goes out once); its DETAIL is { by, at }.
+  'REQUESTED_RECENTLY',
 ] as const;
 export type CaseRefusal = (typeof CASE_REFUSALS)[number];
 

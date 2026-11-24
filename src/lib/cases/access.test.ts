@@ -115,8 +115,24 @@ describe('case access mirrors match migration 122', () => {
       'utf8'
     );
     for (const h of ours186) expect(sql186).toContain(`HINT = '${h}'`);
+    // 297 adds the document request's one refusal.
+    const sql297 = readFileSync(
+      join(process.cwd(), 'supabase/migrations/297_case_doc_request_once.sql'),
+      'utf8'
+    );
+    const hints297 = [...sql297.matchAll(/HINT = '([A-Z_]+)'/g)].map(
+      (m) => m[1]
+    );
+    expect(hints297).toEqual(['REQUESTED_RECENTLY']);
     expect(new Set(CASE_REFUSALS)).toEqual(
-      new Set([...hints, ...hints130, ...ours134, ...ours151, ...ours186])
+      new Set([
+        ...hints,
+        ...hints130,
+        ...ours134,
+        ...ours151,
+        ...ours186,
+        ...hints297,
+      ])
     );
   });
 });

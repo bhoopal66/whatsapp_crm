@@ -63,6 +63,7 @@ function deps(actions: MacroAction[]) {
         bankName: 'ADCB',
         docKeys: ['passport', 'salary'],
         docLabels: ['Passport', 'Salary certificate'],
+        requestId: null,
       })),
       // Present on the real store; a macro must never reach them.
       docMarkRequested: vi.fn(async () => 2),

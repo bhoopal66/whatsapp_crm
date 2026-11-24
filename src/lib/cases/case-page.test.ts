@@ -14,6 +14,7 @@ import {
   groupEndView,
   isFinalStage,
   isSnoozed,
+  requestedRecently,
   snoozeErrorKey,
   SNOOZE_REASON_MAX,
   unsnoozeAlreadyDone,
@@ -351,6 +352,18 @@ describe('result codes', () => {
     expect(docRequestKey(429, 'SEND_RATE_LIMITED')).toBe('rateLimited');
     expect(docRequestKey(429, undefined)).toBe('rateLimited');
     expect(docRequestKey(400, undefined)).toBe('sendFailed');
+  });
+
+  it('reads who requested the documents a moment ago, and when (297)', () => {
+    const body = { code: 'REQUESTED_RECENTLY', by: 'u-2', at: '2026-11-24' };
+    expect(requestedRecently(409, body)).toEqual({
+      by: 'u-2',
+      at: '2026-11-24',
+    });
+    expect(requestedRecently(200, body)).toBeNull();
+    expect(requestedRecently(409, { ...body, code: 'REFUSED' })).toBeNull();
+    expect(requestedRecently(409, { ...body, at: null })).toBeNull();
+    expect(requestedRecently(409, null)).toBeNull();
   });
 
   it('maps stage and detail refusals', () => {

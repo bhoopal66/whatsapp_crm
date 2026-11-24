@@ -10,11 +10,13 @@
  * reads no internal case text (never-sent.test.ts).
  *
  * Order: case_doc_request_begin (the case's write right; refusals throw
- * CaseRefusedError before anything is sent) → send → only after the
+ * CaseRefusedError before anything is sent; it claims the request, so a
+ * second one within 10 minutes is REQUESTED_RECENTLY, 297) → send → only after the
  * customer has the message, case_doc_mark_requested. A refused, blocked or
  * failed send marks nothing, and neither does one whose outcome is unknown
  * (UNCONFIRMED): the documents stay on the missing list, so none is lost if
- * the customer never got the message.
+ * the customer never got the message. A send that did not go out gives its
+ * claim back; an UNCONFIRMED one keeps it.
  */
 import {
   SubmissionGroupSendBlockedError,
@@ -85,22 +87,43 @@ export type DocRequestResult =
   | { sent: false; reason: 'UNCONFIRMED' };
 
 export interface DocRequestDeps {
-  tools: Pick<CaseToolsStore, 'docRequestBegin' | 'docMarkRequested'>;
+  tools: Pick<
+    CaseToolsStore,
+    'docRequestBegin' | 'docMarkRequested' | 'docRequestRelease'
+  >;
   sender: Pick<SubmissionGroupService, 'sendFromCrm'>;
 }
 
-/** Requests every required document of the case not yet received. */
+/**
+ * Requests every required document of the case not yet received. `force`:
+ * even though they were requested in the last 10 minutes.
+ */
 export async function requestMissingDocuments(
   deps: DocRequestDeps,
-  input: { caseId: string; actor: string }
+  input: { caseId: string; actor: string; force?: boolean }
 ): Promise<DocRequestResult> {
-  const begin = await deps.tools.docRequestBegin(input.caseId, input.actor);
+  const begin = await deps.tools.docRequestBegin(input.caseId, input.actor, {
+    force: input.force === true,
+  });
   if (begin.docKeys.length === 0)
     return { sent: false, reason: 'NOTHING_MISSING' };
   const text = draftMissingDocumentsRequest(
     begin.bankName ?? '',
     begin.docLabels
   );
+
+  const release = async () => {
+    if (!begin.requestId) return;
+    try {
+      await deps.tools.docRequestRelease(
+        input.caseId,
+        input.actor,
+        begin.requestId
+      );
+    } catch {
+      // The claim stands for its 10 minutes; "send again" passes it.
+    }
+  };
 
   let sent: {
     messageId: string;
@@ -124,12 +147,15 @@ export async function requestMissingDocuments(
       };
       recorded = false;
     } else if (err instanceof SubmissionGroupSendBlockedError) {
+      await release();
       return { sent: false, reason: 'BLOCKED', blocked: err.reason };
     } else if (err instanceof SubmissionGroupSendRefusedError) {
+      await release();
       return { sent: false, reason: 'REFUSED', refusal: err.reason };
     } else if (err instanceof SubmissionGroupSendUnconfirmedError) {
       return { sent: false, reason: 'UNCONFIRMED' };
     } else {
+      await release();
       return { sent: false, reason: 'SEND_FAILED' };
     }
   }

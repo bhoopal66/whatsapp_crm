@@ -42,7 +42,11 @@ import {
 
 export class CaseRefusedError extends Error {
   override readonly name = 'CaseRefusedError';
-  constructor(readonly reason: CaseRefusal) {
+  constructor(
+    readonly reason: CaseRefusal,
+    /** The refusal's DETAIL, when it is a JSON object (297). */
+    readonly detail: Readonly<Record<string, unknown>> | null = null
+  ) {
     super(`case refused: ${reason}`);
   }
 }
@@ -119,7 +123,12 @@ const CASE_COLUMNS =
   'id, account_id, group_id, contact_id, lead_source, bank_code, product, amount::text, agent_id, coordinator_id, stage, priority, due_at, sla_state, opened_at, closed_at, outcome, group_ended_at, external_url, external_changed_at, case_number';
 
 type Row = Record<string, unknown>;
-type DbError = { message?: string; code?: string; hint?: string | null };
+type DbError = {
+  message?: string;
+  code?: string;
+  hint?: string | null;
+  details?: string | null;
+};
 
 export const str = (v: unknown): string | null =>
   v === null || v === undefined ? null : String(v);
@@ -135,9 +144,24 @@ const scalars = (data: unknown): string[] =>
       )
     : [];
 
+function detailOf(details: unknown): Row | null {
+  if (typeof details !== 'string') return null;
+  try {
+    const v: unknown = JSON.parse(details);
+    return v !== null && typeof v === 'object' && !Array.isArray(v)
+      ? (v as Row)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 export function fail(fn: string, error: DbError): never {
   if (typeof error.hint === 'string' && REFUSALS.has(error.hint))
-    throw new CaseRefusedError(error.hint as CaseRefusal);
+    throw new CaseRefusedError(
+      error.hint as CaseRefusal,
+      detailOf(error.details)
+    );
   throw new CaseStoreError(fn, error.code ?? null);
 }
 
