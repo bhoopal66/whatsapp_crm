@@ -521,7 +521,9 @@ nothing.
 with `sync.applied: false, reason: "stale"`. A `status` in the same
 body is ignored too (not recorded, never ends the group). So a retry or
 an out-of-order delivery can never move a case backwards. Without
-`changed_at` the update is always applied.
+`changed_at` the update is always applied. It must end in `Z` or an
+offset (`+04:00`) and not be more than 10 minutes in the future: anything
+else is `422 changed_at_invalid`.
 
 **Stage rules.** Get the valid list from `GET /case-stages` (next
 section).

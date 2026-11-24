@@ -697,6 +697,9 @@ active and ended groups alike, and the answer adds
   `presub_reentry`, `case_closed`, `final_stage`, `stage_not_in_bank`,
   `bank_invalid`, `product_invalid`, `amount_invalid`,
   `external_url_invalid`, `changed_at_invalid`) and writes nothing.
+  `changed_at_invalid` includes a `changed_at` without `Z` or an offset,
+  and one more than 10 minutes in the future (it would make every later
+  update stale).
   Refusals of one item (an outcome reason, a document) are listed in
   `sync.rejected` as `{ key, error }` and the rest still applies.
 - A move to `Approved`, `Declined`, `Withdrawn` or `Closed` ends the group
