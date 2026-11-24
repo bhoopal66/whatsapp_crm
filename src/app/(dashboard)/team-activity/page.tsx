@@ -70,6 +70,7 @@ import {
 } from '@/lib/team-activity/report';
 import { assessReport, type PersonAssessment } from '@/lib/team-activity/risk';
 import type { SafetyEntry } from '@/lib/team-activity/safety';
+import { shownReport } from '@/lib/reports/shown-report';
 import { cn } from '@/lib/utils';
 
 interface Loaded {
@@ -128,7 +129,9 @@ function TeamActivityPageInner() {
 
   const [preset, setPreset] = useState<RangePreset>('7d');
   const [channel, setChannel] = useState<string>(ALL);
-  const [loaded, setLoaded] = useState<Loaded | null>(null);
+  const [loadedRaw, setLoaded] = useState<(Loaded & { key: string }) | null>(
+    null
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -152,11 +155,18 @@ function TeamActivityPageInner() {
     return `/api/team-activity/export?${params}`;
   };
 
-  useEffect(() => {
-    let cancelled = false;
+  // The report's own query: what the figures on screen were fetched for.
+  const queryKey = (() => {
     const params = new URLSearchParams({ range: preset, tz: viewerZone() });
     if (channel !== ALL) params.set('channel', channel);
-    void fetch(`/api/team-activity?${params}`)
+    return params.toString();
+  })();
+  const loaded = shownReport(loadedRaw, queryKey);
+
+  useEffect(() => {
+    let cancelled = false;
+    const key = queryKey;
+    void fetch(`/api/team-activity?${key}`)
       .then(async (res) => {
         const body = (await res.json().catch(() => null)) as
           (Loaded & { error?: string }) | null;
@@ -166,7 +176,7 @@ function TeamActivityPageInner() {
           return;
         }
         setError(null);
-        setLoaded({ report: body.report, range: body.range });
+        setLoaded({ report: body.report, range: body.range, key });
       })
       .catch(() => {
         if (!cancelled) setError(t('loadFailed'));
@@ -177,7 +187,7 @@ function TeamActivityPageInner() {
     return () => {
       cancelled = true;
     };
-  }, [preset, channel, reloadKey, t]);
+  }, [queryKey, reloadKey, t]);
 
   // The Safety Meter, once per visit (the server caches it). Admins only.
   useEffect(() => {
