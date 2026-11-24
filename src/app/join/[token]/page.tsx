@@ -110,6 +110,7 @@ export default function JoinPage() {
   // step. Surface a blocking modal that walks them through it.
   const [conflictMessage, setConflictMessage] = useState<string | null>(null);
   const [signingOut, setSigningOut] = useState(false);
+  const [signOutSlow, setSignOutSlow] = useState(false);
 
   // Extracted so the "Try again" button on the server_error card
   // can re-run the same logic without remounting the component.
@@ -207,8 +208,12 @@ export default function JoinPage() {
 
   const handleSignOutAndRetry = useCallback(async () => {
     setSigningOut(true);
+    setSignOutSlow(false);
     try {
-      if (!(await signOutThisDevice(createClient().auth))) {
+      const ended = await signOutThisDevice(createClient().auth, () =>
+        setSignOutSlow(true),
+      );
+      if (!ended) {
         toast.error('Could not sign out, try again.');
         setSigningOut(false);
         return;
@@ -396,7 +401,7 @@ export default function JoinPage() {
                 {signingOut ? (
                   <>
                     <Loader2 className="size-4 animate-spin" />
-                    Signing out…
+                    {signOutSlow ? 'Still signing out…' : 'Signing out…'}
                   </>
                 ) : (
                   'Sign out & use a different email'

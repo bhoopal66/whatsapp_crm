@@ -1,7 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { AuthApiError, AuthRetryableFetchError } from '@supabase/supabase-js';
+import {
+  AuthApiError,
+  AuthRetryableFetchError,
+  AuthUnknownError,
+} from '@supabase/supabase-js';
 import { describe, expect, it } from 'vitest';
 
 import { authUnavailableResponse, isAuthUnavailable } from './auth-unavailable';
@@ -12,7 +16,9 @@ describe('isAuthUnavailable', () => {
     expect(isAuthUnavailable(new AuthRetryableFetchError('x', 502))).toBe(true);
     expect(isAuthUnavailable(new AuthApiError('x', 500, undefined))).toBe(true);
     expect(isAuthUnavailable({ status: 0 })).toBe(true);
-    for (const status of [400, 401, 403, 429]) {
+    expect(isAuthUnavailable(new AuthApiError('x', 429, 'c'))).toBe(true);
+    expect(isAuthUnavailable(new AuthUnknownError('x', null))).toBe(true);
+    for (const status of [400, 401, 403]) {
       expect(isAuthUnavailable(new AuthApiError('x', status, 'c'))).toBe(false);
     }
     expect(

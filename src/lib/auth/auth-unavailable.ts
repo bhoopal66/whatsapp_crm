@@ -23,15 +23,21 @@ export class AuthUnavailableError extends Error {
 }
 
 /**
- * True for auth-js's AuthRetryableFetchError and any auth error with
- * status 0 (no answer) or 5xx. A 4xx, a missing session (status 400) and
- * no error at all are answers.
+ * True for auth-js's AuthRetryableFetchError, its AuthUnknownError (a
+ * body that is not the auth service's, like a challenge page) and any
+ * auth error with status 0 (no answer), 429 or 5xx. Any other 4xx, a
+ * missing session (status 400) and no error at all are answers.
  */
 export function isAuthUnavailable(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false;
   const { name, status } = error as { name?: unknown; status?: unknown };
-  if (name === 'AuthRetryableFetchError') return true;
-  return typeof status === 'number' && (status === 0 || status >= 500);
+  if (name === 'AuthRetryableFetchError' || name === 'AuthUnknownError') {
+    return true;
+  }
+  return (
+    typeof status === 'number' &&
+    (status === 0 || status === 429 || status >= 500)
+  );
 }
 
 /** The API answer for it. */

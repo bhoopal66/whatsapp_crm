@@ -49,12 +49,15 @@ and polish.
   (at most every 2 minutes) and about once an hour. No migration.
 - **A slow or lost connection no longer shows the sign-in page.** While the
   app cannot find out whether you are signed in it says "Reconnecting…", with
-  a Retry button, and keeps trying. When a session really has ended, signing
+  a Retry button, and keeps trying. Too many requests, or a page put in
+  between (a Cloudflare challenge), no longer count as the auth service's
+  answer and sign nobody out. When a session really has ended, signing
   in again returns you to the page you were on; "Sign out" does not. No
   migration.
 - **"Sign out" ends this device only.** It used to sign the person out of
   every device; Settings → "Sign out of all devices" is the button for that.
-  A sign-out that did not work says so and leaves you signed in. No
+  A sign-out that did not work says so and leaves you signed in; a slow one
+  says "Still signing out…" until it is over. No migration.
 - **More screens catch up after the connection was lost.** Who is online, the
   chats shared with a coordinator, reminder suggestions, a chat's timeline
   notes, the HR panel, the groups list and the calendar now read again when a
@@ -70,10 +73,10 @@ and polish.
   while the tab is hidden and catch up when it is shown. No migration.
 - **A tab left open over a release recovers by itself.** A panel whose code
   the release replaced used to break the whole screen, and "Try again" could
-  not help. The screen now reloads once on its own when nothing typed would
-  be lost and no call or meeting is on; otherwise it says a new version is
-  available and offers Reload. The voice recorder says the same. No
-  migration.
+  not help. The screen now reloads once on its own when the server answers,
+  nothing typed would be lost, no call or meeting is on and the tab is not
+  sending a campaign; otherwise it says a new version is available and offers
+  Reload. The voice recorder says the same. No migration.
 - **A read that failed no longer looks like nothing.** The case page's "last
   message" card says it could not load instead of "no message"; a chat-tag
   count in the team chat side menu that could not be read shows no number

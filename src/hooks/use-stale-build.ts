@@ -2,7 +2,11 @@
 
 import { useEffect, useState } from 'react';
 
-import { isChunkLoadError, takeReload } from '@/lib/app-update/stale-build';
+import {
+  isChunkLoadError,
+  serverAnswers,
+  takeReload,
+} from '@/lib/app-update/stale-build';
 import { textOnPage, unsavedInMemory } from '@/lib/app-update/unsaved';
 
 function sessionStore(): Storage | null {
@@ -35,7 +39,15 @@ export function useStaleBuild(error: unknown): boolean {
     if (!stale || losing || unsavedInMemory()) return;
     // Offline the reload would end on the browser's own error page.
     if (navigator.onLine === false) return;
-    if (takeReload(sessionStore(), Date.now())) window.location.reload();
+    let left = false;
+    void serverAnswers().then((up) => {
+      // What was started while it was asked counts too.
+      if (!up || left || unsavedInMemory() || textOnPage(document)) return;
+      if (takeReload(sessionStore(), Date.now())) window.location.reload();
+    });
+    return () => {
+      left = true;
+    };
   }, [stale, losing]);
   return stale;
 }

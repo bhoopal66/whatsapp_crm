@@ -1,5 +1,6 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import { sessionFetch } from '@/lib/supabase/session-fetch'
 import { AUTH_COOKIE_NAME, serverSupabaseUrl } from '@/lib/supabase/urls'
 import {
   authUnavailableResponse,
@@ -54,6 +55,7 @@ export async function middleware(request: NextRequest) {
       // this the middleware cannot see the session and redirects every
       // signed-in request straight back to /login.
       cookieOptions: { name: AUTH_COOKIE_NAME },
+      global: { fetch: sessionFetch },
       cookies: {
         getAll() {
           return request.cookies.getAll()

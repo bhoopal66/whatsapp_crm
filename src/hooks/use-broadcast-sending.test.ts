@@ -1,13 +1,23 @@
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 
 import { fakeDb, type Row } from '@/lib/whatsapp/broadcast.fake';
 
 // The hook module pulls in the browser Supabase client and the auth
 // context; neither is needed for the pure helper under test.
-vi.mock('@/lib/supabase/client', () => ({ createClient: () => ({}) }));
+const getSession = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/supabase/client', () => ({
+  createClient: () => ({ auth: { getSession } }),
+}));
 vi.mock('@/hooks/use-auth', () => ({ useAuth: () => ({ accountId: 'acct' }) }));
 
-import { deliverOnServer, resolveSendTime } from './use-broadcast-sending';
+import { unsavedInMemory } from '@/lib/app-update/unsaved';
+import {
+  deliverOnServer,
+  resolveSendTime,
+  useBroadcastSending,
+} from './use-broadcast-sending';
 
 const DUBAI = { start: '21:00', end: '08:00', tz: 'Asia/Dubai' };
 
@@ -120,5 +130,26 @@ describe('deliverOnServer', () => {
     );
     await run(t);
     expect(t.broadcasts[0].status).toBe('sent');
+  });
+});
+
+describe('a campaign this tab is sending', () => {
+  it('holds the tab from reloading by itself until it ends', async () => {
+    let answer: (a: unknown) => void = () => {};
+    getSession.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+    const seen =
+      vi.fn<(hook: ReturnType<typeof useBroadcastSending>) => void>();
+    function Screen() {
+      seen(useBroadcastSending());
+      return null;
+    }
+    renderToStaticMarkup(createElement(Screen));
+    expect(unsavedInMemory()).toBe(false);
+
+    const sending = seen.mock.calls[0][0].createAndSendBroadcast({} as never);
+    expect(unsavedInMemory()).toBe(true);
+    answer({ data: { session: null } });
+    await expect(sending).rejects.toThrow('not signed in');
+    expect(unsavedInMemory()).toBe(false);
   });
 });
