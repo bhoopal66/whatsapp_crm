@@ -667,6 +667,8 @@
       "attachmentExpired": "This attachment was added too long ago to send and has been removed. Attach the file again."
     },
     "bubble": {
+      "notDelivered": "Not delivered.",
+      "notDeliveredBecause": "Not delivered:",
       "photo": "Photo",
       "video": "Video",
       "audio": "Audio",

@@ -230,10 +230,12 @@ ledger's admin-only RLS applies through them. `pricing` is deliberately
 not lifted into `NormalizedStatus` (`collectMetaStatuses` is the
 separate raw extraction) because the neutral shape is provider-blind.
 Meta's failure reason is (`NormalizedStatus.error`), and
-`describeMetaFailure` stores it on failed broadcast recipients.
+`describeMetaFailure` stores it on failed broadcast recipients and, since
+292, on the message itself (`messages.failure_reason`, service role only;
+the bubble shows it, a correcting delivery clears it).
 Migration 066's `reconcile_broadcast_recipient_statuses` replays the
 ledger onto recipients a receipt missed (a receipt that beat the wamid
-stamp); `describe_meta_failure` (SQL) mirrors
+stamp); `describe_meta_failure` (SQL, latest body in 292) mirrors
 `lib/whatsapp/meta-failure.ts` and `meta-failure.test.ts` compares them —
 change one, change both. Status writes are forward-only in SQL
 (`handleStatusUpdate`), and an AI reply that comes back `failed` hands

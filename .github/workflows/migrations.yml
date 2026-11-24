@@ -1502,3 +1502,8 @@ jobs:
       # Migration 291: a delivery corrects a failed campaign recipient.
       - name: Verify a delivery corrects a failure
         run: supabase db query --local --file supabase/ci/verify-delivery-corrects-failed.sql
+
+      # Migration 292: why a message failed is kept on it, filled in from the
+      # cost ledger, and never written by a session.
+      - name: Verify message failure reasons
+        run: supabase db query --local --file supabase/ci/verify-message-failure-reason.sql

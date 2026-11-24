@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
+  FAILURE_REASON_MAX,
   META_FAILURE_NO_REASON,
   META_FAILURE_REASONS,
   describeMetaFailure,
@@ -33,6 +34,12 @@ describe('describeMetaFailure', () => {
     }
   });
 
+  it('fits the column (292)', () => {
+    for (const text of Object.values(META_FAILURE_REASONS)) {
+      expect(text.length).toBeLessThanOrEqual(FAILURE_REASON_MAX);
+    }
+  });
+
   it('accepts the code as a string, as it comes out of the ledger JSON', () => {
     expect(describeMetaFailure('131026')).toBe(META_FAILURE_REASONS['131026']);
   });
@@ -53,11 +60,11 @@ describe('describeMetaFailure', () => {
   });
 });
 
-// describe_meta_failure() (migration 066) fills the same reason in from
+// describe_meta_failure() (migration 292, first 066) fills the same reason in from
 // the cost ledger when a receipt was lost to the wamid-stamp race. If
 // the wordings drift, one campaign shows two phrasings of one failure.
 const SQL = readFileSync(
-  join(process.cwd(), 'supabase/migrations/066_broadcast_status_reconcile.sql'),
+  join(process.cwd(), 'supabase/migrations/292_message_failure_reason.sql'),
   'utf8'
 );
 

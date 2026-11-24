@@ -40,7 +40,10 @@ import type {
   NormalizedStatus,
   NormalizedStatusValue,
 } from '@/lib/whatsapp/inbound';
-import { describeMetaFailure } from '@/lib/whatsapp/meta-failure';
+import {
+  describeMetaFailure,
+  FAILURE_REASON_MAX,
+} from '@/lib/whatsapp/meta-failure';
 import {
   settleBroadcastAfterCorrection,
   settleBroadcastAfterLateFailure,
@@ -178,6 +181,16 @@ function isValidStatusTransition(current: string, incoming: string): boolean {
   return ii > ci;
 }
 
+/** What `messages.failure_reason` holds after this receipt (292). */
+function messageFailureReason(status: NormalizedStatus): string | null {
+  if (status.status !== 'failed' || !status.error) return null;
+  return describeMetaFailure(
+    status.error.code,
+    status.error.title,
+    status.error.details
+  ).slice(0, FAILURE_REASON_MAX);
+}
+
 export interface StatusUpdateResult {
   /** A message or a campaign recipient of this account carries the id. */
   matched: boolean;
@@ -225,7 +238,12 @@ export async function handleStatusUpdate(
   if (rows.length > 0 && predecessors.length > 0) {
     const { data: updated, error: msgErr } = await supabaseAdmin()
       .from('messages')
-      .update({ status: status.status })
+      // Why, when the gateway said (Meta only); a receipt that corrects an
+      // earlier 'failed' takes its reason away (292).
+      .update({
+        status: status.status,
+        failure_reason: messageFailureReason(status),
+      })
       .in(
         'id',
         rows.map((r) => r.id)

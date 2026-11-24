@@ -209,9 +209,52 @@ describe('handleStatusUpdate — messages.status is forward-only in SQL', () => 
     await handleStatusUpdate(status({ status: value }), ACCOUNT);
 
     const [update] = find('messages', 'update');
-    expect(update.payload).toEqual({ status: value });
+    expect(update.payload).toEqual({ status: value, failure_reason: null });
     expect(filter(update, 'in', 'id')).toEqual(['m-1']);
     expect(filter(update, 'in', 'status')).toEqual(predecessors);
+  });
+
+  it('keeps why WhatsApp failed it, in words (292)', async () => {
+    world({ messages: [OUTBOUND] });
+    await handleStatusUpdate(
+      status({
+        status: 'failed',
+        error: { code: 131042, title: 'Business eligibility payment issue' },
+      }),
+      ACCOUNT
+    );
+    const [update] = find('messages', 'update');
+    expect(update.payload).toEqual({
+      status: 'failed',
+      failure_reason: META_FAILURE_REASONS['131042'],
+    });
+  });
+
+  it("cuts Meta's own long words to what the column holds", async () => {
+    world({ messages: [OUTBOUND] });
+    await handleStatusUpdate(
+      status({
+        status: 'failed',
+        error: { code: 131000, title: 'x'.repeat(500) },
+      }),
+      ACCOUNT
+    );
+    const [update] = find('messages', 'update');
+    expect(String(update.payload?.failure_reason)).toHaveLength(300);
+  });
+
+  it('a delivery takes the reason of an earlier failure away', async () => {
+    world({ messages: [OUTBOUND] });
+    await handleStatusUpdate(
+      // A gateway may repeat the old error beside the delivery.
+      status({ status: 'delivered', error: { code: 131026 } }),
+      ACCOUNT
+    );
+    const [update] = find('messages', 'update');
+    expect(update.payload).toEqual({
+      status: 'delivered',
+      failure_reason: null,
+    });
   });
 
   it("skips 'pending', which the messages CHECK does not allow", async () => {

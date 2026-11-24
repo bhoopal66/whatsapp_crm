@@ -617,6 +617,22 @@ export function MessageBubble({
           {meta}
         </div>
       </div>
+      {/* A row WhatsApp failed, in words: the red mark alone left nobody
+          able to tell a wrong number from an account problem. A send that
+          never left is drawn by FailedSendRow instead. */}
+      {isAgent &&
+        message.status === 'failed' &&
+        !message.id.startsWith('temp-') && (
+          <p className="text-destructive mt-1 max-w-72 px-1 text-xs leading-4">
+            {message.failure_reason ? (
+              <>
+                {t('notDeliveredBecause')} <bdi>{message.failure_reason}</bdi>
+              </>
+            ) : (
+              t('notDelivered')
+            )}
+          </p>
+        )}
       {reactions && reactions.length > 0 && onToggleReaction && (
         <MessageReactions
           reactions={reactions}
