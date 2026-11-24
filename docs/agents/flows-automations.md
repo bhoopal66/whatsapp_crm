@@ -81,5 +81,7 @@ Cron / GitHub Actions / any pinger):
   one lazy decision per inbound message, passed as `salesChat` to Flows,
   journeys, automations and the AI reply. Not a sales chat, or unreadable:
   no flow or journey takes the message and message steps are skipped
-  (`sales_answers_off` carries that across a wait); internal steps run. A
+  (`sales_answers_off` carries that across a wait); internal steps run, except
+  `assign_conversation` and campaign rotation (who holds a chat may read
+  it). A
   new customer-facing dispatcher takes the check too.
