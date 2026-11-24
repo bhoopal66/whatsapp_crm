@@ -34,6 +34,11 @@ and polish.
 
 ### Fixed
 
+- **Saving the Meta number survives a failed read.** A failed read of the
+  stored number or of the number count answers an error instead of a save
+  that cannot work; personal numbers no longer keep the first shared Meta
+  number from being the default; a re-save whose WABA listing fails keeps
+  the working subscription.
 - **A routing save is checked whole before anything is written.** An unknown
   surface or a removed number no longer leaves the default changed, a
   refused number no longer clears other routes, and a save that fails

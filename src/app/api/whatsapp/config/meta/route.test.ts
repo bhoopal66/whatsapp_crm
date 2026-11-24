@@ -22,6 +22,10 @@ const db = {
   existing: null as Record<string, unknown> | null,
   claimed: null as Record<string, unknown> | null,
   insertError: null as Record<string, unknown> | null,
+  existingError: null as Record<string, unknown> | null,
+  countError: null as Record<string, unknown> | null,
+  /** Connected numbers of the account, what the sibling count sees. */
+  siblings: [] as { is_personal: boolean }[],
   writes: [] as Query[],
 };
 
@@ -56,6 +60,9 @@ function makeSupabase() {
           return { data: { account_id: 'acc-1' }, error: null };
         }
         const isClaimCheck = q.filters.some(([f]) => f === 'neq');
+        if (!isClaimCheck && db.existingError) {
+          return { data: null, error: db.existingError };
+        }
         return { data: isClaimCheck ? db.claimed : db.existing, error: null };
       };
       b.then = (resolve: (v: unknown) => unknown) => {
@@ -66,7 +73,18 @@ function makeSupabase() {
         if (table === 'profiles') {
           return resolve({ data: [{ account_id: 'acc-1' }], error: null });
         }
-        return resolve({ count: 0, data: [], error: null });
+        if (q.count && db.countError) {
+          return resolve({ count: null, data: null, error: db.countError });
+        }
+        const sharedOnly = q.filters.some(
+          ([f, col, val]) => f === 'eq' && col === 'is_personal' && val === false
+        );
+        return resolve({
+          count: db.siblings.filter((r) => !sharedOnly || !r.is_personal)
+            .length,
+          data: [],
+          error: null,
+        });
       };
       return b;
     },
@@ -176,6 +194,9 @@ beforeEach(() => {
   db.existing = null;
   db.claimed = null;
   db.insertError = null;
+  db.existingError = null;
+  db.countError = null;
+  db.siblings = [];
   db.writes = [];
   graph.wabaPages = [[{ id: PHONE }]];
   graph.wabaListStatus = 200;
@@ -396,5 +417,58 @@ describe('POST /api/whatsapp/config/meta — the phone number must be in the WAB
     const res = await save({ phone_number_id: PHONE, access_token: 'tok' });
     expect(res.status).toBe(409);
     expect((await res.json()).error).toContain('another account');
+  });
+});
+
+describe('POST /api/whatsapp/config/meta — failed reads', () => {
+  const fresh = { phone_number_id: PHONE, waba_id: WABA, access_token: 'tok' };
+
+  it('answers 500 before any Graph call when the row read fails', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    db.existingError = { message: 'connection reset' };
+    const res = await save(fresh);
+    expect(res.status).toBe(500);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(db.writes).toHaveLength(0);
+  });
+
+  it('answers 500 and inserts nothing when the sibling count fails', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    db.countError = { message: 'connection reset' };
+    const res = await save(fresh);
+    expect(res.status).toBe(500);
+    expect(db.writes).toHaveLength(0);
+  });
+
+  it('is the default when only personal numbers are connected', async () => {
+    db.siblings = [{ is_personal: true }];
+    await save(fresh);
+    expect(db.writes[0]).toMatchObject({
+      op: 'insert',
+      payload: { is_primary: true },
+    });
+  });
+
+  it('is not the default beside a shared number', async () => {
+    db.siblings = [{ is_personal: true }, { is_personal: false }];
+    await save(fresh);
+    expect(db.writes[0]).toMatchObject({ payload: { is_primary: false } });
+  });
+
+  it('keeps a working subscription when a re-save cannot list the WABA', async () => {
+    graph.wabaListStatus = 500;
+    db.existing = {
+      id: 'meta-1',
+      phone_number_id: PHONE,
+      waba_id: WABA,
+      access_token: 'tok',
+      subscribed_apps_at: '2026-10-01T00:00:00.000Z',
+    };
+    const res = await save({ phone_number_id: PHONE, waba_id: WABA });
+    expect(await res.json()).toMatchObject({ saved: true, subscribed: false });
+    expect(db.writes[0]).toMatchObject({
+      op: 'update',
+      payload: { subscribed_apps_at: '2026-10-01T00:00:00.000Z' },
+    });
   });
 });
