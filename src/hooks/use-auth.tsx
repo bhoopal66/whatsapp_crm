@@ -27,6 +27,12 @@ import {
 import { pickActiveProfile } from "@/lib/auth/active-profile";
 import { listenForExplicitSignOut } from "@/lib/auth/explicit-sign-out";
 import {
+  compareProfile,
+  profileCheckDue,
+  watchedActiveRow,
+  type ProfileNotice,
+} from "@/lib/auth/profile-watch";
+import {
   forgetRefreshFailure,
   recheckDelayMs,
   retryAction,
@@ -153,6 +159,17 @@ interface AuthContextValue {
    *  the settings form so header/sidebar reflect the change without a
    *  full page reload. */
   refreshProfile: () => Promise<void>;
+  /**
+   * The workspace this tab shows is no longer the one the person works
+   * in (switched elsewhere), or was deactivated for them. Null otherwise.
+   * Shown by `<ProfileNoticeBar />`; nothing reloads by itself, because
+   * nobody here knows about text typed and not yet sent.
+   */
+  profileNotice: ProfileNotice | null;
+  /** The bar's button: load this tab again, where the person now works. */
+  followProfileNotice: () => void;
+  /** Hide the bar until the next check finds the same. */
+  dismissProfileNotice: () => void;
 
   // ----------------------------------------------------------
   // Account-scoped context (added by the account-sharing series)
@@ -285,24 +302,37 @@ function sweepBrowserStorage(): void {
 
 /**
  * SQL `department_restricted()` (192) as the caller; the server's
- * `getCurrentAccount` makes the same call. Never throws and answers
- * false on any failure (a missing function included): RLS and the
- * server guards still hold, so a hiccup must not hide the sales areas.
+ * `getCurrentAccount` makes the same call. Never throws; null on any
+ * failure (a missing function included).
+ */
+async function readDepartmentRestricted(
+  supabase: ReturnType<typeof createClient>,
+  accountId: string,
+  department: Department,
+): Promise<boolean | null> {
+  try {
+    const { data, error } = await supabase.rpc("department_restricted", {
+      p_account: accountId,
+      p_department: department,
+    });
+    return error || typeof data !== "boolean" ? null : data;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The same, false on any failure, for a page that is loading: RLS and
+ * the server guards still hold, so a hiccup must not hide the sales areas.
  */
 async function fetchDepartmentRestricted(
   supabase: ReturnType<typeof createClient>,
   accountId: string,
   department: Department,
 ): Promise<boolean> {
-  try {
-    const { data, error } = await supabase.rpc("department_restricted", {
-      p_account: accountId,
-      p_department: department,
-    });
-    return !error && data === true;
-  } catch {
-    return false;
-  }
+  return (
+    (await readDepartmentRestricted(supabase, accountId, department)) ?? false
+  );
 }
 
 /**
@@ -361,6 +391,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // profileLoading back to true on window focus events/token refresh.
   const lastFetchedUserIdRef = useRef<string | null>(null);
 
+  // What this tab shows, for the profile watch to compare with; null
+  // while nothing settled is shown. Written with `setProfile`, not from
+  // the render after it, and a new object each time: an answer that
+  // comes back to another object is late.
+  const shownRef = useRef<{
+    userId: string;
+    profile: Profile & { account_id: string; account_role: AccountRole };
+  } | null>(null);
+  const [profileNotice, setProfileNotice] = useState<ProfileNotice | null>(
+    null,
+  );
+
   // Every switch lands here: drop what the old workspace cached, tell
   // this browser's other tabs (they share the active workspace, which
   // is a database flag, not per tab), and load the new workspace's
@@ -382,6 +424,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  // Load the workspace that is already the active one, telling nobody:
+  // another tab may hold text typed and not yet sent.
+  const followWorkspace = useCallback((role: AccountRole | null) => {
+    clearClientCache();
+    leaveSession();
+    window.location.assign(workspaceHomePath(role));
+  }, []);
+
   // Shared across init, auth-state-change listener, and the exposed
   // refreshProfile() callback. Reads the current session's user id and
   // pulls the matching profile row along with its account summary.
@@ -389,6 +439,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const supabase = createClient();
     setProfileLoading(true);
     setStatusDetail(null);
+    setProfileNotice(null);
+    shownRef.current = null;
     lastFetchedUserIdRef.current = userId;
     // Start the account read NOW, in parallel with the profile read
     // below, rather than after it. These are two sequential round trips
@@ -609,7 +661,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             ),
           });
 
-        setProfile({
+        const loaded: Profile = {
           id: data.id,
           full_name: data.full_name,
           email: data.email,
@@ -630,7 +682,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           preferred_language: isLocale(data.preferred_language)
             ? data.preferred_language
             : null,
-        });
+        };
+        setProfile(loaded);
+        if (data.account_id && accountRole) {
+          shownRef.current = {
+            userId,
+            profile: {
+              ...loaded,
+              account_id: data.account_id,
+              account_role: accountRole,
+            },
+          };
+        }
         setAccount(accountRow);
         if (!data.account_id || !accountRole) {
           // The row exists but carries no tenancy. Migration 017 made
@@ -683,17 +746,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     workspaceChannelRef.current = channel;
     channel.onmessage = (event: MessageEvent) => {
       const role: unknown = (event.data as { role?: unknown } | null)?.role;
-      clearClientCache();
-      leaveSession();
-      window.location.assign(
-        workspaceHomePath(isAccountRole(role) ? role : null),
-      );
+      followWorkspace(isAccountRole(role) ? role : null);
     };
     return () => {
       workspaceChannelRef.current = null;
       channel.close();
     };
-  }, []);
+  }, [followWorkspace]);
 
   useEffect(() => {
     const supabase = createClient();
@@ -744,6 +803,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // pages that gate on it don't wait forever on the logged-out
         // path (the route guard or redirect should fire instead).
         lastFetchedUserIdRef.current = null;
+        shownRef.current = null;
+        setProfileNotice(null);
         setProfile(null);
         setAccount(null);
         setWorkspaces([]);
@@ -791,7 +852,77 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (action === "reload") window.location.reload();
       else recheck();
     };
-    document.addEventListener("visibilitychange", recheck);
+    // A tab stays open for days: a workspace switched on another device,
+    // a new role or department, or a deactivation in one of several
+    // workspaces reaches it here. Quiet: never `profileLoading`, and an
+    // answer that is doubtful or late changes nothing.
+    let lastWatchAt: number | null = null;
+    let watches = 0;
+    const watchProfile = async (trigger: "visibility" | "token") => {
+      const before = shownRef.current;
+      if (!mounted || !before) return;
+      const now = Date.now();
+      const visible = document.visibilityState === "visible";
+      if (!profileCheckDue({ trigger, visible, lastCheckAt: lastWatchAt, now }))
+        return;
+      lastWatchAt = now;
+      const watch = ++watches;
+      const late = () =>
+        !mounted ||
+        watch !== watches ||
+        shownRef.current !== before ||
+        isLeavingSession();
+      try {
+        const row = watchedActiveRow<ProfileRow>(
+          await supabase
+            .from("profiles")
+            .select("*")
+            .eq("user_id", before.userId),
+        );
+        if (!row || late()) return;
+        const shown = before.profile;
+        const change = compareProfile(shown, row);
+        if (change.kind === "switched" || change.kind === "deactivated") {
+          setProfileNotice(change);
+          return;
+        }
+        // The workspace shown is the active one: switched back, say.
+        setProfileNotice(null);
+        if (change.kind === "none") return;
+
+        const { role, department } = change;
+        let restricted: boolean | null = false;
+        if (
+          !isBankGuestRole(role) &&
+          !hasMinRole(role, "admin") &&
+          "department" in row
+        ) {
+          restricted = await readDepartmentRestricted(
+            supabase,
+            shown.account_id,
+            department,
+          );
+          if (restricted === null || late()) return;
+        }
+        const profile = {
+          ...shown,
+          account_role: role,
+          department,
+          sales_restricted: isSalesRestricted({ role, department, restricted }),
+          may_review_all_calls:
+            row.may_review_all_calls === true && !isBankGuestRole(role),
+        };
+        shownRef.current = { userId: before.userId, profile };
+        setProfile(profile);
+      } catch (err) {
+        console.warn("[AuthProvider] profile check failed:", err);
+      }
+    };
+    const onVisibility = () => {
+      recheck();
+      void watchProfile("visibility");
+    };
+    document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("online", recheck);
     const stopListening = listenForExplicitSignOut();
 
@@ -804,13 +935,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const currentUser = session?.user ?? null;
       const answer = statusFromEvent(event, currentUser);
       if (answer) settle(answer, currentUser);
+      // After this callback: auth-js holds its lock while it runs.
+      if (event === "TOKEN_REFRESHED") {
+        setTimeout(() => void watchProfile("token"), 0);
+      }
     });
 
     return () => {
       mounted = false;
       clearTimeout(stalledTimer);
       clearTimeout(recheckTimer);
-      document.removeEventListener("visibilitychange", recheck);
+      document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("online", recheck);
       stopListening();
       subscription.unsubscribe();
@@ -832,6 +967,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setWorkspaces([]);
     window.location.href = "/login";
   }, [t]);
+
+  const followProfileNotice = useCallback(() => {
+    // Deactivated: the load runs that path (the next workspace, or out).
+    if (profileNotice?.kind === "switched") followWorkspace(profileNotice.role);
+    else window.location.reload();
+  }, [profileNotice, followWorkspace]);
+  const dismissProfileNotice = useCallback(() => setProfileNotice(null), []);
 
   const switchWorkspace = useCallback(
     async (accountId: string, next?: string) => {
@@ -912,6 +1054,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       sessionStalled,
       retrySession,
       refreshProfile,
+      profileNotice,
+      followProfileNotice,
+      dismissProfileNotice,
       account,
       defaultCurrency,
       accountStatus,
@@ -932,6 +1077,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       sessionStalled,
       retrySession,
       refreshProfile,
+      profileNotice,
+      followProfileNotice,
+      dismissProfileNotice,
       account,
       defaultCurrency,
       accountStatus,
@@ -970,6 +1118,9 @@ export function useAuth(): AuthContextValue {
       sessionStalled: false,
       retrySession: () => {},
       refreshProfile: async () => {},
+      profileNotice: null,
+      followProfileNotice: () => {},
+      dismissProfileNotice: () => {},
       account: null,
       defaultCurrency: DEFAULT_CURRENCY,
       // Outside the provider there is nothing to resolve yet — 'loading'

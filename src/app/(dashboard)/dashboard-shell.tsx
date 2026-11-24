@@ -10,6 +10,7 @@ import { AccountAccessAlert } from "@/components/layout/account-access-alert";
 import { SessionReconnecting } from "@/components/layout/session-reconnecting";
 import { wasExplicitSignOut } from "@/lib/auth/explicit-sign-out";
 import { loginPathFor } from "@/lib/auth/session-state";
+import { ProfileNoticeBar } from "@/components/layout/profile-notice-bar";
 import { PushPrompt } from "@/components/layout/push-prompt";
 import { PresenceHeartbeat } from "@/components/presence/presence-heartbeat";
 import { isFullBleedPath } from "@/lib/layout/full-bleed";
@@ -122,6 +123,7 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
       <Sidebar open={sidebarOpen} onClose={closeSidebar} />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header onOpenSidebar={() => setSidebarOpen(true)} />
+        <ProfileNoticeBar />
         {/* Thinner horizontal padding on mobile so cards have room to breathe. */}
         <main
           className={
