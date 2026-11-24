@@ -51,6 +51,10 @@ import { AuthUnavailableError } from '@/lib/auth/auth-unavailable';
  * user's work over a constraint that only applies to one of their two
  * numbers.
  *
+ * Only Meta's refusal of the template is stored: a row with one is not
+ * offered on the Meta number. "Meta already has it" (409) and no answer
+ * (502) store nothing: Meta may have the template, and Sync brings it in.
+ *
  * `status` is written as `APPROVED` for a row Meta has not taken, rather
  * than introducing a new enum value: the column's CHECK constraint
  * already allows it, every consumer (the composer's template picker,
@@ -143,7 +147,23 @@ function contentColumns(payload: TemplatePayload) {
 type Verdict =
   | { kind: 'taken'; id: string; status: string }
   | { kind: 'refused'; message: string }
+  | { kind: 'duplicate' }
+  | { kind: 'no_answer' }
   | { kind: 'not_asked'; reason: 'no_meta_number' | 'meta_unavailable' };
+
+/** Only a refusal of the template itself may be stored as one. */
+function failedVerdict(err: unknown): Verdict {
+  // Not an answer of Meta's: no connection, or one nobody can read.
+  if (!(err instanceof MetaError)) return { kind: 'no_answer' };
+  if (err.isTemplateDuplicate) return { kind: 'duplicate' };
+  // The token or the rate limit: nothing to do with the template.
+  if (err.isAuthError || err.isRateLimited) {
+    return { kind: 'not_asked', reason: 'meta_unavailable' };
+  }
+  // A timeout is a 504; #2 is Meta's "service temporarily unavailable".
+  if (err.status >= 500 || err.code === 2) return { kind: 'no_answer' };
+  return { kind: 'refused', message: err.message };
+}
 
 interface VerdictColumns {
   status: string;
@@ -156,7 +176,10 @@ interface VerdictColumns {
  * the status of a row Meta has not taken: submitting a saved draft does
  * not put it on offer.
  */
-function verdictColumns(verdict: Verdict, local: string): VerdictColumns {
+function verdictColumns(
+  verdict: Exclude<Verdict, { kind: 'duplicate' | 'no_answer' }>,
+  local: string
+): VerdictColumns {
   switch (verdict.kind) {
     case 'taken':
       return {
@@ -274,8 +297,8 @@ export async function POST(request: Request) {
     // APPROVED template from its WABA's registry, so with one
     // connected the template is also pushed to Meta for review.
     //
-    // Best-effort by design: a submission failure still saves the row,
-    // usable over Whapi, and reports why rather than discarding the
+    // Best-effort by design: a template Meta refuses is still saved,
+    // usable over Whapi, with the reason, rather than discarding the
     // user's work. The verdict arrives later on the
     // `message_template_status_update` webhook.
     let channels: Awaited<ReturnType<typeof loadChannels>> = [];
@@ -315,16 +338,34 @@ export async function POST(request: Request) {
           status: normalizeStatus(result.status) ?? 'PENDING',
         };
       } catch (err) {
-        verdict = {
-          kind: 'refused',
-          message:
-            err instanceof MetaError
-              ? err.message
-              : err instanceof Error
-                ? err.message
-                : 'Unknown error submitting to Meta.',
-        };
+        verdict = failedVerdict(err);
+        if (verdict.kind !== 'refused') {
+          console.warn(
+            '[templates/submit] Meta did not take the template:',
+            err instanceof Error ? err.message : err
+          );
+        }
       }
+    }
+    if (verdict.kind === 'duplicate') {
+      return NextResponse.json(
+        {
+          error:
+            'Meta already has a template with this name and language. Press Sync.',
+          code: 'META_HAS_IT',
+        },
+        { status: 409 }
+      );
+    }
+    if (verdict.kind === 'no_answer') {
+      return NextResponse.json(
+        {
+          error:
+            'Meta did not answer. It may have been submitted; press Sync in a minute.',
+          code: 'META_NO_ANSWER',
+        },
+        { status: 502 }
+      );
     }
 
     const core = {

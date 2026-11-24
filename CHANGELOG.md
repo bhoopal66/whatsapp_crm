@@ -72,7 +72,9 @@ and polish.
   Templates offers "Submit to Meta" on a row Meta does not have (it asks
   first), and the answer lands on that row, also when a teammate holds one
   of the same name and language. A row with a media header says why it
-  cannot go from here. No migration.
+  cannot go from here. Only Meta's refusal of the template is kept as one:
+  when Meta already has it, or does not answer, nothing is saved and the
+  screen says to press Sync. No migration.
 - **The automation builder asks for a template's values**: one field per
   placeholder of the body and of a text header, with the filled text below.
   Values saved under other keys show in their fields too, and an edit keeps

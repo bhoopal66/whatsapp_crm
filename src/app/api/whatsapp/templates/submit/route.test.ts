@@ -221,6 +221,68 @@ describe('templates submit: the order of things', () => {
   });
 });
 
+describe('templates submit: Meta did not refuse the template', () => {
+  const duplicate = new MetaError('Invalid parameter', 400, 100, 2388024);
+
+  it.each<[string, unknown, number, string]>([
+    ['Meta already has it', duplicate, 409, 'META_HAS_IT'],
+    ['a timeout', new MetaError('no respond', 504), 502, 'META_NO_ANSWER'],
+    ['a 5xx', new MetaError('Oops', 500, 1), 502, 'META_NO_ANSWER'],
+    ['Meta is down', new MetaError('Later', 400, 2), 502, 'META_NO_ANSWER'],
+    ['no connection', new TypeError('fetch failed'), 502, 'META_NO_ANSWER'],
+    ['no id in the answer', new Error('no id'), 502, 'META_NO_ANSWER'],
+  ])('stores nothing: %s', async (_, err, code, name) => {
+    mocks.submit.mockRejectedValue(err);
+    const created = await submit();
+    expect(created.status).toBe(code);
+    expect(created.body.code).toBe(name);
+    expect(rows()).toEqual([]);
+
+    rows().push(row({ status: 'DRAFT' }));
+    const before = structuredClone(rows());
+    expect((await submit('row-1')).status).toBe(code);
+    expect(rows()).toEqual(before);
+    expect(mocks.db.writes ?? []).toEqual([]);
+  });
+
+  it('says what to do', async () => {
+    mocks.submit.mockRejectedValueOnce(duplicate);
+    expect((await submit()).body.error).toBe(
+      'Meta already has a template with this name and language. Press Sync.'
+    );
+    mocks.submit.mockRejectedValueOnce(new MetaError('x', 503));
+    expect((await submit()).body.error).toBe(
+      'Meta did not answer. It may have been submitted; press Sync in a minute.'
+    );
+  });
+
+  it.each([
+    ['an expired token', new MetaError('Expired', 401, 190)],
+    ['a missing permission', new MetaError('Permission', 403, 200)],
+    ['the rate limit', new MetaError('Too many', 400, 80007)],
+  ])('is saved without a refusal: %s', async (_, err) => {
+    mocks.submit.mockRejectedValue(err);
+    const { status, body } = await submit();
+    expect(status).toBe(200);
+    expect(body.meta).toEqual({
+      submitted: false,
+      reason: 'meta_unavailable',
+    });
+    expect(rows()).toHaveLength(1);
+    expect(rows()[0].submission_error).toBeUndefined();
+  });
+
+  it.each([
+    ['an unknown subcode', new MetaError('Bad', 400, 100, 2388299)],
+    ['one being deleted', new MetaError('Bad', 400, 100, 2388023)],
+    ['a policy block', new MetaError('Bad', 400, 368)],
+  ])('keeps a refusal: %s', async (_, err) => {
+    mocks.submit.mockRejectedValue(err);
+    expect((await submit()).body.meta.error).toBe('Bad');
+    expect(rows()[0].submission_error).toBe('Bad');
+  });
+});
+
 describe('templates submit: Meta took it and the write failed', () => {
   it.each([
     ['insert', []],

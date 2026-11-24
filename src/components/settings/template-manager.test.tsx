@@ -245,6 +245,8 @@ describe('Submit to Meta', () => {
 
   it.each([
     ['TEMPLATE_EXISTS', 'toastMetaHasIt'],
+    ['META_HAS_IT', 'toastMetaHasIt'],
+    ['META_NO_ANSWER', 'toastMetaNoAnswer'],
     ['TEMPLATE_GONE', 'toastTemplateGone'],
     ['META_ACCEPTED_NOT_SAVED', 'toastMetaAcceptedNotSaved'],
   ])('%s is told in words', async (code, text) => {

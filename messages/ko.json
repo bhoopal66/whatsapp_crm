@@ -2666,6 +2666,7 @@
         "authentication": "인증 템플릿은 여기에서 제출할 수 없습니다. WhatsApp 관리자에서 만든 뒤 동기화를 누르세요."
       },
       "toastMetaHasIt": "이 이름과 언어의 템플릿이 이미 Meta에 있습니다. 동기화를 눌러 가져오세요.",
+      "toastMetaNoAnswer": "Meta가 응답하지 않았습니다. 템플릿이 제출되었을 수 있으니 1분 후 동기화를 누르세요.",
       "toastTemplateGone": "이 템플릿이 삭제되었거나 이름이 변경되었습니다. 목록을 새로 고쳤습니다.",
       "syncing": "동기화 중…",
       "syncTitle": "Meta WhatsApp 비즈니스 계정에서 승인된 템플릿 가져오기",
