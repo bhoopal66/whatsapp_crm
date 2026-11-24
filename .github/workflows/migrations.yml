@@ -1581,3 +1581,8 @@ jobs:
       # person is added back only by the workspace that removed them.
       - name: Verify leaving and coming back
         run: supabase db query --local --file supabase/ci/verify-member-leaving.sql
+
+      # Migration 309: a case setting is saved, and a wording approved,
+      # only over what the page had loaded.
+      - name: Verify case config versions
+        run: supabase db query --local --file supabase/ci/verify-case-config-versions.sql
