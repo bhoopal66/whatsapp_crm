@@ -3431,7 +3431,7 @@
     },
     "apiKeys": {
       "title": "مفاتيح API",
-      "description": "تصادق المفاتيح على واجهة REST العامة (<apiCode>/api/v1</apiCode>) لتبني أتمتتك الخاصة. أرسلها بصيغة <headerCode>Authorization: Bearer &lt;key&gt;</headerCode>.",
+      "description": "تصادق المفاتيح على واجهة REST العامة (<apiCode>/api/v1</apiCode>) لتبني أتمتتك الخاصة. أرسلها بصيغة <headerCode>Authorization: Bearer {key}</headerCode>.",
       "newApiKey": "مفتاح API جديد",
       "noApiKeys": "لا توجد مفاتيح API بعد.",
       "createOneHint": "انقر <bold>مفتاح API جديد</bold> لإنشاء مفتاح.",

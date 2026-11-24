@@ -3431,7 +3431,7 @@
     },
     "apiKeys": {
       "title": "API keys",
-      "description": "Keys authenticate the public REST API (<apiCode>/api/v1</apiCode>) so you can build your own automations. Send them as <headerCode>Authorization: Bearer &lt;key&gt;</headerCode>.",
+      "description": "Keys authenticate the public REST API (<apiCode>/api/v1</apiCode>) so you can build your own automations. Send them as <headerCode>Authorization: Bearer {key}</headerCode>.",
       "newApiKey": "New API key",
       "noApiKeys": "No API keys yet.",
       "createOneHint": "Click <bold>New API key</bold> to create one.",

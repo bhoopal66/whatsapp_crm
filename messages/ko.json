@@ -3431,7 +3431,7 @@
     },
     "apiKeys": {
       "title": "API 키",
-      "description": "키는 공개 REST API(<apiCode>/api/v1</apiCode>)를 인증해 직접 자동화를 구축할 수 있게 해줍니다. <headerCode>Authorization: Bearer &lt;key&gt;</headerCode> 형식으로 전송하세요.",
+      "description": "키는 공개 REST API(<apiCode>/api/v1</apiCode>)를 인증해 직접 자동화를 구축할 수 있게 해줍니다. <headerCode>Authorization: Bearer {key}</headerCode> 형식으로 전송하세요.",
       "newApiKey": "새 API 키",
       "noApiKeys": "아직 API 키가 없습니다.",
       "createOneHint": "<bold>새 API 키</bold>를 클릭해 만드세요.",

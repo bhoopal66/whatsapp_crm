@@ -156,6 +156,7 @@ export function ApiKeysSettings() {
           headerCode: (chunks: React.ReactNode) => (
             <code className="text-xs">{chunks}</code>
           ),
+          key: '<key>',
         })}
         action={
           <Button onClick={() => setCreateOpen(true)}>
