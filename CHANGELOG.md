@@ -22,6 +22,10 @@ and polish.
 
 ### Fixed
 
+- **"Sign out" ends this device only.** It used to sign the person out of
+  every device; Settings → "Sign out of all devices" is the button for that.
+  A sign-out that did not work says so and leaves you signed in. No
+  migration.
 - **A read that failed no longer looks like nothing.** The case page's "last
   message" card says it could not load instead of "no message"; a chat-tag
   count in the team chat side menu that could not be read shows no number

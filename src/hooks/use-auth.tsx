@@ -12,6 +12,8 @@ import {
 } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { User } from "@supabase/supabase-js";
+import { useTranslations } from "next-intl";
+import { toast } from "sonner";
 import { DEFAULT_CURRENCY } from "@/lib/currency";
 import {
   canEditSettings as canEditSettingsFor,
@@ -23,6 +25,7 @@ import {
   type AccountRole,
 } from "@/lib/auth/roles";
 import { pickActiveProfile } from "@/lib/auth/active-profile";
+import { signOutThisDevice } from "@/lib/auth/sign-out";
 import {
   fallbackWorkspace,
   parseMyWorkspaces,
@@ -122,7 +125,14 @@ interface AuthContextValue {
    * and may take the "not opted in" branch incorrectly.
    */
   profileLoading: boolean;
+  /**
+   * End this device's session and go to /login. A refused sign-out says
+   * so and leaves the person where they are. Signing out everywhere is
+   * Settings' own button (`sessions-card.tsx`).
+   */
   signOut: () => Promise<void>;
+  /** `signOut()` is under way: it does the navigation to /login itself. */
+  signingOut: boolean;
   /** Re-fetch the current user's profile row — call after a save from
    *  the settings form so header/sidebar reflect the change without a
    *  full page reload. */
@@ -316,6 +326,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [account, setAccount] = useState<AccountSummary | null>(null);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [loading, setLoading] = useState(true);
+  const [signingOut, setSigningOut] = useState(false);
+  const t = useTranslations("AccountAccess");
   // Why the account/role couldn't be established, when it couldn't.
   // Null on the happy path.
   const [statusDetail, setStatusDetail] = useState<string | null>(null);
@@ -751,8 +763,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [fetchProfile]);
 
   const signOut = useCallback(async () => {
-    const supabase = createClient();
-    await signOutReleasingPush(() => supabase.auth.signOut());
+    setSigningOut(true);
+    if (!(await signOutThisDevice(createClient().auth))) {
+      setSigningOut(false);
+      toast.error(t("signOutFailed"));
+      return;
+    }
     leaveSession();
     sweepBrowserStorage();
     setUser(null);
@@ -760,7 +776,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAccount(null);
     setWorkspaces([]);
     window.location.href = "/login";
-  }, []);
+  }, [t]);
 
   const switchWorkspace = useCallback(
     async (accountId: string, next?: string) => {
@@ -837,6 +853,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loading,
       profileLoading,
       signOut,
+      signingOut,
       refreshProfile,
       account,
       defaultCurrency,
@@ -854,6 +871,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loading,
       profileLoading,
       signOut,
+      signingOut,
       refreshProfile,
       account,
       defaultCurrency,
@@ -889,6 +907,7 @@ export function useAuth(): AuthContextValue {
       signOut: async () => {
         window.location.href = "/login";
       },
+      signingOut: false,
       refreshProfile: async () => {},
       account: null,
       defaultCurrency: DEFAULT_CURRENCY,

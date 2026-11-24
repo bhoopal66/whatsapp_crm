@@ -31,7 +31,7 @@ import { CommandBar } from "@/components/command/command-bar";
 
 
 function DashboardShellInner({ children }: { children: React.ReactNode }) {
-  const { user, loading, profileLoading, accountRole } = useAuth();
+  const { user, loading, profileLoading, accountRole, signingOut } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   // A bank guest (migrations 082/083) has team chat and nothing else, so
@@ -49,16 +49,19 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
 
   useEffect(() => {
-    if (!loading && !user) {
+    // A sign-out here removes the session before its request to the
+    // server is answered, and then loads /login itself: going there now
+    // would have that load wipe whatever was typed on it meanwhile.
+    if (!loading && !user && !signingOut) {
       router.push("/login");
     }
-  }, [user, loading, router]);
+  }, [user, loading, signingOut, router]);
 
   useEffect(() => {
     if (guestRedirect) router.replace(guestRedirect);
   }, [guestRedirect, router]);
 
-  if (loading) {
+  if (loading || (!user && signingOut)) {
     return (
       <div className="flex h-app items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-3">
