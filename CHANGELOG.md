@@ -50,6 +50,9 @@ and polish.
 - **Calendar: "Last day of the month" is a repeat choice** when the start is
   one, and monthly on the 29th, 30th or 31st says it is skipped in shorter
   months.
+- **Calendar: a save conflict keeps what was typed.** When the event changed
+  meanwhile, the form keeps the person's own changes, takes the rest, and
+  names what changed on the other side.
 - **Compass updates: a status update is never posted twice into a
   submission group, and never lost to short failures.** A timeout or a
   restart mid-post answers `delivery_unconfirmed` and is not posted again

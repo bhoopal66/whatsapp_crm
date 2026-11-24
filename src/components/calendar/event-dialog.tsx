@@ -44,6 +44,7 @@ import {
   attendeeCandidates,
   choiceDescription,
   formChanged,
+  mergeConflict,
   meetingStartOf,
   repeatChoiceOf,
   repeatChoices,
@@ -149,9 +150,10 @@ export function EventDialog({
   const [customReminder, setCustomReminder] = useState('');
   const [customInvalid, setCustomInvalid] = useState(false);
 
-  const load = useCallback(async () => {
-    if (!item) return;
-    try {
+  // `merge`: after a refused save, keep what the person typed.
+  const load = useCallback(
+    async (merge?: { mine: EventFormValues; initial: EventFormValues }) => {
+      if (!item) return null;
       const detail = await calendarFetch<EventDetail>(
         `/api/calendar/events/${item.id}`
       );
@@ -168,17 +170,38 @@ export function EventDialog({
       );
       setOrganizerId(ev.created_by);
       setLoadedAt(ev.updated_at);
-      setValues(form);
+      const merged = merge
+        ? mergeConflict(merge.mine, merge.initial, form)
+        : null;
+      setValues(merged?.values ?? form);
       setInitial(form);
       setLoadError(null);
-    } catch (err) {
-      setLoadError(errorText(err));
-    }
-  }, [item, scope]);
+      return merged?.theirs ?? null;
+    },
+    [item, scope]
+  );
 
   useEffect(() => {
-    void load();
+    load().catch((err: unknown) => setLoadError(errorText(err)));
   }, [load]);
+
+  const resolveConflict = async (mine: EventFormValues) => {
+    if (!initial) return;
+    try {
+      const theirs = (await load({ mine, initial })) ?? [];
+      toast.error(t('form.conflict'), {
+        description: theirs.length
+          ? t('form.conflictFields', {
+              fields: new Intl.ListFormat(locale).format(
+                theirs.map((f) => t(`form.${f}`))
+              ),
+            })
+          : undefined,
+      });
+    } catch (err) {
+      toast.error(t('form.saveFailed', { reason: errorText(err) }));
+    }
+  };
 
   const build = (v: EventFormValues): BodyResult =>
     item && initial
@@ -221,8 +244,7 @@ export function EventDialog({
       onClose();
     } catch (err) {
       if (errorStatus(err) === 409) {
-        toast.error(t('form.conflict'));
-        await load();
+        await resolveConflict(values);
       } else {
         toast.error(t('form.saveFailed', { reason: errorText(err) }));
       }

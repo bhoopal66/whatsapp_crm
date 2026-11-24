@@ -5,6 +5,7 @@ import {
   choiceDescription,
   formChanged,
   meetingStartOf,
+  mergeConflict,
   repeatChoiceOf,
   repeatChoices,
   repeatPreview,
@@ -185,6 +186,37 @@ describe('repeat preview', () => {
     expect(repeatPreview({ ...v, repeat: { ...v.repeat, interval: 0 } })).toBe(
       'invalid'
     );
+  });
+});
+
+describe('a save refused because the event changed meanwhile', () => {
+  const initial = { ...thu15(), title: 'Sync', attendees: ['a', 'b'] };
+
+  it('keeps what the person changed and takes the rest', () => {
+    const mine = { ...initial, title: 'My title', location: 'Room 2' };
+    const latest = { ...initial, location: 'Room 9', description: 'New' };
+    expect(mergeConflict(mine, initial, latest)).toEqual({
+      values: { ...latest, title: 'My title', location: 'Room 2' },
+      theirs: ['location', 'description'],
+    });
+  });
+
+  it('keeps the times together', () => {
+    const mine = { ...initial, endTime: '12:00' };
+    const latest = { ...initial, startTime: '14:00', endTime: '15:00' };
+    const { values, theirs } = mergeConflict(mine, initial, latest);
+    expect([values.startTime, values.endTime]).toEqual(['10:00', '12:00']);
+    expect(theirs).toEqual(['start']);
+  });
+
+  it('merges the guests person by person', () => {
+    const mine = { ...initial, attendees: ['b', 'mine'] };
+    const latest = { ...initial, attendees: ['a', 'b', 'theirs'] };
+    expect(mergeConflict(mine, initial, latest).values.attendees).toEqual([
+      'b',
+      'theirs',
+      'mine',
+    ]);
   });
 });
 

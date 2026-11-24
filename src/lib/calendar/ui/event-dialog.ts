@@ -199,6 +199,60 @@ export function formChanged(
   return JSON.stringify(current) !== JSON.stringify(initial);
 }
 
+// Fields that only make sense together: kept, or taken, as one.
+const CONFLICT_GROUPS = [
+  ['title', ['title']],
+  [
+    'start',
+    ['allDay', 'startDate', 'startTime', 'endDate', 'endTime', 'timeZone'],
+  ],
+  ['repeat', ['repeat', 'customRrule']],
+  ['attendees', ['attendees']],
+  ['location', ['location']],
+  ['description', ['description']],
+  ['color', ['color']],
+  ['visibility', ['visibility']],
+  ['reminders', ['reminders']],
+] as const;
+
+/** A label under `Calendar.form`. */
+export type ConflictField = (typeof CONFLICT_GROUPS)[number][0];
+
+/**
+ * A save refused because the event changed meanwhile: what this person
+ * changed (against the values the dialog opened with) on top of the event
+ * as it is now, and the fields the other side changed. Guests are merged
+ * person by person, so a guest added there is not dropped here.
+ */
+export function mergeConflict(
+  mine: EventFormValues,
+  initial: EventFormValues,
+  latest: EventFormValues
+): { values: EventFormValues; theirs: ConflictField[] } {
+  const differs = (
+    a: EventFormValues,
+    b: EventFormValues,
+    keys: readonly (keyof EventFormValues)[]
+  ) => keys.some((k) => JSON.stringify(a[k]) !== JSON.stringify(b[k]));
+  const values: EventFormValues = { ...latest };
+  const theirs: ConflictField[] = [];
+  for (const [field, keys] of CONFLICT_GROUPS) {
+    if (differs(latest, initial, keys)) theirs.push(field);
+    if (field !== 'attendees' && differs(mine, initial, keys)) {
+      for (const k of keys) Object.assign(values, { [k]: mine[k] });
+    }
+  }
+  const had = new Set(initial.attendees);
+  const has = new Set(mine.attendees);
+  values.attendees = [
+    ...latest.attendees.filter((id) => has.has(id) || !had.has(id)),
+    ...mine.attendees.filter(
+      (id) => !had.has(id) && !latest.attendees.includes(id)
+    ),
+  ];
+  return { values, theirs };
+}
+
 export interface MemberLike {
   user_id: string;
   full_name: string | null;
