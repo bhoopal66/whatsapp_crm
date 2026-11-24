@@ -34,6 +34,11 @@ and polish.
 
 ### Fixed
 
+- **A failed read in the Inbox no longer passes for "none".** The Important
+  and pinned chats say they could not be loaded, with Retry, and a list
+  without them is not kept; a note's "@" says when names could not be loaded
+  and reads them again; forwarding answers that the service is unavailable
+  instead of "Message not found"; sharing with a coordinator offers Retry.
 - **A voice note or file a group refuses is kept, also after the group was
   left.** It was deleted when its send failed with another group open; it now
   waits in its own group (until the app is closed or reloaded) and the notice

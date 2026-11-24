@@ -62,8 +62,11 @@ export function NoteComposer({
   const [dismissedAt, setDismissedAt] = useState<number | null>(null);
   const [candidates, setCandidates] = useState<{
     conversationId: string;
-    list: MentionCandidate[];
+    /** Null: the names could not be loaded. */
+    list: MentionCandidate[] | null;
   } | null>(null);
+  // Ticks to read them again: the next "@" after a failed read.
+  const [namesRead, setNamesRead] = useState(0);
 
   useEffect(() => {
     if (!active) return;
@@ -74,7 +77,7 @@ export function NoteComposer({
     return () => {
       cancelled = true;
     };
-  }, [conversationId, active]);
+  }, [conversationId, active, namesRead]);
 
   useEffect(() => {
     noteDrafts.write(userId, conversationId, { text, picked });
@@ -98,10 +101,12 @@ export function NoteComposer({
   const matches = useMemo(
     () =>
       token && candidates?.conversationId === conversationId
-        ? filterMentionCandidates(candidates.list, token.query)
+        ? filterMentionCandidates(candidates.list ?? [], token.query)
         : [],
     [token, candidates, conversationId]
   );
+  const namesFailed =
+    candidates?.conversationId === conversationId && candidates.list === null;
   const listOpen =
     !!token && matches.length > 0 && dismissedAt !== token.start && !saving;
   const tooLong = text.length > NOTE_MAX_LENGTH;
@@ -208,6 +213,13 @@ export function NoteComposer({
             readOnly={saving}
             rows={1}
             onChange={(e) => {
+              const opened = activeMentionToken(
+                e.target.value,
+                e.target.selectionStart
+              );
+              if (namesFailed && opened && opened.start !== token?.start) {
+                setNamesRead((n) => n + 1);
+              }
               setText(e.target.value);
               setCaret(e.target.selectionStart);
               setHighlight(0);
@@ -237,6 +249,11 @@ export function NoteComposer({
             )}
           </button>
         </div>
+        {namesFailed && token && (
+          <p className="text-destructive px-3 pb-2 text-xs" role="status">
+            {t('namesFailed')}
+          </p>
+        )}
         {tooLong && (
           <p className="text-destructive px-3 pb-2 text-xs" role="alert">
             {t('tooLong', { max: NOTE_MAX_LENGTH })}

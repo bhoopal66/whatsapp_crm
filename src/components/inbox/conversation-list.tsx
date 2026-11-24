@@ -22,6 +22,7 @@ import { messagesCacheKey } from '@/lib/inbox/message-cache';
 import { fetchLatestMessagePage } from '@/lib/inbox/message-page-fetch';
 import { prefetchSession, sessionCache } from '@/lib/session-cache';
 import {
+  dropShortInboxList,
   inboxListCacheKey,
   inboxListRowsKey,
   mayAppendOlderPage,
@@ -589,6 +590,31 @@ function conversationsQuery(
 }
 
 /**
+ * The chats pinned above the page: those needing attention, and the
+ * signals' pins. Null when a read failed, which is not "none".
+ */
+async function readPins(
+  p: ListQueryParams,
+  wanted: { attention: boolean; pinned: boolean }
+): Promise<ConversationListItem[] | null> {
+  const [attention, pinned] = await Promise.all([
+    wanted.attention ? conversationsQuery(p, { attention: true }) : null,
+    wanted.pinned ? conversationsQuery(p, { pinned: true }) : null,
+  ]);
+  if (attention?.error) {
+    logFetchError('Failed to fetch chats needing attention:', attention.error);
+  }
+  if (pinned?.error) {
+    logFetchError('Failed to fetch pinned chats:', pinned.error);
+  }
+  if (attention?.error || pinned?.error) return null;
+  return appendConversationPage(
+    normalizeConversations(attention?.data ?? []),
+    normalizeConversations(pinned?.data ?? [])
+  );
+}
+
+/**
  * A search's first page: the chats of the found contacts (the ids in
  * chunks, so the URL stays short) and the chats whose last message holds
  * the term, merged with the contacts first in rank order.
@@ -1030,6 +1056,10 @@ export function ConversationList({
   const [failedPageView, setFailedPageView] = useState<ListQueryParams | null>(
     null
   );
+  // The view whose pinned chats could not be read.
+  const [pinsFailedView, setPinsFailedView] = useState<ListQueryParams | null>(
+    null
+  );
   const loadingMoreRef = useRef(false);
   // Bumped on each successful page so the bottom sentinel re-observes
   // (an IntersectionObserver only reports *changes*; a sentinel still
@@ -1192,20 +1222,16 @@ export function ConversationList({
     const fetchFirstPage = async (): Promise<
       InboxListSnapshot<ConversationListItem>
     > => {
-      const [first, attention, pinned] = await Promise.all([
+      const [first, pins] = await Promise.all([
         params.search
           ? searchConversations(params)
           : conversationsQuery(params, {}).then(({ data, error }) => ({
               page: error ? null : normalizeConversations(data ?? []),
               error,
             })),
-        // Empty during a search (see searchPart).
-        conversationsQuery(params, { attention: true }),
-        // Only with signals on: off, the first page is the two reads
-        // it always was.
-        startMode === 'on'
-          ? conversationsQuery(params, { pinned: true })
-          : null,
+        // Empty during a search (see searchPart). The pins only with
+        // signals on: off, the first page is the two reads it always was.
+        readPins(params, { attention: true, pinned: startMode === 'on' }),
       ]);
       if (first.error || !first.page) {
         logFetchError('Failed to fetch conversations:', first.error!);
@@ -1215,26 +1241,8 @@ export function ConversationList({
       // The cursor is the page's alone; the pinned rows ride along. A
       // search is one page: no cursor, so no further pages.
       const cursor = params.search ? null : nextConversationCursor(page);
-      if (attention.error) {
-        logFetchError(
-          'Failed to fetch chats needing attention:',
-          attention.error
-        );
-      }
-      if (pinned?.error) {
-        logFetchError('Failed to fetch pinned chats:', pinned.error);
-      }
-      let rows = appendConversationPage(
-        page,
-        normalizeConversations(attention.data ?? [])
-      );
-      if (pinned) {
-        rows = appendConversationPage(
-          rows,
-          normalizeConversations(pinned.data ?? [])
-        );
-      }
-      return { rows, cursor };
+      const rows = appendConversationPage(page, pins ?? []);
+      return pins ? { rows, cursor } : { rows, cursor, short: true };
     };
 
     (async () => {
@@ -1258,30 +1266,39 @@ export function ConversationList({
         }
         return;
       }
+      dropShortInboxList(key, snap);
       if (cancelled || generation !== generationRef.current) return;
       deliver(snap);
+      setPinsFailedView(null);
       catchUpRef.current?.settle();
 
-      if (startMode !== 'unknown') return;
+      // The page is up: the pins it lacks are read beside it, failed
+      // ones once more.
+      if (params.search || (startMode !== 'unknown' && !snap.short)) return;
       const on = await new Promise<boolean>((resolve) => {
         const s = signalsRef.current;
         if (s.mode === 'unknown') s.waiters.add(resolve);
         else resolve(s.mode === 'on');
       });
-      if (!on || cancelled || generation !== generationRef.current) return;
-      if (params.search) return;
-      const pinned = await conversationsQuery(params, { pinned: true });
       if (cancelled || generation !== generationRef.current) return;
-      if (pinned.error) {
-        logFetchError('Failed to fetch pinned chats:', pinned.error);
+      const missing = { attention: !!snap.short, pinned: on };
+      if (!missing.attention && !missing.pinned) return;
+      let pins = await readPins(params, missing);
+      if (!pins && !snap.short) pins = await readPins(params, missing);
+      if (cancelled || generation !== generationRef.current) return;
+      if (!pins) {
+        // Stored and written through without them since.
+        dropShortInboxList(key, { ...snap, short: true });
+        setPinsFailedView(params);
         return;
       }
-      // Folded in like a further page (de-duplicated, cursor kept);
-      // the write-through below stores them with the rest.
-      onConversationsLoadedRef.current(
-        normalizeConversations(pinned.data ?? []),
-        { mode: 'append', cursor: cursorRef.current }
-      );
+      // Folded in like a further page (de-duplicated, cursor kept); the
+      // write-through below stores them with the rest, unless the entry
+      // was dropped: then the next visit reads the list whole.
+      onConversationsLoadedRef.current(pins, {
+        mode: 'append',
+        cursor: cursorRef.current,
+      });
     })();
 
     return () => {
@@ -1291,6 +1308,24 @@ export function ConversationList({
     // (manual refresh, or a resync with no watermark to delta from).
     // `cacheKey` follows `listParams` (and the view).
   }, [enabled, resyncToken, reloadNonce, signalsEpoch, listParams, cacheKey]);
+
+  const [retryingPins, setRetryingPins] = useState(false);
+  const retryPins = async () => {
+    const params = listParams;
+    const generation = generationRef.current;
+    setRetryingPins(true);
+    const pins = await readPins(params, {
+      attention: true,
+      pinned: signalsRef.current.mode === 'on',
+    });
+    setRetryingPins(false);
+    if (generation !== generationRef.current || !pins) return;
+    setPinsFailedView(null);
+    onConversationsLoadedRef.current(pins, {
+      mode: 'append',
+      cursor: cursorRef.current,
+    });
+  };
 
   // Write-through: every change the Inbox applies to these rows
   // (realtime, unread marks, further pages, deltas, the pins) lands in
@@ -2322,6 +2357,22 @@ export function ConversationList({
         )}
       </div>
 
+      {pinsFailedView === listParams && body !== 'loading' && (
+        <div
+          className="text-wa-text-secondary flex items-center justify-between gap-2 px-4 py-1.5 text-xs"
+          role="status"
+        >
+          <span>{t('pinsFailed')}</span>
+          <button
+            type="button"
+            onClick={() => void retryPins()}
+            disabled={retryingPins}
+            className="text-wa-teal font-medium hover:underline disabled:opacity-50"
+          >
+            {t('retry')}
+          </button>
+        </div>
+      )}
       {/* Conversation Items.
           `min-h-0` is load-bearing: a flex child defaults to
           min-height:auto, so without it this ScrollArea grows to fit

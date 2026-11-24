@@ -544,6 +544,7 @@
       "noConversations": "No conversations found",
       "loadFailed": "Could not load the conversations.",
       "loadMoreFailed": "Could not load more.",
+      "pinsFailed": "Pinned chats could not be loaded.",
       "retry": "Retry",
       "noMessagesYet": "No messages yet",
       "unknown": "Unknown",
@@ -11227,6 +11228,7 @@
       "shareError": "Could not share this chat.",
       "revokeError": "Could not revoke the share.",
       "loadError": "Could not load coordinators.",
+      "retry": "Retry",
       "sharedLabel": "Shared · {bank}",
       "fromSubTag": "Chosen from the chat's sub-tag."
     },
@@ -13763,6 +13765,7 @@
     "saveFailed": "Couldn't save the note",
     "tooLong": "Notes can be up to {max} characters",
     "mentionListLabel": "People who can see this chat",
+    "namesFailed": "Names could not be loaded, so nobody will be notified. Type @ again to retry.",
     "you": "You",
     "someone": "A teammate",
     "edited": "edited",

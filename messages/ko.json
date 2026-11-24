@@ -544,6 +544,7 @@
       "noConversations": "대화를 찾을 수 없습니다",
       "loadFailed": "대화를 불러오지 못했습니다.",
       "loadMoreFailed": "더 불러오지 못했습니다.",
+      "pinsFailed": "고정된 채팅을 불러오지 못했습니다.",
       "retry": "다시 시도",
       "noMessagesYet": "아직 메시지가 없습니다",
       "unknown": "알 수 없음",
@@ -11227,6 +11228,7 @@
       "shareError": "채팅을 공유하지 못했습니다.",
       "revokeError": "공유를 취소하지 못했습니다.",
       "loadError": "코디네이터를 불러오지 못했습니다.",
+      "retry": "다시 시도",
       "sharedLabel": "공유됨 · {bank}",
       "fromSubTag": "채팅의 하위 태그에서 선택했습니다."
     },
@@ -13763,6 +13765,7 @@
     "saveFailed": "메모를 저장하지 못했습니다",
     "tooLong": "메모는 최대 {max}자까지 쓸 수 있습니다",
     "mentionListLabel": "이 채팅을 볼 수 있는 사람",
+    "namesFailed": "이름을 불러오지 못해 아무에게도 알림이 가지 않습니다. @를 다시 입력해 재시도하세요.",
     "you": "나",
     "someone": "팀원",
     "edited": "수정됨",
