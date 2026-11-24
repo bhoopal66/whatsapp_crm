@@ -39,6 +39,10 @@ and polish.
 
 ### Fixed
 
+- **Deal rooms survive a short outage.** A group message, receipt or
+  membership change that met a database blip was lost (WhatsApp had its
+  answer already), and so was a file whose download failed once. Each
+  delivery now retries up to three times within about ten seconds.
 - **Erasing or exporting a candidate also reaches their tasks.** A task an HR
   rule opens carries the chat and not the contact, and a missed call from a
   number nobody had yet carries only the call, so an erasure left both behind
