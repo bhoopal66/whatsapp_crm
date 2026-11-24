@@ -5,12 +5,12 @@ import { useTranslations } from 'next-intl';
 
 import { useAuth } from '@/hooks/use-auth';
 import type { AccountNumber } from '@/hooks/use-whatsapp-numbers';
-import { browserTimeZone } from '@/lib/dashboard/home/calls';
 import {
   outreachBars,
   type OutreachBar,
   type OutreachTone,
 } from '@/lib/dashboard/home/outreach';
+import { DEFAULT_TIME_ZONE } from '@/lib/pbx/call-status';
 import { createClient } from '@/lib/supabase/client';
 import {
   parseMyOutreachDay,
@@ -45,7 +45,7 @@ const TEXT_TONE: Record<OutreachTone, string> = {
  */
 async function loadMyDay(): Promise<MyOutreachDay> {
   const { data, error } = await createClient().rpc('team_activity_my_day', {
-    p_tz: browserTimeZone(),
+    p_tz: DEFAULT_TIME_ZONE,
   });
   if (error) throw new Error(error.message);
   const day = parseMyOutreachDay(data);

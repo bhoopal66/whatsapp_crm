@@ -30,7 +30,7 @@ import {
 } from '@/lib/dashboard/home/attention';
 import { viewerInboxDepartment } from '@/lib/inbox/departments';
 import type { OpenCases, OpenTasks } from '@/lib/dashboard/home/sources';
-import { taskCounts } from '@/lib/dashboard/home/tasks';
+import { cutTaskCounts } from '@/lib/dashboard/home/tasks';
 import type { CampaignInboxFields } from '@/lib/inbox/campaign-inbox';
 import {
   PIN_TILE_COLUMNS,
@@ -45,7 +45,6 @@ import {
   pinnedTileHref,
 } from '@/lib/insights/customer-view';
 import { createClient } from '@/lib/supabase/client';
-import type { Task } from '@/lib/tasks/types';
 import { cn } from '@/lib/utils';
 import { Skeleton } from '../skeleton';
 import { useWidgetData, type WidgetData } from './use-widget-data';
@@ -236,7 +235,7 @@ export function AttentionStrip({
       )
     : null;
   const taskFigures = tasks?.data
-    ? taskCounts(tasks.data.tasks, clock.now)
+    ? cutTaskCounts(tasks.data.tasks, clock.now)
     : null;
   const caseFigures = cases?.data ? overdueCases(cases.data.rows) : null;
 
@@ -310,12 +309,16 @@ export function AttentionStrip({
       tone: 'destructive',
       count: taskFigures?.overdue ?? null,
       display: taskFigures
-        ? formatCount(taskFigures.overdue, tasks.data?.truncated)
+        ? formatCount(
+            taskFigures.overdue,
+            tasks.data?.truncated && taskFigures.overdueCut
+          )
         : undefined,
       error: tasks.error && !tasks.data,
-      hint: tasks.data?.truncated
-        ? t('overdueTasks.hintCut')
-        : t('overdueTasks.hint', { count: taskFigures?.today ?? 0 }),
+      hint:
+        tasks.data?.truncated && taskFigures?.todayCut
+          ? t('overdueTasks.hintCut')
+          : t('overdueTasks.hint', { count: taskFigures?.today ?? 0 }),
     });
   }
   if (missedCalls !== null) {

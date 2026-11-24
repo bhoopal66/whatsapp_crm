@@ -22,6 +22,7 @@ import {
   limitGroups,
   missedRepeat,
   taskContactIds,
+  cutTaskCounts,
   taskCounts,
   taskTarget,
   type DueLabel,
@@ -129,19 +130,25 @@ export function TasksPanel({
 
   const buckets = bucketTasks(list, now);
   const counts = taskCounts(list, now);
-  // A list cut at the cap cannot say how many are due today: the figures
+  // A list cut at the cap may end before the day does: then the figures
   // are floors, and the "due today" one is left out.
-  const subtitle = truncated
-    ? counts.overdue
-      ? t('subtitleCutOverdue', { overdue: formatCount(counts.overdue, true) })
-      : counts.open
-        ? t('subtitleCutOpen', { count: formatCount(counts.open, true) })
-        : undefined
-    : counts.overdue || counts.today
-      ? t('subtitle', { overdue: counts.overdue, today: counts.today })
-      : counts.open
-        ? t('subtitleOpen', { count: counts.open })
-        : undefined;
+  const cut = cutTaskCounts(list, now);
+  const subtitle =
+    truncated && cut.todayCut
+      ? counts.overdue
+        ? t('subtitleCutOverdue', {
+            overdue: formatCount(counts.overdue, cut.overdueCut),
+          })
+        : counts.open
+          ? t('subtitleCutOpen', { count: formatCount(counts.open, true) })
+          : undefined
+      : counts.overdue || counts.today
+        ? t('subtitle', { overdue: counts.overdue, today: counts.today })
+        : counts.open
+          ? truncated
+            ? t('subtitleCutOpen', { count: formatCount(counts.open, true) })
+            : t('subtitleOpen', { count: counts.open })
+          : undefined;
 
   // The main groups, cut to ROW_LIMIT rows in order unless expanded.
   const shown = limitGroups(

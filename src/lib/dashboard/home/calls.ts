@@ -67,12 +67,3 @@ export function callOutcomes(outcomes: CallStatsOutcomes): OutcomeBar[] {
     return { outcome, count, percent: Math.round((count / max) * 100) };
   });
 }
-
-/** The browser's IANA zone, for "today"; UTC when it cannot say. */
-export function browserTimeZone(): string {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-  } catch {
-    return 'UTC';
-  }
-}

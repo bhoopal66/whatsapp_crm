@@ -190,6 +190,19 @@ describe('headings', () => {
     );
   });
 
+  it('keeps what was said of a call passed on and missed at the end', () => {
+    const passedOn = call({ status: 'no_answer', userName: 'Sara' });
+    expect(callTone(passedOn)).toBe('missed');
+    const text = line(
+      callHeading(passedOn, { timeZone: TZ, locale: 'en', rang: ['Sara'] })
+    );
+    expect(text).toContain('Missed call · incoming');
+    expect(text).toContain('6 min 18 s · Docs requested');
+    expect(line(callHeading(missed, { timeZone: TZ, locale: 'en' }))).toBe(
+      'Missed call · incoming · 11:40 · rang Sara for 24 s'
+    );
+  });
+
   it('words an answered call with the duration and outcome', () => {
     expect(line(callHeading(call(), { timeZone: TZ, locale: 'en' }))).toBe(
       'Incoming call · answered by Sara · 10:53 · 6 min 18 s · Docs requested'

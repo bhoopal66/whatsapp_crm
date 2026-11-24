@@ -218,10 +218,23 @@ function TeamActivityPageInner() {
   }, []);
 
   // Blocked sends for the report's own range (migration 204).
-  const [blocks, setBlocks] = useState<TeamBlock[] | null>(null);
-  const [blocksError, setBlocksError] = useState(false);
+  // Keyed to that range, as the report is to its query: a filter change
+  // that fails or is still loading shows no rows of the old period.
+  const [blocksRaw, setBlocks] = useState<{
+    key: string;
+    rows: TeamBlock[];
+  } | null>(null);
+  const [blocksFailed, setBlocksFailed] = useState<string | null>(null);
   const rangeFrom = loaded?.range.from;
   const rangeTo = loaded?.range.to;
+  const blocksRange = rangeFrom && rangeTo ? `${rangeFrom} ${rangeTo}` : '';
+  const blocks = blocksRange
+    ? (shownReport(blocksRaw, blocksRange)?.rows ?? null)
+    : null;
+  // No range and no report under way: the report itself failed.
+  const blocksError = blocksRange
+    ? blocksFailed === blocksRange
+    : !loading && error !== null;
   const [blocksKey, setBlocksKey] = useState(0);
   useEffect(() => {
     if (!rangeFrom || !rangeTo) return;
@@ -232,14 +245,14 @@ function TeamActivityPageInner() {
         const body: unknown = await res.json().catch(() => null);
         if (cancelled) return;
         if (!res.ok) {
-          setBlocksError(true);
+          setBlocksFailed(`${rangeFrom} ${rangeTo}`);
           return;
         }
-        setBlocksError(false);
-        setBlocks(parseBlocks(body));
+        setBlocksFailed(null);
+        setBlocks({ key: `${rangeFrom} ${rangeTo}`, rows: parseBlocks(body) });
       })
       .catch(() => {
-        if (!cancelled) setBlocksError(true);
+        if (!cancelled) setBlocksFailed(`${rangeFrom} ${rangeTo}`);
       });
     return () => {
       cancelled = true;
@@ -594,7 +607,10 @@ function TeamActivityPageInner() {
           <BlocksTab
             blocks={blocks}
             error={blocksError}
-            onRetry={() => setBlocksKey((k) => k + 1)}
+            onRetry={() => {
+              if (!blocksRange) reload();
+              else setBlocksKey((k) => k + 1);
+            }}
             nameOf={nameOf}
             numberOf={numberOf}
           />
