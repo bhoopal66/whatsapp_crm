@@ -8,12 +8,20 @@ import type { PipelineStageSlice } from '@/lib/dashboard/types';
 export interface DonutSegment {
   id: string;
   color: string;
-  /** An SVG arc. */
+  /** An SVG arc; empty when `full`. */
   path: string;
+  /**
+   * The stage is the whole ring. An arc from a point back to itself draws
+   * nothing, so the card draws a `<circle>` instead.
+   */
+  full: boolean;
 }
 
 /** Below this a stage is a sliver that disappears into the stroke. */
 const MIN_SHARE = 0.02;
+
+/** At or above this a stage's arc would start and end at the same point. */
+const FULL_SHARE = 0.9999;
 
 /**
  * Each stage's share of the ring, in stage order: of the value, or, since
@@ -58,10 +66,12 @@ export function donutSegments(
   return donutShares(stages, mixed).map((share, i) => {
     const start = offset;
     offset += share;
+    const full = share >= FULL_SHARE;
     return {
       id: stages[i].id,
       color: stages[i].color,
-      path: arcPath(cx, cy, r, angle(start), angle(offset)),
+      path: full ? '' : arcPath(cx, cy, r, angle(start), angle(offset)),
+      full,
     };
   });
 }

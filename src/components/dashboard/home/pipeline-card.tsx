@@ -125,16 +125,28 @@ function Donut({
           stroke="var(--muted)"
           strokeWidth={ringWidth}
         />
-        {segments.map((seg) => (
-          <path
-            key={seg.id}
-            d={seg.path}
-            fill="none"
-            stroke={seg.color}
-            strokeWidth={ringWidth}
-            strokeLinecap="butt"
-          />
-        ))}
+        {segments.map((seg) =>
+          seg.full ? (
+            <circle
+              key={seg.id}
+              cx={cx}
+              cy={cy}
+              r={r}
+              fill="none"
+              stroke={seg.color}
+              strokeWidth={ringWidth}
+            />
+          ) : (
+            <path
+              key={seg.id}
+              d={seg.path}
+              fill="none"
+              stroke={seg.color}
+              strokeWidth={ringWidth}
+              strokeLinecap="butt"
+            />
+          )
+        )}
         {/* center label: one line per currency, the block centred */}
         <text
           x={cx}

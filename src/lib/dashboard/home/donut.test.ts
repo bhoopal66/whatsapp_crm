@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { PipelineStageSlice } from '@/lib/dashboard/types';
-import { donutShares, isMixed } from './donut';
+import { donutSegments, donutShares, isMixed } from './donut';
 
 const stage = (
   id: string,
@@ -32,5 +32,31 @@ describe('donutShares', () => {
     expect(isMixed([stage('a', 2, ['AED', 300], ['USD', 0])], 'AED')).toBe(
       false
     );
+  });
+});
+
+describe('donutSegments', () => {
+  it('marks a stage holding every deal as the full ring, with no arc to draw', () => {
+    const [only] = donutSegments(
+      [stage('a', 4, ['AED', 300])],
+      false,
+      100,
+      100,
+      80
+    );
+    expect(only.full).toBe(true);
+    expect(only.path).toBe('');
+  });
+
+  it('draws an arc for each stage when the ring is shared', () => {
+    const segs = donutSegments(
+      [stage('a', 9, ['AED', 300]), stage('b', 1, ['AED', 100])],
+      false,
+      100,
+      100,
+      80
+    );
+    expect(segs.map((s) => s.full)).toEqual([false, false]);
+    expect(segs[0].path).toMatch(/^M .* A 80 80 0 /);
   });
 });
