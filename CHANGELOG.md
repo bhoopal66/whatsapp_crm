@@ -38,6 +38,8 @@ and polish.
 - **A colleague who was only consulted during a call is not counted as
   having answered it**, so they do not see the call or its recording and
   cannot write its note. The person it is handed to still can. No migration.
+- **"Today" and "Older" on the Calls screen are Dubai's days**, also for
+  someone whose computer is set to another time zone. No migration.
 - **The call reports start the day at midnight in Dubai**, also for
   someone whose computer is set to another time zone: their report days
   held other calls than everyone else's. No migration.
