@@ -13,6 +13,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+import { unavailable } from '@/lib/api/v1/respond';
 import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe';
 import type { LeadSource } from '@/lib/leads/lead-source';
 import { sanitizePhoneForMeta, isValidE164 } from '@/lib/whatsapp/phone-utils';
@@ -118,7 +119,8 @@ export interface ContactInput {
 
 /**
  * Find (by fuzzy phone match) or create a contact in `accountId`.
- * Returns the contact id and whether it was created. Reuses the shared
+ * Returns the contact id and whether it was created, with the stored row
+ * when it was (a re-read that fails must not lose it). Reuses the shared
  * `findExistingContact` dedupe + unique-violation race backstop so an
  * API-created contact is indistinguishable from a webhook-created one.
  */
@@ -127,7 +129,7 @@ export async function findOrCreateContact(
   accountId: string,
   auditUserId: string,
   input: ContactInput
-): Promise<{ id: string; created: boolean }> {
+): Promise<{ id: string; created: boolean; contact?: ApiContact }> {
   const sanitized = sanitizePhoneForMeta(input.phone);
   if (!isValidE164(sanitized)) {
     throw new ContactError(
@@ -150,7 +152,7 @@ export async function findOrCreateContact(
       company: input.company ?? null,
       lead_source: input.lead_source ?? null,
     })
-    .select('id')
+    .select(CONTACT_SELECT)
     .single();
 
   if (error || !created) {
@@ -164,10 +166,14 @@ export async function findOrCreateContact(
     throw new ContactError('Failed to create contact', 500);
   }
 
-  return { id: created.id, created: true };
+  const contact = serializeContact(created as Record<string, unknown>);
+  return { id: contact.id, created: true, contact };
 }
 
-/** Fetch + serialize a single contact scoped to the account, or null. */
+/**
+ * Fetch + serialize a single contact scoped to the account, or null when
+ * there is none. A read that failed says nothing about the contact: 503.
+ */
 export async function getContactById(
   db: SupabaseClient,
   accountId: string,
@@ -179,6 +185,12 @@ export async function getContactById(
     .eq('id', contactId)
     .eq('account_id', accountId)
     .maybeSingle();
-  if (error || !data) return null;
+  if (error) {
+    // Not a uuid: no contact has that id.
+    if (error.code === '22P02') return null;
+    console.error('[api/v1/contacts] read error:', error);
+    throw unavailable();
+  }
+  if (!data) return null;
   return serializeContact(data as Record<string, unknown>);
 }

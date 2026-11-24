@@ -1,10 +1,11 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import {
   CONTACT_SELECT,
   serializeContact,
   findOrCreateContact,
+  getContactById,
   ContactError,
 } from './contacts';
 
@@ -71,5 +72,64 @@ describe('findOrCreateContact', () => {
     await expect(
       findOrCreateContact(noopDb, 'acc', 'user', { phone: 'not-a-number' })
     ).rejects.toBeInstanceOf(ContactError);
+  });
+});
+
+describe('getContactById', () => {
+  const db = (answer: unknown) => {
+    const chain = {
+      select: () => chain,
+      eq: () => chain,
+      maybeSingle: async () => answer,
+    };
+    return { from: () => chain } as unknown as SupabaseClient;
+  };
+
+  it('is null for no row, and for an id that is not a uuid', async () => {
+    expect(
+      await getContactById(db({ data: null, error: null }), 'acc', 'c')
+    ).toBeNull();
+    expect(
+      await getContactById(
+        db({ data: null, error: { code: '22P02' } }),
+        'acc',
+        'c'
+      )
+    ).toBeNull();
+  });
+
+  it('is a 503 when the read failed', async () => {
+    vi.spyOn(console, 'error').mockImplementationOnce(() => {});
+    await expect(
+      getContactById(db({ data: null, error: { code: '57014' } }), 'acc', 'c')
+    ).rejects.toMatchObject({ status: 503, code: 'unavailable' });
+  });
+});
+
+describe('findOrCreateContact, created', () => {
+  it('hands back the row the insert returned', async () => {
+    const chain: Record<string, unknown> = {};
+    for (const m of ['select', 'eq', 'order', 'limit', 'or', 'like', 'insert'])
+      chain[m] = () => chain;
+    for (const m of ['in', 'ilike', 'is', 'filter']) chain[m] = () => chain;
+    chain.then = (resolve: (v: unknown) => void) =>
+      resolve({ data: [], error: null });
+    chain.single = async () => ({
+      data: { id: 'c-1', phone: '971501234567', name: 'Ann' },
+      error: null,
+    });
+    const db = { from: () => chain, rpc: () => chain };
+    expect(
+      await findOrCreateContact(
+        db as unknown as SupabaseClient,
+        'acc',
+        'user',
+        { phone: '971501234567' }
+      )
+    ).toMatchObject({
+      id: 'c-1',
+      created: true,
+      contact: { id: 'c-1', name: 'Ann' },
+    });
   });
 });

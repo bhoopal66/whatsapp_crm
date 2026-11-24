@@ -14,7 +14,13 @@
 // ============================================================
 
 import { requireApiKey } from '@/lib/auth/api-context';
-import { ok, okList, fail, toApiErrorResponse } from '@/lib/api/v1/respond';
+import {
+  ok,
+  okList,
+  fail,
+  toApiErrorResponse,
+  unavailable,
+} from '@/lib/api/v1/respond';
 import {
   parseListParams,
   keysetFilter,
@@ -124,7 +130,7 @@ export async function POST(request: Request) {
 
     const auditUserId = await resolveAuditUserId(ctx.supabase, ctx.accountId);
 
-    const { id, created } = await findOrCreateContact(
+    const { id, created, contact } = await findOrCreateContact(
       ctx.supabase,
       ctx.accountId,
       auditUserId,
@@ -137,8 +143,11 @@ export async function POST(request: Request) {
       }
     );
 
-    const contact = await getContactById(ctx.supabase, ctx.accountId, id);
-    return ok(contact, created ? 201 : 200);
+    if (contact) return ok(contact, 201);
+    const existing = await getContactById(ctx.supabase, ctx.accountId, id);
+    // Deleted in between: the same request now creates it.
+    if (!existing) throw unavailable();
+    return ok(existing, created ? 201 : 200);
   } catch (err) {
     if (err instanceof ContactError) {
       return fail(

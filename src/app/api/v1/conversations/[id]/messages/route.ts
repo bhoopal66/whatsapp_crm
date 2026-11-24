@@ -7,7 +7,12 @@
 // ============================================================
 
 import { requireApiKey } from '@/lib/auth/api-context';
-import { okList, fail, toApiErrorResponse } from '@/lib/api/v1/respond';
+import {
+  okList,
+  fail,
+  toApiErrorResponse,
+  unavailable,
+} from '@/lib/api/v1/respond';
 import {
   parseListParams,
   keysetFilter,
@@ -26,13 +31,18 @@ export async function GET(
     const { limit, cursor } = parseListParams(request);
 
     // Gate on account ownership of the conversation first.
-    const { data: conv } = await ctx.supabase
+    const { data: conv, error: convError } = await ctx.supabase
       .from('conversations')
       .select('id')
       .eq('id', id)
       .eq('account_id', ctx.accountId)
       .is('personal_owner_id', null)
       .maybeSingle();
+    // 22P02: not a uuid, so no conversation has that id.
+    if (convError && convError.code !== '22P02') {
+      console.error('[api/v1/messages] conversation read error:', convError);
+      throw unavailable();
+    }
     if (!conv) return fail('not_found', 'Conversation not found', 404);
 
     let query = ctx.supabase
