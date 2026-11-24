@@ -105,6 +105,13 @@ describe('POST documents/request', () => {
     );
   });
 
+  it('answers 502 UNCONFIRMED when the outcome is unknown', async () => {
+    m.request.mockResolvedValue({ sent: false, reason: 'UNCONFIRMED' });
+    const res = await post();
+    expect(res.status).toBe(502);
+    expect((await res.json()).code).toBe('UNCONFIRMED');
+  });
+
   it("answers 404 for another account's case and sends nothing", async () => {
     m.get.mockResolvedValue({ id: C, accountId: 'acct-2' });
     expect((await post()).status).toBe(404);

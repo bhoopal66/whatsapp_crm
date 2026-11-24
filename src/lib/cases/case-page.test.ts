@@ -344,9 +344,13 @@ describe('result codes', () => {
     expect(docRequestKey(409, 'BLOCKED')).toBe('blocked');
     expect(docRequestKey(409, 'REFUSED')).toBe('refused');
     expect(docRequestKey(409, 'SEND_FAILED')).toBe('sendFailed');
+    expect(docRequestKey(502, 'UNCONFIRMED')).toBe('unconfirmed');
+    // The browser's own error, and a proxy's page: it may have gone out.
+    for (const status of [0, 408, 500, 502, 524])
+      expect(docRequestKey(status, undefined)).toBe('unconfirmed');
     expect(docRequestKey(429, 'SEND_RATE_LIMITED')).toBe('rateLimited');
     expect(docRequestKey(429, undefined)).toBe('rateLimited');
-    expect(docRequestKey(500, undefined)).toBe('sendFailed');
+    expect(docRequestKey(400, undefined)).toBe('sendFailed');
   });
 
   it('maps stage and detail refusals', () => {

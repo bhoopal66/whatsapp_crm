@@ -248,7 +248,9 @@ describe('parsers', () => {
       archived: false,
       waMode: null,
       messages: [],
+      truncated: false,
     });
+    expect(parseConversation({ truncated: true }).truncated).toBe(true);
   });
 
   it('parseConversation reads waMode: none, group, anything else null (136)', () => {

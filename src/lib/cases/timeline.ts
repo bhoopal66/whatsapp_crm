@@ -11,7 +11,8 @@
  *      through 115's audited viewArchive (CaseConversations.read).
  *   3. Live group messages, only with `includeMessages`, only while the
  *      group is ACTIVE, and only after `store.viewCases` (view_case, the
- *      audited read) returned the case. post_end rows are left out.
+ *      audited read) returned the case. post_end rows are left out, and
+ *      only the newest page is read (liveGroupMessages).
  *   4. Calls of the case's contact since the case opened, read through the
  *      CALLER's RLS client, so 113's pbx_can_view_call decides which.
  *
@@ -123,7 +124,8 @@ export async function caseTimeline(
     } else if (input.includeMessages) {
       const readable = await store.viewCases(actor, [caseId]);
       if (readable.includes(caseId)) {
-        for (const m of await liveGroupMessages(db, group.id))
+        const live = await liveGroupMessages(db, group.id);
+        for (const m of live.messages)
           entries.push({
             at: m.createdAt,
             kind: 'group_message',

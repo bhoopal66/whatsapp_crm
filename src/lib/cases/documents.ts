@@ -12,11 +12,14 @@
  * Order: case_doc_request_begin (the case's write right; refusals throw
  * CaseRefusedError before anything is sent) → send → only after the
  * customer has the message, case_doc_mark_requested. A refused, blocked or
- * failed send marks nothing.
+ * failed send marks nothing, and neither does one whose outcome is unknown
+ * (UNCONFIRMED): the documents stay on the missing list, so none is lost if
+ * the customer never got the message.
  */
 import {
   SubmissionGroupSendBlockedError,
   SubmissionGroupSendRefusedError,
+  SubmissionGroupSendUnconfirmedError,
   SubmissionGroupSentNotRecordedError,
   type GroupRefusal,
   type SubmissionGroupService,
@@ -77,7 +80,9 @@ export type DocRequestResult =
   | { sent: false; reason: 'NOTHING_MISSING' }
   | { sent: false; reason: 'REFUSED'; refusal: GroupRefusal }
   | { sent: false; reason: 'BLOCKED'; blocked: 'opted_out' | 'do_not_contact' }
-  | { sent: false; reason: 'SEND_FAILED' };
+  | { sent: false; reason: 'SEND_FAILED' }
+  /** The gateway never answered: WhatsApp may hold the message. */
+  | { sent: false; reason: 'UNCONFIRMED' };
 
 export interface DocRequestDeps {
   tools: Pick<CaseToolsStore, 'docRequestBegin' | 'docMarkRequested'>;
@@ -122,6 +127,8 @@ export async function requestMissingDocuments(
       return { sent: false, reason: 'BLOCKED', blocked: err.reason };
     } else if (err instanceof SubmissionGroupSendRefusedError) {
       return { sent: false, reason: 'REFUSED', refusal: err.reason };
+    } else if (err instanceof SubmissionGroupSendUnconfirmedError) {
+      return { sent: false, reason: 'UNCONFIRMED' };
     } else {
       return { sent: false, reason: 'SEND_FAILED' };
     }

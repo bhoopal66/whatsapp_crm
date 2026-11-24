@@ -3,7 +3,8 @@
 //
 // GET: an audited read (view_case writes its row before any message is
 // fetched). An ENDED group is read only through 115's archive. Answers
-// `{ groupId, archived, waMode, messages }` (messages in the
+// `{ groupId, archived, waMode, truncated, messages }` (a live group's
+// newest messages, `truncated` when older ones are left out, in the
 // submission-group message view shape; waMode 'group' | 'none' (136: no
 // WhatsApp group, nothing can be sent) | null without a group row), or
 // 404 NOT_READABLE.
@@ -72,6 +73,7 @@ export async function GET(_request: Request, { params }: Params) {
       groupId: read.groupId,
       archived: read.archived,
       waMode: read.waMode,
+      truncated: read.truncated,
       messages: read.messages.map((m) => toMessageView(m, names)),
     });
   } catch (err) {
