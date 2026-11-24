@@ -160,14 +160,14 @@ export function useConversationNotes(conversationId: string | null) {
   return { notes, add, edit, remove };
 }
 
-/** Who an @mention in this chat's notes may name (241). */
+/** Who an @mention in this chat's notes may name (241); null: unknown. */
 export async function fetchMentionCandidates(
   conversationId: string
-): Promise<MentionCandidate[]> {
+): Promise<MentionCandidate[] | null> {
   const { data, error } = await createClient().rpc(
     'conversation_note_mention_candidates',
     { p_conversation_id: conversationId }
   );
-  if (error || !Array.isArray(data)) return [];
+  if (error || !Array.isArray(data)) return null;
   return data as MentionCandidate[];
 }

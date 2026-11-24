@@ -72,7 +72,7 @@ function harness() {
   let active: ActiveChat | null = null;
   const pending = new Map<
     string,
-    ReturnType<typeof deferred<Conversation | null>>
+    ReturnType<typeof deferred<Conversation | 'gone' | null>>
   >();
   const shows: ActiveChat[] = [];
   const failures: string[] = [];
@@ -86,13 +86,16 @@ function harness() {
       active = applyFullRow(active, full);
     },
     fetchFull: vi.fn((id: string) => {
-      const d = deferred<Conversation | null>();
+      const d = deferred<Conversation | 'gone' | null>();
       pending.set(id, d);
       return d.promise;
     }),
     failed: (id: string) => {
       failures.push(id);
     },
+    gone: vi.fn((id: string) => {
+      if (active?.row.id === id) active = null;
+    }),
   };
   return {
     deps,
@@ -159,6 +162,63 @@ describe('openConversation', () => {
     h.pending.get('a')!.resolve(fullRow('a'));
     await openA;
     expect(h.active).toEqual({ full: false, row: listRow('b') });
+  });
+});
+
+describe('openConversation on a chat handed away', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** Opens chat `a`; its reads answer these, in turn. */
+  async function open(answers: (Conversation | 'gone' | null)[], row = true) {
+    vi.useFakeTimers();
+    const h = harness();
+    h.deps.fetchFull.mockImplementation(() =>
+      Promise.resolve(answers.shift() ?? null)
+    );
+    const done = openConversation('a', row ? listRow('a') : undefined, h.deps);
+    await vi.advanceTimersByTimeAsync(60_000);
+    await done;
+    return h;
+  }
+
+  it('closes it once a second read answers without it too', async () => {
+    const h = await open(['gone', 'gone']);
+    expect(h.deps.gone.mock.calls).toEqual([['a']]);
+    expect(h.deps.fetchFull).toHaveBeenCalledTimes(2);
+    expect(h.failures).toEqual([]);
+    expect(h.active).toBeNull();
+  });
+
+  it('keeps it when the second read has it, or fails', async () => {
+    const found = await open(['gone', fullRow('a')]);
+    expect(found.deps.gone).not.toHaveBeenCalled();
+    expect(found.active).toEqual({ full: true, row: fullRow('a') });
+    const failing = await open(['gone', null, 'gone', null]);
+    expect(failing.deps.gone).not.toHaveBeenCalled();
+    expect(failing.failures).toEqual(['a']);
+  });
+
+  it('leaves alone a chat picked since', async () => {
+    vi.useFakeTimers();
+    const h = harness();
+    h.deps.fetchFull.mockImplementation((id: string) =>
+      Promise.resolve(id === 'a' ? 'gone' : fullRow(id))
+    );
+    const first = openConversation('a', listRow('a'), h.deps);
+    await vi.advanceTimersByTimeAsync(0);
+    await openConversation('b', listRow('b'), h.deps);
+    await vi.advanceTimersByTimeAsync(60_000);
+    await first;
+    expect(h.deps.gone).not.toHaveBeenCalled();
+    expect(h.active?.row.id).toBe('b');
+  });
+
+  it('has nothing to close for a link to a chat we may not see', async () => {
+    const h = await open(['gone', 'gone', 'gone', 'gone'], false);
+    expect(h.deps.gone).not.toHaveBeenCalled();
+    expect(h.failures).toEqual(['a']);
   });
 });
 

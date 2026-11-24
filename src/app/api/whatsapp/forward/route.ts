@@ -33,6 +33,18 @@ const REASON_TEXT = {
   no_media: 'The attachment on this message is unavailable',
 } as const;
 
+/** A read that failed is not "not found": nothing was sent, try again. */
+function unreadable(what: string, error: { message: string; code: string }) {
+  console.error(`[forward] could not read the ${what}:`, {
+    message: error.message,
+    code: error.code,
+  });
+  return NextResponse.json(
+    { error: 'The service is temporarily unavailable. Please try again.' },
+    { status: 503 }
+  );
+}
+
 /**
  * Forward one message into up to `MAX_FORWARD_TARGETS` other chats.
  *
@@ -84,21 +96,23 @@ export async function POST(request: Request) {
 
     // The source goes through the caller's RLS: a message in a thread
     // they cannot see (migrations 042–044) simply isn't found.
-    const { data: source } = await supabase
+    const { data: source, error: sourceError } = await supabase
       .from('messages')
       .select(
         'id, conversation_id, content_type, content_text, media_url, media_type, created_at, provider, channel_id, sender_type'
       )
       .eq('id', messageId)
       .maybeSingle();
-    const { data: sourceConversation } = source
+    if (sourceError) return unreadable('message', sourceError);
+    const { data: sourceConversation, error: conversationError } = source
       ? await supabase
           .from('conversations')
           .select('id')
           .eq('id', source.conversation_id)
           .eq('account_id', accountId)
           .maybeSingle()
-      : { data: null };
+      : { data: null, error: null };
+    if (conversationError) return unreadable('chat', conversationError);
 
     if (!source || !sourceConversation) {
       return NextResponse.json({ error: 'Message not found' }, { status: 404 });
@@ -114,11 +128,12 @@ export async function POST(request: Request) {
 
     // Same visibility rule for the destinations: a colleague's chat the
     // caller cannot open is reported as not found, never sent to.
-    const { data: visible } = await supabase
+    const { data: visible, error: targetsError } = await supabase
       .from('conversations')
       .select('id')
       .eq('account_id', accountId)
       .in('id', targets);
+    if (targetsError) return unreadable('targets', targetsError);
     const visibleIds = new Set((visible ?? []).map((c) => c.id as string));
 
     const results: ForwardTargetResult[] = [];

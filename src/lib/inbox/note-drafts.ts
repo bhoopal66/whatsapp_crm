@@ -17,6 +17,9 @@ export interface NoteDraft {
 
 export const MAX_PARKED_NOTES = 50;
 
+/** An edit of a saved note is parked under the note, beside the chats. */
+export const noteEditKey = (noteId: string) => `edit:${noteId}`;
+
 export interface NoteDrafts {
   read(userId: string | null, conversationId: string): NoteDraft | null;
   /** Park the draft; a blank one is dropped. */

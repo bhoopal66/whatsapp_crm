@@ -22,6 +22,7 @@ import { messagesCacheKey } from '@/lib/inbox/message-cache';
 import { fetchLatestMessagePage } from '@/lib/inbox/message-page-fetch';
 import { prefetchSession, sessionCache } from '@/lib/session-cache';
 import {
+  dropShortInboxList,
   inboxListCacheKey,
   inboxListRowsKey,
   mayAppendOlderPage,
@@ -84,6 +85,11 @@ import {
   type DepartmentView,
   type InboxDepartment,
 } from '@/lib/inbox/departments';
+import {
+  createDeltaCatchUp,
+  type DeltaCatchUp,
+} from '@/lib/inbox/delta-catch-up';
+import { createHeldCheck } from '@/lib/inbox/held-check';
 import {
   CONVERSATION_PAGE_SIZE,
   assigneeGroup,
@@ -215,7 +221,9 @@ import { NewChatButton } from './new-chat-button';
 export type ConversationListLoad =
   | { mode: 'replace'; cursor: ConversationCursor | null }
   | { mode: 'append'; cursor: ConversationCursor | null }
-  | { mode: 'delta' };
+  | { mode: 'delta' }
+  /** Held rows that are no longer ours to see. No rows come with it. */
+  | { mode: 'gone'; ids: string[] };
 
 interface ConversationListProps {
   activeConversationId: string | null;
@@ -582,6 +590,31 @@ function conversationsQuery(
           ? INBOX_SEARCH_TEXT_LIMIT
           : INBOX_SEARCH_LIMIT
     );
+}
+
+/**
+ * The chats pinned above the page: those needing attention, and the
+ * signals' pins. Null when a read failed, which is not "none".
+ */
+async function readPins(
+  p: ListQueryParams,
+  wanted: { attention: boolean; pinned: boolean }
+): Promise<ConversationListItem[] | null> {
+  const [attention, pinned] = await Promise.all([
+    wanted.attention ? conversationsQuery(p, { attention: true }) : null,
+    wanted.pinned ? conversationsQuery(p, { pinned: true }) : null,
+  ]);
+  if (attention?.error) {
+    logFetchError('Failed to fetch chats needing attention:', attention.error);
+  }
+  if (pinned?.error) {
+    logFetchError('Failed to fetch pinned chats:', pinned.error);
+  }
+  if (attention?.error || pinned?.error) return null;
+  return appendConversationPage(
+    normalizeConversations(attention?.data ?? []),
+    normalizeConversations(pinned?.data ?? [])
+  );
 }
 
 /**
@@ -1031,6 +1064,10 @@ export function ConversationList({
   const [failedPageView, setFailedPageView] = useState<ListQueryParams | null>(
     null
   );
+  // The view whose pinned chats could not be read.
+  const [pinsFailedView, setPinsFailedView] = useState<ListQueryParams | null>(
+    null
+  );
   const loadingMoreRef = useRef(false);
   // Bumped on each successful page so the bottom sentinel re-observes
   // (an IntersectionObserver only reports *changes*; a sentinel still
@@ -1038,6 +1075,8 @@ export function ConversationList({
   const [pageCount, setPageCount] = useState(0);
   // Forces a first-page reload when a delta turns out too big.
   const [reloadNonce, setReloadNonce] = useState(0);
+  // The delta resync, which owes a window until it is read (below).
+  const catchUpRef = useRef<DeltaCatchUp | null>(null);
 
   // HR view realtime (hr_conversations): the latest `hr` of each held
   // chat, laid over the rows. Tied to the params it was received under,
@@ -1191,20 +1230,16 @@ export function ConversationList({
     const fetchFirstPage = async (): Promise<
       InboxListSnapshot<ConversationListItem>
     > => {
-      const [first, attention, pinned] = await Promise.all([
+      const [first, pins] = await Promise.all([
         params.search
           ? searchConversations(params)
           : conversationsQuery(params, {}).then(({ data, error }) => ({
               page: error ? null : normalizeConversations(data ?? []),
               error,
             })),
-        // Empty during a search (see searchPart).
-        conversationsQuery(params, { attention: true }),
-        // Only with signals on: off, the first page is the two reads
-        // it always was.
-        startMode === 'on'
-          ? conversationsQuery(params, { pinned: true })
-          : null,
+        // Empty during a search (see searchPart). The pins only with
+        // signals on: off, the first page is the two reads it always was.
+        readPins(params, { attention: true, pinned: startMode === 'on' }),
       ]);
       if (first.error || !first.page) {
         logFetchError('Failed to fetch conversations:', first.error!);
@@ -1214,26 +1249,8 @@ export function ConversationList({
       // The cursor is the page's alone; the pinned rows ride along. A
       // search is one page: no cursor, so no further pages.
       const cursor = params.search ? null : nextConversationCursor(page);
-      if (attention.error) {
-        logFetchError(
-          'Failed to fetch chats needing attention:',
-          attention.error
-        );
-      }
-      if (pinned?.error) {
-        logFetchError('Failed to fetch pinned chats:', pinned.error);
-      }
-      let rows = appendConversationPage(
-        page,
-        normalizeConversations(attention.data ?? [])
-      );
-      if (pinned) {
-        rows = appendConversationPage(
-          rows,
-          normalizeConversations(pinned.data ?? [])
-        );
-      }
-      return { rows, cursor };
+      const rows = appendConversationPage(page, pins ?? []);
+      return pins ? { rows, cursor } : { rows, cursor, short: true };
     };
 
     (async () => {
@@ -1257,29 +1274,39 @@ export function ConversationList({
         }
         return;
       }
+      dropShortInboxList(key, snap);
       if (cancelled || generation !== generationRef.current) return;
       deliver(snap);
+      setPinsFailedView(null);
+      catchUpRef.current?.settle();
 
-      if (startMode !== 'unknown') return;
+      // The page is up: the pins it lacks are read beside it, failed
+      // ones once more.
+      if (params.search || (startMode !== 'unknown' && !snap.short)) return;
       const on = await new Promise<boolean>((resolve) => {
         const s = signalsRef.current;
         if (s.mode === 'unknown') s.waiters.add(resolve);
         else resolve(s.mode === 'on');
       });
-      if (!on || cancelled || generation !== generationRef.current) return;
-      if (params.search) return;
-      const pinned = await conversationsQuery(params, { pinned: true });
       if (cancelled || generation !== generationRef.current) return;
-      if (pinned.error) {
-        logFetchError('Failed to fetch pinned chats:', pinned.error);
+      const missing = { attention: !!snap.short, pinned: on };
+      if (!missing.attention && !missing.pinned) return;
+      let pins = await readPins(params, missing);
+      if (!pins && !snap.short) pins = await readPins(params, missing);
+      if (cancelled || generation !== generationRef.current) return;
+      if (!pins) {
+        // Stored and written through without them since.
+        dropShortInboxList(key, { ...snap, short: true });
+        setPinsFailedView(params);
         return;
       }
-      // Folded in like a further page (de-duplicated, cursor kept);
-      // the write-through below stores them with the rest.
-      onConversationsLoadedRef.current(
-        normalizeConversations(pinned.data ?? []),
-        { mode: 'append', cursor: cursorRef.current }
-      );
+      // Folded in like a further page (de-duplicated, cursor kept); the
+      // write-through below stores them with the rest, unless the entry
+      // was dropped: then the next visit reads the list whole.
+      onConversationsLoadedRef.current(pins, {
+        mode: 'append',
+        cursor: cursorRef.current,
+      });
     })();
 
     return () => {
@@ -1289,6 +1316,24 @@ export function ConversationList({
     // (manual refresh, or a resync with no watermark to delta from).
     // `cacheKey` follows `listParams` (and the view).
   }, [enabled, resyncToken, reloadNonce, signalsEpoch, listParams, cacheKey]);
+
+  const [retryingPins, setRetryingPins] = useState(false);
+  const retryPins = async () => {
+    const params = listParams;
+    const generation = generationRef.current;
+    setRetryingPins(true);
+    const pins = await readPins(params, {
+      attention: true,
+      pinned: signalsRef.current.mode === 'on',
+    });
+    setRetryingPins(false);
+    if (generation !== generationRef.current || !pins) return;
+    setPinsFailedView(null);
+    onConversationsLoadedRef.current(pins, {
+      mode: 'append',
+      cursor: cursorRef.current,
+    });
+  };
 
   // Write-through: every change the Inbox applies to these rows
   // (realtime, unread marks, further pages, deltas, the pins) lands in
@@ -1350,35 +1395,72 @@ export function ConversationList({
     }
   }, []);
 
-  // Delta resync: only the rows changed since the watermark. Keyed on
-  // the token alone (the ref remembers which one was handled) so a
-  // re-render never re-sends it.
+  // Delta resync: only the rows changed since the watermark. A read that
+  // failed is retried, and its window kept for the next one
+  // (lib/inbox/delta-catch-up.ts).
+  useEffect(() => {
+    // A delta cannot say what left: the held ids are asked for again.
+    const heldCheck = createHeldCheck({
+      held: () => heldIdsRef.current,
+      read: async (ids) => {
+        const { data, error } = await createClient()
+          .from('conversations')
+          .select('id')
+          .in('id', ids);
+        if (error) {
+          logFetchError('Failed to check the held conversations:', error);
+          throw new Error('held conversations check failed');
+        }
+        return data.map((row) => row.id as string);
+      },
+      drop: (ids) =>
+        onConversationsLoadedRef.current([], { mode: 'gone', ids }),
+    });
+    const catchUp = createDeltaCatchUp<ConversationListItem>({
+      read: async (since) => {
+        const generation = generationRef.current;
+        const { data, error } = await conversationsQuery(
+          listParamsRef.current,
+          { since }
+        );
+        if (error) {
+          logFetchError('Failed to resync conversations:', error);
+          throw new Error('conversations resync failed');
+        }
+        // Another view's answer. Its first page settles this; should
+        // that page fail, the window is still read.
+        if (generation !== generationRef.current) {
+          throw new Error('the list moved to another view');
+        }
+        return normalizeConversations(data ?? []);
+      },
+      apply: (rows) => {
+        onConversationsLoadedRef.current(rows, { mode: 'delta' });
+        void heldCheck.run();
+      },
+      // Too much changed to merge piecemeal — start over.
+      reload: () => setReloadNonce((n) => n + 1),
+      limit: DELTA_LIMIT,
+    });
+    catchUpRef.current = catchUp;
+    return () => {
+      catchUpRef.current = null;
+      catchUp.stop();
+      heldCheck.stop();
+    };
+  }, []);
+
+  // Keyed on the token alone (the ref remembers which one was handled)
+  // so a re-render never re-sends it.
   const deltaToken = deltaSync?.token ?? 0;
   const deltaSince = deltaSync?.since ?? null;
   const handledDeltaTokenRef = useRef(deltaToken);
   useEffect(() => {
     if (deltaToken === handledDeltaTokenRef.current) return;
     handledDeltaTokenRef.current = deltaToken;
+    // Not enabled: the first page it loads once it is covers the window.
     if (!enabled || !deltaSince) return;
-    const generation = generationRef.current;
-
-    (async () => {
-      const { data, error } = await conversationsQuery(listParamsRef.current, {
-        since: deltaSince,
-      });
-      if (generation !== generationRef.current) return;
-      if (error) {
-        logFetchError('Failed to resync conversations:', error);
-        return;
-      }
-      const rows = normalizeConversations(data ?? []);
-      if (rows.length >= DELTA_LIMIT) {
-        // Too much changed to merge piecemeal — start over.
-        setReloadNonce((n) => n + 1);
-        return;
-      }
-      onConversationsLoadedRef.current(rows, { mode: 'delta' });
-    })();
+    catchUpRef.current?.signal(deltaSince);
   }, [deltaToken, deltaSince, enabled]);
 
   // Campaign names for the row label and the filter. Not cached: a
@@ -2311,6 +2393,22 @@ export function ConversationList({
         )}
       </div>
 
+      {pinsFailedView === listParams && body !== 'loading' && (
+        <div
+          className="text-wa-text-secondary flex items-center justify-between gap-2 px-4 py-1.5 text-xs"
+          role="status"
+        >
+          <span>{t('pinsFailed')}</span>
+          <button
+            type="button"
+            onClick={() => void retryPins()}
+            disabled={retryingPins}
+            className="text-wa-teal font-medium hover:underline disabled:opacity-50"
+          >
+            {t('retry')}
+          </button>
+        </div>
+      )}
       {/* Conversation Items.
           `min-h-0` is load-bearing: a flex child defaults to
           min-height:auto, so without it this ScrollArea grows to fit

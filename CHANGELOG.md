@@ -48,6 +48,27 @@ and polish.
 - **A failed submission group message reads "May not have been delivered;
   check the group".** Some of them reached WhatsApp all the same, and a
   plain "Failed" had people send it twice.
+- **A chat handed to someone else leaves the old holder's Inbox.** It stayed
+  in the list with its last message, and opened as "No messages yet", until
+  the page was reloaded. Opening it now says it is no longer yours, and the
+  list drops such chats by itself when it catches up.
+- **An edit of a team note survives switching chats.** It comes back with the
+  chat, and after Escape with Edit, until it is saved or cancelled (or the
+  app is closed or reloaded).
+- **A failed read in the Inbox no longer passes for "none".** The Important
+  and pinned chats say they could not be loaded, with Retry, and a list
+  without them is not kept; a note's "@" says when names could not be loaded
+  and reads them again; forwarding answers that the service is unavailable
+  instead of "Message not found"; sharing with a coordinator offers Retry.
+- **A voice note or file a group refuses is kept, also after the group was
+  left.** It was deleted when its send failed with another group open; it now
+  waits in its own group (until the app is closed or reloaded) and the notice
+  names that group. Both kinds of group chat, and a case's conversation.
+- **A chat that arrived while the Inbox was out of touch is not missed.**
+  When the read that catches the list up after a lost connection or a long
+  absence failed, its window was dropped and a new customer chat stayed
+  missing until the page was reloaded. The read is now tried again, and what
+  it could not read is read with the next one.
 - **A template Meta refuses says why.** Meta's answer is "Invalid
   parameter" with the reason in a second text that was dropped; both are
   shown now.

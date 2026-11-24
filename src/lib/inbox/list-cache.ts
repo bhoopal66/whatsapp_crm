@@ -40,6 +40,20 @@ export interface InboxListQuestion {
 export interface InboxListSnapshot<Row> {
   rows: Row[];
   cursor: ConversationCursor | null;
+  /** The chats pinned above the page could not be read: rows are missing. */
+  short?: true;
+}
+
+/**
+ * A fresh first page that is short is shown, but not kept: the entry
+ * goes, so a revisit does not start from a list without its pins. The
+ * write-through below leaves a missing entry alone.
+ */
+export function dropShortInboxList<Row>(
+  key: SessionKey | null,
+  snapshot: InboxListSnapshot<Row>
+): void {
+  if (key && snapshot.short) sessionCache.delete(key);
 }
 
 const sorted = (ids: readonly string[]) => [...ids].sort();

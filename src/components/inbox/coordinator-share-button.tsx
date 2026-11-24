@@ -98,6 +98,9 @@ function ShareDialog({
   const [banks, setBanks] = useState<BankOption[] | null>(null);
   const [coordinators, setCoordinators] = useState<CoordinatorRow[]>([]);
   const [shares, setShares] = useState<ConversationShareRow[] | null>(null);
+  // A failed read is not "none"; a reload asks again.
+  const [failed, setFailed] = useState({ banks: false, shares: false });
+  const [reload, setReload] = useState(0);
   const [bank, setBank] = useState<string | null>(null);
   const [person, setPerson] = useState<string | null>(null);
   // The bank the sub-tag picked, while it is still the selection.
@@ -110,11 +113,11 @@ function ShareDialog({
         `/api/conversations/${conversationId}/coordinator-shares`
       );
       setShares(body.shares);
+      setFailed((f) => ({ ...f, shares: false }));
     } catch {
-      setShares([]);
-      toast.error(t('loadError'));
+      setFailed((f) => ({ ...f, shares: true }));
     }
-  }, [conversationId, t]);
+  }, [conversationId]);
 
   useEffect(() => {
     if (!accountId) return;
@@ -152,17 +155,30 @@ function ShareDialog({
           setSuggested((prev) => prev ?? picked);
         }
       } catch {
-        if (!cancelled) {
-          setBanks([]);
-          toast.error(t('loadError'));
-        }
+        if (!cancelled) setFailed((f) => ({ ...f, banks: true }));
       }
     })();
     void loadShares();
     return () => {
       cancelled = true;
     };
-  }, [accountId, accountRole, loadShares, subTagName, t]);
+  }, [accountId, accountRole, loadShares, subTagName, reload]);
+
+  function retry() {
+    setFailed({ banks: false, shares: false });
+    setReload((n) => n + 1);
+  }
+  const loadFailed = (
+    <p
+      className="text-destructive flex items-center gap-2 text-sm"
+      role="alert"
+    >
+      {t('loadError')}
+      <Button size="sm" variant="outline" onClick={retry}>
+        {t('retry')}
+      </Button>
+    </p>
+  );
 
   const choices = useMemo(
     () => coordinatorChoices(coordinators, bank, user?.id ?? null),
@@ -241,7 +257,9 @@ function ShareDialog({
             <h3 className="text-muted-foreground text-xs font-medium">
               {t('bank')}
             </h3>
-            {banks === null ? (
+            {failed.banks ? (
+              loadFailed
+            ) : banks === null ? (
               <Loader2 className="text-muted-foreground size-4 animate-spin" />
             ) : banks.length === 0 ? (
               <p className="text-muted-foreground text-sm">{t('noBanks')}</p>
@@ -300,7 +318,9 @@ function ShareDialog({
             <h3 className="text-muted-foreground text-xs font-medium">
               {t('openShares')}
             </h3>
-            {shares === null ? (
+            {failed.shares ? (
+              loadFailed
+            ) : shares === null ? (
               <Loader2 className="text-muted-foreground size-4 animate-spin" />
             ) : shares.length === 0 ? (
               <p className="text-muted-foreground text-sm">{t('noShares')}</p>

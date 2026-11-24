@@ -33,6 +33,7 @@ import {
   splitNoteMentions,
   type ConversationNote,
 } from '@/lib/inbox/notes';
+import { noteDrafts, noteEditKey } from '@/lib/inbox/note-drafts';
 import { isImeKey } from '@/lib/keyboard/ime';
 import { cn } from '@/lib/utils';
 
@@ -56,8 +57,15 @@ export function ThreadNote({
   onDelete: (id: string) => Promise<boolean>;
 }) {
   const t = useTranslations('ChatNotes');
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(note.body);
+  // An edit left half-written comes back (lib/inbox/note-drafts), also
+  // after Escape; Save and Cancel end it. Only its author has one.
+  const draftKey = noteEditKey(note.id);
+  const readParked = () =>
+    isMine ? (noteDrafts.read(note.author_id, draftKey)?.text ?? null) : null;
+  const [parked] = useState(readParked);
+  const [editing, setEditing] = useState(parked !== null);
+  const [focusEdit, setFocusEdit] = useState(false);
+  const [draft, setDraft] = useState(parked ?? note.body);
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
 
@@ -70,16 +78,30 @@ export function ThreadNote({
     .map((id) => nameOf(id))
     .filter((n): n is string => !!n);
 
+  const typeEdit = (text: string) => {
+    setDraft(text);
+    if (text === note.body) noteDrafts.clear(note.author_id, draftKey);
+    else noteDrafts.write(note.author_id, draftKey, { text, picked: [] });
+  };
+
+  const cancelEdit = () => {
+    noteDrafts.clear(note.author_id, draftKey);
+    setEditing(false);
+  };
+
   const saveEdit = async () => {
     if (busy || !canSaveNote(draft)) return;
     if (draft === note.body) {
-      setEditing(false);
+      cancelEdit();
       return;
     }
     setBusy(true);
+    // Out of the parked edits while it saves, back if it was not saved.
+    noteDrafts.clear(note.author_id, draftKey);
     const ok = await onEdit(note.id, draft);
     setBusy(false);
     if (!ok) {
+      noteDrafts.restore(note.author_id, draftKey, { text: draft, picked: [] });
       toast.error(t('editFailed'));
       return;
     }
@@ -92,6 +114,7 @@ export function ThreadNote({
     const ok = await onDelete(note.id);
     setBusy(false);
     if (!ok) toast.error(t('deleteFailed'));
+    else noteDrafts.clear(note.author_id, draftKey);
   };
 
   return (
@@ -111,7 +134,7 @@ export function ThreadNote({
               <DropdownMenuTrigger
                 aria-label={t('actions')}
                 disabled={busy}
-                className="text-muted-foreground hover:bg-warning-soft -mt-1 -me-1 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full disabled:opacity-50"
+                className="text-muted-foreground hover:bg-warning-soft -me-1 -mt-1 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full disabled:opacity-50"
               >
                 {busy ? (
                   <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
@@ -123,7 +146,8 @@ export function ThreadNote({
                 <DropdownMenuItem
                   className="gap-2"
                   onClick={() => {
-                    setDraft(note.body);
+                    setDraft(readParked() ?? note.body);
+                    setFocusEdit(true);
                     setEditing(true);
                   }}
                 >
@@ -147,7 +171,7 @@ export function ThreadNote({
           <div className="mt-1.5 space-y-2">
             <Textarea
               value={draft}
-              onChange={(e) => setDraft(e.target.value)}
+              onChange={(e) => typeEdit(e.target.value)}
               onKeyDown={(e) => {
                 if (isImeKey(e.nativeEvent)) return;
                 if (e.key === 'Enter' && !e.shiftKey) {
@@ -155,13 +179,15 @@ export function ThreadNote({
                   void saveEdit();
                 } else if (e.key === 'Escape') {
                   e.preventDefault();
+                  // Put away, not given up: Edit brings it back.
                   setEditing(false);
                 }
               }}
               aria-label={t('edit')}
               aria-invalid={draft.length > NOTE_MAX_LENGTH || undefined}
               dir="auto"
-              autoFocus
+              // Not one that came back by itself: the reply box has it.
+              autoFocus={focusEdit}
               className="min-h-16 text-sm"
             />
             {draft.length > NOTE_MAX_LENGTH && (
@@ -174,7 +200,7 @@ export function ThreadNote({
                 type="button"
                 size="sm"
                 variant="ghost"
-                onClick={() => setEditing(false)}
+                onClick={cancelEdit}
               >
                 {t('cancel')}
               </Button>

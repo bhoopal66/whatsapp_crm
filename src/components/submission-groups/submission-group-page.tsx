@@ -723,6 +723,7 @@ export function SubmissionGroupPage({
             {!ended && (
               <GroupComposer
                 chatKey={`submission:${groupId}`}
+                chatName={groupTitle(detail.group) ?? t('untitled')}
                 userId={user?.id ?? null}
                 onSendText={(text) => postMessage({ text })}
                 onSendMedia={(media) => postMessage({ media })}

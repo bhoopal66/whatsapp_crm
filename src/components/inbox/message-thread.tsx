@@ -2160,6 +2160,7 @@ export function MessageThread({
       visibleMessages.length > 0 ||
       threadEvents.length > 0 ||
       failedHere.length > 0,
+    unconfirmed: !fullConversation && !fullRowFailed,
   });
   // This chat's "N unread messages" divider, if it was opened unread.
   const unreadDivider =

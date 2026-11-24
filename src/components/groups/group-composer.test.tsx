@@ -20,6 +20,7 @@ function render(props: Partial<React.ComponentProps<typeof GroupComposer>>) {
     <NextIntlClientProvider locale="en" messages={en} timeZone="UTC">
       <GroupComposer
         chatKey="group:g"
+        chatName="Acme"
         userId="u"
         onSendText={async () => true}
         onSendMedia={async () => true}

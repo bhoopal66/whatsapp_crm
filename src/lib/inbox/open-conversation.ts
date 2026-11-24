@@ -18,6 +18,8 @@ import type { Conversation } from '@/types';
 // A full-row read that misses is retried (FULL_ROW_RETRY_DELAYS_MS)
 // while that chat is still the one asked for; a dropped read once left
 // the chat half-loaded for good, with no way back but a page reload.
+// An answer without the row is RLS saying the chat is no longer ours
+// (handed away): asked once more, and then the chat is closed.
 // ============================================================
 
 /**
@@ -138,13 +140,14 @@ export interface OpenConversationDeps {
   /** Merge a full row into whatever is open when it lands. */
   upgrade: (full: Conversation) => void;
   /**
-   * Read the full row; null when RLS says no or the read failed. Both
-   * are retried: the list row shows the caller could see it a moment
-   * ago, so a miss is far likelier transient than final.
+   * Read the full row; null when the read failed, `'gone'` when it
+   * answered without the row (RLS says no). Both are retried.
    */
-  fetchFull: (id: string) => Promise<Conversation | null>;
+  fetchFull: (id: string) => Promise<Conversation | 'gone' | null>;
   /** Every retry missed for chat `id`, still the one asked for. */
   failed: (id: string) => void;
+  /** Two reads running answered without chat `id`, shown and still open. */
+  gone: (id: string) => void;
 }
 
 /**
@@ -183,11 +186,12 @@ export async function rereadFullRow(
 async function readFullRow(
   ticket: OpenTicket,
   shown: boolean,
-  { latest, show, upgrade, fetchFull, failed }: OpenConversationDeps
+  { latest, show, upgrade, fetchFull, failed, gone }: OpenConversationDeps
 ): Promise<void> {
+  let wasGone = false;
   for (let attempt = 0; ; attempt++) {
     const full = await fetchFull(ticket.id);
-    if (full) {
+    if (full && full !== 'gone') {
       // Only the latest read lands: a superseded one (the agent re-read,
       // or left and came back) may hold an older snapshot than the read
       // that replaced it.
@@ -197,6 +201,12 @@ async function readFullRow(
       return;
     }
     if (latest.current !== ticket) return;
+    // Nothing shown (a link to a chat we may not see): nothing to close.
+    if (shown && full === 'gone' && wasGone) {
+      gone(ticket.id);
+      return;
+    }
+    wasGone = full === 'gone';
     const delay = FULL_ROW_RETRY_DELAYS_MS[attempt];
     if (delay === undefined) {
       failed(ticket.id);

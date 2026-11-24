@@ -493,6 +493,7 @@
   },
   "Inbox": {
     "page": {
+      "chatGone": "This chat is no longer yours.",
       "whatsappNotConnected": "WhatsApp® is not connected. Go to Settings to connect your account."
     },
     "reminderSuggestion": {
@@ -544,6 +545,7 @@
       "noConversations": "No conversations found",
       "loadFailed": "Could not load the conversations.",
       "loadMoreFailed": "Could not load more.",
+      "pinsFailed": "Pinned chats could not be loaded.",
       "retry": "Retry",
       "noMessagesYet": "No messages yet",
       "unknown": "Unknown",
@@ -8819,7 +8821,8 @@
         "send": "Send",
         "uploadFailed": "Upload failed.",
         "fileTooLarge": "This file is {size} MB; the limit for this kind is {limit} MB.",
-        "fileTypeNotAllowed": "This kind of file cannot be sent."
+        "fileTypeNotAllowed": "This kind of file cannot be sent.",
+        "notSentIn": "Not sent in {group}. It is kept there: open it to send it again."
       },
       "reasons": {
         "not_allowed": "You don't have permission to do that.",
@@ -11261,6 +11264,7 @@
       "shareError": "Could not share this chat.",
       "revokeError": "Could not revoke the share.",
       "loadError": "Could not load coordinators.",
+      "retry": "Retry",
       "sharedLabel": "Shared · {bank}",
       "fromSubTag": "Chosen from the chat's sub-tag."
     },
@@ -13805,6 +13809,7 @@
     "saveFailed": "Couldn't save the note",
     "tooLong": "Notes can be up to {max} characters",
     "mentionListLabel": "People who can see this chat",
+    "namesFailed": "Names could not be loaded, so nobody will be notified. Type @ again to retry.",
     "you": "You",
     "someone": "A teammate",
     "edited": "edited",
