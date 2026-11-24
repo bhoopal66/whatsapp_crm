@@ -10,6 +10,12 @@ vi.mock('./providers/anthropic', () => ({
   generateAnthropic: mocks.anthropic,
 }));
 
+// Spyable: an ES module's own exports are not.
+vi.mock('@/lib/memory/redact', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/memory/redact')>()),
+}));
+
+import * as redactModule from '@/lib/memory/redact';
 import {
   TRANSLATE_MAX_OUTPUT_TOKENS,
   cleanTranslation,
@@ -201,6 +207,82 @@ describe('translateText', () => {
     }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(AiError);
     expect((err as AiError).code).toBe('truncated');
+  });
+
+  it('masks what a customer wrote before translating it into English', async () => {
+    mocks.openai.mockResolvedValue({
+      text: 'My number is [PHONE:567].',
+      usage: USAGE,
+    });
+    const result = await translateText({
+      config: config(),
+      text: 'رقمي +971 50 123 4567',
+      target: 'en',
+    });
+    const args = mocks.openai.mock.calls[0][0];
+    expect(args.messages[0].content).toBe('رقمي [PHONE:567]');
+    expect(args.systemPrompt).toContain('keep each mask exactly as written');
+    // The reading aid (and its cache row) keeps the mask.
+    expect(result.text).toBe('My number is [PHONE:567].');
+  });
+
+  describe('a draft for the customer', () => {
+    const TEXT = 'Call +971 50 123 4567 or write to sara@taamul.ae today.';
+    const translate = (text: string, answer: string) => {
+      mocks.openai.mockResolvedValue({ text: answer, usage: USAGE });
+      return translateText({ config: config(), text, target: 'ar' }).catch(
+        (e: unknown) => e
+      );
+    };
+
+    it('sends numbered placeholders and puts the originals back', async () => {
+      const result = await translate(TEXT, 'راسل ⟦2⟧ أو اتصل على ⟦١⟧ اليوم.');
+      const args = mocks.openai.mock.calls[0][0];
+      expect(args.messages[0].content).toBe('Call ⟦1⟧ or write to ⟦2⟧ today.');
+      expect(args.systemPrompt).toContain('⟦1⟧');
+      expect(result).toMatchObject({
+        text: 'راسل sara@taamul.ae أو اتصل على +971 50 123 4567 اليوم.',
+      });
+    });
+
+    it.each([
+      ['lost', 'راسل ⟦2⟧ اليوم.'],
+      ['doubled', 'اتصل على ⟦1⟧ أو ⟦1⟧ أو راسل ⟦2⟧.'],
+      ['made up', 'اتصل على ⟦1⟧ أو راسل ⟦2⟧ أو ⟦3⟧.'],
+      ['broken', 'اتصل على ⟦1⟧ أو راسل ⟦2⟧ أو ⟦2.'],
+    ])('refuses a %s placeholder, its spend kept', async (_, answer) => {
+      const err = await translate(TEXT, answer);
+      expect(err).toBeInstanceOf(AiError);
+      expect(err).toMatchObject({
+        code: 'translate_unsafe',
+        status: 422,
+        usage: USAGE,
+      });
+    });
+
+    it('refuses a text that already holds a placeholder, unsent', async () => {
+      const err = await translate('Your code is ⟦1⟧', 'رمزك ⟦1⟧');
+      expect(err).toMatchObject({ code: 'translate_unsafe', usage: null });
+      expect(mocks.openai).not.toHaveBeenCalled();
+    });
+
+    it('refuses a text the redactor refuses, unsent', async () => {
+      const spy = vi
+        .spyOn(redactModule, 'redactSpans')
+        .mockReturnValue({ ok: false, refused: true, reason: 'x' });
+      try {
+        const err = await translate('Hello', 'مرحبا');
+        expect(err).toMatchObject({ code: 'translate_unsafe' });
+        expect(mocks.openai).not.toHaveBeenCalled();
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it('refuses a placeholder added to a text that had none', async () => {
+      const err = await translate('Hello', 'مرحبا ⟦1⟧');
+      expect(err).toMatchObject({ code: 'translate_unsafe' });
+    });
   });
 
   it('refuses an unknown provider', async () => {

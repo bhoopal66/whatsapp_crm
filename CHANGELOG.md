@@ -502,6 +502,13 @@ superuser or BYPASSRLS role; after 152 and 202).
 
 ### Security
 
+- **Translate and the HR assistant no longer send identifiers to the AI
+  provider.** Both masked nothing before; every chat call to a provider now
+  goes through one place that masks and checks the transfer basis. A
+  customer's message is translated with the masks in it; in an agent's draft
+  the numbers are swapped for placeholders and put back afterwards, and a
+  draft where that cannot be done safely is refused with a message. An HR
+  draft that repeats a mask is handed to a recruiter. No migration.
 - **A submission group is never an ordinary group.** A submission group
   made by our own number was also listed as an ordinary WhatsApp group,
   where its creator, its managers and their team leaders could read and
