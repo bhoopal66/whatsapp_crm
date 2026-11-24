@@ -13600,9 +13600,19 @@
     "lastRun": "마지막 실행 {when}.",
     "lastRunDrafts": "마지막 실행 {when}. 새 초안: {count}개.",
     "notRunYet": "첫 실행은 한 시간 안에 시작됩니다.",
-    "loadFailed": "학습 설정을 불러오지 못했습니다",
+    "loadFailed": "학습 설정을 불러오지 못했습니다.",
     "saveFailed": "학습 설정을 저장하지 못했습니다",
     "switchedOn": "팀 답변 학습이 켜졌습니다",
-    "switchedOff": "팀 답변 학습이 꺼졌습니다"
+    "switchedOff": "팀 답변 학습이 꺼졌습니다",
+    "runningNow": "지금 실행 중입니다.",
+    "failedNoAi": "마지막 실행 실패: AI 어시스턴트가 꺼져 있거나 키가 없습니다.",
+    "failedRead": "마지막 실행 실패: 일부 채팅이나 설정을 읽지 못했습니다.",
+    "failedTime": "마지막 실행이 끝나기 전에 시간이 다 되었습니다.",
+    "failedModel": "마지막 실행 실패: AI 서비스가 응답하지 않았습니다.",
+    "failedOther": "마지막 실행 실패: 문제가 발생했습니다.",
+    "failedStopped": "마지막 실행이 끝나기 전에 중단되었습니다.",
+    "triesAgain": "{when} 이후에 다시 시도합니다.",
+    "triesSoon": "한 시간 안에 다시 시도합니다.",
+    "usageLabel": "학습된 답변"
   }
 }

@@ -87,10 +87,10 @@ function fakeStore(
   } = {}
 ): KbLearnStore & {
   recorded: RecordDraftArgs[];
-  finished: [string, number][];
+  finished: [string, number, string | null][];
 } {
   const recorded: RecordDraftArgs[] = [];
-  const finished: [string, number][] = [];
+  const finished: [string, number, string | null][] = [];
   const threads: Record<string, LearnThread | null> = over.threads ?? {
     c1: {
       messages: [
@@ -118,9 +118,10 @@ function fakeStore(
     finished,
     dueAccounts: async () => [ACCOUNT],
     claimRun: async () => true,
-    finishRun: async (id, n) => {
-      finished.push([id, n]);
+    finishRun: async (id, n, error) => {
+      finished.push([id, n, error]);
     },
+    askedThisWeek: async () => 0,
     openTopics: async () => [
       {
         id: 't1',
@@ -463,52 +464,200 @@ describe('back-off, gaps and usage', () => {
   });
 });
 
-describe('learnAccount', () => {
-  it('needs an AI key', async () => {
-    const store = fakeStore();
-    const d = deps(store, { loadConfig: async () => null });
-    expect(await learnAccount(d, ACCOUNT, 1e9)).toEqual({
-      drafted: 0,
-      tried: 0,
-    });
-    expect(d.generate).not.toHaveBeenCalled();
-  });
+/** `n` topics with answers each. */
+const topics = (n: number) => async () =>
+  Array.from({ length: n }, (_, k) => ({
+    id: `t${k}`,
+    label: `topic ${k}`,
+    coverage: 'none',
+    gapIds: ['g1', 'g2'],
+  }));
+const down = async () => {
+  throw new Error('db down');
+};
+const modelDown = async () => {
+  throw new AiError('down', { code: 'network_error' });
+};
 
+describe('learnAccount', () => {
   it('caps topics per run at ten', async () => {
-    const store = fakeStore({
-      openTopics: async () =>
-        Array.from({ length: 15 }, (_, k) => ({
-          id: `t${k}`,
-          label: `topic ${k}`,
-          coverage: 'none',
-          gapIds: ['g1', 'g2'],
-        })),
-    });
-    const d = deps(store);
-    expect(await learnAccount(d, ACCOUNT, 1e9)).toEqual({
+    const d = deps(fakeStore({ openTopics: topics(15) }));
+    expect(await learnAccount(d, ACCOUNT, CONFIG, 1e9)).toEqual({
       drafted: 10,
       tried: 10,
+      error: null,
     });
   });
 
-  it('starts no topic after its time budget', async () => {
-    const store = fakeStore();
-    const d = deps(store);
-    expect(await learnAccount(d, ACCOUNT, TOPIC_MIN_BUDGET_MS - 1)).toEqual({
-      drafted: 0,
-      tried: 0,
-    });
+  it('the topics asked in the last 7 days count toward the ten', async () => {
+    for (const [asked, left] of [
+      [7, 3],
+      [10, 0],
+      [12, 0],
+    ]) {
+      const knownNames = vi.fn(async () => []);
+      const d = deps(
+        fakeStore({
+          openTopics: topics(15),
+          askedThisWeek: async () => asked!,
+          knownNames,
+        })
+      );
+      expect(await learnAccount(d, ACCOUNT, CONFIG, 1e9)).toEqual({
+        drafted: left,
+        tried: left,
+        error: null,
+      });
+      expect(d.generate).toHaveBeenCalledTimes(left!);
+      // Nothing left: done for the week without reading the names.
+      expect(knownNames).toHaveBeenCalledTimes(left ? 1 : 0);
+    }
   });
 
-  it('never throws', async () => {
+  it('hourly out-of-time retries never ask more than ten', async () => {
+    const ledger: string[] = [];
+    let clock = 0;
     const store = fakeStore({
-      openTopics: async () => {
-        throw new Error('db down');
+      openTopics: async () =>
+        (await topics(30)()).filter((t) => !ledger.includes(t.id)),
+      askedThisWeek: async () => ledger.length,
+      recordDraft: async (a) => {
+        ledger.push(a.topicId);
+        clock += 10_000;
+        return 'drafted';
       },
     });
-    await expect(learnAccount(deps(store), ACCOUNT, 1e9)).resolves.toEqual({
+    const d = deps(store, { now: () => clock });
+    const errors = [];
+    for (let i = 0; i < 4; i++)
+      errors.push(
+        (await learnAccount(d, ACCOUNT, CONFIG, clock + 45_000)).error
+      );
+    expect(errors).toEqual(['out_of_time', 'out_of_time', null, null]);
+    expect(ledger).toHaveLength(10);
+  });
+
+  it('starts no topic after its time budget, and says so', async () => {
+    const d = deps(fakeStore());
+    expect(
+      await learnAccount(d, ACCOUNT, CONFIG, TOPIC_MIN_BUDGET_MS - 1)
+    ).toEqual({ drafted: 0, tried: 0, error: 'out_of_time' });
+  });
+
+  it('a failed read is an error, never a quiet success', async () => {
+    for (const over of [
+      { askedThisWeek: down },
+      { openTopics: down },
+      { knownNames: down },
+      { thread: down },
+      { gaps: down },
+      { topicDrafted: down },
+    ]) {
+      const d = deps(fakeStore(over as Partial<KbLearnStore>));
+      expect(await learnAccount(d, ACCOUNT, CONFIG, 1e9)).toEqual({
+        drafted: 0,
+        tried: 0,
+        error: 'read_failed',
+      });
+      expect(d.generate).not.toHaveBeenCalled();
+    }
+  });
+
+  it('a topic that cannot be read does not hide that the ten were asked', async () => {
+    let first = true;
+    const store = fakeStore({
+      openTopics: topics(15),
+      topicDrafted: async () => {
+        if (first) {
+          first = false;
+          throw new Error('timeout');
+        }
+        return false;
+      },
+    });
+    expect(await learnAccount(deps(store), ACCOUNT, CONFIG, 1e9)).toEqual({
+      drafted: 10,
+      tried: 10,
+      error: null,
+    });
+  });
+
+  it('stops after three model failures in a row', async () => {
+    const generate = vi.fn(modelDown);
+    const d = deps(fakeStore({ openTopics: topics(9) }), { generate });
+    expect(await learnAccount(d, ACCOUNT, CONFIG, 1e9)).toEqual({
+      drafted: 0,
+      tried: 3,
+      error: 'model',
+    });
+    expect(generate).toHaveBeenCalledTimes(3);
+  });
+
+  it('a lone model failure is passed over, one at the end is not', async () => {
+    const good = deps(fakeStore()).generate;
+    const run = (failing: number[]) => {
+      let i = 0;
+      return learnAccount(
+        deps(fakeStore({ openTopics: topics(4) }), {
+          generate: (a) => (failing.includes(i++) ? modelDown() : good(a)),
+        }),
+        ACCOUNT,
+        CONFIG,
+        1e9
+      );
+    };
+    expect(await run([0, 2])).toMatchObject({ drafted: 2, error: null });
+    expect(await run([3])).toMatchObject({ drafted: 3, error: 'model' });
+  });
+
+  it('stops when the ledger cannot note an asked topic', async () => {
+    const unusable = async () => ({
+      text: 'not json',
+      handoff: false,
+      usage: null,
+    });
+    for (const [over, generate] of [
+      [{ recordDraft: async () => 'error' }, undefined],
+      [{ recordDiscard: down }, unusable],
+    ] as const) {
+      const d = deps(
+        fakeStore({
+          openTopics: topics(5),
+          ...(over as Partial<KbLearnStore>),
+        }),
+        generate ? { generate } : {}
+      );
+      expect(await learnAccount(d, ACCOUNT, CONFIG, 1e9)).toEqual({
+        drafted: 0,
+        tried: 1,
+        error: 'failed',
+      });
+    }
+  });
+
+  it('an answer the database refuses is noted, so it counts this week', async () => {
+    const recordDiscard = vi.fn(async () => {});
+    const store = fakeStore({
+      recordDraft: async () => 'invalid',
+      recordDiscard,
+    });
+    expect(await learnAccount(deps(store), ACCOUNT, CONFIG, 1e9)).toEqual({
+      drafted: 0,
+      tried: 1,
+      error: null,
+    });
+    expect(recordDiscard).toHaveBeenCalledTimes(1);
+  });
+
+  it('the switch going off ends the run without an error', async () => {
+    const store = fakeStore({
+      openTopics: topics(5),
+      recordDraft: async () => 'disabled',
+    });
+    expect(await learnAccount(deps(store), ACCOUNT, CONFIG, 1e9)).toEqual({
       drafted: 0,
       tried: 0,
+      error: null,
     });
   });
 });
@@ -522,7 +671,54 @@ describe('runKbLearning', () => {
     const res = await runKbLearning(deps(store));
     expect(res).toEqual({ accounts: 1, drafted: 1 });
     // The switch's "last run" line: one draft, for the claimed account.
-    expect(store.finished).toEqual([['b', 1]]);
+    expect(store.finished).toEqual([['b', 1, null]]);
+  });
+
+  it('loads the AI config before claiming; without one, says so', async () => {
+    const steps: string[] = [];
+    const store = fakeStore({
+      claimRun: async () => {
+        steps.push('claim');
+        return true;
+      },
+      askedThisWeek: async () => {
+        steps.push('read');
+        return 0;
+      },
+    });
+    const d = deps(store, {
+      loadConfig: async () => {
+        steps.push('config');
+        return null;
+      },
+    });
+    expect(await runKbLearning(d)).toEqual({ accounts: 1, drafted: 0 });
+    expect(steps).toEqual(['config', 'claim']);
+    expect(store.finished).toEqual([[ACCOUNT, 0, 'no_ai']]);
+    expect(d.generate).not.toHaveBeenCalled();
+  });
+
+  it('an AI config that cannot be read is a failed read', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const store = fakeStore();
+    await runKbLearning(deps(store, { loadConfig: down }));
+    expect(store.finished).toEqual([[ACCOUNT, 0, 'read_failed']]);
+    error.mockRestore();
+  });
+
+  it('records why a run failed, and runs the next account', async () => {
+    const store = fakeStore({
+      dueAccounts: async () => ['a', 'b'],
+      openTopics: async (id) => (id === 'a' ? down() : topics(1)()),
+    });
+    expect(await runKbLearning(deps(store))).toEqual({
+      accounts: 2,
+      drafted: 1,
+    });
+    expect(store.finished).toEqual([
+      ['a', 0, 'read_failed'],
+      ['b', 1, null],
+    ]);
   });
 
   it('a failed run record does not stop the pass', async () => {
@@ -655,9 +851,10 @@ describe('privacy', () => {
       },
     });
     const d = deps(store);
-    expect(await learnAccount(d, ACCOUNT, 1e9)).toEqual({
+    expect(await learnAccount(d, ACCOUNT, CONFIG, 1e9)).toEqual({
       drafted: 0,
       tried: 0,
+      error: 'read_failed',
     });
     expect(d.generate).not.toHaveBeenCalled();
   });
@@ -820,5 +1017,71 @@ describe('supabaseKbLearnStore.knownNames', () => {
           fakeDb({}, { [t]: 'timeout' }, { kb_learn_case_names: () => [] })
         ).knownNames(ACCOUNT)
       ).rejects.toThrow('timeout');
+  });
+});
+
+describe('supabaseKbLearnStore runs', () => {
+  it('asks for what is due, the longest due first, old rows too', async () => {
+    const asked: Record<string, unknown[]> = {};
+    const q: Record<string, unknown> = {
+      then: (done: (v: unknown) => void) =>
+        done({ data: [{ account_id: 'a' }], error: null }),
+    };
+    for (const name of ['select', 'eq', 'or', 'order', 'limit'])
+      q[name] = (...args: unknown[]) => {
+        asked[name] = args;
+        return q;
+      };
+    const db = { from: () => q } as unknown as ReturnType<typeof fakeDb>;
+    expect(
+      await supabaseKbLearnStore(db).dueAccounts(
+        new Date('2026-11-24T10:00:00.000Z')
+      )
+    ).toEqual(['a']);
+    expect(asked.eq).toEqual(['enabled', true]);
+    expect(asked.order).toEqual([
+      'next_run_at',
+      { ascending: true, nullsFirst: true },
+    ]);
+    expect(asked.or).toEqual([
+      'next_run_at.lte.2026-11-24T10:00:00.000Z,' +
+        'and(next_run_at.is.null,last_run_at.is.null),' +
+        'and(next_run_at.is.null,last_run_at.lte.2026-11-17T10:00:00.000Z)',
+    ]);
+  });
+
+  it('hands the error code over, and reads the count', async () => {
+    const finish = vi.fn((a: Record<string, unknown>) => void a);
+    const store = supabaseKbLearnStore(
+      fakeDb(
+        {},
+        {},
+        {
+          kb_learn_finish_run: finish,
+          kb_learn_asked_this_week: () => 4,
+          kb_learn_record_discard: () => false,
+        }
+      )
+    );
+    await store.finishRun(ACCOUNT, 2, 'model');
+    expect(finish).toHaveBeenCalledWith({
+      p_account: ACCOUNT,
+      p_drafted: 2,
+      p_error: 'model',
+    });
+    expect(await store.askedThisWeek(ACCOUNT)).toBe(4);
+    // A count that is not one, or a discard not written, is a failure.
+    await expect(
+      supabaseKbLearnStore(fakeDb({})).askedThisWeek(ACCOUNT)
+    ).rejects.toThrow('no count');
+    await expect(
+      store.recordDiscard({
+        accountId: ACCOUNT,
+        topicId: 't',
+        topicKey: 'k',
+        gapIds: [],
+        evidenceCount: 2,
+      })
+    ).rejects.toThrow('not written');
   });
 });

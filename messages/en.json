@@ -13600,9 +13600,19 @@
     "lastRun": "Last run {when}.",
     "lastRunDrafts": "Last run {when}. New drafts: {count}.",
     "notRunYet": "The first run starts within the hour.",
-    "loadFailed": "Could not load the learning setting",
+    "loadFailed": "Could not load the learning setting.",
     "saveFailed": "Could not save the learning setting",
     "switchedOn": "Learning from team answers is on",
-    "switchedOff": "Learning from team answers is off"
+    "switchedOff": "Learning from team answers is off",
+    "runningNow": "A run is in progress.",
+    "failedNoAi": "Last run failed: the AI assistant is off or its key is missing.",
+    "failedRead": "Last run failed: some chats or settings could not be read.",
+    "failedTime": "Last run ran out of time before it was finished.",
+    "failedModel": "Last run failed: the AI service did not answer.",
+    "failedOther": "Last run failed: something went wrong.",
+    "failedStopped": "Last run stopped before it was finished.",
+    "triesAgain": "It tries again after {when}.",
+    "triesSoon": "It tries again within the hour.",
+    "usageLabel": "Learned answers"
   }
 }

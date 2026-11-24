@@ -2,8 +2,10 @@
 -- answers (knowledge base).
 --
 -- Asserts: the switch is off by default and, while off, nothing is
--- drafted and no run is claimed; only an admin+ sets it; a run is
--- claimed at most once per 7 days; a learned entry is always a draft
+-- drafted and no run is claimed; only an admin+ sets it; a finished run
+-- is claimed again only after 7 days, an unfinished or failed one after
+-- 50 minutes and at most 3 times in 24 hours; off to on forgets the last
+-- run; the week's asked topics are counted; a learned entry is always a draft
 -- (source 'learned', never approved); a topic is drafted once (by its
 -- gaps or its label's hash) and again only after its draft was set to
 -- 'remove' or deleted, a discarded one after 28 days; another account's gaps are refused; a non-admin member
@@ -23,6 +25,7 @@ DECLARE
   g1 UUID; g2 UUID; g3 UUID; g4 UUID; g_other UUID;
   e1 UUID; e2 UUID;
   res JSONB; r TEXT;
+  st kb_learn_settings;
   n INT := 0;
   failed TEXT[] := '{}';
 BEGIN
@@ -98,16 +101,81 @@ BEGIN
   IF r <> 'true' OR NOT EXISTS (SELECT 1 FROM kb_learn_settings WHERE account_id = a_acct AND enabled) THEN
     failed := failed || ('admin could not set the switch: ' || r); END IF; n := n + 1;
 
-  -- ---------- once per 7 days ----------
+  -- ---------- the claim: a crash retries by itself ----------
   IF NOT kb_learn_claim_run(a_acct) THEN failed := failed || 'first claim refused'::text; END IF; n := n + 1;
-  IF kb_learn_claim_run(a_acct) THEN failed := failed || 'claimed twice in a week'::text; END IF; n := n + 1;
-  UPDATE kb_learn_settings SET last_run_at = now() - interval '8 days' WHERE account_id = a_acct;
-  IF NOT kb_learn_claim_run(a_acct) THEN failed := failed || 'claim refused after a week'::text; END IF; n := n + 1;
+  IF kb_learn_claim_run(a_acct) THEN failed := failed || 'claimed twice at once'::text; END IF; n := n + 1;
+  SELECT s.* INTO st FROM kb_learn_settings s WHERE account_id = a_acct;
+  IF st.last_run_error IS DISTINCT FROM 'running' OR st.attempts <> 1 OR st.attempts_since IS DISTINCT FROM now()
+     OR st.next_run_at IS DISTINCT FROM now() + interval '50 minutes' OR st.last_run_at IS DISTINCT FROM now() THEN
+    failed := failed || ('first claim: ' || to_jsonb(st)::text); END IF; n := n + 1;
+  -- Nothing finished it (a crash): due once the 50 minutes are over.
+  UPDATE kb_learn_settings SET next_run_at = now(), attempts_since = now() - interval '2 hours' WHERE account_id = a_acct;
+  r := kb_learn_claim_run(a_acct)::text;
+  IF r <> 'true' OR NOT EXISTS (SELECT 1 FROM kb_learn_settings WHERE account_id = a_acct
+       AND attempts = 2 AND next_run_at = now() + interval '50 minutes' AND attempts_since = now() - interval '2 hours') THEN
+    failed := failed || 'a crashed run is not retried'::text; END IF; n := n + 1;
+  -- The third attempt waits until 24 hours after the first.
+  UPDATE kb_learn_settings SET next_run_at = now() WHERE account_id = a_acct;
+  r := kb_learn_claim_run(a_acct)::text;
+  IF r <> 'true' OR NOT EXISTS (SELECT 1 FROM kb_learn_settings WHERE account_id = a_acct
+       AND attempts = 3 AND next_run_at = now() + interval '22 hours') THEN
+    failed := failed || 'third attempt'::text; END IF; n := n + 1;
 
-  -- ---------- the run's result ----------
+  -- ---------- the result: a failure keeps the retry ----------
+  PERFORM kb_learn_finish_run(a_acct, 0, 'read_failed');
+  PERFORM kb_learn_finish_run(a_acct, 9, NULL);  -- not running any more: ignored
+  SELECT s.* INTO st FROM kb_learn_settings s WHERE account_id = a_acct;
+  IF st.last_run_error IS DISTINCT FROM 'read_failed' OR st.attempts <> 3 OR st.last_run_drafted <> 0
+     OR st.next_run_at IS DISTINCT FROM now() + interval '22 hours' THEN
+    failed := failed || ('failed run: ' || to_jsonb(st)::text); END IF; n := n + 1;
+  -- A new day: the count starts again.
+  UPDATE kb_learn_settings SET next_run_at = now() WHERE account_id = a_acct;
+  r := kb_learn_claim_run(a_acct)::text;
+  IF r <> 'true' OR NOT EXISTS (SELECT 1 FROM kb_learn_settings WHERE account_id = a_acct
+       AND attempts = 1 AND attempts_since = now() AND next_run_at = now() + interval '50 minutes') THEN
+    failed := failed || 'attempts do not start again'::text; END IF; n := n + 1;
+  PERFORM kb_learn_finish_run(a_acct, 1, 'running');
+  IF NOT EXISTS (SELECT 1 FROM kb_learn_settings WHERE account_id = a_acct AND last_run_error = 'failed') THEN
+    failed := failed || 'an unknown code is not ''failed'''::text; END IF; n := n + 1;
+  -- Two attempts a day apart are two days' attempts, not one day's.
+  UPDATE kb_learn_settings SET next_run_at = now(), attempts = 2, attempts_since = now() - interval '25 hours' WHERE account_id = a_acct;
+  r := kb_learn_claim_run(a_acct)::text;
+  IF r <> 'true' OR NOT EXISTS (SELECT 1 FROM kb_learn_settings WHERE account_id = a_acct
+       AND attempts = 1 AND next_run_at = now() + interval '50 minutes') THEN
+    failed := failed || 'yesterday''s attempts count today'::text; END IF; n := n + 1;
+
+  -- ---------- success: 7 days, attempts forgotten ----------
   PERFORM kb_learn_finish_run(a_acct, 3);
   r := pg_temp.kl_try(u_admin, 'select last_run_drafted::text from public.kb_learn_settings');
-  IF r <> '3' THEN failed := failed || ('finish_run: ' || r); END IF; n := n + 1;
+  SELECT s.* INTO st FROM kb_learn_settings s WHERE account_id = a_acct;
+  IF r <> '3' OR st.last_run_error IS NOT NULL OR st.attempts <> 0 OR st.attempts_since IS NOT NULL
+     OR st.next_run_at IS DISTINCT FROM now() + interval '7 days' THEN
+    failed := failed || ('finished run: ' || to_jsonb(st)::text); END IF; n := n + 1;
+  IF kb_learn_claim_run(a_acct) THEN failed := failed || 'claimed twice in a week'::text; END IF; n := n + 1;
+  UPDATE kb_learn_settings SET next_run_at = now() WHERE account_id = a_acct;
+  IF NOT kb_learn_claim_run(a_acct) THEN failed := failed || 'claim refused after a week'::text; END IF; n := n + 1;
+  -- A row with last_run_at only.
+  UPDATE kb_learn_settings SET next_run_at = NULL, attempts = 0, attempts_since = NULL, last_run_error = NULL,
+         last_run_at = now() - interval '3 days' WHERE account_id = a_acct;
+  IF kb_learn_claim_run(a_acct) THEN failed := failed || 'old row claimed within its week'::text; END IF; n := n + 1;
+  UPDATE kb_learn_settings SET last_run_at = now() - interval '7 days' WHERE account_id = a_acct;
+  IF NOT kb_learn_claim_run(a_acct) THEN failed := failed || 'old row never due again'::text; END IF; n := n + 1;
+
+  -- ---------- off to on forgets the last run; on to on does not ----------
+  r := pg_temp.kl_try(u_admin, 'select (public.kb_learn_set_enabled(true))->>''last_run_error''');
+  IF r <> 'running' OR kb_learn_claim_run(a_acct) THEN failed := failed || ('on to on reset the run: ' || r); END IF; n := n + 1;
+  r := pg_temp.kl_try(u_admin, 'select (public.kb_learn_set_enabled(false))->>''last_run_error''');
+  IF r <> 'running' THEN failed := failed || ('on to off reset the run: ' || r); END IF; n := n + 1;
+  r := pg_temp.kl_try(u_admin, 'select ((public.kb_learn_set_enabled(true)) - ''updated_at'')::text');
+  SELECT s.* INTO st FROM kb_learn_settings s WHERE account_id = a_acct;
+  IF r::jsonb <> '{"enabled": true, "last_run_at": null, "last_run_drafted": null, "last_run_error": null, "next_run_at": null}'
+     OR st.attempts <> 0 OR st.attempts_since IS NOT NULL OR NOT kb_learn_claim_run(a_acct) THEN
+    failed := failed || ('off to on kept the last run: ' || r); END IF; n := n + 1;
+  -- Off and on while a run works: its result does not cost the new start.
+  r := pg_temp.kl_try(u_admin, 'select (public.kb_learn_set_enabled(false))->>''enabled''');
+  r := pg_temp.kl_try(u_admin, 'select (public.kb_learn_set_enabled(true))->>''enabled''');
+  PERFORM kb_learn_finish_run(a_acct, 1, NULL);
+  IF NOT kb_learn_claim_run(a_acct) THEN failed := failed || 'a stale finish cost the week'::text; END IF; n := n + 1;
 
   -- ---------- a learned entry is a draft ----------
   res := kb_learn_record_draft(a_acct, gen_random_uuid(), encode(sha256(convert_to(lower(btrim('Account without a trade licence')), 'UTF8')), 'hex'), ARRAY[g1, g2],
@@ -164,6 +232,15 @@ BEGIN
     failed := failed || 'a discard holds for ever'::text; END IF; n := n + 1;
   IF kb_learn_record_discard(a_acct, NULL, repeat('d', 64), ARRAY[g_other], 2) THEN
     failed := failed || 'another account''s gaps discarded'::text; END IF; n := n + 1;
+  -- ---------- the week's count: every ledger row of the last 7 days ----------
+  -- Here: one draft and one discard of this account, one of another's.
+  INSERT INTO kb_learned_drafts (account_id, topic_key, evidence_count) VALUES (b_acct, repeat('e', 64), 2);
+  IF kb_learn_asked_this_week(a_acct) <> 2 THEN
+    failed := failed || ('asked this week: ' || kb_learn_asked_this_week(a_acct)); END IF; n := n + 1;
+  UPDATE kb_learned_drafts SET created_at = now() - interval '7 days' WHERE topic_key = repeat('b', 64);
+  IF kb_learn_asked_this_week(a_acct) <> 1 THEN
+    failed := failed || 'last week counts this week'::text; END IF; n := n + 1;
+  DELETE FROM kb_learned_drafts WHERE account_id = b_acct;
   -- The service role reads every table the names come from.
   IF NOT (has_table_privilege('service_role', 'public.contacts', 'SELECT')
       AND has_table_privilege('service_role', 'public.profiles', 'SELECT')
@@ -208,9 +285,10 @@ BEGIN
   IF r <> '0' THEN failed := failed || ('another workspace read the ledger: ' || r); END IF; n := n + 1;
 
   -- ---------- switched off again: nothing ----------
+  UPDATE kb_learn_settings SET next_run_at = NULL, last_run_at = NULL WHERE account_id = a_acct;
   r := pg_temp.kl_try(u_owner, 'select (public.kb_learn_set_enabled(false))->>''enabled''');
   res := kb_learn_record_draft(a_acct, NULL, encode(sha256(convert_to(lower(btrim('POS documents')), 'UTF8')), 'hex'), ARRAY[g3], 'LRN-GGGGGG', 'POS documents', 'a', NULL, NULL, 1);
-  IF r <> 'false' OR res->>'status' <> 'disabled' OR kb_learn_claim_run(a_acct, interval '0') THEN
+  IF r <> 'false' OR res->>'status' <> 'disabled' OR kb_learn_claim_run(a_acct) THEN
     failed := failed || ('off again: ' || r || ' ' || res::text); END IF; n := n + 1;
 
   -- ---------- usage mode, grants ----------
@@ -221,8 +299,13 @@ BEGIN
   END;
   IF r <> 'ok' THEN failed := failed || 'usage log refused kb_learn'::text; END IF; n := n + 1;
   IF has_function_privilege('authenticated', 'public.kb_learn_record_draft(uuid,uuid,text,uuid[],text,text,text,text,text,integer)', 'EXECUTE')
-     OR has_function_privilege('authenticated', 'public.kb_learn_claim_run(uuid,interval)', 'EXECUTE')
-     OR has_function_privilege('authenticated', 'public.kb_learn_finish_run(uuid,integer)', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public.kb_learn_claim_run(uuid)', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public.kb_learn_finish_run(uuid,integer,text)', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public.kb_learn_asked_this_week(uuid)', 'EXECUTE')
+     OR NOT has_function_privilege('service_role', 'public.kb_learn_asked_this_week(uuid)', 'EXECUTE')
+     OR NOT has_function_privilege('service_role', 'public.kb_learn_finish_run(uuid,integer,text)', 'EXECUTE')
+     OR NOT has_function_privilege('service_role', 'public.kb_learn_claim_run(uuid)', 'EXECUTE')
+     OR (SELECT count(*) FROM pg_proc WHERE proname IN ('kb_learn_claim_run', 'kb_learn_finish_run')) <> 2
      OR has_function_privilege('authenticated', 'public.kb_learn_topic_drafted(uuid,uuid[],text)', 'EXECUTE')
      OR has_function_privilege('authenticated', 'public.kb_learn_open_topics(uuid,integer)', 'EXECUTE')
      OR has_function_privilege('authenticated', 'public.kb_learn_record_discard(uuid,uuid,text,uuid[],integer)', 'EXECUTE')
@@ -242,7 +325,7 @@ BEGIN
     IF SQLERRM <> 'KL_ROLLBACK' THEN RAISE; END IF;
   END;
 
-  IF n <> 40 THEN RAISE EXCEPTION 'verify-kb-learn: only % checks ran', n; END IF;
+  IF n <> 56 THEN RAISE EXCEPTION 'verify-kb-learn: only % checks ran', n; END IF;
   IF cardinality(failed) > 0 THEN
     RAISE EXCEPTION 'verify-kb-learn: % failed: %', cardinality(failed), array_to_string(failed, '; ');
   END IF;

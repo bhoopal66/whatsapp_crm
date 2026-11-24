@@ -16,7 +16,11 @@
 --     one row per account. Admin+ reads; the switch is set only through
 --     kb_learn_set_enabled() (admin+ of the ACTIVE account); the last
 --     run only by kb_learn_claim_run() and kb_learn_finish_run()
---     (service role).
+--     (service role). A claim marks the row 'running' and due again in
+--     50 minutes (at most 3 attempts in 24 hours), so a crash, a missing
+--     AI key or a failed read is retried, and only a finished run starts
+--     the 7-day wait. kb_learn_asked_this_week() counts the ledger's last
+--     7 days, so retries never ask about more than ten topics a week.
 --  3. kb_learned_drafts: the ledger, one row per drafted topic, so a
 --     topic is drafted once. Topic ids change on every recompute (152
 --     replaces the set), so a topic is "the same" when at least half of
@@ -109,8 +113,18 @@ CREATE TABLE IF NOT EXISTS public.kb_learn_settings (
   updated_by  uuid NULL REFERENCES auth.users(id) ON DELETE SET NULL
 );
 
+-- NULL on a row that has last_run_at only: due a week after that run.
+ALTER TABLE public.kb_learn_settings
+  ADD COLUMN IF NOT EXISTS next_run_at    timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS attempts       integer NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+  ADD COLUMN IF NOT EXISTS attempts_since timestamptz NULL,
+  -- 'running' from the claim until the run ends (a crash leaves it); the
+  -- others are KB_LEARN_RUN_ERRORS in src/lib/kb/learn-settings.ts.
+  ADD COLUMN IF NOT EXISTS last_run_error text NULL
+    CHECK (last_run_error IN ('running', 'no_ai', 'read_failed', 'out_of_time', 'model', 'failed'));
+
 COMMENT ON TABLE public.kb_learn_settings IS
-  'Learn from team answers (290): off by default. Set through kb_learn_set_enabled(); last_run_at through kb_learn_claim_run(). Mirrored by KB_LEARN_DEFAULT_ENABLED in src/lib/kb/learn.ts.';
+  'Learn from team answers (290): off by default. Set through kb_learn_set_enabled(); the run columns through kb_learn_claim_run() and kb_learn_finish_run(). Mirrored by KB_LEARN_DEFAULT_ENABLED in src/lib/kb/learn.ts.';
 
 ALTER TABLE public.kb_learn_settings ENABLE ROW LEVEL SECURITY;
 
@@ -168,7 +182,9 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON public.kb_learned_drafts TO service_role
 -- 4. Functions
 -- ------------------------------------------------------------
 
--- The switch, for an admin+ of the caller's ACTIVE account.
+-- The switch, for an admin+ of the caller's ACTIVE account. Going from
+-- off to on forgets the last run, so it starts at the next hourly check
+-- (the week's ten topics still count, they are in the ledger).
 CREATE OR REPLACE FUNCTION public.kb_learn_set_enabled(p_enabled boolean)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -178,6 +194,7 @@ AS $$
 DECLARE
   v_account uuid := current_account_id();
   v_row     public.kb_learn_settings;
+  v_was_on  boolean;
 BEGIN
   IF p_enabled IS NULL THEN
     RAISE EXCEPTION 'enabled must be true or false' USING ERRCODE = '22023';
@@ -185,60 +202,125 @@ BEGIN
   IF v_account IS NULL OR NOT is_account_member(v_account, 'admin') THEN
     RAISE EXCEPTION 'not allowed' USING ERRCODE = '42501';
   END IF;
+  SELECT s.enabled INTO v_was_on FROM public.kb_learn_settings s
+   WHERE s.account_id = v_account FOR UPDATE;
+  v_was_on := coalesce(v_was_on, false);
   INSERT INTO public.kb_learn_settings AS s (account_id, enabled, updated_at, updated_by)
   VALUES (v_account, p_enabled, now(), auth.uid())
   ON CONFLICT (account_id) DO UPDATE
     SET enabled = EXCLUDED.enabled, updated_at = now(), updated_by = EXCLUDED.updated_by
   RETURNING * INTO v_row;
+  IF p_enabled AND NOT v_was_on THEN
+    UPDATE public.kb_learn_settings
+       SET last_run_at = NULL, last_run_drafted = NULL, last_run_error = NULL,
+           next_run_at = NULL, attempts = 0, attempts_since = NULL
+     WHERE account_id = v_account
+    RETURNING * INTO v_row;
+  END IF;
   RETURN jsonb_build_object('enabled', v_row.enabled, 'last_run_at', v_row.last_run_at,
                             'last_run_drafted', v_row.last_run_drafted,
+                            'last_run_error', v_row.last_run_error,
+                            'next_run_at', v_row.next_run_at,
                             'updated_at', v_row.updated_at);
 END $$;
 
 REVOKE ALL ON FUNCTION public.kb_learn_set_enabled(boolean) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.kb_learn_set_enabled(boolean) TO authenticated, service_role;
 
--- The weekly claim: true (and last_run_at stamped) only while the switch
--- is on and the last run is at least p_min_interval old. Two crons in
--- the same minute: one wins.
-CREATE OR REPLACE FUNCTION public.kb_learn_claim_run(
-  p_account uuid,
-  p_min_interval interval DEFAULT interval '7 days'
-)
+-- The claim: true only while the switch is on and the account is due.
+-- It marks the row 'running' and due again in 50 minutes, so a run that
+-- crashes is simply retried at the next hourly check; the third attempt
+-- waits until 24 hours after the first, and the one after it starts a new
+-- count. Two crons in the same minute: one wins.
+DROP FUNCTION IF EXISTS public.kb_learn_claim_run(uuid, interval);
+CREATE OR REPLACE FUNCTION public.kb_learn_claim_run(p_account uuid)
 RETURNS boolean
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  v_hit uuid;
+  v_row   public.kb_learn_settings;
+  v_count integer;
+  v_since timestamptz;
 BEGIN
-  UPDATE public.kb_learn_settings s
-     SET last_run_at = now(), last_run_drafted = NULL
+  SELECT * INTO v_row FROM public.kb_learn_settings s
    WHERE s.account_id = p_account
      AND s.enabled
-     AND (s.last_run_at IS NULL OR s.last_run_at <= now() - p_min_interval)
-  RETURNING s.account_id INTO v_hit;
-  RETURN v_hit IS NOT NULL;
+     AND coalesce(s.next_run_at, s.last_run_at + interval '7 days', '-infinity') <= now()
+     FOR UPDATE;
+  IF NOT FOUND THEN
+    RETURN false;
+  END IF;
+  IF v_row.attempts_since IS NULL OR v_row.attempts >= 3
+     OR v_row.attempts_since <= now() - interval '24 hours' THEN
+    v_count := 1;
+    v_since := now();
+  ELSE
+    v_count := v_row.attempts + 1;
+    v_since := v_row.attempts_since;
+  END IF;
+  UPDATE public.kb_learn_settings
+     SET last_run_at = now(), last_run_drafted = NULL, last_run_error = 'running',
+         attempts = v_count, attempts_since = v_since,
+         next_run_at = CASE WHEN v_count < 3 THEN now() + interval '50 minutes'
+                            ELSE greatest(v_since + interval '24 hours',
+                                          now() + interval '50 minutes') END
+   WHERE account_id = p_account;
+  RETURN true;
 END $$;
 
-REVOKE ALL ON FUNCTION public.kb_learn_claim_run(uuid, interval) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.kb_learn_claim_run(uuid, interval) TO service_role;
+REVOKE ALL ON FUNCTION public.kb_learn_claim_run(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.kb_learn_claim_run(uuid) TO service_role;
 
--- The run's result, for the switch's "last run" line. Service role.
-CREATE OR REPLACE FUNCTION public.kb_learn_finish_run(p_account uuid, p_drafted integer)
+-- The run's result. No error: done for 7 days from NOW, not from the
+-- claim, so every ledger row of this run is out of the weekly count by
+-- then. An error keeps the claim's retry. Only a row still 'running' is
+-- touched: a switch turned off and on meanwhile starts afresh. Service
+-- role.
+DROP FUNCTION IF EXISTS public.kb_learn_finish_run(uuid, integer);
+CREATE OR REPLACE FUNCTION public.kb_learn_finish_run(
+  p_account uuid,
+  p_drafted integer,
+  p_error   text DEFAULT NULL
+)
 RETURNS void
 LANGUAGE sql
 SECURITY DEFINER
 SET search_path = public
 AS $$
   UPDATE public.kb_learn_settings
-     SET last_run_drafted = greatest(coalesce(p_drafted, 0), 0)
-   WHERE account_id = p_account;
+     SET last_run_drafted = greatest(coalesce(p_drafted, 0), 0),
+         last_run_error = CASE
+           WHEN p_error IS NULL THEN NULL
+           WHEN p_error IN ('no_ai', 'read_failed', 'out_of_time', 'model') THEN p_error
+           ELSE 'failed' END,
+         next_run_at    = CASE WHEN p_error IS NULL THEN now() + interval '7 days' ELSE next_run_at END,
+         attempts       = CASE WHEN p_error IS NULL THEN 0 ELSE attempts END,
+         attempts_since = CASE WHEN p_error IS NULL THEN NULL ELSE attempts_since END
+   WHERE account_id = p_account
+     AND last_run_error = 'running';
 $$;
 
-REVOKE ALL ON FUNCTION public.kb_learn_finish_run(uuid, integer) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.kb_learn_finish_run(uuid, integer) TO service_role;
+REVOKE ALL ON FUNCTION public.kb_learn_finish_run(uuid, integer, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.kb_learn_finish_run(uuid, integer, text) TO service_role;
+
+-- The topics asked in the last 7 days: every ledger row (drafted,
+-- discarded, backed off). They count toward the run's ten, so a run
+-- retried every hour still asks about at most ten topics a week.
+CREATE OR REPLACE FUNCTION public.kb_learn_asked_this_week(p_account uuid)
+RETURNS integer
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT count(*)::integer FROM public.kb_learned_drafts
+   WHERE account_id = p_account AND created_at > now() - interval '7 days';
+$$;
+
+REVOKE ALL ON FUNCTION public.kb_learn_asked_this_week(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.kb_learn_asked_this_week(uuid) TO service_role;
 
 -- Whether a topic already has a live draft: a ledger row whose entry
 -- still exists and is not 'remove', and that is the same topic (half or

@@ -573,8 +573,8 @@ function scheduleKbGapRecompute() {
 /**
  * Learn from team answers (migration 290): workspaces that switched it on
  * get learned knowledge-base DRAFTS from their open gap topics, at most
- * once a week each (kb_learn_claim_run stamps the account before it
- * runs). Checked hourly per process inside after(); runKbLearning never
+ * once a week each, a failed run again within the hour (kb_learn_claim_run
+ * stamps it first). Checked hourly inside after(); runKbLearning never
  * throws and starts no new work after its own budget.
  */
 const kbLearningDue = everyInterval(60 * 60_000)

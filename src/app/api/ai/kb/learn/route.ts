@@ -23,7 +23,7 @@ const notApplied = (error: { code?: string } | null) =>
  * GET /api/ai/kb/learn  (admin+)
  *
  * Whether "learn from team answers" (migration 290) is on for the active
- * workspace, and when it last ran. Read through RLS (admin+ only).
+ * workspace, when it last ran, and why it failed if it did. Read through RLS (admin+ only).
  */
 export async function GET() {
   try {
@@ -32,7 +32,9 @@ export async function GET() {
     );
     const { data, error } = await supabase
       .from('kb_learn_settings')
-      .select('enabled, last_run_at, last_run_drafted')
+      .select(
+        'enabled, last_run_at, last_run_drafted, last_run_error, next_run_at'
+      )
       .eq('account_id', accountId)
       .maybeSingle();
     if (error) {

@@ -87,9 +87,12 @@ overlaps the bubble (`-mt-1.5`).
 **Learn from team answers (migration 290, `lib/kb/learn*.ts`,
 `docs/ai-agent.md`).** Off by default (`kb_learn_settings`, set only via
 `kb_learn_set_enabled`, admin+ of the active account). The automations
-cron runs `runKbLearning` hourly; `kb_learn_claim_run` lets an account
-through once per 7 days and `kb_learn_finish_run` records its draft
-count. A team answer is the first non-holding person reply (bubbles
+cron runs `runKbLearning` hourly; `kb_learn_claim_run` marks a due
+account `running` and due again in 50 minutes (3 attempts per 24 h), so
+only `kb_learn_finish_run` without an error starts the 7-day wait; its
+codes are `KB_LEARN_RUN_ERRORS` ↔ 290's CHECK. The ledger's last 7 days
+(`kb_learn_asked_this_week`) count toward the ten topics, so an asked
+topic that cannot be noted stops the run. A team answer is the first non-holding person reply (bubbles
 joined, `pickTeamAnswer`); a topic needs `MIN_ANSWERS_PER_TOPIC` (2). Drafts are written only by
 `kb_learn_record_draft` (service role), always status `draft`, source
 `learned`, ref `LRN-…`; it refuses while the switch is off and when the

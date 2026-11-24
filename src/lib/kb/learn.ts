@@ -23,11 +23,12 @@ import type { NameMatcher } from './known-names';
 
 /** 290's column default: a workspace learns nothing until switched on. */
 export const KB_LEARN_DEFAULT_ENABLED = false;
-/** At most one run per account in this many days (kb_learn_claim_run). */
+/** A finished run is followed by the next this many days later
+ *  (kb_learn_finish_run). */
 export const KB_LEARN_INTERVAL_DAYS = 7;
 /** A person's reply counts only within this long after the question. */
 export const ANSWER_WINDOW_MS = 48 * 60 * 60_000;
-/** Topics drafted (tried) per account per run. */
+/** Topics asked per account per run, the last 7 days' included. */
 export const MAX_TOPICS_PER_RUN = 10;
 /** Team answers sent per topic. */
 export const MAX_ANSWERS_PER_TOPIC = 5;

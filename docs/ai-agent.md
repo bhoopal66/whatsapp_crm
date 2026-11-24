@@ -307,7 +307,14 @@ rows only). The model may write `[TO CONFIRM: …]` where the replies
 disagree; 081's check refuses to approve an answer that still has one.
 
 Under the switch, **Last run** shows when the weekly run last started
-and how many new drafts it wrote.
+and how many new drafts it wrote. A run that did not finish (AI off or
+no key, a failed read, the AI service failing three times in a row or at
+the end, out of time, a crash) does not cost the week: it is tried again
+within the hour, three times in 24 hours at most, and the line says why
+and when. The topics asked in the last 7 days (drafted, discarded and
+backed off) count toward the ten, so retries never ask more than ten a
+week. Switching it off and on forgets the last run and starts again
+within the hour.
 
 A topic is drafted once (`kb_learned_drafts`): the same gaps (half or
 more) or the same label (kept as a SHA-256 only) under a new topic id count as the same topic.

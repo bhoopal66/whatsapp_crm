@@ -53,7 +53,11 @@ superuser or BYPASSRLS role; after 152 and 202).
   reply given after the customer asked something else (unless it quotes
   the question). It runs only while the AI assistant is on. A topic the
   AI could not answer is left for 28 days, so the others get their turn.
-  The switch shows when it last ran and how many drafts it wrote.
+  The switch shows when it last ran and how many drafts it wrote. A run
+  that could not finish (AI off or no key, a failed read, the AI service
+  down, out of time, a crash) is tried again within the hour, at most
+  three times a day, and the switch says why. At most ten topics are
+  asked in any seven days, retries included.
 - Before anything is sent, phone numbers, e-mails, IBANs, IDs, card and
   account numbers, case numbers, any run of five or more digits, and the
   names saved in the CRM (contacts and their companies, members, case

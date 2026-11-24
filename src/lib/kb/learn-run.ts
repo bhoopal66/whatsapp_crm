@@ -1,9 +1,9 @@
 /**
  * Learn from team answers (migration 290): the weekly cron job.
  *
- * For each workspace with the switch on whose last run is a week old
- * (kb_learn_claim_run stamps it first, so two crons never both run), up
- * to MAX_TOPICS_PER_RUN open gap topics without a live learned draft:
+ * For each workspace with the switch on that is due (kb_learn_claim_run
+ * stamps it first, so two crons never both run), up to
+ * MAX_TOPICS_PER_RUN open gap topics a week without a live learned draft:
  * collect up to five team answers and the customer questions from sales
  * chats only, mask them with the account's whole name list (read once per
  * run; fail closed: a list or chat that cannot be read, or a text that
@@ -16,6 +16,13 @@
  * The model call goes through `generateReply`, which runs
  * `assertAiTransfer` (224) with purpose 'kb_learn' before anything is
  * sent, and masks identifiers again. Usage is logged as mode 'kb_learn'.
+ *
+ * Only a run that finished starts the week's wait. One that could not
+ * (no AI key, a failed read, the model failing, out of time, or a crash)
+ * is tried again within the hour, at most three times in 24 hours, and
+ * the switch says why. The topics asked in the last 7 days (the ledger:
+ * drafted, discarded, backed off) count toward the ten, so the retries
+ * never ask about more than ten topics a week.
  *
  * Server-only, service role. Never throws; starts no new account or topic
  * after its time budget.
@@ -49,6 +56,7 @@ import {
   wantsArabic,
   type ThreadMessage,
 } from './learn';
+import type { KbLearnRunError } from './learn-settings';
 import { buildNameMatcher, type NameMatcher } from './known-names';
 
 /** The cron pass starts no new account after this long. */
@@ -57,6 +65,8 @@ export const PASS_BUDGET_MS = 45_000;
 export const TOPIC_MIN_BUDGET_MS = 15_000;
 /** Accounts looked at per pass. */
 export const MAX_ACCOUNTS_PER_PASS = 20;
+/** The run stops after this many model failures in a row. */
+export const MAX_MODEL_FAILURES = 3;
 /** Gaps of a topic read to find answers. */
 const MAX_GAPS_READ = 25;
 /** Topics read per account. The query already leaves out the covered,
@@ -109,10 +119,18 @@ export interface RecordDraftArgs {
 
 /** The database, as the job uses it (a port so the job is testable). */
 export interface KbLearnStore {
-  dueAccounts(since: Date): Promise<string[]>;
+  /** The accounts due now, the longest due first. */
+  dueAccounts(now: Date): Promise<string[]>;
   claimRun(accountId: string): Promise<boolean>;
-  /** Records how many drafts the run wrote (the switch shows it). */
-  finishRun(accountId: string, drafted: number): Promise<void>;
+  /** Records how many drafts the run wrote and why it failed, if it did
+   *  (the switch shows both). No error starts the 7-day wait. */
+  finishRun(
+    accountId: string,
+    drafted: number,
+    error: KbLearnRunError | null
+  ): Promise<void>;
+  /** Topics asked in the last 7 days: the ledger's rows. */
+  askedThisWeek(accountId: string): Promise<number>;
   openTopics(accountId: string): Promise<LearnTopic[]>;
   topicDrafted(
     accountId: string,
@@ -161,12 +179,21 @@ export interface TopicOutcome {
     /** The model's text carried a name, an identifier or a mask. */
     | 'discarded'
     | 'refused'
+    /** Asked, but the ledger could not note it: stop the account, or the
+     *  weekly count would not see the topic. */
+    | 'unrecorded'
     /** The switch went off while the run worked: stop the account. */
     | 'disabled';
 }
 
 /** Outcomes after which the model had been asked. */
-const ASKED = new Set(['model', 'unusable', 'discarded', 'refused']);
+const ASKED = new Set([
+  'model',
+  'unusable',
+  'discarded',
+  'refused',
+  'unrecorded',
+]);
 
 const message = (err: unknown) =>
   err instanceof Error ? err.message : String(err);
@@ -273,14 +300,25 @@ export async function learnTopic(
     arabic,
   });
   const model = config.modelSmall || config.model;
-  const backOff = () =>
-    store.recordDiscard({
-      accountId,
-      topicId: topic.id,
-      topicKey: key,
-      gapIds,
-      evidenceCount: evidence.answers.length,
-    });
+  const backOff = async (
+    reason: 'unusable' | 'discarded' | 'refused'
+  ): Promise<TopicOutcome> => {
+    try {
+      await store.recordDiscard({
+        accountId,
+        topicId: topic.id,
+        topicKey: key,
+        gapIds,
+        evidenceCount: evidence.answers.length,
+      });
+      return { drafted: false, reason };
+    } catch (err) {
+      console.warn(
+        `[kb-learn] a topic was not noted for account ${accountId}: ${message(err)}`
+      );
+      return { drafted: false, reason: 'unrecorded' };
+    }
+  };
   const logUsage = (usage: LogAiUsageArgs['usage']) =>
     deps.logUsage({
       accountId,
@@ -311,17 +349,12 @@ export async function learnTopic(
     if (
       err instanceof AiError &&
       (err.code === 'truncated' || err.code === 'empty_response')
-    ) {
-      await backOff();
-      return { drafted: false, reason: 'unusable' };
-    }
+    )
+      return backOff('unusable');
     return { drafted: false, reason: 'model' };
   }
   const answer = parseLearnedAnswer(text, arabic, matcher);
-  if (answer === 'unusable' || answer === 'discarded') {
-    await backOff();
-    return { drafted: false, reason: answer };
-  }
+  if (answer === 'unusable' || answer === 'discarded') return backOff(answer);
 
   const notes = learnedReviewerNotes(answers.map((a) => a.at));
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -340,31 +373,56 @@ export async function learnTopic(
     if (res === 'drafted') return { drafted: true };
     if (res === 'already') return { drafted: false, reason: 'already' };
     if (res === 'disabled') return { drafted: false, reason: 'disabled' };
+    if (res === 'error') return { drafted: false, reason: 'unrecorded' };
     if (res !== 'ref_taken') break;
   }
-  return { drafted: false, reason: 'refused' };
+  // Asked and billed, but not storable: noted, so it counts this week.
+  return backOff('refused');
 }
 
-/** One account's run. Never throws. */
+/** What an account's run did; the error is null when it finished. */
+export interface AccountRun {
+  drafted: number;
+  tried: number;
+  error: KbLearnRunError | null;
+}
+
+/** One account's run, its AI config already loaded. Never throws. */
 export async function learnAccount(
   deps: KbLearnDeps,
   accountId: string,
+  config: AiConfig,
   deadlineAt: number
-): Promise<{ drafted: number; tried: number }> {
+): Promise<AccountRun> {
   const now = deps.now ?? Date.now;
-  let drafted = 0;
-  let tried = 0;
+  const run: AccountRun = { drafted: 0, tried: 0, error: null };
   try {
-    const config = await deps.loadConfig(accountId);
-    if (!config?.apiKey) return { drafted, tried };
-    const topics = await deps.store.openTopics(accountId);
-    if (topics.length === 0) return { drafted, tried };
-    // Once per run; a list that cannot be read in full stops the run.
-    const names = await deps.store.knownNames(accountId);
+    let left: number;
+    let topics: LearnTopic[];
+    let names: string[];
+    try {
+      // A retry asks only what is left of the week's ten.
+      left = MAX_TOPICS_PER_RUN - (await deps.store.askedThisWeek(accountId));
+      if (left <= 0) return run;
+      topics = await deps.store.openTopics(accountId);
+      if (topics.length === 0) return run;
+      // Once per run; a list that cannot be read in full stops the run.
+      names = await deps.store.knownNames(accountId);
+    } catch (err) {
+      console.error(
+        `[kb-learn] a read failed for account ${accountId}: ${message(err)}`
+      );
+      return { ...run, error: 'read_failed' };
+    }
     const matcher = buildNameMatcher(names);
+    let modelFailures = 0; // in a row
+    let readFailed = false;
     for (const topic of topics) {
-      if (tried >= MAX_TOPICS_PER_RUN) break;
-      if (deadlineAt - now() < TOPIC_MIN_BUDGET_MS) break;
+      if (run.tried >= left) break;
+      if (deadlineAt - now() < TOPIC_MIN_BUDGET_MS) {
+        run.error = 'out_of_time';
+        break;
+      }
       try {
         const out = await learnTopic(
           deps,
@@ -374,22 +432,34 @@ export async function learnAccount(
           names,
           matcher
         );
-        if (out.reason === 'disabled') break;
+        if (out.reason === 'disabled') return run;
         // A topic the model was asked about counts toward the cap.
-        if (out.drafted || ASKED.has(out.reason ?? '')) tried++;
-        if (out.drafted) drafted++;
+        const asked = out.drafted || ASKED.has(out.reason ?? '');
+        if (asked) run.tried++;
+        if (out.drafted) run.drafted++;
+        if (out.reason === 'unrecorded') return { ...run, error: 'failed' };
+        if (out.reason === 'model') modelFailures++;
+        else if (asked) modelFailures = 0;
+        if (modelFailures >= MAX_MODEL_FAILURES) break;
       } catch (err) {
+        readFailed = true;
         console.warn(
           `[kb-learn] a topic failed for account ${accountId}: ${message(err)}`
         );
       }
     }
+    // The model still failing at the end (the last call of the run), then
+    // a topic that could not be read; a lone failure the run moved past
+    // waits for next week.
+    if (modelFailures > 0) run.error = 'model';
+    else if (readFailed && run.tried < left) run.error = 'read_failed';
   } catch (err) {
     console.error(
       `[kb-learn] run failed for account ${accountId}: ${message(err)}`
     );
+    run.error = 'failed';
   }
-  return { drafted, tried };
+  return run;
 }
 
 /**
@@ -405,16 +475,30 @@ export async function runKbLearning(
   let accounts = 0;
   let drafted = 0;
   try {
-    const since = new Date(started - KB_LEARN_INTERVAL_DAYS * 86_400_000);
-    const due = await deps.store.dueAccounts(since);
+    const due = await deps.store.dueAccounts(new Date(started));
     for (const accountId of due) {
       if (passDeadline - now() < TOPIC_MIN_BUDGET_MS) break;
+      // Before the claim: an account that cannot call the model at all
+      // never counts as running. Claimed all the same, so it is retried
+      // like any failure and does not hold a place in every pass.
+      let config: AiConfig | null = null;
+      let configError: KbLearnRunError = 'no_ai';
+      try {
+        config = await deps.loadConfig(accountId);
+      } catch (err) {
+        configError = 'read_failed';
+        console.error(
+          `[kb-learn] could not load the AI config for account ${accountId}: ${message(err)}`
+        );
+      }
       if (!(await deps.store.claimRun(accountId))) continue;
       accounts++;
-      const res = await learnAccount(deps, accountId, passDeadline);
+      const res: AccountRun = config?.apiKey
+        ? await learnAccount(deps, accountId, config, passDeadline)
+        : { drafted: 0, tried: 0, error: configError };
       drafted += res.drafted;
       try {
-        await deps.store.finishRun(accountId, res.drafted);
+        await deps.store.finishRun(accountId, res.drafted, res.error);
       } catch (err) {
         console.warn(
           `[kb-learn] could not record the run for account ${accountId}: ${message(err)}`
@@ -445,13 +529,22 @@ const NAMES_PAGE = 1000;
 
 export function supabaseKbLearnStore(db: SupabaseClient): KbLearnStore {
   return {
-    async dueAccounts(since) {
+    async dueAccounts(now) {
+      // A row with last_run_at only (no next_run_at): a week after it,
+      // as kb_learn_claim_run reads it.
+      const weekAgo = new Date(
+        now.getTime() - KB_LEARN_INTERVAL_DAYS * 86_400_000
+      );
       const { data, error } = await db
         .from('kb_learn_settings')
-        .select('account_id, last_run_at')
+        .select('account_id')
         .eq('enabled', true)
-        .or(`last_run_at.is.null,last_run_at.lte.${since.toISOString()}`)
-        .order('last_run_at', { ascending: true, nullsFirst: true })
+        .or(
+          `next_run_at.lte.${now.toISOString()},` +
+            'and(next_run_at.is.null,last_run_at.is.null),' +
+            `and(next_run_at.is.null,last_run_at.lte.${weekAgo.toISOString()})`
+        )
+        .order('next_run_at', { ascending: true, nullsFirst: true })
         .limit(MAX_ACCOUNTS_PER_PASS);
       if (error) throw new Error(`settings: ${error.message}`);
       return ((data ?? []) as { account_id: string }[]).map(
@@ -465,12 +558,21 @@ export function supabaseKbLearnStore(db: SupabaseClient): KbLearnStore {
       if (error) throw new Error(`claim: ${error.message}`);
       return data === true;
     },
-    async finishRun(accountId, drafted) {
+    async finishRun(accountId, drafted, runError) {
       const { error } = await db.rpc('kb_learn_finish_run', {
         p_account: accountId,
         p_drafted: drafted,
+        p_error: runError,
       });
       if (error) throw new Error(`finish: ${error.message}`);
+    },
+    async askedThisWeek(accountId) {
+      const { data, error } = await db.rpc('kb_learn_asked_this_week', {
+        p_account: accountId,
+      });
+      if (error) throw new Error(`asked: ${error.message}`);
+      if (typeof data !== 'number') throw new Error('asked: no count');
+      return data;
     },
     async openTopics(accountId) {
       const { data, error } = await db.rpc('kb_learn_open_topics', {
@@ -672,7 +774,7 @@ export function supabaseKbLearnStore(db: SupabaseClient): KbLearnStore {
       return [...names];
     },
     async recordDiscard(a) {
-      const { error } = await db.rpc('kb_learn_record_discard', {
+      const { data, error } = await db.rpc('kb_learn_record_discard', {
         p_account: a.accountId,
         p_topic_id: a.topicId,
         p_topic_key: a.topicKey,
@@ -680,6 +782,8 @@ export function supabaseKbLearnStore(db: SupabaseClient): KbLearnStore {
         p_evidence_count: a.evidenceCount,
       });
       if (error) throw new Error(`discard: ${error.message}`);
+      // Not written (the switch is off, or the gaps are gone).
+      if (data !== true) throw new Error('discard: not written');
     },
     async recordDraft(a) {
       const { data, error } = await db.rpc('kb_learn_record_draft', {

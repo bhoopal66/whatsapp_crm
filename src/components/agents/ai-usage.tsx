@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import {
   BarChart3,
@@ -68,6 +69,7 @@ const WINDOWS = [7, 30, 90] as const;
  * `GET /api/ai/usage` route. Renders nothing for non-admins.
  */
 export function AiUsageCard() {
+  const tLearn = useTranslations('KbLearn');
   const { accountId, accountRole, profileLoading } = useAuth();
   const canView = accountRole ? canEditSettings(accountRole) : false;
 
@@ -184,7 +186,7 @@ export function AiUsageCard() {
                 icon={BriefcaseBusiness}
               />
               <Stat
-                label="Learned answers"
+                label={tLearn('usageLabel')}
                 value={formatCompactNumber(
                   data.by_mode.kb_learn?.tokens ?? 0
                 )}
