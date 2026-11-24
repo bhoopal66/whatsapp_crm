@@ -1,12 +1,17 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { MessageTemplate } from '@/types';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { Loader2, FileText, ArrowRight, Plus } from 'lucide-react';
 import { SENDABLE_TEMPLATE_STATUS } from '@/lib/broadcasts/draft-state';
+import { useAccountNumbers } from '@/hooks/use-whatsapp-numbers';
+import {
+  broadcastTemplateSendsFrom,
+  offerTemplates,
+} from '@/lib/whatsapp/template-offer';
 import { templatesSettingsHref } from '@/lib/broadcasts/return-path';
 import { useTranslations } from 'next-intl';
 
@@ -26,6 +31,15 @@ interface Step1Props {
 export function Step1ChooseTemplate({ selectedTemplate, onSelect, onNext, onBack }: Step1Props) {
   const t = useTranslations('Broadcasts.wizard');
   const [templates, setTemplates] = useState<MessageTemplate[]>([]);
+  const tPicker = useTranslations('Inbox.templatePicker');
+  const numbers = useAccountNumbers();
+  // Undefined until it is read, or when it could not be.
+  const [routedId, setRoutedId] = useState<string | null | undefined>();
+  const offer = useMemo(
+    () =>
+      offerTemplates(templates, broadcastTemplateSendsFrom(numbers, routedId)),
+    [templates, numbers, routedId]
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -35,12 +49,22 @@ export function Step1ChooseTemplate({ selectedTemplate, onSelect, onNext, onBack
         const supabase = createClient();
         // Only APPROVED templates can be sent via Meta — anything else
         // would 400 at broadcast time. Hide them rather than letting
-        // the user pick a template that will fail.
-        const { data, error: fetchError } = await supabase
-          .from('message_templates')
-          .select('*')
-          .eq('status', SENDABLE_TEMPLATE_STATUS)
-          .order('created_at', { ascending: false });
+        // the user pick a template that will fail. One Meta refused when
+        // it was submitted is APPROVED too: `offerTemplates` blocks it
+        // when campaigns go out on the Meta number.
+        const [{ data, error: fetchError }, route] = await Promise.all([
+          supabase
+            .from('message_templates')
+            .select('*')
+            .eq('status', SENDABLE_TEMPLATE_STATUS)
+            .order('created_at', { ascending: false }),
+          supabase
+            .from('whatsapp_routes')
+            .select('config_id')
+            .eq('surface', 'broadcast')
+            .maybeSingle(),
+        ]);
+        if (!route.error) setRoutedId(route.data?.config_id ?? null);
 
         if (fetchError) throw fetchError;
         setTemplates(data ?? []);
@@ -97,7 +121,7 @@ export function Step1ChooseTemplate({ selectedTemplate, onSelect, onNext, onBack
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {templates.map((template) => {
+          {offer.offered.map((template) => {
             const isSelected = selectedTemplate?.id === template.id;
             const catColor = categoryColors[template.category] ?? categoryColors.Utility;
 
@@ -129,6 +153,23 @@ export function Step1ChooseTemplate({ selectedTemplate, onSelect, onNext, onBack
               </button>
             );
           })}
+          {offer.blocked.map(({ template, reason }) => (
+            <div
+              key={template.id}
+              aria-disabled="true"
+              className="border-border bg-card/50 flex flex-col gap-3 rounded-xl border p-4"
+            >
+              <h3 className="text-muted-foreground text-sm font-medium">
+                {template.name}
+              </h3>
+              <p className="text-muted-foreground line-clamp-3 text-xs">
+                {template.body_text}
+              </p>
+              <p className="text-warning text-xs">
+                {tPicker(`blocked.${reason}`)}
+              </p>
+            </div>
+          ))}
         </div>
       )}
 
@@ -138,7 +179,10 @@ export function Step1ChooseTemplate({ selectedTemplate, onSelect, onNext, onBack
         </Button>
         <Button
           onClick={onNext}
-          disabled={!selectedTemplate}
+          disabled={
+            !selectedTemplate ||
+            offer.blocked.some((b) => b.template.id === selectedTemplate.id)
+          }
           className="bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
         >
           {t('next')}

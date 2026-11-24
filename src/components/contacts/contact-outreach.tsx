@@ -230,6 +230,7 @@ export function useContactOutreach({
           message_type: 'template',
           template_name: template.name,
           template_language: template.language,
+          template_id: template.id,
           template_message_params: {
             body: values.body,
             headerText: values.headerText,

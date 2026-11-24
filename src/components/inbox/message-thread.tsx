@@ -1973,6 +1973,7 @@ export function MessageThread({
           message_type: 'template',
           template_name: template.name,
           template_language: template.language,
+          template_id: template.id,
           // Structured params drive the new send-builder path
           // (header media + URL button substitution). Body values
           // are mirrored under both shapes so the route can fall
