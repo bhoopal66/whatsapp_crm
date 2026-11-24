@@ -8472,6 +8472,7 @@
       },
       "this": "This event",
       "all": "All events",
+      "editedDatesStay": "Dates you changed on their own stay in the calendar.",
       "cancel": "Cancel",
       "confirmDeleteTitle": "Delete this event?",
       "confirmDeleteBody": "Guests will no longer see it. This can't be undone.",
@@ -8492,6 +8493,7 @@
       "monthlyDate": "{interval, plural, =1 {Monthly on day {day}} other {Every # months on day {day}}}",
       "monthlyNth": "{interval, plural, =1 {Monthly on the {nth, selectordinal, one {#st} two {#nd} few {#rd} other {#th}} {weekday}} other {Every # months on the {nth, selectordinal, one {#st} two {#nd} few {#rd} other {#th}} {weekday}}}",
       "monthlyLast": "{interval, plural, =1 {Monthly on the last {weekday}} other {Every # months on the last {weekday}}}",
+      "monthlyLastDay": "{interval, plural, =1 {Monthly on the last day of the month} other {Every # months on the last day of the month}}",
       "yearly": "{interval, plural, =1 {Every year on {date}} other {Every # years on {date}}}",
       "custom": "Repeats on a custom schedule",
       "endsOn": "{rule}, until {until}",
@@ -8518,10 +8520,12 @@
         "monthlyDate": "Monthly on the same day",
         "monthlyNth": "Monthly on the same weekday",
         "monthlyLast": "Monthly on the last weekday",
+        "monthlyLastDay": "Last day of the month",
         "yearly": "Yearly",
         "custom": "Custom repeat rule"
       },
       "repeatPreviewInvalid": "This repeat can't be saved as set.",
+      "repeatSkipsShort": "Skipped in shorter months",
       "every": "Every",
       "intervalUnit": {
         "days": "{count, plural, =1 {day} other {days}}",
@@ -8544,6 +8548,7 @@
       "attendeesSearch": "Search people",
       "attendeesEmpty": "No one matches.",
       "removeAttendee": "Remove {name}",
+      "editedDatesKeepGuests": "Dates you changed on their own keep their guests.",
       "unknownPerson": "Unknown person",
       "location": "Location",
       "locationPlaceholder": "Add a place or link",
@@ -8582,7 +8587,8 @@
       "saving": "Saving…",
       "created": "Event created",
       "saved": "Event saved",
-      "conflict": "Someone else changed this event. The form now shows the latest version.",
+      "conflict": "This event changed meanwhile. Your changes are kept; check them and save again.",
+      "conflictFields": "Changed meanwhile: {fields}",
       "saveFailed": "Couldn't save the event: {reason}",
       "loading": "Loading…",
       "loadFailed": "Couldn't load the event: {reason}",
@@ -8599,6 +8605,7 @@
         "descriptionTooLong": "The description is too long (5,000 characters at most).",
         "locationTooLong": "The location is too long (300 characters at most).",
         "repeatInvalid": "Check the repeat: it can't be saved as set.",
+        "repeatMissesStart": "The first date is not one of the repeat days.",
         "tooManyReminders": "Up to 5 reminders."
       }
     }

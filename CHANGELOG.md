@@ -40,6 +40,27 @@ and polish.
   (and stand down when that cannot be checked): nothing is sent to Jev, no
   "Interested" tag or deal. A tag set by hand still works, but its
   automations send no sales message in such a chat. No migration.
+- **Calendar: a repeating event starts on the date that was chosen.** The
+  weekly day now follows the start date until someone picks the days, and a
+  save whose first date is not one of its repeat days is refused ("The first
+  date is not one of the repeat days"); it used to be saved and the first
+  date never showed or rang. An event already saved that way can still be
+  edited in its other fields. No migration.
+- **Calendar: a series that starts later keeps its cancelled dates.** Changing
+  the start date of a repeating event moved every cancelled date, and every
+  date changed on its own, to another day (and showed the changed ones twice).
+  They now stay on their day and follow only the time, unless the whole series
+  moves: a drag of all events, or repeat days moved with the start.
+- **Reminders: "Snooze until tomorrow" is 09:00 in the workspace's time
+  zone**, not on the laptop's clock.
+- **Calendar: "Last day of the month" is a repeat choice** when the start is
+  one, and monthly on the 29th, 30th or 31st says it is skipped in shorter
+  months.
+- **Calendar: a save conflict keeps what was typed.** When the event changed
+  meanwhile, the form keeps the person's own changes, takes the rest, and
+  names what changed on the other side.
+- **Calendar: deleting all events, or taking a guest off a series, says that
+  dates changed on their own are not touched.**
 - **Compass updates: a status update is never posted twice into a
   submission group, and never lost to short failures.** A timeout or a
   restart mid-post answers `delivery_unconfirmed` and is not posted again

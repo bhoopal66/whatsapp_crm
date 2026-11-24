@@ -103,8 +103,12 @@ describe('parseEventInput: create', () => {
   });
 
   it('checks the repeat rule', () => {
-    expect(ok({ ...base, rrule: ' FREQ=WEEKLY;BYDAY=MO ' }).rrule).toBe(
-      'FREQ=WEEKLY;BYDAY=MO'
+    // The start is a Tuesday.
+    expect(ok({ ...base, rrule: ' FREQ=WEEKLY;BYDAY=TU ' }).rrule).toBe(
+      'FREQ=WEEKLY;BYDAY=TU'
+    );
+    expect(err({ ...base, rrule: 'FREQ=WEEKLY;BYDAY=MO' })).toMatch(
+      /first date is not one of the repeat days/
     );
     expect(ok({ ...base, rrule: '' }).rrule).toBeNull();
     expect(err({ ...base, rrule: 'FREQ=HOURLY' })).toMatch(/daily, weekly/);

@@ -31,6 +31,73 @@ const row = (over: Partial<EventRow> = {}): EventRow => ({
   ...over,
 });
 
+describe('the repeat days and the start', () => {
+  // Opened on Tuesday 24 November 2026.
+  const opened = () => ({
+    ...defaultEventForm(new Date('2026-11-24T05:10:00Z'), DUBAI),
+    title: 'Weekly sync',
+  });
+  const weekly = (v: ReturnType<typeof opened>) => ({
+    ...v,
+    repeat: { ...v.repeat, freq: 'weekly' as const },
+  });
+  const saved = (v: ReturnType<typeof opened>) => {
+    const r = createBody(v);
+    return r.ok ? r.body.rrule : r.errors;
+  };
+
+  it('a weekly event is on the weekday of the date it was moved to', () => {
+    const thursday = withStart(opened(), '2026-11-26', '10:00');
+    expect(saved(weekly(thursday))).toBe('FREQ=WEEKLY;BYDAY=TH');
+    // Weekly picked first, the date moved after.
+    expect(saved(withStart(weekly(opened()), '2026-11-26', '10:00'))).toBe(
+      'FREQ=WEEKLY;BYDAY=TH'
+    );
+  });
+
+  it('follows through a half-typed date', () => {
+    const typing = withStart(weekly(opened()), '', '10:00');
+    const typed = withStart(typing, '2026-11-26', '10:00');
+    expect(saved({ ...typed, endDate: '2026-11-26', endTime: '11:00' })).toBe(
+      'FREQ=WEEKLY;BYDAY=TH'
+    );
+  });
+
+  it('a monthly event is on the day of the date it was moved to', () => {
+    const v = withStart(opened(), '2026-11-26', '10:00');
+    expect(
+      saved({ ...v, repeat: { ...v.repeat, freq: 'monthly' as const } })
+    ).toBe('FREQ=MONTHLY;BYMONTHDAY=26');
+  });
+
+  it('chosen days stay, and a first date outside them is refused', () => {
+    const v = weekly(opened());
+    const chosen = { ...v, repeat: { ...v.repeat, weekdays: ['TU', 'WE'] } };
+    const at = (date: string) =>
+      saved(withStart(chosen as typeof v, date, '10:00'));
+    expect(at('2026-11-25')).toBe('FREQ=WEEKLY;BYDAY=TU,WE');
+    expect(at('2026-11-26')).toEqual({ repeat: 'repeatMissesStart' });
+  });
+
+  it('an event saved on the wrong day keeps its other fields editable', () => {
+    // Thursday 15 October, repeating on Tuesdays.
+    const original = formFromEvent(row({ rrule: 'FREQ=WEEKLY;BYDAY=TU' }), []);
+    const edit = (v: typeof original) =>
+      editBody(v, { original, scope: 'all' as const });
+    expect(edit({ ...original, title: 'New' })).toEqual({
+      ok: true,
+      body: { title: 'New', scope: 'all' },
+    });
+    expect(edit(withStart(original, '2026-10-16', '10:00'))).toEqual({
+      ok: false,
+      errors: { repeat: 'repeatMissesStart' },
+    });
+    expect(
+      edit({ ...original, repeat: { ...original.repeat, weekdays: ['TH'] } })
+    ).toMatchObject({ ok: true, body: { rrule: 'FREQ=WEEKLY;BYDAY=TH' } });
+  });
+});
+
 describe('dateKeyInZone', () => {
   it('reads the date in the zone, not in UTC', () => {
     // 20:00 UTC on the 14th is midnight on the 15th in Dubai.

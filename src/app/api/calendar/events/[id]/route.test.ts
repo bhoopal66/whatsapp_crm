@@ -274,6 +274,88 @@ describe('/api/calendar/events/[id]', () => {
       });
     });
 
+    describe('the cancelled dates when the start date moves', () => {
+      // Mon–Fri 09:00 Dubai from Monday 2 November; Wednesday 2 December
+      // is cancelled.
+      const CANCELLED = '2026-12-02T05:00:00.000Z';
+      const move = async (
+        stored: string,
+        day: string,
+        body: Record<string, unknown> = {}
+      ) => {
+        Object.assign(find(SERIES), {
+          start_at: '2026-11-02T05:00:00.000Z',
+          end_at: '2026-11-02T05:30:00.000Z',
+          rrule: stored,
+          exdates: [CANCELLED],
+        });
+        const res = await patch(
+          {
+            start: `2026-11-${day}T06:00:00Z`,
+            end: `2026-11-${day}T06:30:00Z`,
+            allDay: false,
+            timeZone: 'Asia/Dubai',
+            scope: 'all',
+            ...body,
+          },
+          SERIES
+        );
+        expect(res.status).toBe(200);
+        return (rpcCalls()[0][1].p_patch as { exdates: string[] }).exdates;
+      };
+      const WORKDAYS = 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR';
+      // The start moves from 09:00 to 10:00 as well.
+      const sameDay = ['2026-12-02T06:00:00.000Z'];
+
+      it('stay on their day when the series only starts later', async () => {
+        expect(await move(WORKDAYS, '03')).toEqual(sameDay);
+      });
+
+      it('stay on their day when a daily series starts later', async () => {
+        expect(await move('FREQ=DAILY', '03')).toEqual(sameDay);
+      });
+
+      it('stay on their day when a weekly series starts a week later', async () => {
+        expect(await move('FREQ=WEEKLY;BYDAY=MO', '09')).toEqual(sameDay);
+      });
+
+      it('move with the days the rule moved by', async () => {
+        expect(
+          await move('FREQ=WEEKLY;BYDAY=MO,WE', '03', {
+            rrule: 'FREQ=WEEKLY;BYDAY=TU,TH',
+          })
+        ).toEqual(['2026-12-03T06:00:00.000Z']);
+      });
+
+      it('move with a rule that takes its day from the start', async () => {
+        expect(await move('FREQ=WEEKLY', '03')).toEqual([
+          '2026-12-03T06:00:00.000Z',
+        ]);
+        db.rpcCalls = [];
+        // Day 2 → day 30: over what every month has.
+        expect(
+          await move('FREQ=MONTHLY;BYMONTHDAY=2', '30', {
+            rrule: 'FREQ=MONTHLY;BYMONTHDAY=30',
+          })
+        ).toEqual(['2026-12-30T06:00:00.000Z']);
+      });
+
+      it('move by a drag of every occurrence, the rule unchanged', async () => {
+        expect(await move(WORKDAYS, '09', { moveSeries: true })).toEqual([
+          '2026-12-09T06:00:00.000Z',
+        ]);
+      });
+
+      it('a drag is not refused for a first date that already missed the rule', async () => {
+        expect(
+          await move('FREQ=WEEKLY;BYDAY=WE', '03', {
+            rrule: 'FREQ=WEEKLY;BYDAY=TH',
+            moveSeries: true,
+          })
+        ).toEqual(['2026-12-03T06:00:00.000Z']);
+      });
+    });
+
     it('stores the end of a bounded series when the rule changes', async () => {
       const res = await patch(
         { rrule: 'FREQ=WEEKLY;COUNT=3', scope: 'all' },
@@ -294,6 +376,47 @@ describe('/api/calendar/events/[id]', () => {
       );
       expect(res.status).toBe(400);
       expect(rpcCalls()).toEqual([]);
+    });
+
+    describe('a rule that does not name the first date', () => {
+      const times = (day: string, hour = '05') => ({
+        start: `2026-10-${day}T${hour}:00:00Z`,
+        end: `2026-10-${day}T${hour}:30:00Z`,
+        allDay: false,
+        timeZone: 'Asia/Dubai',
+        scope: 'all',
+      });
+
+      it('is refused when the rule or the first date changes', async () => {
+        const rule = await patch(
+          { rrule: 'FREQ=WEEKLY;BYDAY=TU', scope: 'all' },
+          SERIES
+        );
+        expect(rule.status).toBe(400);
+        expect((await rule.json()).error).toBe(
+          'The first date is not one of the repeat days'
+        );
+        find(SERIES).rrule = 'FREQ=WEEKLY;BYDAY=MO';
+        expect((await patch(times('06'), SERIES)).status).toBe(400);
+        expect(rpcCalls()).toEqual([]);
+      });
+
+      it('leaves the other fields of one already stored editable', async () => {
+        find(SERIES).rrule = 'FREQ=WEEKLY;BYDAY=TU';
+        expect((await patch({ title: 'x' }, SERIES)).status).toBe(200);
+        expect((await patch({ attendees: [U1] }, SERIES)).status).toBe(200);
+        // The same date at another time of day.
+        expect((await patch(times('05', '07'), SERIES)).status).toBe(200);
+        // Both moved so that they agree.
+        expect(
+          (
+            await patch(
+              { ...times('06'), rrule: 'FREQ=WEEKLY;BYDAY=TU' },
+              SERIES
+            )
+          ).status
+        ).toBe(200);
+      });
     });
 
     it('leaves the exdates and the end alone when the series keeps its times and rule', async () => {

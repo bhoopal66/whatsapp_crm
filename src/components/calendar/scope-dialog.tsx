@@ -50,6 +50,9 @@ export function ScopeDialog({
           {!recurring && (
             <DialogDescription>{t('confirmDeleteBody')}</DialogDescription>
           )}
+          {recurring && purpose === 'delete' && (
+            <DialogDescription>{t('editedDatesStay')}</DialogDescription>
+          )}
         </DialogHeader>
         <DialogFooter>
           <Button variant="outline" onClick={() => onAnswer(null)}>

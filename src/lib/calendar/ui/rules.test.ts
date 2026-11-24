@@ -292,7 +292,19 @@ describe('drag bodies', () => {
       start: '2026-10-02T05:00:00.000Z',
       rrule: 'FREQ=WEEKLY;BYDAY=FR',
       scope: 'all',
+      moveSeries: true,
     });
+    // A week later: the rule stays, and the cancelled dates still move.
+    const week = eventDragBody(
+      item,
+      dubai,
+      new Date('2026-10-22T05:00:00Z'),
+      null,
+      'all',
+      'Asia/Dubai'
+    );
+    expect(week).toMatchObject({ moveSeries: true });
+    expect(week).not.toHaveProperty('rrule');
     // Same day, new time: the rule is not sent.
     expect(
       eventDragBody(

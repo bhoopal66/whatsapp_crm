@@ -340,6 +340,28 @@ export function rruleSanity(body: string, anchor: SeriesAnchor): string | null {
 }
 
 /**
+ * Whether the series' start date is one of the rule's own dates. Expansion
+ * never shows a start the rule does not name, so a weekly BYDAY=TU that
+ * starts on a Thursday loses its first date.
+ */
+export function ruleIncludesStart(body: string, anchor: SeriesAnchor): boolean {
+  const startFloat = toFloating(Date.parse(anchor.start_at), anchor.time_zone);
+  const day = Math.floor(startFloat / DAY_MS) * DAY_MS;
+  const end = day + DAY_MS - 1;
+  let found = false;
+  walk(
+    boundedRule(parseOptions(body, anchor.time_zone), startFloat, end),
+    day,
+    end,
+    () => {
+      found = true;
+      return false;
+    }
+  );
+  return found;
+}
+
+/**
  * The end of a series' last occurrence when its rule is bounded by
  * COUNT or UNTIL, else null (open-ended, or a one-off event). exdates
  * are ignored, so the value depends only on the times and the rule; a

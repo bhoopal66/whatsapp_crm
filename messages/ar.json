@@ -8472,6 +8472,7 @@
       },
       "this": "هذا الحدث",
       "all": "كل الأحداث",
+      "editedDatesStay": "التواريخ التي غيّرتها بمفردها تبقى في التقويم.",
       "cancel": "إلغاء",
       "confirmDeleteTitle": "حذف هذا الحدث؟",
       "confirmDeleteBody": "لن يراه الضيوف بعد الآن. لا يمكن التراجع عن هذا.",
@@ -8492,6 +8493,7 @@
       "monthlyDate": "{interval, plural, =1 {شهريًا في اليوم {day}} other {كل # أشهر في اليوم {day}}}",
       "monthlyNth": "{interval, plural, =1 {شهريًا في {weekday} رقم {nth, selectordinal, other {#}}} other {كل # أشهر في {weekday} رقم {nth, selectordinal, other {#}}}}",
       "monthlyLast": "{interval, plural, =1 {شهريًا في آخر {weekday}} other {كل # أشهر في آخر {weekday}}}",
+      "monthlyLastDay": "{interval, plural, =1 {شهريًا في آخر يوم من الشهر} other {كل # أشهر في آخر يوم من الشهر}}",
       "yearly": "{interval, plural, =1 {كل سنة في {date}} other {كل # سنوات في {date}}}",
       "custom": "يتكرر وفق جدول مخصص",
       "endsOn": "{rule}، حتى {until}",
@@ -8518,10 +8520,12 @@
         "monthlyDate": "شهريًا في اليوم نفسه",
         "monthlyNth": "شهريًا في يوم الأسبوع نفسه",
         "monthlyLast": "شهريًا في آخر يوم أسبوع",
+        "monthlyLastDay": "آخر يوم من الشهر",
         "yearly": "سنويًا",
         "custom": "قاعدة تكرار مخصصة"
       },
       "repeatPreviewInvalid": "لا يمكن حفظ هذا التكرار كما هو مضبوط.",
+      "repeatSkipsShort": "يتم تخطيه في الأشهر الأقصر",
       "every": "كل",
       "intervalUnit": {
         "days": "{count, plural, =1 {يوم} other {أيام}}",
@@ -8544,6 +8548,7 @@
       "attendeesSearch": "بحث عن أشخاص",
       "attendeesEmpty": "لا أحد يطابق.",
       "removeAttendee": "إزالة {name}",
+      "editedDatesKeepGuests": "التواريخ التي غيّرتها بمفردها تحتفظ بضيوفها.",
       "unknownPerson": "شخص غير معروف",
       "location": "الموقع",
       "locationPlaceholder": "أضف مكانًا أو رابطًا",
@@ -8582,7 +8587,8 @@
       "saving": "جارٍ الحفظ…",
       "created": "تم إنشاء الحدث",
       "saved": "تم حفظ الحدث",
-      "conflict": "غيّر شخص آخر هذا الحدث. يعرض النموذج الآن أحدث نسخة.",
+      "conflict": "تغيّر هذا الحدث في هذه الأثناء. تم الاحتفاظ بتغييراتك؛ راجعها ثم احفظ مرة أخرى.",
+      "conflictFields": "ما تغيّر في هذه الأثناء: {fields}",
       "saveFailed": "تعذر حفظ الحدث: {reason}",
       "loading": "جارٍ التحميل…",
       "loadFailed": "تعذر تحميل الحدث: {reason}",
@@ -8599,6 +8605,7 @@
         "descriptionTooLong": "الوصف طويل جدًا (5,000 حرف كحد أقصى).",
         "locationTooLong": "الموقع طويل جدًا (300 حرف كحد أقصى).",
         "repeatInvalid": "تحقق من التكرار: لا يمكن حفظه كما هو مضبوط.",
+        "repeatMissesStart": "التاريخ الأول ليس من أيام التكرار.",
         "tooManyReminders": "حتى 5 تذكيرات."
       }
     }

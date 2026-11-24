@@ -21,6 +21,7 @@ import {
   expandEvent,
   fromFloating,
   isOccurrence,
+  ruleIncludesStart,
   rruleSanity,
   seriesEndAt,
   toFloating,
@@ -30,9 +31,11 @@ import {
   EVENT_COLUMNS,
   requireCalendarUser,
 } from '@/lib/calendar/server';
+import { shiftRule } from '@/lib/calendar/rrule-form';
 import {
   expectedStamp,
   parseEventInput,
+  RULE_MISSES_START,
   type EventInput,
 } from '@/lib/calendar/validate';
 import { isUuid } from '@/lib/meetings/requests';
@@ -161,20 +164,83 @@ function rpcErrorResponse(
   return calendarDbErrorResponse(error, fallback);
 }
 
+const byParts = (rrule: string) =>
+  rrule
+    .split(';')
+    .filter((p) => p.startsWith('BY'))
+    .sort()
+    .join(';');
+
 /**
- * The series' exdates moved with its start: the same wall-clock delta,
- * so an excluded "Tuesday 09:00" stays the Tuesday occurrence after the
- * series moves to 10:00 or to another zone.
+ * Whether every occurrence moved with the series' start, by whole days: a
+ * drag says so itself (a 7-day one leaves a weekly rule unchanged). An
+ * edit in the dialog is one when the rule's days (BY*) moved by the same
+ * days, or when the rule names none and takes its day from the start.
  */
-function shiftExdates(ev: EventRow, startAt: string, timeZone: string) {
+function occurrencesMoved(ev: EventRow, next: EventRow, dragged: boolean) {
+  const days =
+    dayOf(next.start_at, next.time_zone) - dayOf(ev.start_at, ev.time_zone);
+  if (dragged || days === 0 || !ev.rrule || !next.rrule) return true;
+  const before = byParts(ev.rrule);
+  const after = byParts(next.rrule);
+  if (before !== after) {
+    const date = new Date(dayOf(ev.start_at, ev.time_zone) * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+    const moved = shiftRule(ev.rrule, days, { date, timeZone: ev.time_zone });
+    // The month's day follows the start by itself (BYMONTHDAY), over a
+    // month's end too, where shiftRule refuses.
+    const monthDay = /^BYMONTHDAY=\d+$/;
+    return moved === null
+      ? monthDay.test(before) && monthDay.test(after)
+      : byParts(moved) === after;
+  }
+  if (before) return false;
+  const step = Number(/INTERVAL=(\d+)/.exec(next.rrule)?.[1] ?? 1);
+  if (next.rrule.startsWith('FREQ=DAILY')) return days % step !== 0;
+  if (next.rrule.startsWith('FREQ=WEEKLY')) return days % (7 * step) !== 0;
+  return true;
+}
+
+/**
+ * The series' exdates after its start moved, each an occurrence at the new
+ * time of day in the new zone: on its own day ("Wednesday 2 December" stays
+ * that date when the series only starts later), or moved by the start's
+ * whole days when every occurrence moved.
+ */
+function shiftExdates(ev: EventRow, next: EventRow, dragged: boolean) {
+  const days =
+    dayOf(next.start_at, next.time_zone) - dayOf(ev.start_at, ev.time_zone);
   const delta =
-    toFloating(Date.parse(startAt), timeZone) -
-    toFloating(Date.parse(ev.start_at), ev.time_zone);
+    toFloating(Date.parse(next.start_at), next.time_zone) -
+    toFloating(Date.parse(ev.start_at), ev.time_zone) -
+    (occurrencesMoved(ev, next, dragged) ? 0 : days * 86_400_000);
   return (ev.exdates ?? []).map((x) =>
     new Date(
-      fromFloating(toFloating(Date.parse(x), ev.time_zone) + delta, timeZone)
+      fromFloating(
+        toFloating(Date.parse(x), ev.time_zone) + delta,
+        next.time_zone
+      )
     ).toISOString()
   );
+}
+
+/** The whole day of an instant on the zone's calendar. */
+const dayOf = (iso: string, timeZone: string) =>
+  Math.floor(toFloating(Date.parse(iso), timeZone) / 86_400_000);
+
+/**
+ * Whether the edit leaves a series whose rule does not name its start
+ * date. Only an edit of the start date or of the rule is judged: a series
+ * stored that way before the check existed keeps its other fields (and
+ * its time of day) editable.
+ */
+function missesStart(ev: EventRow, next: EventRow): boolean {
+  if (!next.rrule) return false;
+  const moved =
+    next.rrule !== ev.rrule ||
+    dayOf(next.start_at, next.time_zone) !== dayOf(ev.start_at, ev.time_zone);
+  return moved && !ruleIncludesStart(next.rrule, next);
 }
 
 /** The checked occurrence (original start and end), or null. */
@@ -225,7 +291,8 @@ export async function GET(_request: Request, { params }: Params) {
 
 /**
  * PATCH `{ …event fields (partial), attendees?, scope?: 'this'|'all',
- * occurrenceStart?, expectedUpdatedAt }` → `{ event }`. On a series,
+ * occurrenceStart?, moveSeries?, expectedUpdatedAt }` → `{ event }`.
+ * `moveSeries` marks a drag of all events (see occurrencesMoved). On a series,
  * scope 'this' moves one occurrence out into a standalone copy
  * (returned); otherwise the row itself is updated (returned).
  */
@@ -264,15 +331,25 @@ export async function PATCH(request: Request, { params }: Params) {
       const err = rruleSanity(v.rrule, ev);
       if (err) return jsonError(err, 400);
     }
+    const next: EventRow = {
+      ...ev,
+      start_at: v.start_at ?? ev.start_at,
+      end_at: v.end_at ?? ev.end_at,
+      all_day: v.all_day ?? ev.all_day,
+      time_zone: v.time_zone ?? ev.time_zone,
+      rrule: v.rrule !== undefined ? v.rrule : ev.rrule,
+    };
+    // "Move all events": every occurrence shifts with the first one.
+    const dragged = (raw as { moveSeries?: unknown }).moveSeries === true;
+    // A drag keeps the start and the rule as they stood to each other, so
+    // it is no reason to refuse a series that already missed its start.
+    const missedBefore =
+      dragged && !!ev.rrule && !ruleIncludesStart(ev.rrule, ev);
+    if (!missedBefore && missesStart(ev, next)) {
+      return jsonError(RULE_MISSES_START, 400);
+    }
     if (v.start_at !== undefined || v.rrule !== undefined) {
-      changes.series_end_at =
-        seriesEndAt({
-          start_at: v.start_at ?? ev.start_at,
-          end_at: v.end_at ?? ev.end_at,
-          all_day: v.all_day ?? ev.all_day,
-          time_zone: v.time_zone ?? ev.time_zone,
-          rrule: v.rrule !== undefined ? v.rrule : ev.rrule,
-        })?.toISOString() ?? null;
+      changes.series_end_at = seriesEndAt(next)?.toISOString() ?? null;
     }
     if (
       ev.rrule &&
@@ -281,7 +358,7 @@ export async function PATCH(request: Request, { params }: Params) {
       v.time_zone !== undefined &&
       (!sameInstant(v.start_at, ev.start_at) || v.time_zone !== ev.time_zone)
     ) {
-      changes.exdates = shiftExdates(ev, v.start_at, v.time_zone);
+      changes.exdates = shiftExdates(ev, next, dragged);
     }
 
     const { data, error: rpcErr } = await supabase.rpc(

@@ -15,8 +15,9 @@ import { fromFloating, toFloating, wallClock } from './recurrence';
 export const WEEKDAYS = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'] as const;
 export type Weekday = (typeof WEEKDAYS)[number];
 export type RepeatFreq = 'none' | 'daily' | 'weekly' | 'monthly' | 'yearly';
-/** Monthly on the anchor's date, its nth weekday, or its last weekday. */
-export type MonthlyMode = 'date' | 'nth' | 'last';
+/** Monthly on the anchor's date, its nth or last weekday, or the month's
+ *  last day. */
+export type MonthlyMode = 'date' | 'nth' | 'last' | 'lastDay';
 export type RepeatEnds = 'never' | 'on' | 'after';
 
 export const INTERVAL_MAX = 99;
@@ -141,6 +142,7 @@ export function formToRrule(
     parts.push(`BYDAY=${days.join(',')}`);
   } else if (form.freq === 'monthly') {
     if (form.monthly === 'date') parts.push(`BYMONTHDAY=${facts.monthDay}`);
+    else if (form.monthly === 'lastDay') parts.push('BYMONTHDAY=-1');
     else if (form.monthly === 'nth')
       parts.push(`BYDAY=${facts.nth}${facts.weekday}`);
     else {
@@ -234,7 +236,10 @@ export function rruleToForm(
   } else if (freq === 'monthly') {
     if (byMonth !== undefined) return null;
     if (byDay !== undefined && byMonthDay !== undefined) return null;
-    if (byMonthDay !== undefined && +byMonthDay !== facts.monthDay) return null;
+    if (byMonthDay === '-1') form.monthly = 'lastDay';
+    else if (byMonthDay !== undefined && +byMonthDay !== facts.monthDay) {
+      return null;
+    }
     if (byDay !== undefined) {
       const m = /^(-1|[1-5])([A-Z]{2})$/.exec(byDay);
       if (!m || m[2] !== facts.weekday) return null;
@@ -267,6 +272,7 @@ export type RepeatKey =
   | 'monthlyDate'
   | 'monthlyNth'
   | 'monthlyLast'
+  | 'monthlyLastDay'
   | 'yearly'
   | 'custom';
 
@@ -314,6 +320,8 @@ export function describeRrule(
       if (form.monthly === 'date') {
         key = 'monthlyDate';
         values.monthDay = facts.monthDay;
+      } else if (form.monthly === 'lastDay') {
+        key = 'monthlyLastDay';
       } else {
         key = form.monthly === 'nth' ? 'monthlyNth' : 'monthlyLast';
         values.weekday = facts.weekday;

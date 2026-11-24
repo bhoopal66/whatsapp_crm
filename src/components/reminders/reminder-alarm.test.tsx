@@ -197,6 +197,7 @@ describe('alarmActions', () => {
       remove,
       t,
       formatWhen: (d) => d.toISOString(),
+      timeZone: 'Asia/Dubai',
       now: () => new Date(NOW),
     });
 
