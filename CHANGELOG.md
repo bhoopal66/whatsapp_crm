@@ -34,6 +34,14 @@ and polish.
 
 ### Fixed
 
+- **Team chat no longer marks messages read that were not shown.** Opening a
+  channel seen before showed what was held and marked it read "up to now",
+  so a message that was still being read in, or that came and went while
+  offline, lost its badge. A channel is now marked up to its newest message
+  on screen, once its messages were read again, and a mark never goes back.
+  Opening a channel therefore no longer clears the badge of a mention in a
+  thread that is newer than the channel's own last message: read the thread
+  (or a newer message in the channel). No migration.
 - **A team chat message no longer shows, or is forwarded, without its file.**
   The files, reactions, reply counts and cards of a message were read
   together, so one failed read dropped them all without a word. Each is now

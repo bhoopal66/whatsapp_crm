@@ -177,9 +177,20 @@ export function useChannelTimeline(ws: ChatWorkspace, channelId: string) {
   );
   useEffect(() => details.show(), [details]);
 
+  // When this visit, or the last gap in realtime, began: until a page has
+  // landed since, rows may be missing before the newest one shown (a
+  // cached timeline, a live row that came before the gap was filled).
+  const staleSince = useRef(Number.POSITIVE_INFINITY);
+  /** Whether a page has landed since then. Asked when it matters. */
+  const isFresh = useCallback(() => {
+    const at = key && sessionCache.peek<CachedTimeline>(key)?.value.fetchedAt;
+    return typeof at === 'number' && at >= staleSince.current;
+  }, [key]);
+
   useEffect(() => {
     if (!key) return;
     let cancelled = false;
+    staleSince.current = Date.now();
     // Cached or not, always revalidate: rows first, details after.
     fetchTimelineFirstPage(sb, key, channelId)
       .then((fresh) => details.load(fresh.timeline.messages.map((m) => m.id)))
@@ -190,6 +201,7 @@ export function useChannelTimeline(ws: ChatWorkspace, channelId: string) {
       });
     return () => {
       cancelled = true;
+      staleSince.current = Number.POSITIVE_INFINITY;
     };
   }, [key, sb, channelId, details, fail, attempt]);
 
@@ -237,6 +249,7 @@ export function useChannelTimeline(ws: ChatWorkspace, channelId: string) {
           // the older pages someone may be reading. A failure is silent
           // and what is on screen stays; the catch-up tries again.
           if (!key) return;
+          staleSince.current = Date.now();
           return fetchTimelineFirstPage(sb, key, channelId, {
             keepOlder: true,
           }).then((fresh) => {
@@ -312,9 +325,12 @@ export function useChannelTimeline(ws: ChatWorkspace, channelId: string) {
     cards: shown?.cards ?? NO_CARDS,
     callCards: shown?.callCards ?? NO_CALL_CARDS,
     // Until there are rows to show: a failed read is no empty channel,
-    // and must not count as one seen (the read mark, the divider).
+    // and must not count as one seen (the read mark, the divider). A
+    // cached timeline shows at once; the read mark also asks isFresh.
     loading: !shown?.loaded,
     failed: !shown?.loaded && key !== null && failedKey === key,
+    isFresh,
+    fetchedAt: shown?.fetchedAt ?? null,
     retry,
     loadingOlder,
     loadOlder,

@@ -62,17 +62,27 @@ vi.mock('@/lib/chat', async (importOriginal) => ({
   listMessages: (...args: unknown[]) => listMessages(...(args as [])),
   attachmentsFor: () => attachmentsFor(),
 }));
-vi.mock('@/lib/session-cache', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/session-cache')>()),
-  prefetchSession: (_key: unknown, fetcher: () => Promise<unknown>) =>
-    fetcher(),
-}));
+vi.mock('@/lib/session-cache', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/lib/session-cache')>();
+  return {
+    ...real,
+    prefetchSession: async (
+      key: SessionKey,
+      fetcher: () => Promise<unknown>
+    ) => {
+      const value = await fetcher();
+      real.sessionCache.set(key, value);
+      return value;
+    },
+  };
+});
 
 import {
   CHAT_CHANNELS_QUESTION,
   CHAT_UNREAD_QUESTION,
 } from '@/lib/chat/channel-list-cache';
 import { CATCH_UP_GAP_MS, RETRY_DELAYS_MS } from '@/lib/realtime/catch-up';
+import { sessionCache, type SessionKey } from '@/lib/session-cache';
 import { useChannelTimeline } from './use-channel-timeline';
 import { useChatWorkspace, type ChatEvent } from './use-chat-workspace';
 
@@ -80,6 +90,7 @@ const CHANNEL = 'c0000000-0000-4000-8000-000000000001';
 
 beforeEach(() => {
   vi.useFakeTimers();
+  sessionCache.clear();
   refreshed.length = 0;
   failing.clear();
   listMessages.mockClear();
@@ -152,6 +163,39 @@ describe('team chat after a gap', () => {
     expect(listMessages).toHaveBeenCalledTimes(3);
     // Silently: no failed state was set.
     expect(setStates).toEqual([]);
+  });
+
+  it('a channel may be marked read only once its page landed, again after a gap', async () => {
+    const heard: ((e: ChatEvent) => unknown)[] = [];
+    const listen = (fn: (e: ChatEvent) => unknown) => {
+      heard.push(fn);
+      return () => {};
+    };
+    const ws = { ...useChatWorkspace(), listen, fail: () => '' };
+    // Opened before: its timeline is held, and shown at once.
+    useChannelTimeline(ws, CHANNEL);
+    await vi.advanceTimersByTimeAsync(10);
+    cleanups.splice(0).forEach((fn) => fn());
+    await vi.advanceTimersByTimeAsync(10);
+    heard.length = 0;
+
+    const tl = useChannelTimeline(ws, CHANNEL);
+    expect([tl.loading, tl.isFresh()]).toEqual([false, false]);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(tl.isFresh()).toBe(true);
+
+    listMessages.mockRejectedValueOnce(new Error('503'));
+    const missed = heard[0]({ kind: 'resync' }) as Promise<void>;
+    missed.catch(() => {});
+    expect(tl.isFresh()).toBe(false);
+    await expect(missed).rejects.toThrow('503');
+    expect(tl.isFresh()).toBe(false);
+    void heard[0]({ kind: 'resync' });
+    await vi.advanceTimersByTimeAsync(10);
+    expect(tl.isFresh()).toBe(true);
+
+    cleanups.splice(0).forEach((fn) => fn());
+    expect(tl.isFresh()).toBe(false);
   });
 
   it('reads the files of a new message again when they were not read', async () => {
