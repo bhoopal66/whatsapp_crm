@@ -414,15 +414,3 @@ describe('PATCH case sync (migration 134)', () => {
     expect((await res.json()).data).not.toHaveProperty('sync');
   });
 });
-
-describe('PATCH changed_at', () => {
-  it.each(['2062-10-21T10:00:00Z', '2026-10-21T10:00:00'])(
-    'answers 422 to %s and writes nothing: it would make later updates stale',
-    async (changed_at) => {
-      const res = await patch({ changed_at, stage: 'Submitted' });
-      expect(res.status).toBe(422);
-      expect((await res.json()).error.code).toBe('changed_at_invalid');
-      expect(m.rpc).not.toHaveBeenCalled();
-    }
-  );
-});

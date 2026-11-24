@@ -53,11 +53,10 @@ and polish.
   value that was not text and moved the rest up, so `["Jane", 50000,
   "5.9"]` went out as Jane, 5.9. A number is now sent as its text, and any
   other value is `400 bad_request`. No migration.
-- **API: a case update dated in the future is refused (contract change).**
-  One `changed_at` ahead of time made every later Compass update of that
-  case stale. `PATCH /api/v1/submission-groups/{id}` now answers `422
-  changed_at_invalid` to one more than 10 minutes ahead, or without `Z` or
-  an offset. No migration.
+- **API: a case update dated in the future no longer blocks the case.** One
+  `changed_at` ahead of time (a wrong year, a local time without its zone)
+  made every later Compass update of that case stale. It now counts as the
+  moment it arrived. No migration.
 - **When a submission group ends, its bells follow.** The unread bell of an
   agent who loses the group opens the customer's page instead of "does not
   exist". **Migration required: 313**.

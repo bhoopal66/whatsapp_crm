@@ -30,10 +30,7 @@ const BANK_CODE_RE = /^[A-Z0-9_]{2,32}$/;
 // numeric(18, 2): at most 16 integer digits and 2 decimals.
 const AMOUNT_RE = /^(\d{1,16})(?:\.(\d{1,2}))?$/;
 
-export type Parsed<T> =
-  | { ok: true; value: T }
-  /** 400 `bad_request`, or 422 with `code`. */
-  | { ok: false; message: string; code?: string };
+export type Parsed<T> = { ok: true; value: T } | { ok: false; message: string };
 
 export type StaffField =
   'agent_email' | 'coordinator_email' | 'team_lead_email';
@@ -257,10 +254,6 @@ export const PATCH_DOCUMENTS_MAX = 100;
 const DOC_KEY_RE = /^[a-z0-9_]{1,64}$/;
 const DOC_STATUSES = ['requested', 'received', 'rejected'] as const;
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
-/** Ends in a zone; without one the time is read as the server's own. */
-const ZONE_RE = /(Z|UTC|GMT|[+-]\d{2}(:?\d{2})?)$/i;
-/** How far Compass's clock may run ahead of ours. */
-const CHANGED_AT_AHEAD_MS = 10 * 60_000;
 const SYNC_KEYS = [
   'changed_at',
   'stage',
@@ -310,17 +303,10 @@ function parseSync(body: Record<string, unknown>): Parsed<PatchInput['sync']> {
     changedAt = isoDate(body.changed_at);
     if (!changedAt) return bad("'changed_at' must be an ISO 8601 date-time");
     // The latest one applied makes every older one stale: one from the
-    // future would refuse the case's updates until that day.
-    const invalid = (message: string) => ({
-      ...bad(message),
-      code: 'changed_at_invalid',
-    });
-    if (!ZONE_RE.test(String(body.changed_at).trim()))
-      return invalid("'changed_at' must end in Z or an offset such as +04:00");
-    if (Date.parse(changedAt) > Date.now() + CHANGED_AT_AHEAD_MS)
-      return invalid(
-        "'changed_at' must not be more than 10 minutes in the future"
-      );
+    // future (a wrong year, a local time sent without its zone) would
+    // refuse the case's updates until that day. It counts as now.
+    if (Date.parse(changedAt) > Date.now())
+      changedAt = new Date().toISOString();
   }
   if (!absent(body.stage)) {
     const stage = typeof body.stage === 'string' ? body.stage.trim() : '';

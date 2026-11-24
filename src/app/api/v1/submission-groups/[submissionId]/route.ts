@@ -189,10 +189,7 @@ export async function PATCH(request: Request, { params }: Params) {
     const ctx = await requireApiKey(request, 'submission_groups:write');
     const { submissionId } = await params;
     const parsed = parsePatchInput(await request.json().catch(() => null));
-    if (!parsed.ok)
-      return parsed.code
-        ? fail(parsed.code, parsed.message, 422)
-        : fail('bad_request', parsed.message, 400);
+    if (!parsed.ok) return fail('bad_request', parsed.message, 400);
 
     const { status, sync } = parsed.value;
     // 137: a non-final status names a stage, but Compass's own `stage` in

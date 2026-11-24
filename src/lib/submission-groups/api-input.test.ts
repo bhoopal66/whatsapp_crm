@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { WhatsAppChannel } from '@/lib/whatsapp/channels';
 import {
   chooseHostingNumber,
@@ -228,29 +228,18 @@ describe('parsePatchInput', () => {
     expect(parsePatchInput({ status: ' ', stage: 'Submitted' }).ok).toBe(false);
   });
 
-  it('refuses a changed_at with no zone or more than 10 minutes ahead', () => {
-    const parse = (changed_at: string) => parsePatchInput({ changed_at });
-    const ahead = (minutes: number) =>
-      new Date(Date.now() + minutes * 60_000).toISOString();
-    for (const ok of [
-      '2026-10-21T10:00:00Z',
-      '2026-10-21T10:00:00.123456Z',
-      '2026-10-21T10:00:00+04:00',
-      '2026-10-21T10:00:00.000+00:00',
-      ahead(9),
-    ])
-      expect(parse(ok).ok, ok).toBe(true);
-    for (const refused of [
-      '2026-10-21T10:00:00',
-      '2026-10-21T10:00',
-      '2026-10-21T10:00:00.000',
-      ahead(11),
-      '2062-10-21T10:00:00Z',
-    ])
-      expect(parse(refused), refused).toMatchObject({
-        ok: false,
-        code: 'changed_at_invalid',
-      });
+  it('a changed_at from the future counts as now', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime('2026-11-24T10:00:00.000Z');
+    const at = (changed_at: string) => {
+      const r = parsePatchInput({ changed_at });
+      return r.ok ? r.value.sync?.changedAt : r;
+    };
+    expect(at('2026-11-24T13:59:00+04:00')).toBe('2026-11-24T09:59:00.000Z');
+    // A local time without its zone, four hours ahead; a wrong year.
+    expect(at('2026-11-24T14:00:00')).toBe('2026-11-24T10:00:00.000Z');
+    expect(at('2062-11-24T10:00:00Z')).toBe('2026-11-24T10:00:00.000Z');
+    vi.useRealTimers();
   });
 
   it('refuses malformed sync keys with a 400 message naming the field', () => {
