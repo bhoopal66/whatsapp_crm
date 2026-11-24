@@ -19,6 +19,11 @@ Staff-only video meetings on Cloudflare Realtime SFU, at `/meetings`.
 - **Participants are service-role writes.** `meeting_participants` has no client
   write grant; the routes check `meeting_can_view` through the caller's RLS
   client first, then write on `supabaseAdmin()`.
+- **A seat needs a live staff profile of the meeting's account.** Cloudflare
+  knows no members: deactivating or removing one closes and cuts their seats
+  (`cutMemberSeats`), `runSeatAccessSweep` (automations cron, every minute)
+  catches the rest, and the room ends itself when heartbeat/state still answer
+  401/403 ten seconds on (`REFUSED_FOR_MS`).
 - **The SFU secret is server-only.** `CLOUDFLARE_CALLS_APP_ID` / `_SECRET` are
   read at request time in `sfu.ts`; unset means meeting CRUD works and join and
   the `sfu/*` routes answer 503 `meetings_not_configured`. The browser only
@@ -75,8 +80,9 @@ Staff-only video meetings on Cloudflare Realtime SFU, at `/meetings`.
 - **Pre-176 tolerance.** Without migration 176 the room still works; lock,
   recording and notes answer as unavailable and the UI says so. Keep that
   fallback when touching those routes. `verify-meeting-host-tools.sql`.
-- **Instant meetings lapse** after 10 minutes empty
-  (`lib/meetings/lapse.ts`, the automations cron).
+- **Instant meetings lapse** after 10 minutes empty, seen empty by two passes
+  in a row (`lib/meetings/lapse.ts`, the automations cron): after an outage
+  every live meeting looks empty until its first heartbeat.
 - **Invite pop-up.** `InviteRinger` (`lib/meetings/invite-ring.ts`, pure)
   turns a realtime `meeting_invite` row into the shell's ringing card
   (`meeting-invite-card.tsx`): instant meetings ("Starting now", 278's

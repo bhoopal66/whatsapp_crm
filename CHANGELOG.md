@@ -14,6 +14,17 @@ and polish.
 
 ### Fixed
 
+- **Someone deactivated or removed leaves the video meeting they are in.**
+  Their seat is closed and their media cut as the admin does it (a check
+  every minute catches what that misses), and their own window ends with
+  "You no longer have access to this meeting." No migration.
+- **An outage no longer ends a live "Start now" meeting.** One is ended
+  only when found empty twice, five minutes apart, so a meeting nobody is
+  in closes up to five minutes later than before.
+- **Removing and re-inviting in a meeting say what happened.** Removing
+  someone who leaves at that moment is no longer reported as a failure;
+  inviting someone who was removed names them and says to let them back in
+  from the people list, instead of "already invited".
 - **OpenWA numbers past the tenth were never checked.** The gateway takes
   ten requests a second per route; the five-minute status check asked for
   every number at once, so the last ones were refused every time and kept
