@@ -26,6 +26,7 @@ import {
   shareCall,
   type ChannelWithMembership,
 } from '@/lib/chat';
+import { createPostIds } from '@/lib/chat/post-id';
 import {
   canShareCall,
   canShareToTeamChat,
@@ -68,10 +69,11 @@ export function ShareToChatButton({
           title={t('share.title')}
           description={t('share.description')}
           defaultBody={t('share.defaultBody')}
-          submit={(sb, channelId, body) =>
+          submit={(sb, channelId, body, clientId) =>
             postMessage(sb, {
               channelId,
               body,
+              clientId,
               shareConversationId: conversationId,
             })
           }
@@ -123,8 +125,8 @@ export function ShareCallButton({
           title={t('share.callTitle')}
           description={t('share.callDescription')}
           defaultBody={t('share.callDefaultBody')}
-          submit={(sb, channelId, body) =>
-            shareCall(sb, { channelId, callId, body })
+          submit={(sb, channelId, body, clientId) =>
+            shareCall(sb, { channelId, callId, body, clientId })
           }
           onClose={() => setOpen(false)}
         />
@@ -150,7 +152,9 @@ function ShareDialog({
   submit: (
     sb: ReturnType<typeof createClient>,
     channelId: string,
-    body: string
+    body: string,
+    /** Names this share: a retry after a lost answer shares it once. */
+    clientId: string | undefined
   ) => Promise<unknown>;
   onClose: () => void;
 }) {
@@ -167,6 +171,7 @@ function ShareDialog({
   const [query, setQuery] = useState('');
   const [picked, setPicked] = useState<string | null>(null);
   const [comment, setComment] = useState('');
+  const [ids] = useState(() => createPostIds());
   const [sending, setSending] = useState(false);
 
   useEffect(() => {
@@ -206,7 +211,14 @@ function ShareDialog({
     if (!target || sending) return;
     setSending(true);
     try {
-      await submit(sb, target.id, comment.trim() || defaultBody);
+      const body = comment.trim() || defaultBody;
+      const content = {
+        body,
+        fileIds: [],
+        replyToId: null,
+        threadRootId: null,
+      };
+      await submit(sb, target.id, body, ids.idFor(target.id, content));
       toast.success(t('share.done', { name: target.name }), {
         action: {
           label: t('share.open'),

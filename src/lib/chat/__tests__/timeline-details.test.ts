@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { forwardToAll } from '../forward';
+import { createForwardIds, forwardToAll } from '../forward';
 import { createThreadStore } from '../thread';
 import {
   missingFiles,
@@ -178,20 +178,24 @@ describe('a forward', () => {
     const send = vi.fn(async (id: string) => {
       if (id === 'b') throw new Error('no');
     });
-    const failed = vi.fn();
     const files = async () => [file];
-    const sent = await forwardToAll(['a', 'b', 'c'], { files, send, failed });
-    expect(sent).toEqual({ read: true, done: 2 });
-    expect(send.mock.calls).toEqual(['a', 'b', 'c'].map((id) => [id, [file]]));
-    expect(failed).toHaveBeenCalledTimes(1);
+    const ids = createForwardIds((() => 'one') as never);
+    const sent = await forwardToAll(['a', 'b', 'c'], ids, { files, send });
+    expect(sent).toMatchObject({
+      read: true,
+      done: 2,
+      failed: [{ id: 'b', error: expect.any(Error) }],
+    });
+    expect(send.mock.calls).toEqual(
+      ['a', 'b', 'c'].map((id) => [id, [file], 'one'])
+    );
   });
 
   it('is refused whole when its files could not be read', async () => {
     const send = vi.fn();
-    const sent = await forwardToAll(['a'], {
+    const sent = await forwardToAll(['a'], createForwardIds(), {
       files: () => Promise.reject(new Error('503')),
       send,
-      failed: vi.fn(),
     });
     expect(sent).toEqual({ read: false });
     expect(send).not.toHaveBeenCalled();

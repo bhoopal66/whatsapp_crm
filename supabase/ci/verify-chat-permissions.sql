@@ -379,7 +379,9 @@ BEGIN
   -- forward_messages (a forwarded file is not an upload)
   n := n + 1; failed := failed || pg_temp.tc_check('agent forwards', u_ag, format(fwd, m_own, dm), 'ERROR 42501: chat: your role may not%');
   n := n + 1; failed := failed || pg_temp.tc_check('team leader forwards', u_tl, format(fwd, m_own, ct), uuidp);
-  n := n + 1; failed := failed || pg_temp.tc_check('guest forwards a file (upload_files denied)', u_g, format(fwd, m_pf, pv), uuidp);
+  n := n + 1; failed := failed || pg_temp.tc_check('guest forwards a file (upload_files denied)', u_g,
+    format('SELECT public.chat_forward_message(%L, %L, %L::jsonb)::text', m_pf, pv,  -- 307: with every file of its source
+           pg_temp.tc_att(pg_temp.tc_up('account-' || a || '/channel-' || pv || '/', 'c.pdf'), 'file')), uuidp);
   -- share_cards
   n := n + 1; failed := failed || pg_temp.tc_check('admin shares a card', u_adm, format(card, ch, 'card', cv), 'ERROR 42501: chat: your role may not%');
   n := n + 1; failed := failed || pg_temp.tc_check('owner shares a card (exempt)', u_own, format(card, ch, 'card', cv), uuidp);

@@ -34,6 +34,13 @@ and polish.
 
 ### Fixed
 
+- **Team chat: a forward or a shared call goes once, and whole.** Trying
+  again after a lost answer no longer makes a second copy, and a forward
+  that failed stays selected; a forward with a file missing is refused. An
+  edit no longer reaches the bell of someone who left, leaving a private
+  channel or group chat clears its unread bells, and the sensitive-data
+  guard reads file names also when a message has text. **Migration
+  required: 307** (before the build).
 - **The privacy register no longer calls Draft with AI a reply.** The
   draft and the playground record their own purpose (`draft`,
   `playground`) in the AI transfer register instead of `reply`.

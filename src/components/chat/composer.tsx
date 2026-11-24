@@ -65,12 +65,12 @@ import {
   composerControls,
   countsAsChannelAdmin,
   everyoneRefusal,
+  messageSensitiveKinds,
   needsGuestLookup,
   offersEveryone,
   postingBlock,
   postingBlockMessage,
   sensitiveDecision,
-  stripMentionTokens,
   type SensitiveKind,
 } from '@/lib/chat/composer-gating';
 import type { ChatErrorKey } from '@/lib/chat/errors';
@@ -93,7 +93,6 @@ import {
 } from '@/lib/chat/post-payload';
 import { quotePreview } from '@/lib/chat/quotes';
 import { chatRecorderGuard } from '@/lib/chat/recorder-guard';
-import { sensitiveKinds } from '@/lib/kb/sensitive';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   channelDisplayName,
@@ -721,7 +720,10 @@ export function Composer({
     setSending(true);
     try {
       if (!confirmed) {
-        const kinds = sensitiveKinds(stripMentionTokens(composed.body));
+        const kinds = messageSensitiveKinds(
+          composed.body,
+          chips.map((c) => c.name)
+        );
         const hasGuest = needsGuestLookup(
           permissions.sensitive,
           channel.kind,

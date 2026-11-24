@@ -4,6 +4,7 @@
  * (158). UX only: chat_post_message re-checks every one of these, so a
  * stale answer here costs a refusal, never a leak.
  */
+import { sensitiveKinds } from '@/lib/kb/sensitive';
 import type { ChatErrorKey } from './errors';
 import type {
   ChannelRule,
@@ -144,6 +145,27 @@ export const needsGuestLookup = (
   guestScopedKind(kind);
 
 export type SensitiveKind = 'card' | 'emirates_id' | 'iban';
+
+const SENSITIVE_KINDS: readonly SensitiveKind[] = [
+  'card',
+  'emirates_id',
+  'iban',
+];
+
+/**
+ * The kinds a message carries in its text or, each on its own, in its
+ * files' names, as the database reads them (158's trigger and 307's check
+ * in chat_insert_attachments).
+ */
+export function messageSensitiveKinds(
+  body: string,
+  fileNames: readonly string[]
+): SensitiveKind[] {
+  const found = new Set(
+    [stripMentionTokens(body), ...fileNames].flatMap((s) => sensitiveKinds(s))
+  );
+  return SENSITIVE_KINDS.filter((k) => found.has(k));
+}
 
 export type SensitiveDecision =
   | { action: 'send' }
