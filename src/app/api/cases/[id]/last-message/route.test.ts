@@ -64,6 +64,19 @@ describe('GET /api/cases/[id]/last-message', () => {
     m.conv = { data: null, error: null };
     expect(await (await call()).json()).toEqual({ message: null });
   });
+  it('is 500, never "no message", when a read fails', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    m.conv = { data: null, error: { code: '57014' } };
+    expect((await call()).status).toBe(500);
+    m.conv = { data: { id: 'conv-1' }, error: null };
+    m.msg = { data: null, error: { code: '57014' } };
+    expect((await call()).status).toBe(500);
+    log.mockRestore();
+  });
+  it('answers null when the chat has no customer message yet', async () => {
+    m.msg = { data: null, error: null };
+    expect(await (await call()).json()).toEqual({ message: null });
+  });
   it('answers null for a case with no contact', async () => {
     m.store.get.mockResolvedValue({ id: ID, accountId: 'a1', contactId: null });
     expect(await (await call()).json()).toEqual({ message: null });

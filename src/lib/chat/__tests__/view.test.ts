@@ -20,6 +20,7 @@ import {
   formatBytes,
   formatClock,
   inboxRows,
+  inboxTagCounts,
   initialOf,
   isChatPath,
   presenceDot,
@@ -278,6 +279,25 @@ describe('sidebarSections', () => {
 });
 
 describe('inboxRows', () => {
+  it('keeps a tag whose count could not be read, without a number', () => {
+    const tags = inboxTagCounts(
+      [
+        { id: 'a', name: 'A' },
+        { id: 'b', name: 'B' },
+        { id: 'c', name: 'C' },
+      ],
+      [null, 0, 3]
+    );
+    expect(
+      inboxRows({ role: 'agent', unassigned: null, mine: null, tags }).map(
+        (r) => [r.id, r.count]
+      )
+    ).toEqual([
+      ['tag:a', null],
+      ['tag:c', 3],
+    ]);
+  });
+
   const tags = [
     { id: 't1', name: 'Waiting on bank', count: 3 },
     { id: 't2', name: 'Empty', count: 0 },

@@ -4,7 +4,8 @@
 //
 // GET (any case role): `{ message: { conversationId, text, at } | null }`.
 // Read through the CALLER's RLS client, so a person who may read the case
-// but not the chat gets `null`, never the text. Company chats only
+// but not the chat gets `null`, never the text; a FAILED read is a 500
+// (the card says it could not load), never `null`. Company chats only
 // (personal_owner_id IS NULL). Unlike /conversation (an audited read of
 // the case group) this touches only the contact's own inbox thread.
 // ============================================================
@@ -15,6 +16,7 @@ import { assertSalesAccess, getCurrentAccount } from '@/lib/auth/account';
 import { caseErrorResponse, loadCaseForCaller } from '@/lib/cases/http';
 import { snippet } from '@/lib/cases/overview';
 import { caseStore } from '@/lib/cases/server';
+import { CaseStoreError } from '@/lib/cases/store';
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -40,7 +42,9 @@ export async function GET(_request: Request, { params }: Params) {
       .is('personal_owner_id', null)
       .limit(1)
       .maybeSingle();
-    if (conv.error || !conv.data) return NextResponse.json(NONE);
+    if (conv.error)
+      throw new CaseStoreError('conversations', conv.error.code ?? null);
+    if (!conv.data) return NextResponse.json(NONE);
 
     const msg = await ctx.supabase
       .from('messages')
@@ -50,7 +54,8 @@ export async function GET(_request: Request, { params }: Params) {
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
-    if (msg.error || !msg.data) return NextResponse.json(NONE);
+    if (msg.error) throw new CaseStoreError('messages', msg.error.code ?? null);
+    if (!msg.data) return NextResponse.json(NONE);
 
     const text =
       typeof msg.data.content_text === 'string' && msg.data.content_text.trim()

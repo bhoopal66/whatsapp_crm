@@ -25,7 +25,11 @@ import {
 } from '@/lib/chat';
 import type { TypingChange } from '@/lib/chat/typing-flow';
 import { droppedChannelIds, timelineCacheKey } from '@/lib/chat/timeline-cache';
-import { chatErrorKey, inboxHasAssigneeFilter } from '@/lib/chat/view';
+import {
+  chatErrorKey,
+  inboxHasAssigneeFilter,
+  inboxTagCounts,
+} from '@/lib/chat/view';
 import { INBOX_FILTER } from '@/lib/inbox/campaign-inbox';
 import { assigneeGroup, combineOrGroups } from '@/lib/inbox/pagination';
 import { startCatchUp } from '@/lib/realtime/catch-up';
@@ -256,7 +260,7 @@ export function useInboxCounts(enabled: boolean) {
   const [counts, setCounts] = useState<{
     unassigned: number | null;
     mine: number | null;
-    tags: { id: string; name: string; count: number }[];
+    tags: { id: string; name: string; count: number | null }[];
   }>({ unassigned: null, mine: null, tags: [] });
 
   useEffect(() => {
@@ -290,11 +294,7 @@ export function useInboxCounts(enabled: boolean) {
       setCounts({
         unassigned,
         mine,
-        tags: mains.map((tag, i) => ({
-          id: tag.id,
-          name: tag.name,
-          count: perTag[i] ?? 0,
-        })),
+        tags: inboxTagCounts(mains, perTag),
       });
     };
     void load();
