@@ -905,6 +905,9 @@
       "saved": "{name} saved to contacts.",
       "alreadySaved": "This number is already in your contacts.",
       "saveFailed": "Could not save the contact.",
+      "colleagueHasIt": "This number already belongs to another colleague's customer.",
+      "lookupFailed": "Couldn't check your contacts.",
+      "retry": "Retry",
       "viewContact": "Saved — view contact",
       "openContact": "Open contact"
     },
@@ -13780,7 +13783,11 @@
     "assignTo": "Assign to",
     "me": " (me)",
     "unknownAgent": "Unknown agent",
-    "assignFailed": "Couldn't assign this chat. Try again."
+    "assignFailed": "Couldn't assign this chat. Try again.",
+    "assignMoved": "This chat has moved. Reload the page.",
+    "meanwhileReassign": "{current} was assigned meanwhile. Assign {name} instead?",
+    "meanwhileAssign": "This chat was unassigned meanwhile. Assign it to {name}?",
+    "meanwhileUnassign": "{current} was assigned meanwhile. Unassign the chat anyway?"
   },
   "KbLearn": {
     "title": "Learn from team answers",

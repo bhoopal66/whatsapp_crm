@@ -167,7 +167,7 @@ import {
 } from '@/lib/auth/roles';
 import { renderTemplateBody } from '@/lib/whatsapp/template-body';
 import { toast } from 'sonner';
-import { assignableMembers, assignConversation } from '@/lib/inbox/assign';
+import { assignableMembers, assignFromScreen } from '@/lib/inbox/assign';
 import {
   isShareOnlyViewer,
   isSharedChatNumberRefusal,
@@ -1153,6 +1153,7 @@ export function MessageThread({
   // can run, and only for someone who could file the task from the
   // header's "Remind me" (agent and up, not a share-only coordinator).
   const tReminder = useTranslations('Inbox.reminderSuggestion');
+  const tRows = useTranslations('InboxRows');
   const { settings: insightSettings, available: insightsAvailable } =
     useInsightSettings();
   const reminderChipsOn =
@@ -2096,25 +2097,41 @@ export function MessageThread({
     [profiles]
   );
 
+  // The chat on screen, for an answer that lands after a switch.
+  const openConversationIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    openConversationIdRef.current = conversation?.id ?? null;
+    return () => {
+      openConversationIdRef.current = null;
+    };
+  }, [conversation?.id]);
+
   const handleAssignChange = useCallback(
-    async (agentId: string | null) => {
+    async (
+      agentId: string | null,
+      expected: string | null,
+      askAgain: () => void
+    ) => {
       if (!conversation) return;
-
-      const result = await assignConversation(
+      const id = conversation.id;
+      const fail = (key: 'assignFailed' | 'assignMoved') =>
+        toast.error(tRows(key));
+      await assignFromScreen(
         createClient(),
-        conversation.id,
-        agentId
+        { conversationId: id, expected, userId: agentId },
+        {
+          patch: onAssignChange,
+          // The question is about the chat it was asked on: once the
+          // agent has opened another, say it did not happen instead.
+          askAgain: () =>
+            openConversationIdRef.current === id
+              ? askAgain()
+              : fail('assignFailed'),
+          fail,
+        }
       );
-
-      if (!result.ok) {
-        console.error('Failed to update assignment:', result.error);
-        toast.error('Failed to update assignment');
-        return;
-      }
-
-      onAssignChange(conversation.id, agentId);
     },
-    [conversation, onAssignChange]
+    [conversation, onAssignChange, tRows]
   );
 
   // Empty state — WhatsApp's plain intro panel rather than the chat

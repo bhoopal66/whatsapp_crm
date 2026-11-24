@@ -51,6 +51,19 @@ and polish.
   meanwhile is refused, with what you typed kept; turning on retention's
   Apply asks first and names what will be deleted. Error messages of the
   privacy panel and Recycle's dates follow the app's language.
+- **Someone removed from a meeting cannot keep its sound or picture
+  through a request already under way.** If their seat closed while the
+  media server was answering, the session is cut again and the request
+  refused.
+- **Saving a shared contact card says when a colleague already has the
+  number**, instead of showing the database's sentence, and a contact
+  check that failed says so with Retry instead of offering Save as if the
+  number were new.
+- **Assigning a chat no longer claims a change that was not made, or
+  overwrites a colleague's.** The inbox list, the chat header and the HR
+  panel show the assignee the database returned. If someone else assigned
+  the chat after your screen was loaded you are told who and asked again,
+  and if the chat is no longer yours to see you are asked to reload.
 - **The privacy register no longer calls Draft with AI a reply.** The
   draft and the playground record their own purpose (`draft`,
   `playground`) in the AI transfer register instead of `reply`.
