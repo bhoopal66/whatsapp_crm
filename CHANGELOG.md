@@ -22,6 +22,12 @@ and polish.
 
 ### Fixed
 
+- **A tab left open over a release recovers by itself.** A panel whose code
+  the release replaced used to break the whole screen, and "Try again" could
+  not help. The screen now reloads once on its own when nothing typed would
+  be lost and no call or meeting is on; otherwise it says a new version is
+  available and offers Reload. The voice recorder says the same. No
+  migration.
 - **A read that failed no longer looks like nothing.** The case page's "last
   message" card says it could not load instead of "no message"; a chat-tag
   count in the team chat side menu that could not be read shows no number

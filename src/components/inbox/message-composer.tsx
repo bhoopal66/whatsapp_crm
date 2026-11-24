@@ -66,6 +66,7 @@ import {
 import { useAuth } from '@/hooks/use-auth';
 import { useCan } from '@/hooks/use-can';
 import { useInsightSettings } from '@/hooks/use-insight-settings';
+import { holdUnsaved } from '@/lib/app-update/unsaved';
 import { useVoiceRecorder } from '@/hooks/use-voice-recorder';
 import {
   reportComposeCheckOutcome,
@@ -254,6 +255,8 @@ interface UnsentTake {
  * `parkedFor` is whose they are, and another signed-in user empties it.
  */
 const parkedDrafts: ParkedDrafts<ReplyDraft, MediaDraft> = new Map();
+// They die with the tab: no reload by itself while one waits.
+holdUnsaved(() => parkedDrafts.size > 0);
 let parkedFor: string | null = null;
 
 /**

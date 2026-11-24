@@ -741,7 +741,8 @@
         "missing": "No microphone was found on this device.",
         "inUse": "Another program is using the microphone. Close it, then try again.",
         "failed": "The microphone could not be started. Reload the page and try again.",
-        "lost": "The recording could not be saved. Record it again."
+        "lost": "The recording could not be saved. Record it again.",
+        "outdated": "Voice recording could not be loaded, usually because the app was updated. Reload the page, then record again."
       },
       "keptFirst": "Send or discard the voice note that is waiting first.",
       "draftFirst": "Send or remove the attachment that is waiting first."
@@ -7517,6 +7518,11 @@
     "error": {
       "title": "Something went wrong",
       "description": "An unexpected error stopped this page from loading. Try again, or go back to the home screen."
+    },
+    "update": {
+      "title": "A new version is available",
+      "description": "This screen needs a part of the app that this tab could not load, usually because the app was updated. Reload to continue. Reloading drops text you have not sent: to finish it first, go to home and open its chat again.",
+      "reload": "Reload"
     },
     "dashboard": {
       "title": "This screen couldn’t load",

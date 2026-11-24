@@ -1,3 +1,5 @@
+import { holdUnsaved } from '@/lib/app-update/unsaved';
+
 import type { MentionCandidate } from './notes';
 
 /**
@@ -26,6 +28,8 @@ export interface NoteDrafts {
     draft: NoteDraft
   ): void;
   clear(userId: string | null, conversationId: string): void;
+  /** Whether a draft is parked at all. */
+  any(): boolean;
 }
 
 export function createNoteDrafts(max = MAX_PARKED_NOTES): NoteDrafts {
@@ -63,6 +67,7 @@ export function createNoteDrafts(max = MAX_PARKED_NOTES): NoteDrafts {
       if (!userId || owner !== userId || parked.has(conversationId)) return;
       write(userId, conversationId, draft);
     },
+    any: () => parked.size > 0,
     clear: (userId, conversationId) => {
       if (userId && owner === userId) parked.delete(conversationId);
     },
@@ -71,3 +76,5 @@ export function createNoteDrafts(max = MAX_PARKED_NOTES): NoteDrafts {
 
 /** The tab's parked notes. */
 export const noteDrafts = createNoteDrafts();
+// They die with the tab: no reload by itself while one waits.
+holdUnsaved(() => noteDrafts.any());
