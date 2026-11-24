@@ -74,9 +74,10 @@ and polish.
   the update is refused until reloaded. **Migration required: 316** (before
   the build).
 - **The assembled case file keeps what the customer filled in.** The values
-  of a fillable PDF are drawn into the bundle sent to the bank (a form that
-  cannot be drawn stops the build and is named), and a photo sent as a
-  document stands upright.
+  of a fillable PDF that its file leaves to the reader to draw are drawn into
+  the bundle sent to the bank (a value that cannot be drawn, such as Arabic,
+  stops the build and the document is named); what the file draws itself,
+  ticks included, stays as it is. A photo sent as a document stands upright.
 - **A copy to the NAS that failed for good shows in `/api/metrics`**
   (`wacrm_customer_documents_failed`, see `docs/monitoring.md`), and the
   case desk says when a list could not be read or is cut instead of showing

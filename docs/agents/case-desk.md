@@ -156,7 +156,10 @@ package 035a-c. `docs/case-desk.md` is the contract.
   to return `updated_at` (234's `_get` cannot gain a column). The cards keep
   what was typed until Reload and disable Save meanwhile
   (`desk-cards.test.tsx`). `customer_documents_stats()` is read only by
-  `/api/metrics`. In the bundle, `flattenForm` draws a form's values before
-  `copyPages` (which drops them) and refuses the build
-  (`FORM_NOT_FLATTENED`, with the document's name) rather than send a blank;
-  hidden fields stay undrawn. `exif.ts` gives the rotation pdf-lib ignores.
+  `/api/metrics`. In the bundle, `drawFormValues`
+  (`form-appearances.ts`) gives a form's value an appearance before
+  `copyPages` (which keeps the widgets and what they store, but not the form)
+  where one is missing or `NeedAppearances` says stale, and refuses the build
+  (`FORM_NOT_FLATTENED`, with the document's name) rather than send a blank.
+  Never flatten: pdf-lib's flatten loses ticks and misplaces appearances.
+  Hidden fields stay undrawn. `exif.ts` gives the rotation pdf-lib ignores.

@@ -49,7 +49,7 @@ import {
 import { sha256Hex } from './checks';
 import { dubaiDay } from './day';
 import { exifOrientation } from './exif';
-import { flattenForm } from './flatten-form';
+import { drawFormValues } from './form-appearances';
 import { CASE_FILES_BUCKET, isAlreadyExists } from './intake-file';
 import {
   CASE_FILES_REFUSALS,
@@ -384,11 +384,12 @@ async function appendDocument(
   if (kind === 'pdf') {
     const src = await PDFDocument.load(bytes);
     try {
-      flattenForm(src);
+      if (!drawFormValues(src))
+        console.warn(`[case-files] form of ${fileId} not read in full`);
     } catch (err) {
       // pdf-lib's message may quote a value: only the kind of error.
       console.error(
-        `[case-files] form of ${fileId} not flattened (${err instanceof Error ? err.name : '-'})`
+        `[case-files] form of ${fileId} not drawn (${err instanceof Error ? err.name : '-'})`
       );
       throw new CaseFilesRefusedError(
         'FORM_NOT_FLATTENED',
