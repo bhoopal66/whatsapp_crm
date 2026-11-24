@@ -11247,6 +11247,7 @@
     "tasks": {
       "title": "Open tasks",
       "empty": "No open tasks",
+      "more": "More on the customer page",
       "failed": "Couldn't load tasks",
       "due": "Due {when}",
       "overdue": "Overdue · {when}",
