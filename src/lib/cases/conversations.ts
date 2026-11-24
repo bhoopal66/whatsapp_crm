@@ -55,6 +55,8 @@ export type CaseConversationRead =
       /** 136: 'none' = a submission with no WhatsApp group (nothing to send); NULL without a group row. */
       waMode: WaMode | null;
       messages: GroupMessage[];
+      /** Older live messages are left out (liveGroupMessages). */
+      truncated: boolean;
     };
 
 export type TakeOverRefusal =
@@ -122,6 +124,7 @@ export class CaseConversations {
         archived: false,
         waMode: null,
         messages: [],
+        truncated: false,
       };
     if (group.status === 'ENDED') {
       const r = await groups.viewArchive({ groupId: group.id, userId: actor });
@@ -132,6 +135,7 @@ export class CaseConversations {
             archived: true,
             waMode: group.waMode,
             messages: r.messages,
+            truncated: false,
           }
         : { allowed: false };
     }
@@ -140,7 +144,7 @@ export class CaseConversations {
       groupId: group.id,
       archived: false,
       waMode: group.waMode,
-      messages: await liveGroupMessages(db, group.id),
+      ...(await liveGroupMessages(db, group.id)),
     };
   }
 

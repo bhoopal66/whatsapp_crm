@@ -9954,6 +9954,7 @@
       }
     },
     "conversation": {
+      "olderNotShown": "Older messages are not shown here; <link>open the group</link>.",
       "gateBody": "The customer's WhatsApp conversation for this case.",
       "auditNote": "Opening the conversation is recorded for supervisors.",
       "show": "Show conversation",

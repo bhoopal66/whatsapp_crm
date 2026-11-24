@@ -9954,6 +9954,7 @@
       }
     },
     "conversation": {
+      "olderNotShown": "이전 메시지는 여기에 표시되지 않습니다. <link>그룹 열기</link>",
       "gateBody": "이 케이스의 고객 WhatsApp 대화입니다.",
       "auditNote": "관리자가 대화를 열면 그 기록이 남습니다.",
       "show": "대화 보기",

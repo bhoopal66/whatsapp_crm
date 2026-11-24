@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useLayoutEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 import { Eye, Loader2, Lock, MessageSquareOff } from 'lucide-react';
 import { toast } from 'sonner';
@@ -177,7 +178,23 @@ export function ConversationTab({ caseId, detail }: CaseTabProps) {
             {t(noGroup ? 'conversation.noGroup' : 'conversation.empty')}
           </p>
         ) : (
-          <MessageList messages={messages} />
+          <>
+            {convo?.truncated && convo.groupId && (
+              <p className="text-muted-foreground text-center text-xs">
+                {t.rich('conversation.olderNotShown', {
+                  link: (chunks) => (
+                    <Link
+                      href={`/submission-groups/${convo.groupId}`}
+                      className="text-primary underline"
+                    >
+                      {chunks}
+                    </Link>
+                  ),
+                })}
+              </p>
+            )}
+            <MessageList messages={messages} />
+          </>
         )}
       </div>
 

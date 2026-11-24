@@ -161,9 +161,11 @@ export interface CaseConversation {
   waMode: 'group' | 'none' | null;
   /** Oldest first, as the route answers. */
   messages: SgMessage[];
+  /** Only the newest messages came back. */
+  truncated: boolean;
 }
 
-/** `{ groupId, archived, waMode, messages }`; messages need an id and a time. */
+/** `{ groupId, archived, waMode, truncated, messages }`; messages need an id and a time. */
 export function parseConversation(json: unknown): CaseConversation {
   const root = obj(json);
   return {
@@ -175,6 +177,7 @@ export function parseConversation(json: unknown): CaseConversation {
         : root?.waMode === 'group'
           ? 'group'
           : null,
+    truncated: root?.truncated === true,
     messages: list(root?.messages).filter((v): v is SgMessage => {
       const m = obj(v);
       return !!m && !!str(m.id) && !!str(m.created_at);
