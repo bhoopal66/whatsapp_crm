@@ -22,6 +22,8 @@ and polish.
 
 ### Fixed
 
+- **Editing a template no longer shows it as approved again** when Meta
+  had rejected, paused or not yet reviewed it. No migration.
 - **A chat offers the templates it can send.** The list showed every
   template marked approved whatever number the chat sends from: one Meta
   had refused was offered in a Meta chat and failed, and one waiting at

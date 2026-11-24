@@ -33,8 +33,9 @@ import { AuthUnavailableError } from '@/lib/auth/auth-unavailable';
  * PENDING limbo, no drift to recover from, and an edit is live
  * immediately.
  *
- * The `status` column stays APPROVED throughout (see the /submit
- * route for why that value) — every consumer already gates on it.
+ * A row kept only here stays APPROVED throughout (see the /submit
+ * route for why that value). A status that is Meta's verdict is never
+ * written by an edit: nothing was sent to Meta, so nothing changed it.
  */
 
 // uuid v4 plus the looser shape Postgres gen_random_uuid emits. We
@@ -42,6 +43,25 @@ import { AuthUnavailableError } from '@/lib/auth/auth-unavailable';
 // "../etc/passwd"-style payloads before they hit Supabase.
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** Statuses a row only ever gets here; the rest are Meta's to change. */
+const LOCAL_STATUSES: ReadonlySet<string> = new Set(['DRAFT', 'APPROVED'])
+
+/**
+ * A template synced from Meta is Meta's text: writing ours here would
+ * show (and preview) words Meta never approved, as APPROVED, while
+ * customers still receive Meta's. The next Sync brings an edit back.
+ */
+function metaTemplateRefusal() {
+  return NextResponse.json(
+    {
+      error:
+        'This template belongs to Meta. Edit it in Meta Business Manager, then Sync.',
+      code: 'META_TEMPLATE',
+    },
+    { status: 409 },
+  )
+}
 
 export async function PATCH(
   request: Request,
@@ -68,7 +88,7 @@ export async function PATCH(
     // account turns a silent no-op update into an honest 404.
     const { data: existing, error: lookupErr } = await supabase
       .from('message_templates')
-      .select('id, meta_template_id')
+      .select('id, meta_template_id, status')
       .eq('id', id)
       .eq('account_id', accountId)
       .maybeSingle()
@@ -76,19 +96,7 @@ export async function PATCH(
       return NextResponse.json({ error: 'Template not found.' }, { status: 404 })
     }
 
-    // A template synced from Meta is Meta's text: writing ours here would
-    // show (and preview) words Meta never approved, as APPROVED, while
-    // customers still receive Meta's. The next Sync brings an edit back.
-    if (existing.meta_template_id) {
-      return NextResponse.json(
-        {
-          error:
-            'This template belongs to Meta. Edit it in Meta Business Manager, then Sync.',
-          code: 'META_TEMPLATE',
-        },
-        { status: 409 },
-      )
-    }
+    if (existing.meta_template_id) return metaTemplateRefusal()
 
     try {
       validateTemplatePayload(payload)
@@ -126,15 +134,23 @@ export async function PATCH(
         footer_text: payload.footer_text ?? null,
         buttons: payload.buttons ?? null,
         sample_values: payload.sample_values ?? null,
-        // Edits are live immediately — there is nothing to review.
-        status: 'APPROVED',
-        submission_error: null,
-        rejection_reason: null,
+        // Edits are live immediately — there is nothing to review. A
+        // verdict of Meta's on an old row stays, with its reason.
+        ...(LOCAL_STATUSES.has(existing.status ?? 'DRAFT')
+          ? {
+              status: 'APPROVED',
+              submission_error: null,
+              rejection_reason: null,
+            }
+          : {}),
         last_submitted_at: new Date().toISOString(),
       })
       .eq('id', id)
+      // Asked again as it is written: a submission or a Sync may have
+      // made the row Meta's since it was read.
+      .is('meta_template_id', null)
       .select()
-      .single()
+      .maybeSingle()
 
     if (updErr) {
       return NextResponse.json(
@@ -142,6 +158,8 @@ export async function PATCH(
         { status: 500 },
       )
     }
+
+    if (!row) return metaTemplateRefusal()
 
     return NextResponse.json({ success: true, template: row })
   } catch (error) {
