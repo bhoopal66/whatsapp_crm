@@ -14,13 +14,16 @@ import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/use-auth';
 import { useChannelMembers } from '@/hooks/use-channel-members';
+import { useMarkRead } from '@/hooks/use-mark-read';
 import { useThread } from '@/hooks/use-thread';
 import { isChannelModerator } from '@/lib/chat/moderation';
+import { nothingUnread } from '@/lib/chat/read-mark';
 import { missingFiles } from '@/lib/chat/timeline-cache';
 import { isGroupedWithPrevious, toggleReaction } from '@/lib/chat';
 import { offersBroadcasts } from '@/lib/chat/composer-input';
 import {
   holdThread,
+  isAtBottom,
   threadScrollBy,
   type RowBox,
   type ThreadScroll,
@@ -113,6 +116,22 @@ export function ThreadPanel({ channelId, rootId, onClose }: ThreadPanelProps) {
     const topOf = (id: string) => rows.find((r) => r.id === id)?.top ?? null;
     el.scrollTop += threadScrollBy(held, topOf, el);
   }, [view]);
+
+  // The channel's read mark, moved on to the newest reply once it is in
+  // view: a mention in a thread counts until then. A thread opens at its
+  // root, so where it is scrolled to is measured as the mark falls due.
+  const atEnd = useCallback(() => {
+    const el = scrollerRef.current;
+    return !!el && isAtBottom(el);
+  }, []);
+  const recheckRead = useMarkRead(ws, {
+    channelId,
+    membership: channel?.membership,
+    at: replies.messages[replies.messages.length - 1]?.createdAt ?? null,
+    ready: view.phase === 'ready' && nothingUnread(ws.unread, channelId),
+    mayMark: atEnd,
+  });
+
   const [highlightId, setHighlightId] = useState<string | null>(null);
   useEffect(() => {
     if (!highlightId) return;
@@ -191,6 +210,9 @@ export function ThreadPanel({ channelId, rootId, onClose }: ThreadPanelProps) {
           <VoicePlaysProvider value={voicePlays}>
             <div
               ref={scrollerRef}
+              onScroll={(e) => {
+                if (isAtBottom(e.currentTarget)) recheckRead();
+              }}
               data-inbox-scroll-root=""
               className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto pb-3"
             >

@@ -42,6 +42,10 @@ and polish.
   Opening a channel therefore no longer clears the badge of a mention in a
   thread that is newer than the channel's own last message: read the thread
   (or a newer message in the channel). No migration.
+- **Reading a mention in a thread clears its badge.** A mention in a reply
+  counted until someone posted in the channel itself and that was read.
+  Reading a thread to its end now marks it, once nothing in the channel
+  itself is unread. No migration.
 - **A team chat message no longer shows, or is forwarded, without its file.**
   The files, reactions, reply counts and cards of a message were read
   together, so one failed read dropped them all without a word. Each is now

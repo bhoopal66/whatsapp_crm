@@ -15,6 +15,15 @@ export interface RowBox {
   bottom: number;
 }
 
+interface Scrolled {
+  scrollTop: number;
+  scrollHeight: number;
+  clientHeight: number;
+}
+
+export const isAtBottom = (el: Scrolled): boolean =>
+  el.scrollHeight - el.scrollTop - el.clientHeight < AT_BOTTOM_PX;
+
 export interface ThreadScroll {
   atBottom: boolean;
   /** The rows in view, the one to hold in place first. */
@@ -30,14 +39,14 @@ export interface ThreadScroll {
 export function holdThread(
   rows: readonly RowBox[],
   rootId: string,
-  el: { scrollTop: number; scrollHeight: number; clientHeight: number }
+  el: Scrolled
 ): ThreadScroll | null {
   if (rows.length === 0) return null;
   const seen = rows
     .filter((r) => r.bottom > 0 && r.top < el.clientHeight)
     .map(({ id, top }) => ({ id, top }));
   return {
-    atBottom: el.scrollHeight - el.scrollTop - el.clientHeight < AT_BOTTOM_PX,
+    atBottom: isAtBottom(el),
     rows: [
       ...seen.filter((r) => r.id !== rootId),
       ...seen.filter((r) => r.id === rootId),

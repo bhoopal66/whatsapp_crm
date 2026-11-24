@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { markLanded, shouldMarkRead } from '../read-mark';
+import { markLanded, nothingUnread, shouldMarkRead } from '../read-mark';
 
 const T10_00 = '2026-11-24T10:00:00.000000+00:00';
 const T10_05 = '2026-11-24T10:05:00.000000+00:00';
@@ -81,5 +81,18 @@ describe('markLanded', () => {
     expect(markLanded(T10_00, T10_05)).toBe(false);
     expect(markLanded('2026-11-24 10:00:00+00', T10_00)).toBe(true);
     expect(markLanded(T10_05, T10_00)).toBe(true);
+  });
+});
+
+describe('nothingUnread', () => {
+  it('is a known count of zero for that channel', () => {
+    const counts = [
+      { channelId: 'a', unread: 0 },
+      { channelId: 'b', unread: 2 },
+    ];
+    expect(nothingUnread(counts, 'a')).toBe(true);
+    expect(nothingUnread(counts, 'b')).toBe(false);
+    expect(nothingUnread(counts, 'c')).toBe(false);
+    expect(nothingUnread(undefined, 'a')).toBe(false);
   });
 });

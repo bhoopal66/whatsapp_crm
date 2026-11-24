@@ -4,6 +4,7 @@
  * seen. Pure, so it tests without a DOM.
  */
 import { timestampKey } from './message-list';
+import type { UnreadCount } from './types';
 
 const key = (at: string | null | undefined) =>
   at ? timestampKey(at) : Number.NEGATIVE_INFINITY;
@@ -35,3 +36,13 @@ export const markLanded = (
   held: string | null | undefined,
   sent: string | null | undefined
 ): boolean => key(held) >= key(sent);
+
+/**
+ * Whether a thread may mark its channel read: the mark covers the
+ * channel's own messages too, so only once none of them is unread. An
+ * unknown count (not read yet, not a member) is not zero.
+ */
+export const nothingUnread = (
+  unread: readonly Pick<UnreadCount, 'channelId' | 'unread'>[] | undefined,
+  channelId: string
+): boolean => unread?.find((u) => u.channelId === channelId)?.unread === 0;
