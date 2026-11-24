@@ -70,3 +70,6 @@ Port of package 033h-k. `docs/privacy.md` is the contract.
   `verify-contact-delete.sql`. App side: `lib/contacts/delete-preview.ts`
   (dialog, reasons) and `delete-contacts.ts` (a refused bulk delete retries
   each id); the only way a screen deletes a contact.
+- **Webhook queue (315).** `privacy_webhook_outbox_erase` deletes the
+  `webhook_event_outbox` rows whose payload names the contact or one of its
+  chats (`contact_id`, `conversation_id`), queued or delivered.

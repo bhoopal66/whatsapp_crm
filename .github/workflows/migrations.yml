@@ -1527,6 +1527,12 @@ jobs:
       - name: Verify webhook off bell
         run: supabase db query --local --file supabase/ci/verify-webhook-off-bell.sql
 
+      # Migration 315: a revoked or deleted API key's webhooks go off and
+      # ring; an erasure empties the webhook queue of the customer; the
+      # web form loses no text and makes no twin of a local number.
+      - name: Verify webhook keys
+        run: supabase db query --local --file supabase/ci/verify-webhook-keys.sql
+
       # Migration 294: after a transfer everyone who answered a leg may
       # see the call and write its note; nobody else gains anything.
       - name: Verify call notes

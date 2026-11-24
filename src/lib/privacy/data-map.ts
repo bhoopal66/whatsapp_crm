@@ -323,6 +323,14 @@ export const PERSONAL: Readonly<Record<string, PersonalTable>> = {
     erase: 'anonymise',
     exported: true,
   },
+  // 315: queued events, and delivered ones for 7 days: an opt-out carries
+  // the number, a lead the contact.
+  webhook_event_outbox: {
+    link: 'contact',
+    class: 'identifier',
+    erase: 'delete',
+    exported: true,
+  },
   // 305: ids and a hash of the request, 30 days; also goes with its message.
   // A broadcast's key names no contact.
   v1_message_keys: {
@@ -1082,7 +1090,6 @@ export const NOT_PERSONAL: Readonly<Record<string, string>> =
             'meta_template_health',
             'pbx_connection_secrets',
             'pbx_events_raw',
-            'webhook_event_outbox',
             // 264: inbound WhatsApp events waiting to be processed. Not
             // erased by contact: a row exists before any contact does,
             // so purge by age is the rule. The payload is emptied when

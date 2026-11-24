@@ -39,6 +39,16 @@ and polish.
 
 ### Fixed
 
+- **A revoked API key's webhooks stop.** A webhook endpoint now belongs to the
+  key that set it up (or last changed it): revoking or deleting the key
+  switches its endpoints off and tells the owners and admins. Subscribing to
+  message events also needs the `messages:read` scope. Endpoints made before
+  this keep working as they are. **Migration required: 315.**
+- **An erased customer leaves the webhook queue.** Erasing a customer deletes
+  the queued and recently delivered webhook events that name them.
+- **The web form loses no text and makes no twin.** A second text sent after
+  the first task was closed opens a new task, and a customer stored as
+  "050 123 4567" is found when the form sends 971501234567.
 - **HR screens say when something could not be read.** Hire fast no longer
   says "no access" for a failed read, HR tasks offer Retry, and the message
   history says that only the newest 100 are shown.

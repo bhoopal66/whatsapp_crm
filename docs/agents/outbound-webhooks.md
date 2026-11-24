@@ -25,3 +25,14 @@ POST, so at most once holds) goes back with `webhook_outbox_release` (293)
 for 24 hours, and that drain pass stops.
 `WEBHOOK_EVENTS` and 134's event names change together (`outbox.test.ts`
 checks).
+
+**Keys (315).** `webhook_endpoints.api_key_id` is the key that made or last
+changed the endpoint (v1 POST and PATCH write it; NULL = before 315, or the
+key is gone). Triggers on `api_keys` switch a revoked or deleted key's
+endpoints off and ring `webhook_disabled`; `webhook_endpoint_key` keeps one
+off while its key is revoked, until a PATCH by a live key takes it over. A
+session never writes the column (289's column grants). An expired key does
+not switch its endpoints off. Message events (`MESSAGE_EVENTS`) need
+`messages:read` as well. A new outbox payload that names a customer carries
+`contact_id` or `conversation_id`, which is how the erase finds it.
+`verify-webhook-keys.sql`.
