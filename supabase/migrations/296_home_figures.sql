@@ -6,6 +6,13 @@
 --     drawn as an outgoing message, and it neither answers a customer nor
 --     stands between a customer's message and the reply that arrived.
 --     team_activity_report and live_team_view already leave it out.
+--  2. dashboard_open_deal_values(): open deals per stage AND currency. A
+--     deal's currency is chosen on the deal, so dashboard_open_deals_by_stage
+--     (058, kept for the previous build) adds different currencies. A deal
+--     without a currency is in its account's default one.
+--  3. deals.currency no longer defaults to 'USD': a deal created without a
+--     currency takes its account's default one (deals_default_currency).
+--     Existing rows are not rewritten.
 --
 -- Re-running 058, 217 or 268 puts an older body back: re-run 296.
 -- Apply before the build. Additive for the previous build. Re-runnable.
@@ -94,3 +101,52 @@ REVOKE ALL ON FUNCTION public.dashboard_message_series(timestamptz, text) FROM P
 GRANT EXECUTE ON FUNCTION public.dashboard_message_series(timestamptz, text) TO authenticated, service_role;
 REVOKE ALL ON FUNCTION public.dashboard_response_time(timestamptz, text, timestamptz, timestamptz) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.dashboard_response_time(timestamptz, text, timestamptz, timestamptz) TO authenticated, service_role;
+
+-- ---------- 2. Open deals per stage and currency ----------
+
+CREATE OR REPLACE FUNCTION public.dashboard_open_deal_values()
+ RETURNS TABLE(stage_id uuid, currency text, deal_count bigint, total_value numeric)
+ LANGUAGE sql
+ STABLE
+ SET search_path TO 'public'
+AS $function$
+  SELECT
+    d.stage_id,
+    coalesce(nullif(upper(btrim(d.currency)), ''), a.default_currency, 'USD') AS currency,
+    count(*) AS deal_count,
+    coalesce(sum(d.value), 0) AS total_value
+  FROM deals d
+  LEFT JOIN accounts a ON a.id = d.account_id
+  WHERE d.status = 'open'
+  GROUP BY 1, 2
+  ORDER BY 1, 2;
+$function$;
+
+REVOKE ALL ON FUNCTION public.dashboard_open_deal_values() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.dashboard_open_deal_values() TO authenticated, service_role;
+
+-- ---------- 3. A new deal's currency ----------
+
+-- Runs as whoever inserts: a member reads their own account's row.
+CREATE OR REPLACE FUNCTION public.deals_default_currency()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+  SELECT a.default_currency INTO NEW.currency FROM accounts a WHERE a.id = NEW.account_id;
+  NEW.currency := coalesce(NEW.currency, 'USD');
+  RETURN NEW;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.deals_default_currency() FROM PUBLIC, anon, authenticated;
+
+ALTER TABLE public.deals ALTER COLUMN currency DROP DEFAULT;
+
+CREATE OR REPLACE TRIGGER deals_default_currency
+  BEFORE INSERT ON public.deals
+  FOR EACH ROW WHEN (NEW.currency IS NULL)
+  EXECUTE FUNCTION public.deals_default_currency();
+
+NOTIFY pgrst, 'reload schema';

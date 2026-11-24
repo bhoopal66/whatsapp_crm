@@ -22,6 +22,13 @@ and polish.
 
 ### Fixed
 
+- **Deal values in different currencies are no longer added together.** The
+  home pipeline card, the owner's CSV, the board's column totals and its
+  analytics show "AED 200,000 + USD 100,000" when there is more than one
+  currency, and one amount, in the deals' own currency, when there is one.
+  A deal created without a currency takes the workspace's default currency
+  instead of USD; existing deals are not changed. **Migration required: 296**
+  (extended).
 - **The home "New chats today" card no longer lists personal WhatsApp
   numbers**, and is not shown when only personal numbers are connected. No
   migration.

@@ -465,6 +465,7 @@
       "dealCount": "딜 {count}건",
       "total": "합계",
       "ariaLabel": "단계별 파이프라인 금액",
+      "mixedCurrencies": "금액의 통화가 여러 개라 링은 거래 수 기준입니다.",
       "viewPipelines": "파이프라인 보기"
     },
     "responseTimeChart": {

@@ -465,6 +465,7 @@
       "dealCount": "{count} {count, plural, =1 {deal} other {deals}}",
       "total": "Total",
       "ariaLabel": "Pipeline value by stage",
+      "mixedCurrencies": "Ring by number of deals: the values are in more than one currency.",
       "viewPipelines": "View pipelines"
     },
     "responseTimeChart": {

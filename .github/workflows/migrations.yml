@@ -1526,6 +1526,7 @@ jobs:
         run: supabase db query --local --file supabase/ci/verify-kb-learn.sql
 
       # Migration 296: the home screen's figures. A failed send is no
-      # outgoing message and no answer.
+      # outgoing message and no answer; open deals are totalled per
+      # currency; a deal created without one takes its account's.
       - name: Verify home figures
         run: supabase db query --local --file supabase/ci/verify-home-figures.sql

@@ -36,9 +36,16 @@ function ownerClient() {
         return Promise.resolve({ data: [], error: null });
       case 'dashboard_response_time':
         return Promise.resolve({ data: [], error: null });
-      case 'dashboard_open_deals_by_stage':
+      case 'dashboard_open_deal_values':
         return Promise.resolve({
-          data: [{ stage_id: 's1', deal_count: 2, total_value: 300 }],
+          data: [
+            {
+              stage_id: 's1',
+              currency: 'AED',
+              deal_count: 2,
+              total_value: 300,
+            },
+          ],
           error: null,
         });
       case 'team_activity_limits':

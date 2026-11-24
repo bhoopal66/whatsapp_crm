@@ -22,3 +22,4 @@ time, clears before sets (`stage-tag-links.ts`), because a partial
 unique index allows one stage per tag per pipeline.
 
 - 286: `deals_link_guard` (SECURITY INVOKER) asks RLS whether the caller can read a customer, chat, pipeline or stage a session sets or changes on a deal. Definer functions and the service role pass.
+- 296: deal values are only added within one currency (`lib/currency-totals.ts`, `dashboard_open_deal_values()`); a deal without one is in the account's default, which `deals_default_currency` also writes on insert.

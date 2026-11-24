@@ -19,7 +19,11 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/use-auth";
-import { formatCurrency } from "@/lib/currency";
+import {
+  currencyAverages,
+  currencyTotals,
+  formatCurrencyTotals,
+} from "@/lib/currency-totals";
 import { useTranslations } from "next-intl";
 
 interface PipelineAnalyticsProps {
@@ -60,16 +64,19 @@ export function PipelineAnalytics({ stages, deals }: PipelineAnalyticsProps) {
     const openDeals = active.filter((d) => d.status !== "won");
 
     const totalCount = active.length;
-    const totalValue = active.reduce((sum, d) => sum + Number(d.value || 0), 0);
-    const avgValue = totalCount > 0 ? totalValue / totalCount : 0;
+    const totals = currencyTotals(active, defaultCurrency);
+    const averages = currencyAverages(active, defaultCurrency);
 
     const stageById = new Map(sortedStages.map((s) => [s.id, s]));
-    const weightedValue = openDeals.reduce((sum, d) => {
-      const stage = stageById.get(d.stage_id);
-      if (!stage) return sum;
-      const prob = computeStageProbability(stage, sortedStages);
-      return sum + Number(d.value || 0) * prob;
-    }, 0);
+    const weighted = currencyTotals(
+      openDeals.flatMap((d) => {
+        const stage = stageById.get(d.stage_id);
+        if (!stage) return [];
+        const prob = computeStageProbability(stage, sortedStages);
+        return [{ value: Number(d.value || 0) * prob, currency: d.currency }];
+      }),
+      defaultCurrency,
+    );
 
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -86,13 +93,13 @@ export function PipelineAnalytics({ stages, deals }: PipelineAnalyticsProps) {
 
     return {
       totalCount,
-      totalValue,
-      avgValue,
-      weightedValue,
+      totals,
+      averages,
+      weighted,
       wonThisMonth,
       lostThisMonth,
     };
-  }, [deals, sortedStages]);
+  }, [deals, sortedStages, defaultCurrency]);
 
   return (
     <TooltipProvider>
@@ -107,21 +114,21 @@ export function PipelineAnalytics({ stages, deals }: PipelineAnalyticsProps) {
         <Metric
           icon={<DollarSign className="h-4 w-4 text-primary" />}
           label={t("pipelineValue")}
-          value={formatCurrency(stats.totalValue, defaultCurrency)}
+          value={formatCurrencyTotals(stats.totals)}
           tooltip={t("pipelineValueTooltip")}
           t={t}
         />
         <Metric
           icon={<Target className="text-info h-4 w-4" />}
           label={t("avgDealSize")}
-          value={formatCurrency(stats.avgValue, defaultCurrency)}
+          value={formatCurrencyTotals(stats.averages)}
           tooltip={t("avgDealSizeTooltip")}
           t={t}
         />
         <Metric
           icon={<TrendingUp className="text-chart-5 h-4 w-4" />}
           label={t("weightedValue")}
-          value={formatCurrency(stats.weightedValue, defaultCurrency)}
+          value={formatCurrencyTotals(stats.weighted)}
           tooltip={t("weightedValueTooltip")}
           t={t}
         />

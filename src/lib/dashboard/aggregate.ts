@@ -89,49 +89,42 @@ export function foldResponseTime(rows: ResponseTimeRow[]): ResponseTimeSummary {
   };
 }
 
-/** Row of `dashboard_open_deals_by_stage`. */
-export interface OpenDealsByStageRow {
+/** Row of `dashboard_open_deal_values` (296): one per stage and currency. */
+export interface OpenDealValueRow {
   stage_id: string;
+  currency: string;
   deal_count: number | string;
   total_value: number | string | null;
 }
 
-/** Account-wide open-deal count and value (the metric card). */
-export function sumOpenDeals(rows: OpenDealsByStageRow[]): {
-  count: number;
-  value: number;
-} {
-  let count = 0;
-  let value = 0;
-  for (const r of rows) {
-    count += Number(r.deal_count) || 0;
-    value += Number(r.total_value) || 0;
-  }
-  return { count, value };
-}
-
 /**
- * Stage slices for the donut, in stage order. Empty stages are hidden
- * from the ring — trimming keeps the visual clean for the common case.
+ * Stage slices for the donut, in stage order, each with its value per
+ * currency. Empty stages are hidden from the ring — trimming keeps the
+ * visual clean for the common case.
  */
 export function foldPipelineSlices(
   stages: { id: string; name: string; color: string | null }[],
-  rows: OpenDealsByStageRow[]
+  rows: OpenDealValueRow[]
 ): PipelineStageSlice[] {
-  const byStage = new Map<string, { count: number; total: number }>();
+  const byStage = new Map<string, OpenDealValueRow[]>();
   for (const r of rows) {
-    byStage.set(r.stage_id, {
-      count: Number(r.deal_count) || 0,
-      total: Number(r.total_value) || 0,
-    });
+    const list = byStage.get(r.stage_id);
+    if (list) list.push(r);
+    else byStage.set(r.stage_id, [r]);
   }
   return stages
-    .map((s) => ({
-      id: s.id,
-      name: s.name,
-      color: s.color || '#64748b',
-      dealCount: byStage.get(s.id)?.count ?? 0,
-      totalValue: byStage.get(s.id)?.total ?? 0,
-    }))
-    .filter((s) => s.totalValue > 0 || s.dealCount > 0);
+    .map((s) => {
+      const own = byStage.get(s.id) ?? [];
+      return {
+        id: s.id,
+        name: s.name,
+        color: s.color || '#64748b',
+        dealCount: own.reduce((n, r) => n + (Number(r.deal_count) || 0), 0),
+        totals: own.map((r) => ({
+          currency: r.currency,
+          value: Number(r.total_value) || 0,
+        })),
+      };
+    })
+    .filter((s) => s.dealCount > 0);
 }
