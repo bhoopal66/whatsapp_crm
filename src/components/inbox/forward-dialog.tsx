@@ -1,5 +1,6 @@
 'use client';
 
+import { latinDigits } from '@/lib/contacts/digits';
 import { useEffect, useMemo, useState } from 'react';
 import { Loader2, Search } from 'lucide-react';
 import { toast } from 'sonner';
@@ -114,7 +115,7 @@ export function ForwardDialog({
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return targets;
-    const digits = q.replace(/\D/g, '');
+    const digits = latinDigits(q).replace(/\D/g, '');
     return targets.filter(
       (c) =>
         c.name.toLowerCase().includes(q) ||

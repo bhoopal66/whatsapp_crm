@@ -157,7 +157,8 @@ describe('validateContactPhone — refused', () => {
     ['+971 50 123 4567 ext 12', 'malformed'],
     ['Mobile: +971 50 123 4567', 'malformed'],
     ['971501234567, 971501234568', 'malformed'],
-    ['٠٥٠١٢٣٤٥٦٧', 'malformed'],
+    // Arabic-keyboard digits read as the digits they are: a local number
+    ['٠٥٠١٢٣٤٥٦٧', 'missing_country_code'],
     ['abc', 'malformed'],
     // local numbers: leading 0, no country code
     ['0501234567', 'missing_country_code'],

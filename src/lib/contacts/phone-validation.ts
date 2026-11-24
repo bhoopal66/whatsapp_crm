@@ -1,3 +1,4 @@
+import { latinDigits } from '@/lib/contacts/digits';
 import { normalizePhone } from '@/lib/whatsapp/phone-utils';
 
 /**
@@ -291,7 +292,9 @@ export function validateContactPhone(
   raw: string,
   label = 'Phone number'
 ): PhoneValidation {
-  const input = (raw ?? '').replace(INVISIBLE_MARKS, '').trim();
+  const input = latinDigits(raw ?? '')
+    .replace(INVISIBLE_MARKS, '')
+    .trim();
   if (!input) return fail('required', `${label} is required`);
   const subject = `${label} ${quoted(input)}`;
   if (input.length > MAX_INPUT_LENGTH) {
@@ -413,7 +416,8 @@ export function validatePhoneToSave(
   original: string | null | undefined,
   raw: string
 ): PhoneToSave {
-  const input = (raw ?? '').trim();
+  // Saved as 0-9 even when unchanged: `phone_normalized` (022) drops others.
+  const input = latinDigits(raw ?? '').trim();
   if (!input) return fail('required', 'Phone number is required');
   if (original && normalizePhone(original) === normalizePhone(input)) {
     return { ok: true, phone: input, changed: false };
@@ -436,7 +440,7 @@ export function validatePhoneToSave(
  * rather than guessed.
  */
 export function withUaeCountryCode(raw: string): string {
-  const input = raw.replace(INVISIBLE_MARKS, '').trim();
+  const input = latinDigits(raw).replace(INVISIBLE_MARKS, '').trim();
   if (!/^[\d\s\-.()/\u2010-\u2015\u2212]+$/.test(input)) return raw;
   const digits = input.replace(/\D/g, '');
   return /^0?5\d{8}$/.test(digits) ? `971${digits.slice(-9)}` : raw;
