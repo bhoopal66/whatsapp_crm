@@ -68,16 +68,40 @@ export async function liveGroupMessages(
   db: SupabaseClient,
   groupId: string
 ): Promise<{ messages: GroupMessage[]; truncated: boolean }> {
+  const data = await newestLive(
+    db,
+    groupId,
+    MESSAGE_COLUMNS,
+    DETAIL_MESSAGE_LIMIT + 1
+  );
+  const page = messagePage(rows(data));
+  return { messages: page.rows.map(toMessage), truncated: page.hasMore };
+}
+
+/** When the newest of those messages was written, or null for none; no content. */
+export async function newestLiveMessageAt(
+  db: SupabaseClient,
+  groupId: string
+): Promise<Date | null> {
+  const [row] = rows(await newestLive(db, groupId, 'created_at', 1));
+  return date(row?.created_at);
+}
+
+async function newestLive(
+  db: SupabaseClient,
+  groupId: string,
+  columns: string,
+  limit: number
+): Promise<unknown> {
   const { data, error } = await db
     .from('submission_group_messages')
-    .select(MESSAGE_COLUMNS)
+    .select(columns)
     .eq('group_id', groupId)
     .eq('post_end', false)
     .order('created_at', { ascending: false })
     .order('id', { ascending: false })
-    .limit(DETAIL_MESSAGE_LIMIT + 1);
+    .limit(limit);
   if (error)
     throw new CaseStoreError('submission_group_messages', error.code ?? null);
-  const page = messagePage(rows(data));
-  return { messages: page.rows.map(toMessage), truncated: page.hasMore };
+  return data;
 }

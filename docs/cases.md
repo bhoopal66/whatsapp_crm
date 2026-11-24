@@ -239,7 +239,9 @@ messages. Opening it writes the read audit first (above). An ACTIVE group is
 read directly; an ENDED group is read through the group's audited archive,
 so its 60-day rule applies (an agent never reads it; a coordinator or team
 lead only for 60 days after the end). Replying is the group's send: you
-must be on the group's open access list.
+must be on the group's open access list. The open tab asks every 30 seconds
+(and on return to it) whether an ACTIVE group has news, which is not
+audited and answers nothing else, and reads it again only then.
 
 **Take over** (a coordinator or the agent's team leader taking the
 conversation over with a hand-over message) is **disabled** until the

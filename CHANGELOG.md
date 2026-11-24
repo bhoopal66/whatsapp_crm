@@ -32,6 +32,12 @@ and polish.
   shows the stage the case is in now, and nothing changes until you pick
   again. An open case page also reads the case again when you return to its
   tab after more than a minute (never under an open window). No migration.
+- **The case page's open Conversation tab shows new messages.** It asks
+  every 30 seconds, and when you return to the tab, whether anything is new,
+  and reads the conversation again only then (the asking is not recorded in
+  the case's view audit; the reading is, as before). Someone reading older
+  messages keeps their place, and unsent text and files are left alone. No
+  migration.
 - **Two people pressing "Request documents" no longer send the customer the
   same request twice.** A request made within 10 minutes of the case's last
   one asks first: "Requested by … at …. Send again?".
