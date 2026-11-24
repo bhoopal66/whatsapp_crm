@@ -264,6 +264,8 @@ export function ChannelView({
           <QuoteProvider value={quoteLookup}>
             <VoicePlaysProvider value={voicePlays}>
               <MessageTimeline
+                missingFiles={tl.missingFiles}
+                onRetryFiles={tl.retryFiles}
                 messages={tl.messages}
                 cards={tl.cards}
                 callCards={tl.callCards}

@@ -52,6 +52,7 @@ vi.mock('@/hooks/use-session-query', () => ({
 
 let status: ((s: string) => void) | undefined;
 const listMessages = vi.fn(async () => ({ messages: [], hasMore: false }));
+const attachmentsFor = vi.fn(async () => ({}));
 vi.mock('@/lib/chat', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/chat')>()),
   subscribeChat: (_sb: unknown, opts: { onStatus?: typeof status }) => {
@@ -59,6 +60,7 @@ vi.mock('@/lib/chat', async (importOriginal) => ({
     return () => {};
   },
   listMessages: (...args: unknown[]) => listMessages(...(args as [])),
+  attachmentsFor: () => attachmentsFor(),
 }));
 vi.mock('@/lib/session-cache', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/session-cache')>()),
@@ -150,6 +152,31 @@ describe('team chat after a gap', () => {
     expect(listMessages).toHaveBeenCalledTimes(3);
     // Silently: no failed state was set.
     expect(setStates).toEqual([]);
+  });
+
+  it('reads the files of a new message again when they were not read', async () => {
+    const heard: ((e: ChatEvent) => unknown)[] = [];
+    const listen = (fn: (e: ChatEvent) => unknown) => {
+      heard.push(fn);
+      return () => {};
+    };
+    useChannelTimeline({ ...useChatWorkspace(), listen }, CHANNEL);
+    await vi.advanceTimersByTimeAsync(0);
+    attachmentsFor.mockRejectedValueOnce(new Error('503'));
+    const message = {
+      id: 'm1',
+      channelId: CHANNEL,
+      threadRootId: null,
+      createdAt: '2026-11-24T08:00:00+00:00',
+      deletedAt: null,
+      attachments: [],
+      reactions: [],
+    } as never;
+    heard[0]({ kind: 'message', event: { type: 'insert', message } });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(attachmentsFor).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(attachmentsFor).toHaveBeenCalledTimes(2);
   });
 
   it('stops with the screen', async () => {

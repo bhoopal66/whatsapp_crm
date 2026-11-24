@@ -24,9 +24,9 @@ import {
 } from '@/lib/chat';
 import {
   applyOlderPage,
-  applyTimelineDetails,
   beginTimelineFetch,
   endTimelineFetch,
+  missingFiles,
   placeholderTimeline,
   recordTimelineEvent,
   revalidateTimeline,
@@ -37,6 +37,10 @@ import {
   type CachedTimeline,
   type TimelineEvent,
 } from '@/lib/chat/timeline-cache';
+import {
+  createDetailLoader,
+  type ReadDetail,
+} from '@/lib/chat/timeline-details';
 import {
   prefetchSession,
   sessionCache,
@@ -100,22 +104,18 @@ export function prefetchChannelTimeline(
   fetchTimelineFirstPage(sb, key, channelId).catch(() => {});
 }
 
-async function fetchDetails(sb: SupabaseClient, ids: string[]) {
-  const [attachments, reactions, threads, cards, callCards] = await Promise.all(
-    [
-      attachmentsFor(sb, ids),
-      reactionsFor(sb, ids),
-      threadSummaries(sb, ids),
-      sharedCards(sb, ids),
-      sharedCallCards(sb, ids),
-    ]
-  );
-  return { attachments, reactions, threads, cards, callCards };
-}
+const DETAIL_READS = {
+  attachments: attachmentsFor,
+  reactions: reactionsFor,
+  threads: threadSummaries,
+  cards: sharedCards,
+  callCards: sharedCallCards,
+};
 
 const noopUnsubscribe = () => {};
 const NO_CARDS: Record<string, SharedCard> = {};
 const NO_CALL_CARDS: Record<string, SharedCallCard> = {};
+const NO_IDS: ReadonlySet<string> = new Set();
 
 /**
  * One channel's top-level timeline: pages from listMessages with their
@@ -164,28 +164,25 @@ export function useChannelTimeline(ws: ChatWorkspace, channelId: string) {
     [patch]
   );
 
-  const loadDetails = useCallback(
-    async (ids: string[]) => {
-      if (ids.length === 0) return;
-      const mark = timelineMark();
-      patch((e) => beginTimelineFetch(e, mark));
-      try {
-        const details = await fetchDetails(sb, ids);
-        patch((e) => applyTimelineDetails(e, ids, details, mark));
-      } catch (err) {
-        patch((e) => endTimelineFetch(e, mark));
-        throw err;
-      }
-    },
-    [sb, patch]
+  // A details read that fails never fails the page it belongs to.
+  const details = useMemo(
+    () =>
+      createDetailLoader({
+        read: ((kind, ids) => DETAIL_READS[kind](sb, ids)) as ReadDetail,
+        get: () =>
+          key ? sessionCache.peek<CachedTimeline>(key)?.value : undefined,
+        patch,
+      }),
+    [sb, key, patch]
   );
+  useEffect(() => details.show(), [details]);
 
   useEffect(() => {
     if (!key) return;
     let cancelled = false;
     // Cached or not, always revalidate: rows first, details after.
     fetchTimelineFirstPage(sb, key, channelId)
-      .then((fresh) => loadDetails(fresh.timeline.messages.map((m) => m.id)))
+      .then((fresh) => details.load(fresh.timeline.messages.map((m) => m.id)))
       .catch((err) => {
         if (cancelled) return;
         setFailedKey(key);
@@ -194,7 +191,7 @@ export function useChannelTimeline(ws: ChatWorkspace, channelId: string) {
     return () => {
       cancelled = true;
     };
-  }, [key, sb, channelId, loadDetails, fail, attempt]);
+  }, [key, sb, channelId, details, fail, attempt]);
 
   const retry = useCallback(() => {
     setFailedKey(null);
@@ -220,13 +217,13 @@ export function useChannelTimeline(ws: ChatWorkspace, channelId: string) {
         throw err;
       }
       patch((e) => applyOlderPage(e, page, mark));
-      await loadDetails(page.messages.map((m) => m.id));
+      await details.load(page.messages.map((m) => m.id));
     } catch (err) {
       fail(err);
     } finally {
       setLoadingOlder(false);
     }
-  }, [key, sb, channelId, loadingOlder, patch, loadDetails, fail]);
+  }, [key, sb, channelId, loadingOlder, patch, details, fail]);
 
   useEffect(
     () =>
@@ -243,9 +240,9 @@ export function useChannelTimeline(ws: ChatWorkspace, channelId: string) {
           return fetchTimelineFirstPage(sb, key, channelId, {
             keepOlder: true,
           }).then((fresh) => {
-            loadDetails(
+            void details.catchUp(
               fresh.timeline.messages.slice(-PAGE_SIZE).map((m) => m.id)
-            ).catch(() => {});
+            );
           });
         }
         if (e.kind !== 'message') return;
@@ -270,10 +267,10 @@ export function useChannelTimeline(ws: ChatWorkspace, channelId: string) {
         if (ev.type === 'delete' || !targets.open) return;
         // A new top-level post: fetch what the row event does not carry.
         if (ev.type === 'insert' && !ev.message.threadRootId) {
-          loadDetails([ev.message.id]).catch(() => {});
+          void details.load([ev.message.id]);
         }
       }),
-    [listen, sb, key, channelId, accountId, userId, record, loadDetails]
+    [listen, sb, key, channelId, accountId, userId, record, details]
   );
 
   /** Optimistic; the realtime echo is a no-op in the reducer. */
@@ -304,8 +301,14 @@ export function useChannelTimeline(ws: ChatWorkspace, channelId: string) {
     entry && entry.timeline.channelId === channelId ? entry : undefined;
   const empty = useMemo(() => createTimeline(channelId), [channelId]);
   const timeline = shown?.loaded ? shown.timeline : empty;
+  const missing = useMemo(
+    () => (shown ? missingFiles(shown) : NO_IDS),
+    [shown]
+  );
   return {
     ...timeline,
+    missingFiles: missing,
+    retryFiles: details.retry,
     cards: shown?.cards ?? NO_CARDS,
     callCards: shown?.callCards ?? NO_CALL_CARDS,
     // Until there are rows to show: a failed read is no empty channel,

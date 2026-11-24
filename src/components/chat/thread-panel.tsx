@@ -16,6 +16,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useChannelMembers } from '@/hooks/use-channel-members';
 import { useThread } from '@/hooks/use-thread';
 import { isChannelModerator } from '@/lib/chat/moderation';
+import { missingFiles } from '@/lib/chat/timeline-cache';
 import { isGroupedWithPrevious, toggleReaction } from '@/lib/chat';
 import { offersBroadcasts } from '@/lib/chat/composer-input';
 import {
@@ -74,6 +75,7 @@ export function ThreadPanel({ channelId, rootId, onClose }: ThreadPanelProps) {
   const block = useWriteBlock(channel);
   const { store, view } = useThread(ws, channelId, rootId);
   const replies = view.replies.timeline;
+  const lostFiles = missingFiles(view.replies);
   const card = view.root.cards[rootId] ?? null;
   const callCard = view.root.callCards[rootId] ?? null;
 
@@ -246,6 +248,9 @@ export function ThreadPanel({ channelId, rootId, onClose }: ThreadPanelProps) {
                       )}
                       actions={actions}
                       onToggleReaction={toggle}
+                      onRetryFiles={
+                        lostFiles.has(m.id) ? store.retryFiles : undefined
+                      }
                       highlighted={m.id === highlightId}
                     />
                   ))}

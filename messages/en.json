@@ -5822,7 +5822,9 @@
       "react": "React with {emoji}",
       "replies": "{count, plural, =1 {# reply} other {# replies}} · last {time}",
       "newMessages": "New messages",
-      "removed": "Removed by an admin."
+      "removed": "Removed by an admin.",
+      "fileFailed": "Could not load the file.",
+      "fileRetry": "Retry"
     },
     "receipts": {
       "seen": "Seen",
@@ -6530,7 +6532,8 @@
       "cancel": "Cancel",
       "submit": "Forward",
       "done": "{count, plural, one {Forwarded to # chat} other {Forwarded to # chats}}",
-      "failed": "Could not forward to {name}: {reason}"
+      "failed": "Could not forward to {name}: {reason}",
+      "filesFailed": "Not forwarded: the files of this message could not be read. Try again."
     },
     "moderation": {
       "remove": "Remove message…",

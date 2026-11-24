@@ -34,6 +34,12 @@ and polish.
 
 ### Fixed
 
+- **A team chat message no longer shows, or is forwarded, without its file.**
+  The files, reactions, reply counts and cards of a message were read
+  together, so one failed read dropped them all without a word. Each is now
+  read by itself and tried again after 2, 5 and 15 seconds and on the next
+  catch-up; until then the message says "Could not load the file. Retry".
+  Forward reads the files first and does not send when it cannot.
 - **Team chat tries again when it could not catch up.** After sleep or a
   lost connection, the channel list, the unread counts, the open channel and
   the open thread were read once, and a read that failed was not tried again:
