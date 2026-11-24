@@ -34,6 +34,11 @@ and polish.
 
 ### Fixed
 
+- **A chat that arrived while the Inbox was out of touch is not missed.**
+  When the read that catches the list up after a lost connection or a long
+  absence failed, its window was dropped and a new customer chat stayed
+  missing until the page was reloaded. The read is now tried again, and what
+  it could not read is read with the next one.
 - **A template Meta refuses says why.** Meta's answer is "Invalid
   parameter" with the reason in a second text that was dropped; both are
   shown now.
