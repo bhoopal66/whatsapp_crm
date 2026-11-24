@@ -817,7 +817,15 @@
       "finalUrl": "Final URL: {url}",
       "back": "Back",
       "cancel": "Cancel",
-      "send": "Send template"
+      "send": "Send template",
+      "pickTemplateLinked": "Pick a saved template to send to this contact.",
+      "noTemplates": "No templates",
+      "noTemplatesHint": "An admin can add one in Settings → Templates.",
+      "blocked": {
+        "not_approved": "Not approved by Meta",
+        "waiting": "Waiting for Meta",
+        "paused": "Paused by Meta"
+      }
     },
     "sidebar": {
       "contactInfo": "Contact info",

@@ -58,6 +58,7 @@ import {
 import type { SendChannelPrediction } from '@/lib/contacts/predict-send-channels';
 import { limitNotices } from '@/lib/team-activity/thread-guard';
 import { providerLabel } from '@/lib/whatsapp/channel-management';
+import { contactTemplateSendsFrom } from '@/lib/whatsapp/template-offer';
 import type { MessageTemplate } from '@/types';
 
 export function channelName(c: AccountNumber): string {
@@ -319,6 +320,7 @@ export function useContactOutreach({
       <TemplatePicker
         open={templatePickerOpen}
         onOpenChange={setTemplatePickerOpen}
+        sendsFrom={contactTemplateSendsFrom(prediction)}
         onSelect={handleSendTemplate}
       />
     </>

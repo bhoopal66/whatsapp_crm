@@ -148,6 +148,7 @@ import {
   type ComposerModeState,
 } from '@/lib/inbox/composer-mode';
 import { predictSendingNumber } from '@/lib/inbox/sending-number';
+import { chatTemplateSendsFrom } from '@/lib/whatsapp/template-offer';
 import {
   latestCustomerMessage,
   mayNeedServiceWindow,
@@ -2807,6 +2808,15 @@ export function MessageThread({
         <TemplatePicker
           open={templateModalOpen}
           onOpenChange={setTemplateModalOpen}
+          sendsFrom={
+            conversation
+              ? chatTemplateSendsFrom(
+                  accountNumbers,
+                  conversation,
+                  lastCustomer
+                )
+              : 'unknown'
+          }
           onSelect={handleSendTemplate}
         />
 

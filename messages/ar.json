@@ -817,7 +817,15 @@
       "finalUrl": "عنوان URL النهائي: {url}",
       "back": "رجوع",
       "cancel": "إلغاء",
-      "send": "إرسال القالب"
+      "send": "إرسال القالب",
+      "pickTemplateLinked": "اختر قالبًا محفوظًا لإرساله إلى جهة الاتصال هذه.",
+      "noTemplates": "لا توجد قوالب",
+      "noTemplatesHint": "يمكن للمسؤول إضافة قالب من الإعدادات ← القوالب.",
+      "blocked": {
+        "not_approved": "غير معتمد من Meta",
+        "waiting": "بانتظار Meta",
+        "paused": "أوقفته Meta مؤقتًا"
+      }
     },
     "sidebar": {
       "contactInfo": "بيانات جهة الاتصال",

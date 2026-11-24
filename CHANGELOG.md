@@ -22,6 +22,11 @@ and polish.
 
 ### Fixed
 
+- **A chat offers the templates it can send.** The list showed every
+  template marked approved whatever number the chat sends from: one Meta
+  had refused was offered in a Meta chat and failed, and one waiting at
+  Meta was missing on linked numbers, which do not need Meta. A Meta chat
+  now shows the ones that cannot be sent with the reason. No migration.
 - **The call reports start the day at midnight in Dubai**, also for
   someone whose computer is set to another time zone: their report days
   held other calls than everyone else's. No migration.
