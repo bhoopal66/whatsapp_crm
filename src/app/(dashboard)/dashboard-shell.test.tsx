@@ -47,6 +47,9 @@ vi.mock('@/components/layout/account-access-alert', () => ({
 vi.mock('@/components/layout/session-reconnecting', () => ({
   SessionReconnecting: () => 'RECONNECTING',
 }));
+vi.mock('@/components/layout/profile-notice-bar', () => ({
+  ProfileNoticeBar: () => 'NOTICE',
+}));
 vi.mock('@/components/layout/push-prompt', () => ({ PushPrompt: () => null }));
 vi.mock('@/components/presence/presence-heartbeat', () => ({
   PresenceHeartbeat: () => null,
@@ -140,6 +143,11 @@ describe('DashboardShell main', () => {
   beforeEach(() => {
     mocks.auth.user = { id: 'u1' };
     mocks.auth.loading = false;
+  });
+
+  it('has the workspace notice above it, on every screen', () => {
+    expect(render('agent', '/inbox')).toMatch(/NOTICE<main.*PAGE/);
+    expect(render('bank_guest', '/chat')).toMatch(/NOTICE<main.*PAGE/);
   });
 
   it('is full-bleed in the meeting room and team chat only', () => {

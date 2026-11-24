@@ -252,7 +252,11 @@
     "errorBody": "Your account role did not load, so every action is treated as read-only and changes will not save. Check your connection and try again.",
     "retry": "Retry",
     "signOutFailed": "Could not sign out, try again.",
-    "reconnecting": "Reconnecting…"
+    "reconnecting": "Reconnecting…",
+    "switchedElsewhere": "You switched workspace on another device.",
+    "workspaceDeactivated": "Your access to this workspace was deactivated.",
+    "reload": "Reload",
+    "dismiss": "Dismiss"
   },
   "Dashboard": {
     "home": {

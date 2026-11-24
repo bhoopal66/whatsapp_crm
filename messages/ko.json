@@ -252,7 +252,11 @@
     "errorBody": "계정 역할을 불러오지 못해 모든 작업이 읽기 전용으로 처리되며 변경 사항은 저장되지 않습니다. 연결을 확인한 후 다시 시도하세요.",
     "retry": "다시 시도",
     "signOutFailed": "로그아웃하지 못했습니다. 다시 시도해 주세요.",
-    "reconnecting": "다시 연결하는 중…"
+    "reconnecting": "다시 연결하는 중…",
+    "switchedElsewhere": "다른 기기에서 워크스페이스를 전환했습니다.",
+    "workspaceDeactivated": "이 워크스페이스에 대한 접근 권한이 비활성화되었습니다.",
+    "reload": "새로고침",
+    "dismiss": "닫기"
   },
   "Dashboard": {
     "home": {
