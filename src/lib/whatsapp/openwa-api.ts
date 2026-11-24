@@ -167,8 +167,10 @@ async function readOpenWAError(
     // Not JSON (a proxy page, an empty 504) — keep the fallback.
   }
   if (retryAfterSeconds === null) {
-    const header = Number(response.headers.get('retry-after'));
-    if (Number.isFinite(header) && header >= 0) retryAfterSeconds = header;
+    // A missing header is null, not 0: nothing is known about the wait.
+    const header = response.headers.get('retry-after');
+    const seconds = header === null ? NaN : Number(header);
+    if (Number.isFinite(seconds) && seconds >= 0) retryAfterSeconds = seconds;
   }
   return new OpenWAError(message, response.status, {
     code,
@@ -202,7 +204,8 @@ const THROTTLE_WAIT_MAX_SECONDS = 2;
 function throttleWaitMs(err: OpenWAError): number | null {
   if (err.status !== 429 || err.code !== null) return null;
   if (!err.message.startsWith('ThrottlerException')) return null;
-  const seconds = Math.max(err.retryAfterSeconds ?? 1, 1);
+  if (err.retryAfterSeconds === null) return null;
+  const seconds = Math.max(err.retryAfterSeconds, 1);
   if (seconds > THROTTLE_WAIT_MAX_SECONDS) return null;
   // Calls refused together must not come back together.
   return seconds * 1_000 + Math.random() * 500;

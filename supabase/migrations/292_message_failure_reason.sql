@@ -24,12 +24,15 @@ SET lock_timeout = '5s';
 -- ------------------------------------------------------------
 -- 1. The column
 -- ------------------------------------------------------------
-ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS failure_reason text;
+-- In one block: a guard that reads the column without the column would
+-- refuse every send's record after WhatsApp took the message, and a plain
+-- `psql -f` goes on after a lock timeout.
+DO $col$ BEGIN
+  ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS failure_reason text;
 
-COMMENT ON COLUMN public.messages.failure_reason IS
-  'Why WhatsApp failed a message it had accepted (292). Service role only; null when the gateway gave no reason.';
+  COMMENT ON COLUMN public.messages.failure_reason IS
+    'Why WhatsApp failed a message it had accepted (292). Service role only; null when the gateway gave no reason.';
 
-DO $$ BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint
      WHERE conrelid = 'public.messages'::regclass
@@ -42,43 +45,43 @@ DO $$ BEGIN
       CHECK (failure_reason IS NULL OR char_length(failure_reason) <= 300)
       NOT VALID;
   END IF;
-END $$;
 
--- 284's body, plus the last line of the list: a session never says why a
--- message failed.
-CREATE OR REPLACE FUNCTION public.messages_session_guard()
-RETURNS trigger
-LANGUAGE plpgsql
-SECURITY INVOKER
-SET search_path = ''
-AS $$
-BEGIN
-  IF current_user NOT IN ('authenticated', 'anon') THEN
+  -- 284's body, plus the last line of the list: a session never says why a
+  -- message failed.
+  CREATE OR REPLACE FUNCTION public.messages_session_guard()
+  RETURNS trigger
+  LANGUAGE plpgsql
+  SECURITY INVOKER
+  SET search_path = ''
+  AS $$
+  BEGIN
+    IF current_user NOT IN ('authenticated', 'anon') THEN
+      RETURN NEW;
+    END IF;
+    IF NEW.sender_type IS DISTINCT FROM 'agent'
+       OR NEW.sender_id IS NULL
+       OR NEW.sender_id IS DISTINCT FROM auth.uid() THEN
+      RAISE EXCEPTION 'You can only record a message you sent yourself'
+        USING ERRCODE = '42501';
+    END IF;
+    -- The rest of the row is what lib/whatsapp/send-message.ts writes;
+    -- these columns and values it never does.
+    IF NEW.status IS DISTINCT FROM 'sent'
+       OR NEW.created_at IS DISTINCT FROM now()
+       OR NEW.ai_generated
+       OR NEW.interactive_reply_id IS NOT NULL
+       OR NEW.media_type IS NOT NULL
+       OR NEW.contact_cards IS NOT NULL
+       OR NEW.failure_reason IS NOT NULL
+       OR NEW.content_type NOT IN ('text', 'template', 'interactive',
+                                   'image', 'video', 'document', 'audio') THEN
+      RAISE EXCEPTION 'This message has details a person''s send does not carry'
+        USING ERRCODE = '42501';
+    END IF;
     RETURN NEW;
-  END IF;
-  IF NEW.sender_type IS DISTINCT FROM 'agent'
-     OR NEW.sender_id IS NULL
-     OR NEW.sender_id IS DISTINCT FROM auth.uid() THEN
-    RAISE EXCEPTION 'You can only record a message you sent yourself'
-      USING ERRCODE = '42501';
-  END IF;
-  -- The rest of the row is what lib/whatsapp/send-message.ts writes;
-  -- these columns and values it never does.
-  IF NEW.status IS DISTINCT FROM 'sent'
-     OR NEW.created_at IS DISTINCT FROM now()
-     OR NEW.ai_generated
-     OR NEW.interactive_reply_id IS NOT NULL
-     OR NEW.media_type IS NOT NULL
-     OR NEW.contact_cards IS NOT NULL
-     OR NEW.failure_reason IS NOT NULL
-     OR NEW.content_type NOT IN ('text', 'template', 'interactive',
-                                 'image', 'video', 'document', 'audio') THEN
-    RAISE EXCEPTION 'This message has details a person''s send does not carry'
-      USING ERRCODE = '42501';
-  END IF;
-  RETURN NEW;
-END;
-$$;
+  END;
+  $$;
+END $col$;
 REVOKE ALL ON FUNCTION public.messages_session_guard() FROM PUBLIC, anon, authenticated;
 
 -- ------------------------------------------------------------

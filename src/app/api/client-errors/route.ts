@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 
 import { parseReport, reportLine } from '@/lib/browser-reports/client-errors';
 import { createRepeatGate } from '@/lib/browser-reports/repeat-gate';
+import { isAuthUnavailable } from '@/lib/auth/auth-unavailable';
+import { clientIp } from '@/lib/edge/client-ip';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { createClient } from '@/lib/supabase/server';
 
@@ -21,18 +23,25 @@ export async function POST(request: Request) {
     if (!Number.isFinite(length) || length <= 0 || length > MAX_BYTES) {
       return done;
     }
-    // Before the session is read: a loop in one browser must not become a
-    // loop of auth calls.
+    // Per address first, so that one noisy browser (or a stranger, who is
+    // told nothing) leaves everyone else's reports their room.
+    const ip = clientIp(request.headers) ?? 'unknown';
     if (
-      !checkRateLimit('client-errors', { limit: 300, windowMs: 60_000 }).success
+      !checkRateLimit(`client-errors:ip:${ip}`, {
+        limit: 120,
+        windowMs: 60_000,
+      }).success ||
+      !checkRateLimit('client-errors', { limit: 600, windowMs: 60_000 }).success
     ) {
       return done;
     }
     const supabase = await createClient();
     const {
       data: { user },
+      error: authError,
     } = await supabase.auth.getUser();
-    if (!user) return done;
+    // An outage of the auth service: the report is not worth a fight.
+    if (isAuthUnavailable(authError) || !user) return done;
     if (
       !checkRateLimit(`client-errors:${user.id}`, {
         limit: 20,
@@ -44,7 +53,7 @@ export async function POST(request: Request) {
     const report = parseReport(await request.json().catch(() => null));
     if (!report) return done;
     const said = gate.admit(
-      `${report.kind}|${report.message}|${report.frames[0] ?? ''}`
+      `${report.kind}|${report.name}|${report.message ?? ''}|${report.frames[0] ?? report.path}`
     );
     if (said) {
       console.warn(

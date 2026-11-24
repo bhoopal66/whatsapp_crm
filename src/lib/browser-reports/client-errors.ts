@@ -3,10 +3,13 @@
 // browser (what is worth sending) and by the route (what is logged).
 //
 // A crash in someone's browser reached nobody: error.tsx printed it to
-// that person's console and the server never heard. The report carries
-// the message, the stack's frames and the path, and nothing typed on the
-// screen; the server masks it again, because a message can quote data
-// ("… of contact 971501234567").
+// that person's console and the server never heard. The report says which
+// screen, what kind of error and where in the code, and NOTHING that could
+// have been typed or received: an error's own words are kept only when
+// they match a sentence the browser engine or React writes itself
+// (`ENGINE_MESSAGES`). Everything else is withheld, because a message can
+// quote anything ("… of Ahmed Ali, 971501234567"), and a stack begins with
+// the message. The server applies the same rules to whatever it is sent.
 // ============================================================
 
 export const CLIENT_ERROR_KINDS = [
@@ -19,14 +22,15 @@ export type ClientErrorKind = (typeof CLIENT_ERROR_KINDS)[number];
 
 export interface ClientErrorReport {
   kind: ClientErrorKind;
-  message: string;
+  /** The error's class: TypeError, ChunkLoadError, … */
+  name: string;
+  /** The engine's own words, or null: withheld. */
+  message: string | null;
   frames: string[];
   path: string;
   digest: string | null;
 }
 
-const MESSAGE_MAX = 300;
-const FRAME_MAX = 160;
 const FRAMES_MAX = 8;
 const PATH_MAX = 160;
 
@@ -49,40 +53,55 @@ export function worthReporting(message: string, stack: string): boolean {
   return !NOISE.some((re) => re.test(text));
 }
 
-/** Ids, numbers, emails and long quotes out of a line of text. */
-export function maskText(text: string): string {
-  return text
-    .replace(
-      /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi,
-      '<id>'
-    )
-    .replace(/[^\s@"'<>()[\],;]+@[^\s@"'<>()[\],;]+\.[a-z]{2,}/gi, '<email>')
-    .replace(/"[^"]{25,}"/g, '"<text>"')
-    .replace(/'[^']{25,}'/g, "'<text>'")
-    .replace(/[\d٠-٩۰-۹][\d٠-٩۰-۹ ()+-]{3,}[\d٠-٩۰-۹]/g, '<n>');
+/**
+ * Sentences an engine, React or the bundler writes: code words only, so
+ * they can be logged whole. Anchored, and cut to the part that matched.
+ */
+const ENGINE_MESSAGES = [
+  /^Cannot (?:read|set) propert(?:y|ies) of (?:undefined|null)(?: \((?:reading|setting) '[\w$]{1,40}'\))?/,
+  /^can't access property "[\w$]{1,40}", [\w$.]{1,60} is (?:undefined|null)/,
+  /^(?:undefined|null) is not an object \(evaluating '[\w$.[\]()]{1,60}'\)/,
+  /^[\w$.()]{1,60} is not (?:a function|defined|iterable|a constructor|an object)/,
+  /^Cannot access '[\w$]{1,40}' before initialization/,
+  /^Maximum call stack size exceeded/,
+  /^Assignment to constant variable/,
+  /^Invalid (?:array length|time value)/,
+  /^Failed to execute '\w{1,40}' on '\w{1,40}'/,
+  /^Loading (?:CSS )?chunk [\w-]{1,60} failed/,
+  /^Minified React error #\d{1,4}/,
+  /^Rendered (?:more|fewer) hooks than/,
+  /^Hydration failed/,
+];
+
+/** The engine's own words of a message, or null. */
+export function engineMessage(message: string): string | null {
+  const text = message.trim();
+  for (const re of ENGINE_MESSAGES) {
+    const m = re.exec(text);
+    if (m && !/\d{5,}/.test(m[0])) return m[0];
+  }
+  return null;
 }
 
-/** `at f (https://host/_next/static/chunks/a.js:1:2)` → `f a.js:1:2`. */
+const errorName = (value: unknown): string =>
+  typeof value === 'string' && /^[A-Za-z]{1,40}$/.test(value) ? value : 'Error';
+
+/** `name file.js:1:2`: a function's name and a place, nothing else. */
+const FRAME = /^(?:[\w$.<>[\]]{1,60} )?[\w.~-]{1,80}(?::\d{1,9}){1,2}$/;
+
 function frame(line: string): string | null {
-  const text = line.trim();
-  if (!/^at\s|@/.test(text)) return null;
+  // `at f (https://host/_next/static/chunks/a.js:1:2)`, `f@https://…:1:2`.
+  // Only a line that ends in an address with a position is a frame: a
+  // stack begins with the message, whose lines can read like one.
   const m =
-    /^(?:at\s+)?(.*?)[\s@(]*((?:https?:\/\/|webpack|blob:|<anonymous>)[^\s)]*)\)?$/.exec(
-      text
+    /^\s*(?:at\s+)?(?:async\s+)?(?:new\s+)?([^\s@(]*)(?:\s\[as [\w$]+\])?[\s@(]*(?:https?:\/\/|webpack(?:-internal)?:)[^\s()]*?([^\s()/?#]+)(?:\?[^\s()]*?)?((?::\d{1,9}){1,2})\)?$/.exec(
+      line
     );
-  const where = m ? m[2] : text;
-  const file = where.replace(/[?#].*?(?=:\d+(:\d+)?$|$)/, '');
-  const short = file.split('/').slice(-1)[0] ?? file;
-  const name = m ? m[1].replace(/^async(\s+|$)/, '').trim() : '';
-  return maskFrame(`${name} ${short}`.trim()).slice(0, FRAME_MAX);
-}
-
-/** Line and column numbers stay; an id inside a name does not. */
-function maskFrame(text: string): string {
-  return text.replace(
-    /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi,
-    '<id>'
-  );
+  if (!m) return null;
+  const name =
+    /^[\w$.<>[\]]{1,60}$/.test(m[1]) && !/\d{5,}/.test(m[1]) ? m[1] : '';
+  const out = `${name} ${m[2]}${m[3]}`.trim();
+  return FRAME.test(out) ? out : null;
 }
 
 export function stackFrames(stack: string): string[] {
@@ -107,7 +126,7 @@ export function maskPath(path: string): string {
         /^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(part)
           ? '<id>'
           : // `<id>` and `<x>`: masked by the browser already.
-            /^(<id>|<x>|[\w.-]{1,40})$/.test(part) && !/\d{5,}/.test(part)
+            /^(<id>|<x>|[a-z][\w-]{0,39})$/.test(part) && !/\d{5,}/.test(part)
             ? part
             : '<x>'
       )
@@ -122,20 +141,26 @@ export function buildReport(
   path: string
 ): ClientErrorReport | null {
   const err = thrown instanceof Error ? thrown : null;
-  const message = err
-    ? `${err.name}: ${err.message}`
-    : typeof thrown === 'string'
-      ? thrown
-      : '';
+  // A thrown text is somebody's words: only that it happened is told.
+  const message = err ? err.message : typeof thrown === 'string' ? thrown : '';
+  const name = err ? errorName(err.name) : 'ThrownText';
   const stack = err?.stack ?? '';
-  if (!worthReporting(message, stack)) return null;
+  if (
+    !worthReporting(err ? `${err.name}: ${message || '-'}` : message, stack)
+  ) {
+    return null;
+  }
   const digest = (err as { digest?: unknown } | null)?.digest;
   return {
     kind,
-    message: maskText(message).slice(0, MESSAGE_MAX),
+    name,
+    message: err ? engineMessage(message) : null,
     frames: stackFrames(stack),
     path: maskPath(path),
-    digest: typeof digest === 'string' ? digest.slice(0, 40) : null,
+    digest:
+      typeof digest === 'string' && /^[\w@.-]{1,40}$/.test(digest)
+        ? digest
+        : null,
   };
 }
 
@@ -144,19 +169,15 @@ export function parseReport(body: unknown): ClientErrorReport | null {
   if (!body || typeof body !== 'object') return null;
   const b = body as Record<string, unknown>;
   const kind = CLIENT_ERROR_KINDS.find((k) => k === b.kind);
-  if (!kind || typeof b.message !== 'string') return null;
-  const message = b.message.replace(/[\u0000-\u001f]+/g, ' ').trim();
-  if (!message) return null;
+  if (!kind || typeof b.name !== 'string') return null;
   return {
     kind,
-    message: maskText(message).slice(0, MESSAGE_MAX),
+    name: errorName(b.name),
+    message: typeof b.message === 'string' ? engineMessage(b.message) : null,
     frames: Array.isArray(b.frames)
       ? b.frames
-          .filter((f): f is string => typeof f === 'string')
+          .filter((f): f is string => typeof f === 'string' && FRAME.test(f))
           .slice(0, FRAMES_MAX)
-          .map((f) =>
-            maskFrame(f.replace(/[\u0000-\u001f]+/g, ' ')).slice(0, FRAME_MAX)
-          )
       : [],
     path: typeof b.path === 'string' ? maskPath(b.path) : '/',
     digest:
@@ -171,7 +192,7 @@ export function reportLine(report: ClientErrorReport, who: string): string {
   return (
     `[client-error] ${report.kind} ${report.path} user=${who}` +
     (report.digest ? ` digest=${report.digest}` : '') +
-    ` ${report.message}` +
+    ` ${report.name}: ${report.message ?? '(message withheld)'}` +
     (report.frames.length > 0 ? ` | ${report.frames.join(' < ')}` : '')
   );
 }

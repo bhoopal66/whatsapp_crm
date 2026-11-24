@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 
 import { parseCspReport, worthKeeping } from '@/lib/browser-reports/csp-report';
 import { createRepeatGate } from '@/lib/browser-reports/repeat-gate';
+import { clientIp } from '@/lib/edge/client-ip';
 import { checkRateLimit } from '@/lib/rate-limit';
 
 const MAX_BYTES = 16_384;
@@ -20,8 +21,11 @@ export async function POST(request: Request) {
     if (!Number.isFinite(length) || length <= 0 || length > MAX_BYTES) {
       return done;
     }
+    const ip = clientIp(request.headers) ?? 'unknown';
     if (
-      !checkRateLimit('csp-report', { limit: 120, windowMs: 60_000 }).success
+      !checkRateLimit(`csp-report:ip:${ip}`, { limit: 60, windowMs: 60_000 })
+        .success ||
+      !checkRateLimit('csp-report', { limit: 300, windowMs: 60_000 }).success
     ) {
       return done;
     }

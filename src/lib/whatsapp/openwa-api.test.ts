@@ -375,6 +375,18 @@ describe("the gateway's request limit", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it('does not guess a wait the gateway did not name', async () => {
+    fetchMock.mockImplementation(async () =>
+      json(429, {
+        statusCode: 429,
+        message: 'ThrottlerException: Too Many Requests',
+      })
+    );
+    const out = await settle(getSession(creds));
+    expect((out as OpenWAError).retryAfterSeconds).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it('never repeats a send the pacing governor refused, nor another 429', async () => {
     fetchMock.mockImplementation(async () =>
       json(429, {
