@@ -39,6 +39,24 @@ describe('the MCP client', () => {
     expect(keys[2]).toBeUndefined();
   });
 
+  it('keeps the key of a broadcast until it is answered', async () => {
+    const body = { template_name: 'promo', recipients: [{ to: '+97150' }] };
+    const broadcast = (b: unknown = body) =>
+      client.sendBroadcast(b).catch((e: unknown) => e);
+    fetchMock.mockRejectedValueOnce(timeout());
+    fetchMock.mockImplementation(async () => new Response('{"data":1}'));
+    await broadcast();
+    await broadcast({ ...body, template_name: 'other' });
+    expect(await broadcast({ ...body })).toMatchObject({ data: 1 });
+    await broadcast();
+    const keys = fetchMock.mock.calls.map(
+      ([, init]) => init.headers['Idempotency-Key']
+    );
+    expect(keys[0]).toMatch(/^[0-9a-f-]{36}$/);
+    expect(keys[2]).toBe(keys[0]);
+    expect(new Set(keys).size).toBe(3);
+  });
+
   it('says a write that timed out may have gone through', async () => {
     fetchMock.mockRejectedValue(timeout());
     expect(await send()).toMatchObject({

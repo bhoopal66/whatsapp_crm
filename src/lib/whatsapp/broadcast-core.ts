@@ -142,6 +142,11 @@ export interface CreateBroadcastParams {
    * before anything is persisted.
    */
   flowId?: string | null;
+  /**
+   * Awaited right before the campaign is inserted; throwing creates
+   * nothing. An error after it does not prove that nothing was created.
+   */
+  beforeCreate?: () => Promise<void>;
 }
 
 interface PlannedRecipient {
@@ -447,6 +452,8 @@ export async function createBroadcast(
       400
     );
   }
+
+  await params.beforeCreate?.();
 
   // Persist the broadcast + its recipients. The count columns
   // (sent/delivered/read/replied/failed) are owned by the DB aggregate

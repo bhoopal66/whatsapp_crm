@@ -7,7 +7,7 @@
 // cleanly. Nothing here knows about MCP — it's just the CRM API.
 // ============================================================
 
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 import type { Config } from './config.js';
 
@@ -51,6 +51,8 @@ export interface Paginated<T> {
 export class TaamulClient {
   private readonly baseUrl: string;
   private readonly apiKey: string;
+  /** Keys of broadcasts without a success yet, by what they send. */
+  private readonly openBroadcasts = new Map<string, string>();
 
   constructor(config: Pick<Config, 'baseUrl' | 'apiKey'>) {
     this.baseUrl = config.baseUrl;
@@ -238,8 +240,22 @@ export class TaamulClient {
 
   // --- Broadcasts ---------------------------------------------------
 
-  sendBroadcast(body: unknown): Promise<{ data: unknown }> {
-    return this.request('POST', '/broadcasts', { body });
+  async sendBroadcast(body: unknown): Promise<{ data: unknown }> {
+    // A large campaign can take longer than the timeout, and then goes out
+    // all the same: the same call made again takes the same key, and is
+    // answered with that campaign. Only a success ends the key, so the
+    // same campaign can be sent again on purpose.
+    const content = createHash('sha256')
+      .update(JSON.stringify(body))
+      .digest('hex');
+    const key = this.openBroadcasts.get(content) ?? randomUUID();
+    this.openBroadcasts.set(content, key);
+    const answer = await this.request('POST', '/broadcasts', {
+      body,
+      idempotencyKey: key,
+    });
+    this.openBroadcasts.delete(content);
+    return answer;
   }
 
   getBroadcast(id: string): Promise<{ data: unknown }> {

@@ -22,6 +22,11 @@ and polish.
   `docs/public-api.md`. **Migration required: 305** (before that, a request
   with a key answers 503 and sends nothing; apply it before updating the
   MCP server).
+- **An integration can launch a broadcast without the risk of launching it
+  twice.** `POST /api/v1/broadcasts` takes an `Idempotency-Key` too: a
+  repeat is answered with the first campaign. The MCP server keeps one key
+  per broadcast until it is answered, so a call repeated after its 30-second
+  timeout creates no second campaign. Needs 305, as above.
 - **A campaign can be stopped.** Stop on the page of a running or scheduled
   campaign ends it after the message being sent now; everyone who got it
   stays recorded, the rest stay pending, and Resume sends to them later.

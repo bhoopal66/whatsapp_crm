@@ -86,7 +86,7 @@ may be reworded.
 | 429    | `number_daily_limit` | `POST /api/v1/messages` would start a new chat on a phone (Whapi or OpenWA) number that has reached its daily new-chat limit, with the workspace's hard restrictions on. Replies to existing chats still go out; new chats can start again tomorrow |
 | 400    | `bad_request`  | Malformed input                                                                     |
 | 404    | `not_found`    | No such resource                                                                    |
-| 409    | `idempotency_key_reused`, `in_progress`, `delivery_unconfirmed` | `POST /api/v1/messages` with an idempotency key, below |
+| 409    | `idempotency_key_reused`, `in_progress`, `delivery_unconfirmed` | `POST /api/v1/messages` or `/api/v1/broadcasts` with an idempotency key, below |
 | 500    | `internal`     | Server error                                                                        |
 | 503    | `unavailable`  | The key could not be checked (the database did not answer). Says nothing about the key and is not counted as a bad one; nothing was done. Retry after `Retry-After` seconds |
 
@@ -446,6 +446,25 @@ Response (202):
   }
 }
 ```
+
+**Creating once.** Every recipient is looked up before the answer, so a
+large request can outlast a client's timeout and still send. Pass an
+`Idempotency-Key` header (or an `idempotency_key` field), as on `POST
+/api/v1/messages`, and repeat the same request with the same key: it never
+creates a second campaign. Keys belong to the API key, are separate from
+those of messages, and are remembered for 30 days. Without a key every
+request creates a campaign.
+
+| Repeat of                                | Answer                                                                                                 |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| a request that created its campaign      | `200`, the first answer again with `"replayed": true`. Nothing is created; poll the broadcast          |
+| a request that certainly did not         | the campaign is created now                                                                            |
+| a request still running                  | `409 in_progress` with `Retry-After`                                                                   |
+| a request whose outcome is unknown       | `409 delivery_unconfirmed`. The campaign may exist (see the dashboard); this key never creates it again |
+| another broadcast with the same key      | `409 idempotency_key_reused`. Nothing is created                                                       |
+
+`503 unavailable` means the key could not be recorded and nothing was
+created: repeat it with the same key.
 
 ### `GET /api/v1/broadcasts/{id}`
 

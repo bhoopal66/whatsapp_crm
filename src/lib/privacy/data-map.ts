@@ -324,6 +324,7 @@ export const PERSONAL: Readonly<Record<string, PersonalTable>> = {
     exported: true,
   },
   // 305: ids and a hash of the request, 30 days; also goes with its message.
+  // A broadcast's key names no contact.
   v1_message_keys: {
     link: 'contact',
     class: 'identifier',
