@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { onGroupRead } from '@/lib/groups/mark-read';
 import { createClient } from '@/lib/supabase/client';
+import { visibleInterval } from '@/lib/visible-interval';
 
 const POLL_MS = 60_000;
 
@@ -17,8 +18,9 @@ const POLL_MS = 60_000;
  * Polled, not live: the count is one cheap RPC, and a realtime channel
  * on every group message of the workspace would replay RLS per
  * subscriber for a number that may lag a minute. Marking a group read
- * in this tab (`markGroupRead`) refetches at once. 0 while loading, with
- * no workspace, for a bank guest (they see no group), and on any error.
+ * in this tab (`markGroupRead`) refetches at once. It sleeps while the
+ * tab is hidden. 0 until the first answer, with no workspace and for a
+ * bank guest (they see no group); a failed poll keeps the last count.
  */
 export function useGroupsUnread(): number {
   const { accountId, isBankGuest } = useAuth();
@@ -40,18 +42,18 @@ export function useGroupsUnread(): number {
           'whatsapp_group_unread_count'
         );
         if (cancelled || mine !== seq) return;
-        setCount(!error && typeof data === 'number' ? data : 0);
+        if (!error && typeof data === 'number') setCount(data);
       } catch {
-        if (!cancelled && mine === seq) setCount(0);
+        // A blip keeps the last count; the next poll tries again.
       }
     };
 
     void refresh();
-    const timer = setInterval(() => void refresh(), POLL_MS);
+    const stop = visibleInterval(refresh, POLL_MS);
     const off = onGroupRead(() => void refresh());
     return () => {
       cancelled = true;
-      clearInterval(timer);
+      stop();
       off();
       // A workspace switch must not show the old workspace's count.
       setCount(0);

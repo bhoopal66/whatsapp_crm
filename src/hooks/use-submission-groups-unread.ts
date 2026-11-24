@@ -5,6 +5,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { hasMinRole } from '@/lib/auth/roles';
 import { onSubmissionGroupRead } from '@/lib/submission-groups/mark-read';
 import { createClient } from '@/lib/supabase/client';
+import { visibleInterval } from '@/lib/visible-interval';
 
 const POLL_MS = 60_000;
 
@@ -19,7 +20,8 @@ const POLL_MS = 60_000;
  * group read in this tab (`markSubmissionGroupRead`) refetches at once.
  * Only agents and up ask (the entry's `minRole` and the route's
  * AgentOnlyLayout): a viewer or a bank guest has no link to put it on.
- * 0 while loading, with no workspace, and on any error.
+ * 0 until the first answer and with no workspace; a failed poll keeps
+ * the last count.
  */
 export function useSubmissionGroupsUnread(): number {
   const { accountId, accountRole } = useAuth();
@@ -40,18 +42,18 @@ export function useSubmissionGroupsUnread(): number {
       try {
         const { data, error } = await supabase.rpc('sg_unread_count');
         if (cancelled || mine !== seq) return;
-        setCount(!error && typeof data === 'number' ? data : 0);
+        if (!error && typeof data === 'number') setCount(data);
       } catch {
-        if (!cancelled && mine === seq) setCount(0);
+        // A blip keeps the last count; the next poll tries again.
       }
     };
 
     void refresh();
-    const timer = setInterval(() => void refresh(), POLL_MS);
+    const stop = visibleInterval(refresh, POLL_MS);
     const off = onSubmissionGroupRead(() => void refresh());
     return () => {
       cancelled = true;
-      clearInterval(timer);
+      stop();
       off();
       // A workspace switch must not show the old workspace's count.
       setCount(0);

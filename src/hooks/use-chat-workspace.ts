@@ -34,6 +34,7 @@ import { INBOX_FILTER } from '@/lib/inbox/campaign-inbox';
 import { assigneeGroup, combineOrGroups } from '@/lib/inbox/pagination';
 import { startCatchUp } from '@/lib/realtime/catch-up';
 import { createClient } from '@/lib/supabase/client';
+import { visibleInterval } from '@/lib/visible-interval';
 import { sessionCache, sessionKey } from '@/lib/session-cache';
 import { useSessionQuery } from '@/hooks/use-session-query';
 import {
@@ -150,8 +151,7 @@ export function useChatWorkspace() {
   useEffect(() => {
     if (!peopleKey) return;
     // Presence rides on this list; the first read is useSessionQuery's.
-    const id = setInterval(() => void refreshPeople(), PEOPLE_REFRESH_MS);
-    return () => clearInterval(id);
+    return visibleInterval(refreshPeople, PEOPLE_REFRESH_MS);
   }, [peopleKey, refreshPeople]);
 
   // Handlers through a ref: the subscription is made once per account.
@@ -284,6 +284,12 @@ export function useInboxCounts(enabled: boolean) {
       return error ? null : (c ?? 0);
     };
     const filtered = inboxHasAssigneeFilter(accountRole);
+    // This question's last good figures: a failed count keeps its own.
+    const good = new Map<string, number>();
+    const kept = (key: string, n: number | null) => {
+      if (n !== null) good.set(key, n);
+      return good.get(key) ?? null;
+    };
     const load = async () => {
       const [unassigned, mine, ...perTag] = await Promise.all([
         count({ unassigned: true }),
@@ -292,16 +298,19 @@ export function useInboxCounts(enabled: boolean) {
       ]);
       if (cancelled) return;
       setCounts({
-        unassigned,
-        mine,
-        tags: inboxTagCounts(mains, perTag),
+        unassigned: kept('unassigned', unassigned),
+        mine: kept('mine', mine),
+        tags: inboxTagCounts(
+          mains,
+          perTag.map((n, i) => kept(mains[i].id, n))
+        ),
       });
     };
     void load();
-    const id = setInterval(() => void load(), 60_000);
+    const stop = visibleInterval(load, 60_000);
     return () => {
       cancelled = true;
-      clearInterval(id);
+      stop();
     };
   }, [enabled, userId, accountRole, aiLive, mains]);
 

@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { hasMinRole } from '@/lib/auth/roles';
 import { HOME_LIST_LIMIT } from '@/lib/dashboard/home/sources';
+import { visibleInterval } from '@/lib/visible-interval';
 
 /** How often the sidebar re-asks; an SLA crosses "overdue" on the clock, not on an event. */
 const REFRESH_MS = 2 * 60_000;
@@ -15,7 +16,7 @@ const REFRESH_MS = 2 * 60_000;
  * (`/cases?sla_state=overdue`). Agent and up, as the Cases row; which
  * cases count is `case_inbox`'s call. Read through the route, at most
  * one page (`HOME_LIST_LIMIT`, above the badge's "99+"). Zero until
- * answered and on any error. Not asked for a department kept out of the
+ * answered; a failed read keeps the last count. Not asked for a department kept out of the
  * sales areas (migration 192): the route refuses it every time, and the
  * sidebar has no Cases row for it.
  */
@@ -48,10 +49,10 @@ export function useCasesOverdue(): number {
       }
     };
     void load();
-    const timer = setInterval(load, REFRESH_MS);
+    const stop = visibleInterval(load, REFRESH_MS);
     return () => {
       cancelled = true;
-      clearInterval(timer);
+      stop();
     };
   }, [eligible, accountId]);
 

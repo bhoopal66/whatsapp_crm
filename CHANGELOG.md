@@ -22,6 +22,10 @@ and polish.
 
 ### Fixed
 
+- **The sidebar's numbers no longer blink to zero, and a hidden tab stops
+  asking for them.** A failed poll keeps the last count, and the minute polls
+  (groups, submission groups, overdue cases, HR, phone status, team chat) sleep
+  while the tab is hidden and catch up when it is shown. No migration.
 - **A tab left open over a release recovers by itself.** A panel whose code
   the release replaced used to break the whole screen, and "Try again" could
   not help. The screen now reloads once on its own when nothing typed would
