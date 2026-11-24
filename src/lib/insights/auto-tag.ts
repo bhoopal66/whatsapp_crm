@@ -29,6 +29,7 @@
 // ============================================================
 
 import { supabaseAdmin } from '@/lib/ai/admin-client';
+import type { SalesChatCheck } from '@/lib/ai/not-sales-chat';
 import { dispatchChatTagSet } from '@/lib/automations/chat-tag-dispatch';
 import { writeConversationChatTags } from '@/lib/chat-tags/server';
 import type { InboundInsightsOutcome } from './inbound';
@@ -101,7 +102,13 @@ async function noteLabel(
 
 /** Apply the judged tag to an untagged chat in Auto mode. Never throws. */
 export async function autoTagFromInsights(
-  args: { accountId: string; conversationId: string; contactId: string },
+  args: {
+    accountId: string;
+    conversationId: string;
+    contactId: string;
+    /** The message's one decision, passed on to the tag's automations. */
+    salesChat?: SalesChatCheck | null;
+  },
   outcome: InboundInsightsOutcome
 ): Promise<AutoTagResult> {
   try {
@@ -189,6 +196,7 @@ export async function autoTagFromInsights(
       conversationId: result.conversationId,
       previous,
       saved,
+      salesChat: args.salesChat,
     });
     return 'applied';
   } catch (err) {

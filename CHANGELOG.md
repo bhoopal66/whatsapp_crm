@@ -34,6 +34,12 @@ and polish.
 
 ### Fixed
 
+- **A candidate's message is no longer read as a sales lead.** Smart
+  insights, automatic chat tags, the attention pin and campaign reply
+  sorting now leave HR chats, other departments' chats and HR lines alone
+  (and stand down when that cannot be checked): nothing is sent to Jev, no
+  "Interested" tag or deal. A tag set by hand still works, but its
+  automations send no sales message in such a chat. No migration.
 - **Compass updates: a status update is never posted twice into a
   submission group, and never lost to short failures.** A timeout or a
   restart mid-post answers `delivery_unconfirmed` and is not posted again

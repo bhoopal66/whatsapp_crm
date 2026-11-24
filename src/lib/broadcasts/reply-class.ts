@@ -27,6 +27,7 @@
 // ============================================================
 
 import { supabaseAdmin } from '@/lib/ai/admin-client';
+import { salesAnswersOff, type SalesChatCheck } from '@/lib/ai/not-sales-chat';
 import { dispatchChatTagSet } from '@/lib/automations/chat-tag-dispatch';
 import { writeConversationChatTags } from '@/lib/chat-tags/server';
 import { getInsightSettings, insightsAvailable } from '@/lib/insights/settings';
@@ -55,6 +56,9 @@ export interface ClassifyCampaignReplyInput {
    */
   inboundMessageId?: string;
   conversationId?: string;
+  /** The message's one decision whether this is a sales chat; absent in a
+   *  backfill. In any other chat nothing is judged or tagged. */
+  salesChat?: SalesChatCheck | null;
 }
 
 export interface CampaignReplyClass {
@@ -194,6 +198,9 @@ export async function classifyCampaignReply(
     if (!(await replyClassOn(input.accountId))) return null;
     const ts = getDecisionLayer();
     if (!ts) return null;
+    // A candidate's answer in an HR chat is not a sales reply: no text
+    // leaves, and no class means no "Interested" tag below.
+    if (await salesAnswersOff(input.salesChat)) return null;
 
     const db = supabaseAdmin();
     const context = await campaignContextFor(db, input);
@@ -269,6 +276,8 @@ export async function tagInterestedReply(args: {
   accountId: string;
   conversationId: string;
   replyClass: CampaignReplyClass | null;
+  /** The message's one decision, passed on to the tag's automations. */
+  salesChat?: SalesChatCheck | null;
 }): Promise<InterestedTagResult> {
   try {
     const rc = args.replyClass;
@@ -299,6 +308,7 @@ export async function tagInterestedReply(args: {
       conversationId: result.conversationId,
       previous,
       saved,
+      salesChat: args.salesChat,
     });
     return 'applied';
   } catch (err) {

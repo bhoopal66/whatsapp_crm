@@ -1304,6 +1304,15 @@ async function runInboundMessage(
     await rotateBroadcastReply(accountId, conversation);
   }
 
+  // One decision for this message, read when the first of them needs it:
+  // no sales answer (flow, journey, automation message step, AI reply),
+  // campaign sorting or smart insight in an HR chat or another
+  // department's. Internal automation steps run.
+  const salesChat = salesChatOnce(supabaseAdmin, {
+    conversationId: conversation.id,
+    inboundChannelId: channel.id,
+  });
+
   // Campaign reply sorting (migration 148, docs/jev-insights.md): Jev
   // sorts that first reply into a class, stored on the recipient row and
   // seeded into the follow-up flow's vars below. Only when this message
@@ -1327,6 +1336,7 @@ async function runInboundMessage(
         deadlineMs: CAMPAIGN_REPLY_CLASS_DEADLINE_MS,
         inboundMessageId: insertedRows[0].id,
         conversationId: conversation.id,
+        salesChat,
       })
     : Promise.resolve(null);
   const followUpReplyClass = campaignReply?.followUpFlowId
@@ -1357,13 +1367,6 @@ async function runInboundMessage(
   // no active flows take the runner's early-exit "no_match" path
   // basically for free (one indexed SELECT for the active run).
   // ============================================================
-  // One decision for this message, read when the first of them needs it:
-  // no sales answer (flow, journey, automation message step, AI reply) in
-  // an HR chat or another department's. Internal automation steps run.
-  const salesChat = salesChatOnce(supabaseAdmin, {
-    conversationId: conversation.id,
-    inboundChannelId: channel.id,
-  });
   const flowResult = await dispatchInboundToFlows({
     salesChat,
     accountId,
@@ -1448,6 +1451,7 @@ async function runInboundMessage(
     accountId,
     conversationId: conversation.id,
     replyClass: await campaignReplyClassP,
+    salesChat,
   });
 
   // Fire any automations that react to this webhook event. All dispatches
@@ -1641,13 +1645,14 @@ async function runInboundMessage(
   // Smart insights (docs/jev-insights.md): the customer signals and a
   // chat-tag suggestion. After the watch, so the triage row it logged for
   // this message is there to reuse; display data only, off unless the
-  // account switched it on, never throws. In Auto mode its tag answer
-  // then tags an untagged chat (autoTagFromInsights, never throws),
-  // awaited in the same chain so after() keeps it alive.
+  // account switched it on, only in a sales chat, never throws. In Auto
+  // mode its tag answer then tags an untagged chat (autoTagFromInsights,
+  // never throws), awaited in the same chain so after() keeps it alive.
   const insightsArgs = {
     accountId,
     conversationId: conversation.id,
     contactId: contactRecord.id,
+    salesChat,
   };
   const insights = watch
     .then(() =>
