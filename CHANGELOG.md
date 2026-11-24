@@ -35,6 +35,9 @@ and polish.
   opens Settings -> Profile, handed-over work opens the inbox; they opened
   the notifications list (an admin's personal number: the company numbers).
   **Migration required: 295** (after 294, any build).
+- **A colleague who was only consulted during a call is not counted as
+  having answered it**, so they do not see the call or its recording and
+  cannot write its note. The person it is handed to still can. No migration.
 - **The call reports start the day at midnight in Dubai**, also for
   someone whose computer is set to another time zone: their report days
   held other calls than everyone else's. No migration.

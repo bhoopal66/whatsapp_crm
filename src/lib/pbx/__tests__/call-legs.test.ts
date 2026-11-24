@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   MAX_CDR_LEGS,
+  answeredExtensions,
   legOf,
   internalPeerExtension,
   legsOf,
@@ -388,6 +389,90 @@ describe('withLeg / legsOf', () => {
     expect(legOf({ ...ev, direction: 'outbound' }, 'inbound').extension).toBe(
       '0501234567'
     );
+  });
+});
+
+describe('answeredExtensions: who the customer spoke to', () => {
+  const customer = (ext: string, start: number | null, secs: number) =>
+    leg('u', 'ANSWERED', {
+      start,
+      call_seconds: secs,
+      extension: ext,
+      peer: '0501',
+    });
+  const internal = (
+    from: string,
+    to: string,
+    start: number | null,
+    secs: number,
+    status = 'ANSWERED'
+  ) =>
+    leg('u', status, {
+      start,
+      call_seconds: secs,
+      extension: from,
+      peer: to,
+      direction: 'internal',
+    });
+  it.each<[string, CallLeg[], string[]]>([
+    [
+      'handed to B',
+      [customer('A', 0, 25), internal('A', 'B', 20, 40)],
+      ['A', 'B'],
+    ],
+    [
+      'B consulted, A keeps the customer',
+      [customer('A', 0, 60), internal('A', 'B', 20, 10)],
+      ['A'],
+    ],
+    [
+      'B has a leg with the customer',
+      [customer('A', 0, 60), internal('A', 'B', 20, 10), customer('B', 60, 30)],
+      ['A', 'B'],
+    ],
+    [
+      'both end together: cannot tell',
+      [customer('A', 0, 60), internal('A', 'B', 20, 40)],
+      ['A'],
+    ],
+    [
+      'no time on the internal leg',
+      [customer('A', 0, 60), internal('A', 'B', null, 400)],
+      ['A'],
+    ],
+    [
+      'no time on the customer leg',
+      [customer('A', null, 5), internal('A', 'B', 20, 400)],
+      ['A'],
+    ],
+    ['no customer leg yet', [internal('A', 'B', 20, 40)], ['A']],
+    [
+      'B did not answer',
+      [customer('A', 0, 25), internal('A', 'B', 20, 40, 'NO ANSWER')],
+      ['A'],
+    ],
+    [
+      'handed to B, who hands on to C',
+      [
+        customer('A', 0, 25),
+        internal('A', 'B', 20, 40),
+        internal('B', 'C', 55, 45),
+      ],
+      ['A', 'B', 'C'],
+    ],
+    [
+      'handed to B, who only consults C',
+      [
+        customer('A', 0, 25),
+        internal('A', 'B', 20, 80),
+        internal('B', 'C', 55, 10),
+      ],
+      ['A', 'B'],
+    ],
+  ])('%s', (_what, legs, want) => {
+    for (const order of permutations(legs)) {
+      expect([...new Set(answeredExtensions(order))].sort()).toEqual(want);
+    }
   });
 });
 

@@ -682,15 +682,17 @@ const withRang = (meta: Row, rang: string[]): Row =>
   rang.length ? { ...meta, rang_user_ids: rang } : meta;
 
 /**
- * Everyone who answered a leg of a customer call, first first
+ * Everyone who spoke to the customer, first first
  * (calls.meta.answered_user_ids, 294): after a transfer calls.user_id
- * names one of them, and each may write the call's note. A live row's
- * user_id is an answerer once answered_at is set, so a row an older
- * build wrote keeps its person too.
+ * names one of them, and each may write the call's note. A row an older
+ * build wrote has no list: its user_id is an answerer once answered_at
+ * is set. Never beside a list: a frame's user_id may be a colleague who
+ * was only consulted.
  */
 function answeredOf(existing: Row | null): string[] {
+  const listed = answeredIn(existing?.meta);
+  if (listed.length) return listed;
   return unique([
-    ...answeredIn(existing?.meta),
     existing?.answered_at && LIVE.includes(existing.status as CallStatus)
       ? str(existing.user_id)
       : null,
@@ -768,8 +770,21 @@ async function onCallState(ctx: Ctx, ev: CallStateEvent): Promise<void> {
   const answeredBy =
     unique(answered.map((n) => exts.get(n)?.user_id))[0] ?? null;
   const ringingUsers = unique(ringing.map((n) => exts.get(n)?.user_id));
+  // One of our people alone with the customer. Two on the call (one on
+  // hold counts) is a consultation or a transfer, which a frame cannot
+  // tell apart: the next frame, or the legs at the end, says who stayed.
+  const onCall = unique(
+    ev.members.map((m) =>
+      m.kind === 'extension' &&
+      m.number &&
+      (ANSWERED_STATUSES.has(m.status.toUpperCase()) ||
+        m.status.toUpperCase() === 'HOLD')
+        ? exts.get(m.number)?.user_id
+        : null
+    )
+  );
   const answeredUsers =
-    direction === 'internal'
+    direction === 'internal' || onCall.length > 1
       ? []
       : unique(answered.map((n) => exts.get(n)?.user_id));
   const live = {
