@@ -28,6 +28,8 @@ import { writeConversationChatTags } from '@/lib/chat-tags/server'
 import { chatTagTriggerMatches } from '@/lib/chat-tags/trigger-match'
 import { engineSendText, engineSendTemplate, engineSendInteractive } from './channel-send'
 import { validateInteractivePayload } from '@/lib/whatsapp/interactive'
+import { resolveTemplateRow } from '@/lib/whatsapp/template-body'
+import { resolveTemplateValues } from './template-values'
 import { consentRefusal } from '@/lib/whatsapp/send-origin'
 import { isDeliverableUrl, safeFetch } from '@/lib/webhooks/ssrf'
 import { automationPoolKey, rotateAssign } from '@/lib/assignment/rotation'
@@ -655,24 +657,23 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
       if (!args.contactId) throw new Error('send_template needs a contact')
       if (!cfg.template_name) throw new Error('send_template needs template_name')
       const conversationId = await resolveConversationId(args)
-      // Meta templates use positional {{1}}, {{2}}, … placeholders, so
-      // we MUST emit params in strict numeric order. Lexicographic sort
-      // of "1", "2", …, "10" yields "1", "10", "2", … which silently
-      // scrambles every template with ≥10 variables.
-      const params = cfg.variables
-        ? Object.keys(cfg.variables)
-            .sort((a, b) => {
-              const na = Number(a)
-              const nb = Number(b)
-              const aNum = Number.isFinite(na)
-              const bNum = Number.isFinite(nb)
-              if (aNum && bNum) return na - nb
-              if (aNum) return -1
-              if (bNum) return 1
-              return a.localeCompare(b)
-            })
-            .map((k) => String(cfg.variables![k]))
-        : []
+      // Every placeholder needs a value, on every provider: a linked
+      // number renders the text itself and sends a literal `{{1}}`.
+      const { row, readFailed } = await resolveTemplateRow(
+        db,
+        args.automation.account_id,
+        cfg.template_name,
+        cfg.language,
+      )
+      if (readFailed) throw new Error('send_template: the template could not be read')
+      const values = row
+        ? resolveTemplateValues(row, cfg, (value) => interpolate(value, args))
+        : null
+      if (values?.missing.length) {
+        throw new Error(
+          `send_template: no value for ${values.missing.join(', ')} of template ${cfg.template_name}`,
+        )
+      }
       const { whatsapp_message_id } = await engineSendTemplate({
         accountId: args.automation.account_id,
         userId: args.automation.user_id,
@@ -680,7 +681,9 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
         contactId: args.contactId,
         templateName: cfg.template_name,
         language: cfg.language,
-        params,
+        // No row: the sender refuses the send and says so.
+        params: values?.params ?? [],
+        headerText: values?.headerText,
       })
       return `template sent via Meta (${whatsapp_message_id})`
     }

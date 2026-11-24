@@ -76,6 +76,8 @@ vi.mock('./channel-send', () => ({
 }));
 
 import { resumePendingExecution, runAutomationsForTrigger } from './engine';
+import { templateValueIssues } from './template-issues';
+import { supabaseAdmin } from './admin-client';
 import type { AutomationTriggerType } from '@/types';
 
 const ACCOUNT = 'acct-1';
@@ -431,6 +433,82 @@ describe('assign to a specific person', () => {
   it('control: active staff takes the chat, over its holder', async () => {
     await trigger('new_message_received');
     expect(holder()).toBe('u2');
+  });
+});
+
+describe('the values of a template', () => {
+  const offer = (config: Row): [string, Row] => [
+    'send_template',
+    { template_name: 'offer', ...config },
+  ];
+  beforeEach(() => {
+    h.db.message_templates = [
+      {
+        id: 't1',
+        user_id: 'u1',
+        account_id: ACCOUNT,
+        name: 'offer',
+        language: 'en_US',
+        category: 'Utility',
+        status: 'APPROVED',
+        body_text: 'Hi {{1}}, about {{2}}',
+        header_type: 'text',
+        header_content: 'For {{1}}',
+      },
+    ];
+  });
+
+  it.each([
+    ['none', {}],
+    ['a blank one', { variables: { '1': 'Ann', '2': ' ' }, header_text: 'x' }],
+    [
+      'one that comes out empty',
+      { variables: { '1': 'Ann', '2': '{{ vars.none }}' }, header_text: 'x' },
+    ],
+    ['no header value', { variables: { '1': 'Ann', '2': 'cards' } }],
+  ])('%s: nothing is sent and the step fails', async (_name, config) => {
+    steps(offer(config), CLOSE);
+    await trigger('new_message_received', { customerJustWrote: true });
+    expect(sends()).toBe(0);
+    expect(log().steps_executed).toHaveLength(1);
+    expect(log().steps_executed[0].detail).toContain(
+      'send_template: no value for '
+    );
+  });
+
+  it('are filled in as other text is', async () => {
+    const config = {
+      variables: { '2': '{{ message.text }}', '1': 'Ann' },
+      header_text: 'you',
+    };
+    steps(offer(config));
+    await trigger('new_message_received', { customerJustWrote: true });
+    expect(h.template).toHaveBeenCalledWith(
+      expect.objectContaining({ params: ['Ann', 'hi'], headerText: 'you' })
+    );
+  });
+
+  it('a template that cannot be read sends nothing', async () => {
+    h.refuse.add('message_templates.select:*');
+    steps(offer({}));
+    await trigger('new_message_received', { customerJustWrote: true });
+    expect(sends()).toBe(0);
+  });
+
+  it('activation names the missing ones, in a branch too', async () => {
+    const step = {
+      step_type: 'send_template',
+      step_config: { template_name: 'offer', variables: { '1': 'Ann' } },
+    };
+    const issues = await templateValueIssues(supabaseAdmin(), ACCOUNT, [
+      { step_type: 'condition', step_config: {}, branches: { yes: [step] } },
+    ]);
+    expect(issues).toEqual([
+      {
+        path: 'steps[0].yes.steps[0].variables',
+        message: 'template value is required for {{2}}, header {{1}}',
+      },
+    ]);
   });
 });
 

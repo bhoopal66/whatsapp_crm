@@ -51,6 +51,8 @@ interface SendTemplateArgs {
   templateName: string
   language?: string
   params?: string[]
+  /** The value of a text header's own placeholder. */
+  headerText?: string
 }
 
 export async function engineSendText(args: SendTextArgs): Promise<{ whatsapp_message_id: string }> {
@@ -188,6 +190,7 @@ async function sendViaChannel(input: SendInput): Promise<{ whatsapp_message_id: 
         to: phone,
         template: templateRow,
         bodyParams: input.params,
+        ...(input.headerText ? { messageParams: { headerText: input.headerText } } : {}),
       })
       return r.messageId
     }
