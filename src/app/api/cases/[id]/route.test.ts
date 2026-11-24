@@ -265,6 +265,19 @@ describe('PATCH /api/cases/[id]', () => {
     expect(m.store.setDue).not.toHaveBeenCalled();
   });
 
+  it('refuses an unknown priority before anything is written', async () => {
+    const res = await patch({
+      product: 'Loan',
+      priority: 'meh',
+      due_at: '2026-10-25T08:00:00.000Z',
+    });
+    expect(res.status).toBe(422);
+    expect(await res.json()).toMatchObject({ code: 'PRIORITY_INVALID' });
+    expect(m.store.setDetails).not.toHaveBeenCalled();
+    expect(m.store.setPriority).not.toHaveBeenCalled();
+    expect(m.store.setDue).not.toHaveBeenCalled();
+  });
+
   it('is 400 for a bad or empty body', async () => {
     for (const body of [
       {},
@@ -281,7 +294,7 @@ describe('PATCH /api/cases/[id]', () => {
     m.store.setPriority.mockRejectedValue(
       new CaseRefusedError('PRIORITY_INVALID')
     );
-    const res = await patch({ priority: 'meh' });
+    const res = await patch({ priority: 'high' });
     expect(res.status).toBe(422);
     expect(await res.json()).toMatchObject({ code: 'PRIORITY_INVALID' });
   });

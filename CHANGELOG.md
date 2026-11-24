@@ -22,6 +22,11 @@ and polish.
 
 ### Fixed
 
+- **A read that failed no longer looks like nothing.** The case page's "last
+  message" card says it could not load instead of "no message"; a chat-tag
+  count in the team chat side menu that could not be read shows no number
+  instead of hiding the tag; and changing a case with a priority that does
+  not exist is refused before anything else in the request is saved.
 - **Two people pressing "Request documents" no longer send the customer the
   same request twice.** A request made within 10 minutes of the case's last
   one asks first: "Requested by … at …. Send again?".
