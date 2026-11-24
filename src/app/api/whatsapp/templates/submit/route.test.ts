@@ -48,7 +48,7 @@ const row = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-async function submit() {
+async function submit(template_id?: string) {
   const res = await POST(
     new Request('http://x/api/whatsapp/templates/submit', {
       method: 'POST',
@@ -58,6 +58,7 @@ async function submit() {
         language: 'en',
         body_text: 'New text',
         footer_text: 'Bye',
+        template_id,
       }),
     })
   );
@@ -257,6 +258,78 @@ describe('templates submit: Meta took it and the write failed', () => {
     expect(rows()[0]).toMatchObject({
       meta_template_id: 'M1',
       status: 'PENDING',
+    });
+  });
+});
+
+describe('templates submit: a saved row sent to Meta', () => {
+  const theirs = (over: Record<string, unknown> = {}) =>
+    row({ id: 'row-2', user_id: 'b', ...over });
+
+  it('updates the row named, not the caller’s own of that name', async () => {
+    rows().push(row(), theirs());
+    const { status, body } = await submit('row-2');
+    expect(status).toBe(200);
+    expect(body.template).toMatchObject({ id: 'row-2' });
+    expect(rows()).toHaveLength(2);
+    expect(rows()[0]).toEqual(row());
+    expect(rows()[1]).toMatchObject({
+      user_id: 'b',
+      meta_template_id: 'M1',
+      status: 'PENDING',
+    });
+  });
+
+  it('keeps the id on the row named when the first write fails', async () => {
+    rows().push(row(), theirs());
+    failOnce('update', { message: 'timeout' });
+    expect((await submit('row-2')).body.code).toBe('META_ACCEPTED_NOT_SAVED');
+    expect(rows()[0]).toEqual(row());
+    expect(rows()[1]).toMatchObject({ user_id: 'b', meta_template_id: 'M1' });
+  });
+
+  it.each([
+    ['of another account', theirs({ account_id: 'acct-2' })],
+    ['of another name', theirs({ name: 'bye' })],
+    ['of another language', theirs({ language: 'ar' })],
+    ['that is gone', theirs({ id: 'row-3' })],
+  ])('refuses a row %s before Meta is asked', async (_, other) => {
+    rows().push(row(), other);
+    const before = structuredClone(rows());
+    const { status, body } = await submit('row-2');
+    expect(status).toBe(404);
+    expect(body.code).toBe('TEMPLATE_GONE');
+    expect(mocks.submit).not.toHaveBeenCalled();
+    expect(rows()).toEqual(before);
+  });
+
+  it('refuses one whose name is Meta’s through a teammate', async () => {
+    rows().push(row(), theirs({ meta_template_id: 'M0' }));
+    expect((await submit('row-1')).body.code).toBe('TEMPLATE_EXISTS');
+    expect(mocks.submit).not.toHaveBeenCalled();
+  });
+
+  it('leaves a draft a draft when Meta did not take it', async () => {
+    rows().push(row({ status: 'DRAFT' }));
+    mocks.submit.mockRejectedValue(new MetaError('Bad footer', 400));
+    await submit('row-1');
+    expect(rows()[0]).toMatchObject({
+      status: 'DRAFT',
+      submission_error: 'Bad footer',
+    });
+    mocks.channels.mockResolvedValue([]);
+    await submit('row-1');
+    expect(rows()[0]).toMatchObject({ status: 'DRAFT' });
+  });
+
+  it('without an id saves the caller’s own row, approved, as before', async () => {
+    rows().push(theirs(), row({ status: 'DRAFT' }));
+    mocks.submit.mockRejectedValue(new MetaError('Bad footer', 400));
+    await submit();
+    expect(rows()[0]).toEqual(theirs());
+    expect(rows()[1]).toMatchObject({
+      status: 'APPROVED',
+      submission_error: 'Bad footer',
     });
   });
 });
