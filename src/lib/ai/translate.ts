@@ -1,14 +1,6 @@
-import { assertAiTransfer, promptSize } from '@/lib/privacy/ai-transfer';
-import {
-  AiError,
-  type AiConfig,
-  type AiUsage,
-  type ProviderResult,
-} from './types';
-import { aiRequestTimeoutMs } from './defaults';
-import { generateOpenAi } from './providers/openai';
-import { generateAnthropic } from './providers/anthropic';
-import { assertComplete, type ProviderArgs } from './providers/shared';
+import { AiError, type AiConfig, type AiUsage } from './types';
+import { callProvider } from './provider-call';
+import { assertComplete } from './providers/shared';
 
 // Inbox Translate: a customer's message into English (a reading aid) and
 // an agent's draft into Arabic (text the customer will receive). One LLM
@@ -124,39 +116,15 @@ export async function translateText(
 ): Promise<TranslateTextResult> {
   const { config, text, target } = args;
   const model = translationModel(config, target);
-  const providerArgs: ProviderArgs = {
-    apiKey: config.apiKey,
+  const result = await callProvider({
+    config,
+    purpose: 'translate',
     model,
     systemPrompt: translationSystemPrompt(target),
     messages: [{ role: 'user', content: text }],
-    timeoutMs: args.timeoutMs ?? aiRequestTimeoutMs(),
+    timeoutMs: args.timeoutMs,
     maxTokens: TRANSLATE_MAX_OUTPUT_TOKENS,
-  };
-
-  await assertAiTransfer(
-    config,
-    'translate',
-    model,
-    promptSize(providerArgs.systemPrompt, providerArgs.messages)
-  );
-  let result: ProviderResult;
-  const provider = config.provider;
-  switch (provider) {
-    case 'openai':
-      result = await generateOpenAi(providerArgs);
-      break;
-    case 'anthropic':
-      result = await generateAnthropic(providerArgs);
-      break;
-    default: {
-      const never: never = provider;
-      throw new AiError(`Unsupported AI provider: ${String(never)}`, {
-        code: 'unsupported_provider',
-        status: 400,
-      });
-    }
-  }
-
+  });
   assertComplete(result);
   const translated = cleanTranslation(result.text);
   if (!translated) {

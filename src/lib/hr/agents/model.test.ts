@@ -148,6 +148,38 @@ describe('026a model port over the providers', () => {
     expect(onUsage).toHaveBeenCalledTimes(1);
   });
 
+  it('the candidate text and history are masked before the provider sees them', async () => {
+    answer('ok');
+    await createAiModelPort({ config: config() }).complete(
+      draftInput({
+        inboundText: 'My Emirates ID is 784-1990-1234567-1',
+        history: [
+          {
+            direction: 'in',
+            text: 'call me on +971 50 123 4567',
+            at: '2026-11-14T09:00:00Z',
+          },
+        ],
+      })
+    );
+    const content = lastArgs(providers.anthropic).messages[0]!.content;
+    expect(content).toContain('My Emirates ID is [EID]');
+    expect(content).toContain('call me on [PHONE:567]');
+    expect(content).not.toMatch(/784-1990|123 4567/);
+    expect(content.endsWith(DATA_END)).toBe(true);
+  });
+
+  it('a draft that repeats a mask is no draft, its spend still logged', async () => {
+    answer('We will call you on [PHONE:567].');
+    const onUsage = vi.fn();
+    const out = await createAiModelPort({
+      config: config(),
+      onUsage,
+    }).complete(draftInput());
+    expect(out).toEqual({ text: '' });
+    expect(onUsage).toHaveBeenCalledTimes(1);
+  });
+
   it('Arabic passes through unchanged and the task names Arabic', async () => {
     const ar = 'شكرا لك، سنتواصل معك قريبا.';
     answer(ar);
