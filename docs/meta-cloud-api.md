@@ -712,6 +712,7 @@ and its automations are unaffected.
 | Templates never get a quality rating | Subscribe `message_template_quality_update` on the app. |
 | "Service not found" style 404 on save | The phone number id is wrong — it is the numeric id, not the phone number. |
 | Sends fail after a while | A temporary access token expired. Use a System User token. |
+| A message shows a red mark and "Not delivered: …" | WhatsApp accepted it and failed it afterwards; the line under the message is Meta's reason. *131042*: the account's payment method; *131049* / *130472*: Meta holds back marketing messages to that person; *131050*: they chose to stop marketing messages; *131026*: not on WhatsApp; *132015* / *132016*: the template is paused or disabled. |
 | "can only send an approved template right now" | The 24-hour window closed. Expected; see above. |
 | Broadcast recipients fail with "Template variable {{N}} is empty" or `(#131008) Required parameter is missing` | A template variable resolved blank for them, and Meta rejects blank values. Set an *If empty, use* fallback for the variable in the broadcast's Personalize step. The values are fixed when a broadcast is created, so *Retry failed* sends the same blanks again: create the broadcast again with the fallback. |
 | Message costs shows *no rate on file* | The recipient's market or the category is not in the seeded rate card. Load the official CSV (see above). |

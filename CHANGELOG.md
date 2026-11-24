@@ -27,6 +27,12 @@ and polish.
   groups, campaigns and HR automated messages; the error text goes, the
   campaign's failed count falls, and "Retry failed" does not send it
   again. **Migration required: 291**, after 289.
+- **A failed message says why.** WhatsApp accepts a message and may fail it
+  a moment later with a reason; a chat showed only a red mark. The reason
+  (the person is not on WhatsApp, Meta could not charge, marketing limit,
+  template paused, ...) now stands under the message, for the last 60
+  days' failures too, and more of Meta's codes are put in words.
+  **Migration required: 292**, after 291.
 
 ### Security
 
