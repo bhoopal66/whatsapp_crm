@@ -11,7 +11,15 @@ import {
 } from '@/lib/whatsapp/meta-api';
 import { withChannelSecrets } from '@/lib/whatsapp/channel-secrets';
 import { encrypt, decrypt } from '@/lib/whatsapp/encryption';
-import { promoteOldestToPrimary } from '@/lib/whatsapp/personal-numbers';
+import {
+  personalNumbersAdmin,
+  promoteOldestToPrimary,
+} from '@/lib/whatsapp/personal-numbers';
+import {
+  messagesWaitingResponse,
+  waitingMessages,
+  wantsForce,
+} from '@/lib/whatsapp/waiting-messages';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   authUnavailableResponse,
@@ -479,7 +487,7 @@ export async function POST(request: Request) {
 }
 
 /** Disconnect the Meta number. Leaves the Whapi channel untouched. */
-export async function DELETE() {
+export async function DELETE(request: Request) {
   try {
     try {
       await requireRole('admin');
@@ -503,6 +511,21 @@ export async function DELETE() {
         { error: 'Your profile is not linked to an account.' },
         { status: 403 }
       );
+    }
+
+    // Customer messages the gateway was told we got, not processed yet,
+    // go with the number (webhook_inbox cascades): ask once more. The
+    // ids are read with the session client, the count needs the service
+    // role.
+    if (!wantsForce(request)) {
+      const { data: metaRows } = await supabase
+        .from('whatsapp_config')
+        .select('id')
+        .eq('account_id', accountId)
+        .eq('provider', 'meta');
+      const ids = ((metaRows ?? []) as Array<{ id: string }>).map((r) => r.id);
+      const waiting = await waitingMessages(personalNumbersAdmin, ids);
+      if (waiting > 0) return messagesWaitingResponse(waiting);
     }
 
     // Routes pointing at this channel go with it (ON DELETE CASCADE),

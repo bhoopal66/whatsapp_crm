@@ -127,6 +127,11 @@ through the queue, with its payload built in `inbound-events.ts`. **Not
 queued**: Whapi `groups` / OpenWA `group.*` events and submission-group
 membership, Meta deal rooms, message costs, template and health events.
 While 264 is missing the routes run `processWithoutQueue`, the former path.
+Removing a number cascades its rows away, so interactive removals (Whapi,
+Meta, OpenWA, personal) first ask `waitingMessages` (`waiting-messages.ts`,
+293's `webhook_inbox_waiting`) and answer 409 `messages_waiting` unless
+`?force=1`; the abandoned-connect sweep skips such a number, offboarding
+only logs the count; a failed count is 0, never a blocked removal.
 That `after()` is load-bearing: work must be *awaited inside* it, never
 detached as a floating promise, or the route returns and the runtime kills
 the callback mid-flight (issue #301 — and #409 is the same failure

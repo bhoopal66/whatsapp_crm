@@ -13,6 +13,15 @@ const h = vi.hoisted(() => ({
   inserts: [] as Record<string, unknown>[],
   /** Rows the sibling count sees. */
   siblings: 0,
+  /** Customer messages still waiting for the number. */
+  waiting: 0,
+  /** Delete calls on whatsapp_config. */
+  deletes: 0,
+}));
+
+vi.mock('@/lib/whatsapp/waiting-messages', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  waitingMessages: async () => h.waiting,
 }));
 
 vi.mock('@/lib/auth/account', () => ({
@@ -45,9 +54,13 @@ function fakeDb() {
       let head = false;
       let updating = false;
       const builder: Record<string, unknown> = {};
-      for (const m of ['neq', 'order', 'limit', 'delete']) {
+      for (const m of ['neq', 'order', 'limit']) {
         builder[m] = () => builder;
       }
+      builder.delete = () => {
+        if (table === 'whatsapp_config') h.deletes++;
+        return builder;
+      };
       builder.eq = (col: string, val: unknown) => {
         h.eqs.push([table, col, val]);
         return builder;
@@ -140,6 +153,7 @@ beforeEach(() => {
   h.fail = {};
   h.inserts = [];
   h.siblings = 0;
+  h.deletes = 0;
   h.row = {
     id: 'cfg-1',
     verify_token: 'enc:secret',
@@ -274,6 +288,35 @@ describe('DELETE /api/whatsapp/config — default hand-over', () => {
     );
     expect(res.status).toBe(200);
     expect(h.eqs).toContainEqual(['whatsapp_config', 'is_personal', false]);
+  });
+});
+
+describe('DELETE /api/whatsapp/config — waiting customer messages', () => {
+  const del = (q = '') =>
+    DELETE(
+      new Request(`https://crm.test/api/whatsapp/config?config_id=cfg-1${q}`, {
+        method: 'DELETE',
+      })
+    );
+
+  it('answers 409 messages_waiting and deletes nothing', async () => {
+    h.waiting = 3;
+    const res = await del();
+    h.waiting = 0;
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({
+      code: 'messages_waiting',
+      count: 3,
+    });
+    expect(h.deletes).toBe(0);
+  });
+
+  it('removes the number when the request says force', async () => {
+    h.waiting = 3;
+    const res = await del('&force=1');
+    h.waiting = 0;
+    expect(res.status).toBe(200);
+    expect(h.deletes).toBe(1);
   });
 });
 

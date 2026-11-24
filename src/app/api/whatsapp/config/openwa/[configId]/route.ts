@@ -5,6 +5,7 @@ import {
   disconnectOpenWANumber,
   loadOpenWARow,
 } from '@/lib/whatsapp/openwa-number';
+import { wantsForce } from '@/lib/whatsapp/waiting-messages';
 
 /**
  * DELETE /api/whatsapp/config/openwa/[configId] — disconnect an OpenWA
@@ -17,7 +18,7 @@ import {
  * only the admin can finish the job in the OpenWA dashboard.
  */
 export async function DELETE(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ configId: string }> }
 ) {
   let ctx;
@@ -41,5 +42,7 @@ export async function DELETE(
   }
   if (!row) return NextResponse.json({ ok: true, gatewayCleanup: 'complete' });
 
-  return disconnectOpenWANumber(supabase, accountId, row);
+  return disconnectOpenWANumber(supabase, accountId, row, {
+    force: wantsForce(request),
+  });
 }

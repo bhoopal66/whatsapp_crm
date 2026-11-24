@@ -22,6 +22,7 @@ import {
   revokeKey,
 } from './openwa-api';
 import { promoteOldestToPrimary } from './personal-numbers';
+import { waitingMessages } from './waiting-messages';
 
 /**
  * A connect left unlinked this long is abandoned. Well past the dialog's
@@ -178,6 +179,14 @@ export async function sweepAbandonedOpenWASessions(
   }>) {
     summary.found++;
     const tag = `[openwa sweep] ${row.id} (account ${row.account_id})`;
+    // Customer messages still waiting (264) would go with the row: leave
+    // it for the next run, once they are processed.
+    if ((await waitingMessages(admin, [row.id])) > 0) {
+      summary.kept++;
+      console.warn(`${tag}: customer messages still waiting; kept`);
+      await touch(admin, row, tag);
+      continue;
+    }
     if (row.phone_number_id) {
       const sessionId = row.phone_number_id;
       const created = row.created_at ? Date.parse(row.created_at) : NaN;

@@ -31,7 +31,14 @@ import {
   updateWebhookEvents,
 } from './openwa-api';
 import { teardownOpenWASession } from './openwa-cleanup';
-import { promoteOldestToPrimary } from './personal-numbers';
+import {
+  personalNumbersAdmin,
+  promoteOldestToPrimary,
+} from './personal-numbers';
+import {
+  messagesWaitingResponse,
+  waitingMessages,
+} from './waiting-messages';
 import { generateWebhookSecret } from './whapi-webhook-auth';
 
 /** A failure the connect turns into its own answer (after the undo). */
@@ -504,6 +511,11 @@ async function probeOnce(
  * Without OPENWA_API_KEY the row is still removed, so an install that
  * dropped OpenWA can clean up; the gateway side is then left alone.
  *
+ * Unless `force`, customer messages still waiting in the inbox (264)
+ * make it answer 409 `messages_waiting` before anything is touched;
+ * offboarding passes `force` (it must cut access at once) and logs the
+ * count itself.
+ *
  * Answers `{ ok: true, gatewayCleanup }`. The row goes either way, but
  * when the gateway could not be reached (or there is no admin key) the
  * session may still be running a browser with a working key, and only
@@ -513,8 +525,13 @@ async function probeOnce(
 export async function disconnectOpenWANumber(
   db: SupabaseClient,
   accountId: string,
-  row: Pick<OpenWARow, 'id' | 'phone_number_id'>
+  row: Pick<OpenWARow, 'id' | 'phone_number_id'>,
+  opts: { force: boolean }
 ): Promise<NextResponse> {
+  if (!opts.force) {
+    const waiting = await waitingMessages(personalNumbersAdmin, [row.id]);
+    if (waiting > 0) return messagesWaitingResponse(waiting);
+  }
   const sessionId = row.phone_number_id;
   const adminKey = openwaAdminApiKey();
   // No session id means nothing was ever created on the gateway (the
