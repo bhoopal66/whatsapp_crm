@@ -646,7 +646,10 @@ describe('Stop (migration 301)', () => {
       const from = db.from.bind(db);
       // Every mark matches nothing: the trigger of 301, or another pass.
       db.from = ((table: string) => {
-        const q = from(table) as Record<string, (...a: unknown[]) => unknown>;
+        const q = from(table) as unknown as Record<
+          string,
+          (...a: unknown[]) => unknown
+        >;
         if (table !== 'broadcast_recipients') return q;
         const update = q.update.bind(q);
         q.update = (patch: unknown) => {
@@ -660,7 +663,7 @@ describe('Stop (migration 301)', () => {
           return update(patch);
         };
         return q;
-      }) as typeof db.from;
+      }) as unknown as typeof db.from;
       await deliverBroadcast(db, planFor(w));
       expect(sendTemplate).not.toHaveBeenCalled();
       expect(marked).toHaveLength(1);
