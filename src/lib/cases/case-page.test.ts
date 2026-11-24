@@ -24,6 +24,9 @@ import {
   resolveCaseTab,
   runningTimers,
   slaChipTone,
+  caseAwayStep,
+  CASE_RETURN_RELOAD_MS,
+  stageChangedTo,
   stageErrorKey,
   stageMoveBody,
   takeoverNotApproved,
@@ -285,6 +288,27 @@ describe('stage moves', () => {
     expect(stageMoveBody('Submitted')).toEqual({ stage: 'Submitted' });
   });
 
+  it('sends the stage the person saw', () => {
+    expect(stageMoveBody('Approved', 'Bank review')).toEqual({
+      stage: 'Approved',
+      outcome: 'Approved',
+      from: 'Bank review',
+    });
+    expect(stageMoveBody('Docs', 'New')).toEqual({
+      stage: 'Docs',
+      from: 'New',
+    });
+  });
+
+  it('recognises a move refused because the stage changed', () => {
+    expect(stageErrorKey(409, 'STAGE_CHANGED')).toBe('stageChanged');
+    const body = { code: 'STAGE_CHANGED', stage: 'Docs' };
+    expect(stageChangedTo(409, body)).toBe('Docs');
+    expect(stageChangedTo(409, { code: 'MANAGED_EXTERNALLY' })).toBeNull();
+    expect(stageChangedTo(200, body)).toBeNull();
+    expect(stageChangedTo(0, null)).toBeNull();
+  });
+
   it('knows the final stages', () => {
     expect(isFinalStage('Closed')).toBe(true);
     expect(isFinalStage('Approved')).toBe(true);
@@ -379,6 +403,42 @@ describe('result codes', () => {
   it('recognises the not-yet-approved take-over', () => {
     expect(takeoverNotApproved(409, 'TEMPLATE_NOT_APPROVED')).toBe(true);
     expect(takeoverNotApproved(409, 'BLOCKED')).toBe(false);
+  });
+});
+
+describe('re-reading the case after time away', () => {
+  const here = { hiddenAt: null, stale: false };
+  const LONG = CASE_RETURN_RELOAD_MS + 1;
+  const step = (
+    away: { hiddenAt: number | null; stale: boolean },
+    visible: boolean,
+    dialogOpen: boolean,
+    at: number
+  ) => caseAwayStep(away, { visible, dialogOpen, at });
+
+  it('reloads on return after more than the limit, not before', () => {
+    const left = step(here, false, false, 1_000);
+    expect(left).toEqual({ hiddenAt: 1_000, stale: false, reload: false });
+    expect(step(left, true, false, 1_000 + LONG)).toEqual({
+      hiddenAt: null,
+      stale: false,
+      reload: true,
+    });
+    expect(step(left, true, false, 1_000 + LONG - 1).reload).toBe(false);
+    expect(step(here, true, false, LONG).reload).toBe(false);
+  });
+
+  it('waits for an open dialog to close, then reloads once', () => {
+    const back = step({ hiddenAt: 0, stale: false }, true, true, LONG);
+    expect(back).toEqual({ hiddenAt: null, stale: true, reload: false });
+    const closed = step(back, true, false, LONG + 5);
+    expect(closed).toEqual({ hiddenAt: null, stale: false, reload: true });
+    expect(step(closed, true, false, LONG + 9).reload).toBe(false);
+  });
+
+  it('counts from when the tab was first hidden', () => {
+    const left = step(here, false, true, 10);
+    expect(step(left, false, false, 5_000).hiddenAt).toBe(10);
   });
 });
 

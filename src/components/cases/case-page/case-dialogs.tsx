@@ -37,6 +37,7 @@ import {
   OUTCOME_REASON_TEXT_MAX,
   reasonErrorKey,
   reassignErrorKey,
+  stageChangedTo,
   stageErrorKey,
   stageMoveBody,
   toLocalInput,
@@ -96,13 +97,16 @@ export function MoveStageDialog({
   const c = detail.case;
   const [step, setStep] = useState<MoveStep>('pick');
   const [stage, setStage] = useState('');
+  // The stage the person chose from, not whatever `detail` becomes under
+  // the open dialog: the dialog is mounted when it opens.
+  const [from, setFrom] = useState(c.stage);
   const [busy, setBusy] = useState(false);
   const [group, setGroup] = useState<GroupEndView | null>(null);
   const [moved, setMoved] = useState('');
   const [code, setCode] = useState<OutcomeReasonCode | ''>('');
   const [text, setText] = useState('');
 
-  const choices = allowedNextStages(c, detail.stages);
+  const choices = allowedNextStages({ ...c, stage: from }, detail.stages);
   const locks = caseLocks(detail);
 
   const move = async () => {
@@ -111,9 +115,17 @@ export function MoveStageDialog({
     const r = await send(
       `/api/cases/${c.id}/stage`,
       'POST',
-      stageMoveBody(stage)
+      stageMoveBody(stage, from)
     );
     setBusy(false);
+    const now = stageChangedTo(r.status, r.json);
+    if (now !== null) {
+      toast.error(t('errors.stageChanged', { stage: now }));
+      setFrom(now);
+      setStage('');
+      onChanged();
+      return;
+    }
     if (!r.ok) {
       toast.error(t(`errors.${stageErrorKey(r.status, codeOf(r.json))}`));
       return;
@@ -170,7 +182,7 @@ export function MoveStageDialog({
           </DialogTitle>
           <DialogDescription>
             {step === 'pick'
-              ? t('move.body', { stage: c.stage })
+              ? t('move.body', { stage: from })
               : step === 'reason'
                 ? t('move.reasonBody')
                 : t('move.doneBody')}

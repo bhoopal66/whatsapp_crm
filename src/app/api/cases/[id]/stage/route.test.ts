@@ -126,6 +126,25 @@ describe('POST /api/cases/[id]/stage', () => {
     expect((await post({ stage: 'X', outcome: 5 })).status).toBe(400);
   });
 
+  it('refuses a move from a stage the case has left, and says where it is', async () => {
+    m.store.get.mockResolvedValue(aCase({ stage: 'Bank review' }));
+    const res = await post({ stage: 'Docs', from: 'New' });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({
+      code: 'STAGE_CHANGED',
+      stage: 'Bank review',
+    });
+    expect(m.store.setStage).not.toHaveBeenCalled();
+  });
+
+  it('moves from the stage the case is in, and is 400 for a bad from', async () => {
+    m.store.setStage.mockResolvedValue({ moved: false });
+    expect((await post({ stage: 'Docs', from: 'New' })).status).toBe(200);
+    expect(m.store.setStage).toHaveBeenCalledWith(ID, 'u-me', 'Docs', null);
+    expect((await post({ stage: 'Docs', from: 5 })).status).toBe(400);
+    expect(m.store.setStage).toHaveBeenCalledTimes(1);
+  });
+
   it.each([
     ['STAGE_NOT_CONFIGURED', 422],
     ['OUTCOME_STAGE_MISMATCH', 422],

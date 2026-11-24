@@ -332,12 +332,65 @@ export function allowedNextStages(
   );
 }
 
-/** The stage POST body: the outcome is the stage name, and only there. */
-export function stageMoveBody(stage: string): {
+/**
+ * The stage POST body: the outcome is the stage name, and only there.
+ * `from`: the stage the person saw, which the route compares.
+ */
+export function stageMoveBody(
+  stage: string,
+  from?: string
+): {
   stage: string;
   outcome?: string;
+  from?: string;
 } {
-  return isOutcomeStage(stage) ? { stage, outcome: stage } : { stage };
+  return {
+    stage,
+    ...(isOutcomeStage(stage) ? { outcome: stage } : {}),
+    ...(from === undefined ? {} : { from }),
+  };
+}
+
+/** The stage the case is in now, when a move was refused over it. */
+export function stageChangedTo(status: number, json: unknown): string | null {
+  const body = obj(json);
+  return status === 409 &&
+    body?.code === 'STAGE_CHANGED' &&
+    typeof body.stage === 'string'
+    ? body.stage
+    : null;
+}
+
+/** Away from the tab for longer than this, the case is read again on return. */
+export const CASE_RETURN_RELOAD_MS = 60_000;
+
+/** When the tab was hidden, and whether a re-read is owed. */
+export interface CaseAway {
+  hiddenAt: number | null;
+  stale: boolean;
+}
+
+/**
+ * The case page's re-read after a long absence, one step per change of
+ * `visible` or `dialogOpen`. Never under an open dialog (the details dialog
+ * saves the difference with the live case, so a reload there would send
+ * untouched old values as changes): it is owed until the dialog closes.
+ */
+export function caseAwayStep(
+  away: CaseAway,
+  now: { visible: boolean; dialogOpen: boolean; at: number }
+): CaseAway & { reload: boolean } {
+  if (!now.visible)
+    return {
+      hiddenAt: away.hiddenAt ?? now.at,
+      stale: away.stale,
+      reload: false,
+    };
+  const stale =
+    away.stale ||
+    (away.hiddenAt !== null && now.at - away.hiddenAt > CASE_RETURN_RELOAD_MS);
+  const reload = stale && !now.dialogOpen;
+  return { hiddenAt: null, stale: stale && !reload, reload };
 }
 
 /** 130's reason codes (NO_RESPONSE: Withdrawn only); `dashboard.ts`'s OUTCOME_REASON_CODES (tested equal). */
@@ -405,6 +458,7 @@ const STAGE_ERRORS: Record<string, string> = {
   PRESUB_REENTRY: 'presubReentry',
   SUBMISSION_REQUIRED: 'submissionRequired',
   MANAGED_EXTERNALLY: 'managedExternally',
+  STAGE_CHANGED: 'stageChanged',
 };
 const DETAIL_ERRORS: Record<string, string> = {
   BANK_UNKNOWN: 'bankUnknown',

@@ -9962,7 +9962,8 @@
       "unknown": "문제가 발생했습니다. 다시 시도하세요.",
       "presubReentry": "제출된 케이스는 제출 전 단계로 되돌릴 수 없습니다.",
       "submissionRequired": "이 단계는 은행 제출 후에만 사용할 수 있습니다. 리드는 철회만 할 수 있습니다.",
-      "managedExternally": "이 케이스는 Compass에서 관리됩니다. Compass에서 변경하세요."
+      "managedExternally": "이 케이스는 Compass에서 관리됩니다. Compass에서 변경하세요.",
+      "stageChanged": "그 사이 단계가 변경되었습니다(현재: {stage})"
     },
     "timeline": {
       "includeMessages": "WhatsApp 메시지 포함",
