@@ -274,19 +274,6 @@ export function buildContactListQuery<Q extends ContactListQuery<Q>>(
   return query;
 }
 
-/**
- * Keep the hits whose contact is in every narrowing set (personal
- * owner, chat-tag filter), in the RPC's rank order. A null set means
- * that narrowing does not apply.
- */
-export function narrowHits(
-  hits: readonly SearchHit[],
-  allowed: readonly (ReadonlySet<string> | null)[]
-): SearchHit[] {
-  const sets = allowed.filter((s): s is ReadonlySet<string> => s !== null);
-  return hits.filter((h) => sets.every((s) => s.has(h.contactId)));
-}
-
 /** One page of ranked hits, plus how many hits there are in all. */
 export function pageOfHits(
   hits: readonly SearchHit[],

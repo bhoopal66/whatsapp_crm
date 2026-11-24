@@ -964,6 +964,7 @@
     "page": {
       "title": "연락처",
       "subtitle": "연락처 목록을 관리하세요. 전체 연락처 {count}개.",
+      "subtitleFirst": "연락처 목록을 관리하세요. 처음 {count}개 결과입니다. 더 입력해 범위를 좁히세요.",
       "subtitleZero": "연락처 목록을 관리하세요.",
       "customFieldsBtn": "커스텀 필드",
       "importBtn": "가져오기",
@@ -996,6 +997,7 @@
       "optedOutHint": "수신 거부 {date}. 메시지 수신을 원하지 않는다고 요청했습니다. 브로드캐스트에서 이 고객은 제외됩니다.",
       "editAction": "수정",
       "deleteAction": "삭제",
+      "showingFirst": "처음 {total}개 결과 중 {start}-{end}",
       "showingPagination": "전체 {total}개 중 {start}-{end}",
       "pageCount": "{total} 중 {page}페이지",
       "deleteContactTitle": "연락처 삭제",

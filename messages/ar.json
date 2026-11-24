@@ -964,6 +964,7 @@
     "page": {
       "title": "جهات الاتصال",
       "subtitle": "أدر قائمة جهات الاتصال. الإجمالي {count} جهة اتصال.",
+      "subtitleFirst": "أدر قائمة جهات الاتصال. أول {count} نتيجة؛ اكتب المزيد لتضييقها.",
       "subtitleZero": "أدر قائمة جهات الاتصال.",
       "customFieldsBtn": "الحقول المخصصة",
       "importBtn": "استيراد",
@@ -996,6 +997,7 @@
       "optedOutHint": "ألغى الاشتراك في {date}. طلب عدم مراسلته. تتخطى الحملات هذا العميل.",
       "editAction": "تعديل",
       "deleteAction": "حذف",
+      "showingFirst": "عرض {start}-{end} من أول {total} نتيجة",
       "showingPagination": "عرض {start}-{end} من {total}",
       "pageCount": "الصفحة {page} من {total}",
       "deleteContactTitle": "حذف جهة الاتصال",

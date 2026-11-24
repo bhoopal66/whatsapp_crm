@@ -22,6 +22,12 @@ and polish.
 
 ### Fixed
 
+- **Contact search no longer loses customers behind a filter.** Searching
+  Contacts with a chat tag, a lead source or (for a team leader) "my own"
+  took the best 200 matches first and filtered those, so a customer past
+  them vanished. The filters now narrow the search itself; a search that
+  finds more than it lists says "First 500 matches".
+  **Migration required: 298.**
 - **A failed filter change no longer leaves the old figures under the new
   filter.** The funnel report and Team activity now show figures only under
   the filter they were fetched for; after a failed load the error with Retry

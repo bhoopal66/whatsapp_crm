@@ -964,6 +964,7 @@
     "page": {
       "title": "Contacts",
       "subtitle": "Manage your contact list. {count} total contacts.",
+      "subtitleFirst": "Manage your contact list. First {count} matches; type more to narrow them.",
       "subtitleZero": "Manage your contact list.",
       "customFieldsBtn": "Custom fields",
       "importBtn": "Import",
@@ -996,6 +997,7 @@
       "optedOutHint": "Opted out {date}. Asked not to be messaged. Broadcasts skip this customer.",
       "editAction": "Edit",
       "deleteAction": "Delete",
+      "showingFirst": "Showing {start}-{end} of the first {total} matches",
       "showingPagination": "Showing {start}-{end} of {total}",
       "pageCount": "Page {page} of {total}",
       "deleteContactTitle": "Delete Contact",

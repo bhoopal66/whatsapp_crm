@@ -107,7 +107,6 @@ import {
   contactSearchFilter,
   firstCloseMatchId,
   inIdOrder,
-  narrowHits,
   pageOfHits,
   toContactListRows,
   type ContactListRow,
@@ -126,6 +125,7 @@ import {
   searchRpcTerm,
   type SearchHit,
 } from '@/lib/contacts/fuzzy-search';
+import { contactSearchArgs, isSearchCapped } from '@/lib/contacts/search-rpc';
 import { pruneSelection } from '@/lib/contacts/selection';
 import { SortHeader } from '@/components/contacts/sort-header';
 import { PhoneCell } from '@/components/contacts/phone-cell';
@@ -185,10 +185,6 @@ const FILTER_PAGE_SIZE = 1000;
 const FILTER_CHUNK_CONCURRENCY = 4;
 /** How long one filter's matched contact ids are reused while paging. */
 const FILTER_MATCHES_TTL_MS = 30_000;
-/** Hits the close-match RPC returns per search. */
-// Asked of the RPC before the personal / chat-tag narrowing: a term that
-// matches more than this many visible contacts can still lose hits there.
-const SEARCH_RPC_LIMIT = 500;
 const NO_CHAT_TAGS: readonly string[] = [];
 
 /** Opaque, so scrolled cells never show through; follows the row hover. */
@@ -203,6 +199,8 @@ type ContactRow = ContactListRow;
 interface ContactListPage {
   rows: ContactRow[];
   total: number;
+  /** A search that filled its limit: `total` is only what it listed. */
+  capped?: boolean;
 }
 
 /**
@@ -324,7 +322,7 @@ export function ContactsPageInner({
     rows: { id: string; created_at: string }[];
   } | null>(null);
 
-  // The close-match search's ranked, narrowed hits, reused while paging
+  // The close-match search's ranked hits, reused while paging
   // (same TTL and reasoning as `filterMatches`).
   const searchMatches = useRef<{
     key: string;
@@ -366,9 +364,9 @@ export function ContactsPageInner({
     const filterGroup = chatTagFilterOrGroup(chatTagFilterIds);
     const sourceList = LEAD_SOURCE_COLUMN_AVAILABLE ? sources : [];
 
-    // Close-match search: the RPC ranks (as the caller, so RLS applies),
-    // then the page's own filters narrow its hits. A missing RPC
-    // (migration 193 not applied) falls through to the ilike paths.
+    // Close-match search: the RPC ranks (as the caller, so RLS applies)
+    // and narrows by the page's own filters before its limit. A missing
+    // RPC (migration 298 not applied) falls through to the ilike paths.
     const rpcTerm = searchRpcTerm(term);
     if (rpcTerm) {
       const searchKey = JSON.stringify([
@@ -384,74 +382,18 @@ export function ContactsPageInner({
           ? cachedSearch.hits
           : null;
       if (!ranked) {
-        const rpc = await supabase.rpc('search_contacts', {
-          p_term: rpcTerm,
-          p_limit: SEARCH_RPC_LIMIT,
-        });
+        const rpc = await supabase.rpc(
+          'search_contacts',
+          contactSearchArgs({
+            term: rpcTerm,
+            personalOnlyUserId,
+            chatTagIds: chatTagFilterIds,
+            sources: sourceList,
+          })
+        );
         if (rpc.error && !isMissingSearchRpc(rpc.error)) throw rpc.error;
         if (!rpc.error) {
-          const hits = parseSearchHits(rpc.data);
-          const ids = hits.map((h) => h.contactId);
-          let owned: Set<string> | null = null;
-          let tagged: Set<string> | null = null;
-          let sourced: Set<string> | null = null;
-          // Chunked: 500 UUIDs in one `in.(…)` is ~18 KB of URL, over
-          // Cloudflare's ~16 KB limit in front of the tunnelled install.
-          if (ids.length > 0 && personalOnlyUserId) {
-            const results = await mapWithConcurrency(
-              chunkIds(ids),
-              FILTER_CHUNK_CONCURRENCY,
-              (chunk) =>
-                supabase
-                  .from('contacts')
-                  .select('id')
-                  .in('id', chunk)
-                  .eq('user_id', personalOnlyUserId)
-            );
-            const failed = results.find((r) => r.error)?.error;
-            if (failed) throw failed;
-            owned = new Set(
-              results.flatMap((r) => (r.data ?? []).map((x) => x.id as string))
-            );
-          }
-          if (ids.length > 0 && filterGroup) {
-            const results = await mapWithConcurrency(
-              chunkIds(ids),
-              FILTER_CHUNK_CONCURRENCY,
-              (chunk) =>
-                supabase
-                  .from('conversations')
-                  .select('contact_id')
-                  .in('contact_id', chunk)
-                  .or(filterGroup)
-                  .is('personal_owner_id', null)
-            );
-            const failed = results.find((r) => r.error)?.error;
-            if (failed) throw failed;
-            tagged = new Set(
-              results.flatMap((r) =>
-                (r.data ?? []).map((x) => x.contact_id as string)
-              )
-            );
-          }
-          if (ids.length > 0 && sourceList.length > 0) {
-            const results = await mapWithConcurrency(
-              chunkIds(ids),
-              FILTER_CHUNK_CONCURRENCY,
-              (chunk) =>
-                supabase
-                  .from('contacts')
-                  .select('id')
-                  .in('id', chunk)
-                  .in('lead_source', sourceList)
-            );
-            const failed = results.find((r) => r.error)?.error;
-            if (failed) throw failed;
-            sourced = new Set(
-              results.flatMap((r) => (r.data ?? []).map((x) => x.id as string))
-            );
-          }
-          ranked = narrowHits(hits, [owned, tagged, sourced]);
+          ranked = parseSearchHits(rpc.data);
           searchMatches.current = {
             key: searchKey,
             at: Date.now(),
@@ -461,7 +403,8 @@ export function ContactsPageInner({
       }
       if (ranked) {
         const { hits: pageHits, total } = pageOfHits(ranked, from, PAGE_SIZE);
-        if (pageHits.length === 0) return { rows: [], total };
+        const capped = isSearchCapped(total);
+        if (pageHits.length === 0) return { rows: [], total, capped };
         const { data, error } = await supabase
           .from('contacts')
           .select(CONTACT_LIST_SELECT)
@@ -479,7 +422,7 @@ export function ContactsPageInner({
           pageHits
         );
         // The rows keep `closeMatch` (the embed strip spreads the rest).
-        return { rows: toContactListRows(ordered), total };
+        return { rows: toContactListRows(ordered), total, capped };
       }
     }
 
@@ -662,6 +605,7 @@ export function ContactsPageInner({
   const list = useSessionQuery(listKey, fetchList);
   const contacts = useMemo(() => list.data?.rows ?? [], [list.data]);
   const totalCount = list.data?.total ?? 0;
+  const searchCapped = list.data?.capped ?? false;
   const closeDividerId = firstCloseMatchId(contacts);
   const shownColumns = useMemo(
     () =>
@@ -1001,6 +945,11 @@ export function ContactsPageInner({
 
   const totalPages = Math.ceil(totalCount / PAGE_SIZE);
   const hasNext = page < totalPages - 1;
+  const shown = {
+    start: page * PAGE_SIZE + 1,
+    end: Math.min((page + 1) * PAGE_SIZE, totalCount),
+    total: totalCount,
+  };
   const hasPrev = page > 0;
 
   // A close-match search is ranked by relevance; sorting does not apply.
@@ -1112,7 +1061,9 @@ export function ContactsPageInner({
         <div>
           <p className="text-muted-foreground mt-1 text-sm">
             {totalCount > 0
-              ? t('subtitle', { count: totalCount })
+              ? searchCapped
+                ? t('subtitleFirst', { count: totalCount })
+                : t('subtitle', { count: totalCount })
               : t('subtitleZero')}
           </p>
         </div>
@@ -1676,11 +1627,9 @@ export function ContactsPageInner({
       {totalPages > 1 && (
         <div className="flex items-center justify-between">
           <p className="text-muted-foreground text-xs">
-            {t('showingPagination', {
-              start: page * PAGE_SIZE + 1,
-              end: Math.min((page + 1) * PAGE_SIZE, totalCount),
-              total: totalCount,
-            })}
+            {searchCapped
+              ? t('showingFirst', shown)
+              : t('showingPagination', shown)}
           </p>
           <div className="flex items-center gap-1">
             <Button
