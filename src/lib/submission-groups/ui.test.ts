@@ -28,6 +28,7 @@ import {
   endToastKey,
   groupBanners,
   listUrl,
+  pageAfterReads,
   parseSgList,
   waModeOf,
   retryToastKey,
@@ -571,6 +572,20 @@ describe('group display (141)', () => {
     expect(cleared.map((g) => g.unread)).toEqual([0, 2, undefined]);
     // A pure patch: the rows handed in keep their counts.
     expect(rows[0].unread).toBe(4);
+  });
+
+  it('shows a group read meanwhile as read in both lists of a page', () => {
+    const page = {
+      groups: [item({ id: 'a', unread: 4 }), item({ id: 'b', unread: 1 })],
+      ended_unread: [item({ id: 'e', unread: 2 })],
+      next_cursor: null,
+    };
+    const { groups, endedUnread } = pageAfterReads(page, new Set(['a', 'e']));
+    expect(groups.map((g) => g.unread)).toEqual([0, 1]);
+    expect(endedUnread.map((g) => g.unread)).toEqual([0]);
+    expect(
+      pageAfterReads({ groups: [], next_cursor: null }, new Set()).endedUnread
+    ).toEqual([]);
   });
 });
 

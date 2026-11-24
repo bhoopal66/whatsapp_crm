@@ -359,8 +359,18 @@ export function applyTimelineDetails(
   mark: number,
   wanted: readonly DetailKind[] = DETAIL_KINDS
 ): CachedTimeline {
-  if (isOverflowed(entry, mark)) return endTimelineFetch(entry, mark);
   const asked = new Set(ids);
+  // Its answer is dropped, so nothing of it was read.
+  if (isOverflowed(entry, mark)) {
+    const missing = { ...entry.missing };
+    for (const kind of wanted) {
+      const failed = new Set([...(missing[kind] ?? []), ...asked]);
+      missing[kind] = entry.timeline.messages
+        .map((m) => m.id)
+        .filter((id) => failed.has(id));
+    }
+    return { ...endTimelineFetch(entry, mark), missing };
+  }
   const { attachments, reactions, threads } = details;
   const messages = entry.timeline.messages.map((m): ChatMessage => {
     if (!asked.has(m.id) || m.deletedAt) return m;

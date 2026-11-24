@@ -317,7 +317,13 @@ describe('GET /api/submission-groups', () => {
     const body = await (await get()).json();
     expect(body.groups.map((g: { id: string }) => g.id)).toEqual([A, A2]);
     expect(body.ended_unread).toMatchObject([
-      { id: E, status: 'ENDED', archive: true, unread: 2, my_label: null },
+      {
+        id: E,
+        status: 'ENDED',
+        archive: true,
+        unread: 2,
+        my_label: 'coordinator',
+      },
     ]);
     const searched = await (await get('?q=Jane')).json();
     expect(searched.ended_unread).toEqual([]);

@@ -39,6 +39,7 @@ import {
   initialsOf,
   listUrl,
   onlyMine,
+  pageAfterReads,
   parseSgList,
   shortRef,
   trackerStatusChip,
@@ -113,8 +114,7 @@ export function SubmissionGroupsList({
         const page = parseSgList(await res.json());
         if (mine === seq.current)
           setLoaded({
-            groups: clearUnread(page.groups, reads.current),
-            endedUnread: page.ended_unread,
+            ...pageAfterReads(page, reads.current),
             next: page.next_cursor,
             failed: false,
           });
@@ -145,8 +145,7 @@ export function SubmissionGroupsList({
       const page = parseSgList(await res.json());
       if (mine === seq.current)
         setLoaded({
-          groups: clearUnread(page.groups, reads.current),
-          endedUnread: page.ended_unread,
+          ...pageAfterReads(page, reads.current),
           next: page.next_cursor,
           failed: false,
         });
@@ -224,7 +223,8 @@ export function SubmissionGroupsList({
   const searching = debounced.trim() !== '';
   const shown = loaded && !loaded.failed ? loaded.groups : null;
   const rows = shown ? (mineOnly ? onlyMine(shown) : shown) : null;
-  const endedUnread = mineOnly ? [] : (loaded?.endedUnread ?? []);
+  const ended = loaded?.endedUnread ?? [];
+  const endedUnread = mineOnly ? onlyMine(ended) : ended;
   const now = new Date();
 
   return (

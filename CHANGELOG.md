@@ -42,6 +42,12 @@ and polish.
 - **Two admins no longer undo each other's coordinator banks.** A save from
   a Members screen read before a colleague's change is refused and shows
   theirs. **Migration required: 310** (before the build).
+- **Team chat: a mention stays until it was shown.** Opening a channel, or
+  one thread, no longer clears a mention in another thread; its badge stays
+  until that thread is opened and read to its end.
+- **A failed submission group message reads "May not have been delivered;
+  check the group".** Some of them reached WhatsApp all the same, and a
+  plain "Failed" had people send it twice.
 - **A template Meta refuses says why.** Meta's answer is "Invalid
   parameter" with the reason in a second text that was dropped; both are
   shown now.

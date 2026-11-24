@@ -94,6 +94,16 @@ describe('case note draft', () => {
     expect(page().value).toBe('first and more');
   });
 
+  it('a post that broke off may be sent again', async () => {
+    send.mockRejectedValueOnce(new Error('network'));
+    type('again');
+    page().onKeyDown(ENTER);
+    await settle();
+    send.mockResolvedValue({ ok: true, status: 200, json: {} });
+    page().onKeyDown(ENTER);
+    expect(send).toHaveBeenCalledTimes(2);
+  });
+
   it('a refused post may be sent again', async () => {
     send.mockResolvedValue({ ok: false, status: 500, json: null });
     type('again');

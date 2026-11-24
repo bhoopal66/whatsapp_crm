@@ -5,6 +5,8 @@ import { createThreadStore } from '../thread';
 import {
   missingFiles,
   placeholderTimeline,
+  recordTimelineEvent,
+  TIMELINE_JOURNAL_MAX,
   type CachedTimeline,
   type DetailKind,
 } from '../timeline-cache';
@@ -56,7 +58,9 @@ function loaderOf(messages: ChatMessage[]) {
   const leave = loader.show();
   const asked = (kind: DetailKind) =>
     read.mock.calls.filter(([k]) => k === kind).map(([, ids]) => ids);
-  return { loader, down, read, asked, leave, entry: () => entry };
+  const change = (fn: (e: CachedTimeline) => CachedTimeline) =>
+    void (entry = fn(entry));
+  return { loader, down, read, asked, leave, change, entry: () => entry };
 }
 
 beforeEach(() => void vi.useFakeTimers());
@@ -169,6 +173,33 @@ describe('the details of messages', () => {
     down = false;
     await vi.advanceTimersByTimeAsync(DETAIL_RETRY_DELAYS_MS[0]);
     expect(reply().attachments).toEqual([file]);
+    leave();
+  });
+});
+
+describe('an answer dropped for a full journal', () => {
+  it('is read again', async () => {
+    const { loader, read, change, asked, entry, leave } = loaderOf([msg('m1')]);
+    let answer: (v: unknown) => void = () => {};
+    read.mockImplementationOnce(
+      () => new Promise((r) => (answer = r)) as Promise<never>
+    );
+    const loading = loader.load(['m1']);
+    change((e) => {
+      for (let i = 0; i <= TIMELINE_JOURNAL_MAX; i++)
+        e = recordTimelineEvent(e, {
+          kind: 'message',
+          event: { type: 'insert', message: msg(`live${i}`) },
+        });
+      return e;
+    });
+    answer({ m1: [file] });
+    await loading;
+    expect([...missingFiles(entry())]).toContain('m1');
+    const before = asked('attachments').length;
+    await vi.advanceTimersByTimeAsync(DETAIL_RETRY_DELAYS_MS[0]);
+    expect(asked('attachments').length).toBeGreaterThan(before);
+    expect([...missingFiles(entry())]).not.toContain('m1');
     leave();
   });
 });

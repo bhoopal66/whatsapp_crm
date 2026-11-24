@@ -586,6 +586,17 @@ export function clearUnread<T extends { id: string; unread?: number }>(
   return groups.map((g) => (ids.has(g.id) ? { ...g, unread: 0 } : g));
 }
 
+/** A page's two lists, with the groups read since it was asked for. */
+export function pageAfterReads(
+  page: SgListPage,
+  read: ReadonlySet<string>
+): { groups: SgListItem[]; endedUnread: SgListItem[] } {
+  return {
+    groups: clearUnread(page.groups, read),
+    endedUnread: clearUnread(page.ended_unread ?? [], read),
+  };
+}
+
 /** "My groups": the rows the caller holds a label on. */
 export function onlyMine(groups: readonly SgListItem[]): SgListItem[] {
   return groups.filter((g) => g.my_label !== null);

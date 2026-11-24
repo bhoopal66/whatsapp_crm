@@ -126,10 +126,16 @@ export function NotesTab({
     const text = body.trim();
     if (!text) return toast.error(t('notes.errors.empty'));
     if (!draft.begin()) return;
-    const r = await sendCaseRequest(`/api/cases/${caseId}/notes`, 'POST', {
-      body: text,
-    });
-    draft.end();
+    let r: Awaited<ReturnType<typeof sendCaseRequest>>;
+    try {
+      r = await sendCaseRequest(`/api/cases/${caseId}/notes`, 'POST', {
+        body: text,
+      });
+    } catch {
+      r = { ok: false, status: 0, json: null };
+    } finally {
+      draft.end();
+    }
     if (!r.ok) {
       const code = (r.json as { code?: unknown } | null)?.code;
       toast.error(t(toolErrorKey(r.status, code)));

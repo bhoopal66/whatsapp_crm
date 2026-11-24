@@ -181,9 +181,9 @@ export async function GET(request: Request) {
     // first page of the plain Active list carries those groups too (308).
     const endedUnread =
       ended || query.cursor || query.search || query.bank
-        ? []
+        ? { groups: [], mine: [] }
         : await loadEndedUnread(admin, ctx, groups, unread);
-    const listed = [...groups, ...endedUnread];
+    const listed = [...groups, ...endedUnread.groups];
     const [refs, banks] = await Promise.all([
       loadRefs(admin, ctx.accountId, listed),
       loadBanks(
@@ -225,11 +225,11 @@ export async function GET(request: Request) {
           unread: unread.get(g.id),
         })
       ),
-      ended_unread: endedUnread.map((g) =>
+      ended_unread: endedUnread.groups.map((g) =>
         toListItem(g, {
           ...refs,
           banks,
-          myLabel: null,
+          myLabel: myLabelOf(g, endedUnread.mine),
           unread: unread.get(g.id),
         })
       ),
@@ -256,10 +256,11 @@ async function loadEndedUnread(
   ctx: { accountId: string; userId: string },
   listed: readonly { id: string }[],
   unread: ReadonlyMap<string, number>
-): Promise<SubmissionGroup[]> {
+): Promise<{ groups: SubmissionGroup[]; mine: AccessRow[] }> {
+  const none = { groups: [], mine: [] };
   const have = new Set(listed.map((g) => g.id));
   const ids = [...unread.keys()].filter((id) => !have.has(id));
-  if (!ids.length) return [];
+  if (!ids.length) return none;
   try {
     const pages = await Promise.all(
       chunkIds(ids).map(async (chunk) => {
@@ -284,12 +285,24 @@ async function loadEndedUnread(
     const allowed = await Promise.all(
       groups.map((g) => store.canRead(g.id, ctx.userId))
     );
-    return groups.filter((_, i) => allowed[i]);
+    const shown = groups.filter((_, i) => allowed[i]);
+    if (!shown.length) return none;
+    const { data, error } = await admin
+      .from('submission_group_access')
+      .select('group_id, label, removed_at')
+      .eq('account_id', ctx.accountId)
+      .eq('user_id', ctx.userId)
+      .in(
+        'group_id',
+        shown.map((g) => g.id)
+      );
+    if (error) throw new Error(`submission_group_access: ${error.message}`);
+    return { groups: shown, mine: (data ?? []) as AccessRow[] };
   } catch (err) {
     console.error(
       '[submission-groups] ended groups with unread messages not read:',
       err instanceof Error ? err.message : err
     );
-    return [];
+    return none;
   }
 }

@@ -60,6 +60,13 @@ export function createDetailLoader({
       };
       await Promise.all(wanted.map(readKind));
       patch((e) => applyTimelineDetails(e, chunk, details, mark, wanted));
+      // An answer whose journal overflowed was dropped: not read either.
+      const missing = get()?.missing;
+      if (
+        missing &&
+        wanted.some((k) => chunk.some((id) => missing[k]?.includes(id)))
+      )
+        ok = false;
     };
     const chunks: Promise<void>[] = [];
     for (let i = 0; i < ids.length; i += DETAIL_IDS_MAX)

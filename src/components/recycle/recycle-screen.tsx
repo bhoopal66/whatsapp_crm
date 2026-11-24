@@ -90,7 +90,8 @@ export function RecycleScreen() {
   const loadSettings = useCallback(async () => {
     if (!accountId) return;
     const read = await readRecycleSettings(supabase, accountId);
-    setStored(read);
+    // A failed Reload keeps the card, with what was typed in it.
+    if (read) setStored(read);
     setSettingsFailed(read === null);
   }, [accountId, supabase]);
 
