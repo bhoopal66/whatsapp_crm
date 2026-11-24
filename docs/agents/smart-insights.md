@@ -17,6 +17,12 @@ knowledge-gap topics. `docs/jev-insights.md` is the contract.
 - **Off until switched on.** `ai_insight_settings` (no row = all off) plus
   `insightsAvailable()` (key + `TS_ACCOUNT_IDS`) gate everything; off means
   today's behaviour exactly. Knowledge-gap judging has its own switch.
+- **Sales chats only.** `runInboundInsights`, `classifyCampaignReply` and
+  the tag writes after them take the pipeline's `salesChat` decision (HR,
+  another department, personal or unreadable = nothing asked or written);
+  `dispatchChatTagSet` passes it on, or reads the chat itself when given
+  none, so a tag's message steps stay off there. Reminder suggestions and
+  the opt-out watch are not sales features and are not gated by it.
 - **One request per inbound.** `runInboundInsights` runs after the opt-out
   watch (chained, awaited in `after()`) and reuses the watch/bot triage
   row for the same message hash. Meaning triggers share one memoised

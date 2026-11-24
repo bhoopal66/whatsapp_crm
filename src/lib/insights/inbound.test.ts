@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { SalesChatDecision } from '@/lib/ai/not-sales-chat';
 import { messageHash } from '@/lib/typesafe/log';
 import { INSIGHT_SETTINGS_OFF, type InsightSettings } from './settings-shape';
 
@@ -292,6 +293,46 @@ describe('runInboundInsights — gating', () => {
     expect(out.skipped).toBe('off');
     expect(h.calls).toEqual([]);
     expect(h.insights).not.toHaveBeenCalled();
+  });
+
+  const NOT_SALES: [string, SalesChatDecision][] = [
+    ['an HR chat', { personal: false, notSales: 'HR chat', error: null }],
+    ['a personal chat', { personal: true, notSales: null, error: null }],
+    ['a check that failed', { personal: false, notSales: null, error: 'down' }],
+  ];
+  const runIn = (salesChat: () => Promise<SalesChatDecision>) =>
+    runInboundInsights({
+      accountId: 'acct-1',
+      conversationId: 'conv-1',
+      contactId: 'contact-1',
+      messageId: 'wamid.1',
+      text: 'Yes I am interested',
+      messageAt: MESSAGE_AT,
+      salesChat,
+    });
+
+  it.each(NOT_SALES)(
+    '%s: no reads, no request, no pin, no suggestion',
+    async (_label, decision) => {
+      h.settings = settings({ signalsEnabled: true, tagSuggestMode: 'auto' });
+      const out = await runIn(async () => decision);
+      expect(out.skipped).toBe('not_sales');
+      expect(h.calls).toEqual([]);
+      expect(h.insights).not.toHaveBeenCalled();
+    }
+  );
+
+  it('a sales chat is judged as before', async () => {
+    h.settings = settings({ signalsEnabled: true });
+    await runIn(async () => ({ personal: false, notSales: null, error: null }));
+    expect(h.insights).toHaveBeenCalledTimes(1);
+  });
+
+  it('with both features off, the sales-chat check is not even read', async () => {
+    const salesChat = vi.fn();
+    const out = await runIn(salesChat);
+    expect(out.skipped).toBe('off');
+    expect(salesChat).not.toHaveBeenCalled();
   });
 
   it('stops at the per-account rate limit', async () => {

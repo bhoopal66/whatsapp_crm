@@ -183,6 +183,21 @@ beforeEach(() => {
 const updates = () => h.calls.filter((c) => c.op === 'update');
 
 describe('classifyCampaignReply', () => {
+  it('asks nothing in a chat that is not a sales chat', async () => {
+    expect(
+      await classifyCampaignReply({
+        ...input,
+        salesChat: async () => ({
+          personal: false,
+          notSales: 'This is an HR chat.',
+          error: null,
+        }),
+      })
+    ).toBeNull();
+    expect(h.replyClass).not.toHaveBeenCalled();
+    expect(updates()).toEqual([]);
+  });
+
   it('judges the campaign message without any recipient value and stores the class', async () => {
     expect(await classifyCampaignReply(input)).toEqual({
       cls: 'interested',
@@ -375,6 +390,19 @@ describe('tagInterestedReply', () => {
       previous,
       saved,
     });
+  });
+
+  it("passes the message's sales-chat decision to the automations", async () => {
+    h.write.mockResolvedValue({
+      ok: true,
+      previous: { chat_tag_id: null, chat_sub_tag_id: null },
+      saved: { chat_tag_id: 'tag-int', chat_sub_tag_id: null },
+      contactId: 'contact-1',
+      conversationId: 'conv-1',
+    });
+    const salesChat = vi.fn();
+    await tagInterestedReply({ ...args, salesChat });
+    expect(h.dispatch.mock.calls[0][0].salesChat).toBe(salesChat);
   });
 
   it('dispatches nothing when the chat was already tagged', async () => {

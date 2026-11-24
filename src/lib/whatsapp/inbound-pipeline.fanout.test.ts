@@ -988,6 +988,7 @@ describe('processMessage — Smart insights', () => {
       text: 'hello',
       // The stored row's created_at.
       messageAt: '2025-10-09T08:53:20.000Z',
+      salesChat: expect.any(Function),
     });
     const upsert = h.calls.find(
       (c) => c.table === 'messages' && c.op === 'upsert'
@@ -1021,7 +1022,12 @@ describe('processMessage — Smart insights', () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(h.autoTag).toHaveBeenCalledTimes(1);
     expect(h.autoTag.mock.calls[0]).toEqual([
-      { accountId: 'acct-1', conversationId: 'conv-1', contactId: 'contact-1' },
+      {
+        accountId: 'acct-1',
+        conversationId: 'conv-1',
+        contactId: 'contact-1',
+        salesChat: expect.any(Function),
+      },
       { skipped: 'off' },
     ]);
     // `later` waits for the automatic tag too, so after() keeps it alive.
@@ -1072,6 +1078,7 @@ describe('processMessage — campaign reply sorting', () => {
       // The first-reply-since-the-send check runs on this message.
       inboundMessageId: 'row-1',
       conversationId: 'conv-1',
+      salesChat: expect.any(Function),
     });
     expect(h.flows.mock.calls[0]![0]).toMatchObject({
       campaign: {
@@ -1084,6 +1091,7 @@ describe('processMessage — campaign reply sorting', () => {
       accountId: 'acct-1',
       conversationId: 'conv-1',
       replyClass: { cls: 'interested', p: 0.91 },
+      salesChat: expect.any(Function),
     });
     // The flow's first message goes out before the tag; the tag lands
     // before automations (relationship triggers still run here).
@@ -1783,6 +1791,25 @@ describe('the sales-chat decision', () => {
       expect(args.salesChat).toBe(check);
     }
     expect(h.ai.mock.calls[0][0].salesChat).toBe(check);
+  });
+
+  it('smart insights, automatic tagging and campaign sorting share it too', async () => {
+    h.recipientRows = [
+      {
+        id: 'rec-1',
+        status: 'read',
+        broadcast_id: 'bc-1',
+        broadcasts: { account_id: 'acct-1', follow_up_flow_id: null },
+      },
+    ];
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+    const check = h.flows.mock.calls[0][0].salesChat;
+    expect(check).toBeTypeOf('function');
+    expect(h.insights.mock.calls[0][0].salesChat).toBe(check);
+    expect(h.autoTag.mock.calls[0][0].salesChat).toBe(check);
+    expect(h.classify.mock.calls[0][0].salesChat).toBe(check);
+    expect(h.tagInterested.mock.calls[0][0].salesChat).toBe(check);
+    h.recipientRows = [];
   });
 });
 
