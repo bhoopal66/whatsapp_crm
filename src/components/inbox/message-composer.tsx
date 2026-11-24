@@ -1696,17 +1696,29 @@ export function MessageComposer({
           buttonClassName={SEND_BUTTON}
         />
       ) : draft ? (
-        <MediaDraftPreview
-          draft={draft}
-          busy={busy}
-          readOnly={inputsDisabled}
-          checking={checking}
-          captionRef={captionRef}
-          onCaptionChange={setCaption}
-          onDiscard={discardDraft}
-          onSend={sendDraft}
-          t={t}
-        />
+        <div className="flex items-end gap-1">
+          {/* The same menu, with the one entry that leaves what is
+              staged as it is: with the Meta window closed, a template is
+              the only thing that can be sent. */}
+          <ComposerMoreMenu
+            items={moreMenuItems.filter((item) => item.id === 'templates')}
+            disabled={readOnly}
+            title={readOnly ? t('readOnlyTitle') : undefined}
+          />
+          <div className="min-w-0 flex-1">
+            <MediaDraftPreview
+              draft={draft}
+              busy={busy}
+              readOnly={inputsDisabled}
+              checking={checking}
+              captionRef={captionRef}
+              onCaptionChange={setCaption}
+              onDiscard={discardDraft}
+              onSend={sendDraft}
+              t={t}
+            />
+          </div>
+        </div>
       ) : (
         // WhatsApp-like row: More (+) | the text box with attach and AI
         // inside it | mic, which turns into Send once there is text. On

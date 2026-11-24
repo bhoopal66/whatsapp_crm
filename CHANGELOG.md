@@ -22,6 +22,8 @@ and polish.
 
 ### Fixed
 
+- **Templates can be reached while an attachment is staged**, from the
+  same "+" menu, and the attachment stays as it is. No migration.
 - **A template sent from the customer page no longer says "sent".** It says
   it was handed to WhatsApp, with a button that opens the chat, where a
   refusal by Meta shows under the message. No migration.
