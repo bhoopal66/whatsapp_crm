@@ -5,6 +5,7 @@ import { useEffect } from 'react';
 import { useTranslations } from 'next-intl';
 import { House, RotateCw, TriangleAlert } from 'lucide-react';
 import { Button, buttonVariants } from '@/components/ui/button';
+import { useStaleBuild } from '@/hooks/use-stale-build';
 import { reportClientError } from '@/lib/browser-reports/send';
 
 /**
@@ -23,6 +24,7 @@ export default function DashboardError({
   unstable_retry: () => void;
 }) {
   const t = useTranslations('ErrorPages');
+  const stale = useStaleBuild(error);
 
   useEffect(() => {
     console.error(error);
@@ -36,15 +38,19 @@ export default function DashboardError({
           <TriangleAlert className="text-destructive size-6" aria-hidden />
         </div>
         <h1 className="text-foreground text-lg font-semibold">
-          {t('dashboard.title')}
+          {t(stale ? 'update.title' : 'dashboard.title')}
         </h1>
         <p className="text-muted-foreground mt-2 text-sm">
-          {t('dashboard.description')}
+          {t(stale ? 'update.description' : 'dashboard.description')}
         </p>
         <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
-          <Button onClick={() => unstable_retry()}>
+          <Button
+            onClick={() =>
+              stale ? window.location.reload() : unstable_retry()
+            }
+          >
             <RotateCw aria-hidden />
-            {t('retry')}
+            {t(stale ? 'update.reload' : 'retry')}
           </Button>
           <Link href="/" className={buttonVariants({ variant: 'outline' })}>
             <House aria-hidden />

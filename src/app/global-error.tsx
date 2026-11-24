@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useSyncExternalStore, type CSSProperties } from 'react';
 import { House, RotateCw, TriangleAlert } from 'lucide-react';
 import { Button, buttonVariants } from '@/components/ui/button';
+import { useStaleBuild } from '@/hooks/use-stale-build';
 import { reportClientError } from '@/lib/browser-reports/send';
 import {
   DEFAULT_MODE,
@@ -30,12 +31,18 @@ import './globals.css';
 // ~230 KB, and this module ships in every route's client bundle. A
 // root-layout crash may also be the catalogue failing to load. So this
 // file keeps its own copy of ErrorPages (error.title, error.description,
-// retry, home, digest) from messages/*.json; change them together.
+// update, retry, home, digest) from messages/*.json; change them together.
 const COPY = {
   en: {
     title: 'Something went wrong',
     description:
       'An unexpected error stopped this page from loading. Try again, or go back to the home screen.',
+    update: {
+      title: 'A new version is available',
+      description:
+        'This screen needs a part of the app that this tab could not load, usually because the app was updated. Reload to continue. Reloading drops text you have not sent: to finish it first, go to home and open its chat again.',
+      reload: 'Reload',
+    },
     retry: 'Try again',
     home: 'Go to home',
     digest: (id: string) => `Error ID: ${id}`,
@@ -44,6 +51,12 @@ const COPY = {
     title: 'حدث خطأ ما',
     description:
       'أوقف خطأ غير متوقع تحميل هذه الصفحة. حاول مرة أخرى، أو ارجع إلى الشاشة الرئيسية.',
+    update: {
+      title: 'يتوفر إصدار جديد',
+      description:
+        'تحتاج هذه الشاشة إلى جزء من التطبيق لم يتمكن هذا التبويب من تحميله، غالبًا لأن التطبيق حُدِّث. أعد التحميل للمتابعة. إعادة التحميل تحذف النص الذي لم ترسله: لإكماله أولًا، انتقل إلى الرئيسية وافتح محادثته من جديد.',
+      reload: 'إعادة التحميل',
+    },
     retry: 'حاول مرة أخرى',
     home: 'الانتقال إلى الرئيسية',
     digest: (id: string) => `معرّف الخطأ: ${id}`,
@@ -52,6 +65,12 @@ const COPY = {
     title: '문제가 발생했습니다',
     description:
       '예기치 않은 오류로 이 페이지를 불러오지 못했습니다. 다시 시도하거나 홈 화면으로 돌아가세요.',
+    update: {
+      title: '새 버전이 있습니다',
+      description:
+        '이 탭에서 화면에 필요한 앱의 일부를 불러오지 못했습니다. 보통 앱이 업데이트되었기 때문입니다. 계속하려면 새로 고치세요. 새로 고치면 보내지 않은 텍스트가 사라집니다. 먼저 마무리하려면 홈으로 이동한 뒤 해당 대화를 다시 여세요.',
+      reload: '새로 고침',
+    },
     retry: '다시 시도',
     home: '홈으로 이동',
     digest: (id: string) => `오류 ID: ${id}`,
@@ -104,6 +123,8 @@ export default function GlobalError({
     () => DEFAULT_COPY_LOCALE
   );
   const copy = COPY[locale];
+  const stale = useStaleBuild(error);
+  const words = stale ? copy.update : copy;
 
   useEffect(() => {
     console.error(error);
@@ -142,7 +163,7 @@ export default function GlobalError({
       suppressHydrationWarning
     >
       <head>
-        <title>{copy.title}</title>
+        <title>{words.title}</title>
       </head>
       <body className="bg-background text-foreground min-h-full font-sans">
         <div className="flex min-h-svh items-center justify-center px-4 py-12">
@@ -151,15 +172,19 @@ export default function GlobalError({
               <TriangleAlert className="text-destructive size-6" aria-hidden />
             </div>
             <h1 className="text-foreground text-xl font-semibold">
-              {copy.title}
+              {words.title}
             </h1>
             <p className="text-muted-foreground mt-2 text-sm">
-              {copy.description}
+              {words.description}
             </p>
             <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
-              <Button onClick={() => unstable_retry()}>
+              <Button
+                onClick={() =>
+                  stale ? window.location.reload() : unstable_retry()
+                }
+              >
                 <RotateCw aria-hidden />
-                {copy.retry}
+                {stale ? copy.update.reload : copy.retry}
               </Button>
               <Link href="/" className={buttonVariants({ variant: 'outline' })}>
                 <House aria-hidden />

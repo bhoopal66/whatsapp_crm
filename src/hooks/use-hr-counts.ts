@@ -6,6 +6,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { hrCounts } from '@/lib/hr/api';
 import type { HrCounts } from '@/lib/hr/types';
 import { createClient } from '@/lib/supabase/client';
+import { visibleInterval } from '@/lib/visible-interval';
 
 const REFRESH_MS = 60_000;
 
@@ -19,7 +20,8 @@ const store = {
   key: null as string | null,
   counts: null as HrCounts | null,
   listeners: new Set<() => void>(),
-  timer: null as ReturnType<typeof setInterval> | null,
+  /** Stops the poll; null when none runs. */
+  stop: null as (() => void) | null,
   /** Mounted consumers that want the poll running. */
   active: 0,
   seq: 0,
@@ -47,13 +49,13 @@ function start(key: string) {
   if (store.key !== key) {
     store.key = key;
     store.counts = null;
-    if (store.timer) clearInterval(store.timer);
-    store.timer = null;
+    store.stop?.();
+    store.stop = null;
     emit();
   }
-  if (!store.timer) {
+  if (!store.stop) {
     poll(key);
-    store.timer = setInterval(() => poll(key), REFRESH_MS);
+    store.stop = visibleInterval(() => poll(key), REFRESH_MS);
   }
 }
 
@@ -84,9 +86,9 @@ export function useHrCounts(enabled = true): HrCounts | null {
     start(key);
     return () => {
       store.active -= 1;
-      if (store.active === 0 && store.timer) {
-        clearInterval(store.timer);
-        store.timer = null;
+      if (store.active === 0 && store.stop) {
+        store.stop();
+        store.stop = null;
       }
     };
   }, [key]);

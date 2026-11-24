@@ -13,6 +13,7 @@ import {
   type PhoneRows,
 } from '@/lib/person-presence';
 import { createClient } from '@/lib/supabase/client';
+import { visibleInterval } from '@/lib/visible-interval';
 
 /** Phone presence by lower-cased user id; empty without a PBX. */
 export type PhonePresence = Readonly<Record<string, UserPresence>>;
@@ -59,8 +60,7 @@ function start(store: Store, accountId: string): () => void {
   };
 
   let channel: ReturnType<typeof sb.channel> | null = null;
-  let poll: ReturnType<typeof setInterval> | undefined;
-  let tick: ReturnType<typeof setInterval> | undefined;
+  let stopTimers = () => {};
   const read = async () => {
     const { data, error } = await sb
       .from('pbx_presence')
@@ -95,14 +95,19 @@ function start(store: Store, accountId: string): () => void {
       )
       .subscribe();
     void read();
-    poll = setInterval(() => void read(), POLL_MS);
-    tick = setInterval(derive, RE_DERIVE_MS);
+    // Dots only: the call line is the softphone's (phone.ts), so a hidden
+    // tab may skip both.
+    const stopPoll = visibleInterval(read, POLL_MS);
+    const stopTick = visibleInterval(derive, RE_DERIVE_MS);
+    stopTimers = () => {
+      stopPoll();
+      stopTick();
+    };
   };
   void watch().catch(() => {});
   return () => {
     stopped = true;
-    clearInterval(poll);
-    clearInterval(tick);
+    stopTimers();
     if (channel) void sb.removeChannel(channel);
   };
 }
