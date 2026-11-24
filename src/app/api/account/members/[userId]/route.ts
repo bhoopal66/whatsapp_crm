@@ -44,8 +44,9 @@ import { disconnectPersonalNumbersOf } from "@/lib/whatsapp/personal-offboarding
 /** GoTrue takes a Go duration; ~100 years is "until lifted". */
 const BAN_DURATION = "876000h";
 
-/** Service-role client for the Auth admin API (ban / unban). Only
- *  reached after the RPC has authorised the caller. */
+/** Service-role client for the Auth admin API (ban / unban) and the
+ *  person's rows elsewhere. Writes only after the RPC has authorised the
+ *  caller. */
 function supabaseAdmin() {
   return createAdminClient(
     serverSupabaseUrl(),
@@ -278,7 +279,9 @@ async function setCallReview(
 }
 
 /**
- * Deactivate or reactivate a member. Two writes, in this order:
+ * Deactivate or reactivate a member. Whether they work elsewhere is read
+ * first: a read that fails then has changed nothing. Two writes follow,
+ * in this order:
  *
  *   1. `set_member_active` — authorises the caller (admin+, same
  *      account, not the owner, not self) and flips
@@ -291,10 +294,10 @@ async function setCallReview(
  *      them active; reactivation always lifts it.
  *
  * The ban runs second because only the RPC knows whether the caller may
- * touch this user. If it fails, or the other memberships cannot be
- * read, the flag is put back: a member shown as deactivated who can
- * still sign in (or shown active who cannot) is worse than a clear
- * error the admin can retry.
+ * touch this user. If it fails, the flag is put back: a member shown as
+ * deactivated who can still sign in (or shown active who cannot) is worse
+ * than a clear error the admin can retry. What the deactivation's triggers
+ * took (199, 256) is not given back, and the answer says so.
  *
  * Last, once the deactivation stands, the person's personal WhatsApp
  * number of this workspace is disconnected (they can no longer do it). A
@@ -306,40 +309,41 @@ async function setActive(
   userId: string,
   active: boolean,
 ): Promise<NextResponse> {
+  const admin = supabaseAdmin();
+
+  const elsewhere = active
+    ? false
+    : await worksElsewhere(admin, ctx.accountId, userId);
+  if (elsewhere === null) {
+    return NextResponse.json(
+      {
+        error:
+          "Could not check this person's other workspaces. Nothing was changed; try again.",
+      },
+      { status: 502 },
+    );
+  }
+
   const { error } = await ctx.supabase.rpc("set_member_active", {
     p_user_id: userId,
     p_active: active,
   });
   if (error) return rpcErrorToResponse(error);
 
-  const admin = supabaseAdmin();
-
-  if (!active) {
-    // Service role: the caller cannot read the person's rows in
-    // workspaces they are not in themselves.
-    const { data: others, error: lookupError } = await admin
-      .from("profiles")
-      .select("account_id")
-      .eq("user_id", userId)
-      .is("deactivated_at", null)
-      .neq("account_id", ctx.accountId)
-      .limit(1);
-    if (lookupError) {
-      console.error(
-        `[members route] could not read ${userId}'s other memberships:`,
-        lookupError,
-      );
-      return revertActive(ctx.supabase, userId, active);
-    }
-    // Still working elsewhere: the deactivation is this workspace's
-    // row alone, and the login stays open for the others.
-    if (others && others.length > 0) {
-      return NextResponse.json({
-        ok: true,
-        active,
-        ...(await departed(admin, ctx.accountId, userId)),
-      });
-    }
+  // Still working elsewhere: the deactivation is this workspace's row
+  // alone, and the login stays open for the others. Asked again now that
+  // it stands, or two workspaces letting the person go at the same moment
+  // would each leave the ban to the other. A failed second read keeps the
+  // first answer.
+  if (
+    elsewhere &&
+    (await worksElsewhere(admin, ctx.accountId, userId)) !== false
+  ) {
+    return NextResponse.json({
+      ok: true,
+      active,
+      ...(await departed(admin, ctx.accountId, userId)),
+    });
   }
 
   const { error: banError } = await admin.auth.admin.updateUserById(
@@ -361,6 +365,33 @@ async function setActive(
       ? {}
       : await departed(admin, ctx.accountId, userId)),
   });
+}
+
+/**
+ * Has the person a live row in another workspace? NULL when it cannot be
+ * read. Service role: the caller cannot read the person's rows in
+ * workspaces they are not in themselves.
+ */
+async function worksElsewhere(
+  admin: SupabaseClient,
+  accountId: string,
+  userId: string,
+): Promise<boolean | null> {
+  const { data, error } = await admin
+    .from("profiles")
+    .select("account_id")
+    .eq("user_id", userId)
+    .is("deactivated_at", null)
+    .neq("account_id", accountId)
+    .limit(1);
+  if (error) {
+    console.error(
+      `[members route] could not read ${userId}'s other memberships:`,
+      error,
+    );
+    return null;
+  }
+  return (data?.length ?? 0) > 0;
 }
 
 /**
@@ -391,7 +422,10 @@ async function personalNumberWarning(
     : { warning: "personal_number_not_disconnected" };
 }
 
-/** Put the flag back after the login could not be brought in line. */
+/**
+ * Put the flag back after the login could not be brought in line, and say
+ * how things now stand. `code` is what the screen translates.
+ */
 async function revertActive(
   supabase: SupabaseClient,
   userId: string,
@@ -406,13 +440,32 @@ async function revertActive(
       `[members route] could not revert set_member_active for ${userId}; profile and login now disagree:`,
       revertError,
     );
+    return NextResponse.json(
+      active
+        ? {
+            error:
+              "They are active here again, but their login is still disabled: deactivate them and try again.",
+            code: "reactivation_half_done",
+          }
+        : {
+            error:
+              "They are deactivated here, but their login could not be disabled: reactivate them, then deactivate them again.",
+            code: "deactivation_half_done",
+          },
+      { status: 502 },
+    );
   }
   return NextResponse.json(
-    {
-      error: active
-        ? "Could not re-enable this user's login. Nothing was changed; try again."
-        : "Could not disable this user's login. Nothing was changed; try again.",
-    },
+    active
+      ? {
+          error:
+            "Could not re-enable this user's login. Nothing was changed; try again.",
+        }
+      : {
+          error:
+            "Could not disable this user's login. They are active again, but any team, phone extension and report access they had were cleared: set them again.",
+          code: "deactivation_undone",
+        },
     { status: 502 },
   );
 }
@@ -438,6 +491,11 @@ export async function DELETE(
 
     if (error) return rpcErrorToResponse(error);
 
+    // A ban a deactivation put on the login is NOT lifted here, though the
+    // person may now own nothing but an empty private account: somebody
+    // who was removed must not be able to sign in. Adding them back is what
+    // lifts it (`addOrCreateMember`).
+    //
     // The person's new personal account when this was their only
     // workspace; NULL when they keep another membership (083).
     return NextResponse.json({

@@ -107,13 +107,18 @@ staff. A guest:
   workspace B. For any other registered address the answer is the same
   as for an unknown email, so nobody can test whether an address has a
   login; creating a login for it then fails with "This email already
-  has a login. An administrator of one of that person's workspaces can
-  add them here."
+  has a login that you cannot add. If they can sign in, send them an
+  invitation link; otherwise an administrator of both this workspace and
+  one where they are active can add them."
 - **Removal from the only workspace:** the person keeps their login and
   is moved to a new, empty workspace of their own — as a viewer (a bank
   guest stays a bank guest), never as its owner or an admin, and with
   any deactivation cleared. They cannot add people or create
-  workspaces from there; an invitation brings them back.
+  workspaces from there; an invitation brings them back, and so does
+  adding them by email in the workspace that removed them (migration
+  306; by the owner, for a removed admin). A login a deactivation
+  disabled stays disabled until they are added back, with the password
+  they had.
 
 ## Deactivation
 

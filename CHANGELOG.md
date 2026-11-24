@@ -26,6 +26,15 @@ and polish.
 
 ### Fixed
 
+- **Removing a member frees their phone extension, and a removed person
+  can be added again.** A removal without a deactivation first left the
+  Yeastar extension and its softphone with the leaver (those left behind
+  are freed once). Add a person now takes back somebody this workspace
+  removed, also one whose login was disabled first: they sign in with
+  their earlier password, and an admin the owner removed is the owner's to
+  add back. A deactivation that could not disable the login says what it
+  cleared instead of "nothing was changed", and a failed read of personal
+  numbers no longer shows them as none. **Migration required: 306.**
 - **A candidate's STOP is never lost.** A STOP on an HR chat or an HR line
   is recorded on the contact whatever the HR switches say, even before the
   chat is in Recruitment; a database error at that moment makes the

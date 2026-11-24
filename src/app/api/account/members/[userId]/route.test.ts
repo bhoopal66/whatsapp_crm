@@ -201,17 +201,71 @@ describe('PATCH /api/account/members/[userId] { active }', () => {
     expect(mocks.updateUserById).not.toHaveBeenCalled();
   });
 
-  it('puts the flag back when the other memberships cannot be read', async () => {
+  it('changes nothing when the other memberships cannot be read', async () => {
     mocks.limit.mockResolvedValue({ data: null, error: { message: 'boom' } });
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const res = await PATCH(request({ active: false }), params);
     expect(res.status).toBe(502);
+    expect((await res.json()).error).toContain('Nothing was changed');
     expect(mocks.updateUserById).not.toHaveBeenCalled();
-    expect(mocks.rpc).toHaveBeenNthCalledWith(2, 'set_member_active', {
-      p_user_id: 'user-2',
-      p_active: true,
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it('bans a login whose last other workspace let it go meanwhile', async () => {
+    mocks.limit
+      .mockResolvedValueOnce({
+        data: [{ account_id: 'account-2' }],
+        error: null,
+      })
+      .mockResolvedValueOnce({ data: [], error: null });
+    const res = await PATCH(request({ active: false }), params);
+    expect(res.status).toBe(200);
+    expect(mocks.updateUserById).toHaveBeenCalledWith('user-2', {
+      ban_duration: '876000h',
     });
   });
+
+  it('keeps the login when only the second look fails', async () => {
+    mocks.limit
+      .mockResolvedValueOnce({
+        data: [{ account_id: 'account-2' }],
+        error: null,
+      })
+      .mockResolvedValueOnce({ data: null, error: { message: 'boom' } });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await PATCH(request({ active: false }), params);
+    expect(res.status).toBe(200);
+    expect(mocks.updateUserById).not.toHaveBeenCalled();
+    expect(mocks.rpc).toHaveBeenCalledTimes(1);
+  });
+
+  it('says what was cleared when a failed ban undoes a deactivation', async () => {
+    mocks.updateUserById.mockResolvedValue({ error: { message: 'boom' } });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const body = await (await PATCH(request({ active: false }), params)).json();
+    expect(body.code).toBe('deactivation_undone');
+    expect(body.error).toMatch(/active again.*team, phone extension/);
+    expect(body.error).not.toContain('Nothing was changed');
+  });
+
+  it.each([
+    [false, 'deactivation_half_done'],
+    [true, 'reactivation_half_done'],
+  ])(
+    'says so when the flag could not be put back (active: %s)',
+    async (active, code) => {
+      mocks.updateUserById.mockResolvedValue({ error: { message: 'boom' } });
+      mocks.rpc
+        .mockResolvedValueOnce({ error: null })
+        .mockResolvedValueOnce({ error: { code: 'XX000', message: 'boom' } });
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      const res = await PATCH(request({ active }), params);
+      expect(res.status).toBe(502);
+      const body = await res.json();
+      expect(body.code).toBe(code);
+      expect(body.error).not.toContain('Nothing was changed');
+    }
+  );
 
   it('reactivating lifts the ban', async () => {
     const res = await PATCH(request({ active: true }), params);

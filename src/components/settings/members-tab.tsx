@@ -550,7 +550,22 @@ export function MembersTab() {
       });
       if (!res.ok) {
         const payload = await res.json().catch(() => ({}));
-        toast.error(payload.error || 'Failed to update member');
+        // How things stand when the login could not be brought in line.
+        const half = [
+          'deactivation_undone',
+          'deactivation_half_done',
+          'reactivation_half_done',
+        ].find((code) => code === payload.code);
+        if (half) {
+          toast.error(
+            t(`activeFailed.${half}`, {
+              name: member.full_name || t('unnamed'),
+            })
+          );
+          await loadEverything();
+        } else {
+          toast.error(payload.error || 'Failed to update member');
+        }
         return;
       }
       // Assignee pickers elsewhere hide deactivated members.

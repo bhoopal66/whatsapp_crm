@@ -26,7 +26,10 @@ contract.
   `provision_account_member` and `add_workspace_member` take the per-person
   row lock `switch_account` takes (`… WHERE user_id = … ORDER BY id FOR
   UPDATE`).
-- **`add_workspace_member`** adds only someone live in a workspace where the
+- **`add_workspace_member`** also takes back somebody this workspace removed
+  (`workspace_audit`) whose only row is their disposable private account
+  (306; a removed admin by the owner only). Else it
+  adds only someone live in a workspace where the
   caller is a live owner/admin; an unknown email and an ineligible one raise
   the same P0002 `no_such_user`.
 - **Removing someone's only membership** moves their row to a fresh account as
