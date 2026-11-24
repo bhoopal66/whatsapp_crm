@@ -108,7 +108,8 @@ only). `docs/internal-chat.md` is the contract.
     `verify-chat-sensitive-guard.sql` and `sensitive-corpus.test.ts` pins them.
     Since 307 `chat_insert_attachments` scans each file name too, by the same
     `chat_assert_not_sensitive`; the composer warns through
-    `messageSensitiveKinds`.
+    `messageSensitiveKinds`. Both leave out a date with its time (a phone's
+    photo names): `STAMP` in `composer-gating.ts` is the same pattern.
   - *Audience (159).* One clause in `chat_user_can_read_channel` covers every
     read; BEFORE triggers guard writes. Membership is no override.
   - *Moderation (160).* Deleting another's message needs a 5–500 character
@@ -153,4 +154,5 @@ only). `docs/internal-chat.md` is the contract.
   as a REQUIRED last argument of a second function; the old signature beside
   it calls it with none, so no call has two candidates. An edit rewrites only
   the bells of people who may read the channel; leaving a private channel or
-  group DM deletes the leaver's unread ones. `verify-chat-forward-once.sql`.
+  group DM deletes the leaver's unread ones. `chat_mark_read` never moves a
+  mark back. `verify-chat-forward-once.sql`.

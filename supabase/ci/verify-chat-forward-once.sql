@@ -1,8 +1,8 @@
 -- Behavioural regression suite for migration 307: a forward and a shared
 -- call are made once per client id (a repeat, a concurrent repeat, a
 -- deleted copy), a forward carries every file of its source, a bell ends
--- with the read access (edit, leave), and the sensitive-data guard reads
--- file names. The concurrent repeat is played by a trigger that writes the
+-- with the read access (edit, leave), the sensitive-data guard reads file
+-- names, and a read mark only moves forward. The concurrent repeat is played by a trigger that writes the
 -- first attempt's row between the look-up and the insert.
 --
 -- ONE statement on purpose (`supabase db query --file`). Failing checks are
@@ -233,19 +233,34 @@ BEGIN
   n := n + 1; failed := failed || pg_temp.cf_ok(
     pg_temp.cf_try(u_own, format(posta, src, 'see file', jsonb_build_array(pg_temp.cf_up(a, src, 'offer.pdf')))) ~ uuid_re,
     'block mode refused an ordinary file name');
-  -- the recorder's own name for a voice note is a date and a time: here one
-  -- that passes Luhn (20260101-000002), refused under any other name
+  -- a date and a time that pass Luhn (20260101-000002) are no card, in a
+  -- name or in the body that lists the names; a number like one, but with
+  -- no such month, is
   n := n + 1; failed := failed || pg_temp.cf_ok(
     (SELECT chat_sensitive_kinds('voice-' || d || '.ogg') = '{card}'
         AND pg_temp.cf_try(u_own, format(posta, src, 'Voice message', jsonb_build_array(pg_temp.cf_up(a, src, 'voice-' || d || '.ogg', 'voice')))) ~ uuid_re
-        AND pg_temp.cf_try(u_own, format(posta, src, 'see file', jsonb_build_array(pg_temp.cf_up(a, src, 'voice-' || d || '.ogg')))) LIKE 'ERROR 42501:%'
+        AND pg_temp.cf_try(u_own, format(posta, src, 'Screenshot_' || d || '.png', jsonb_build_array(pg_temp.cf_up(a, src, 'Screenshot_' || d || '.png')))) ~ uuid_re
        FROM (SELECT '20260101-' || lpad(i::text, 6, '0') AS d FROM generate_series(0, 59) i
               WHERE chat_sensitive_kinds('20260101-' || lpad(i::text, 6, '0')) = '{card}' LIMIT 1) x),
-    'the recorder''s own file name was read as a card, or the exception is too wide');
+    'a date and a time in a file name were read as a card');
+  n := n + 1; failed := failed || pg_temp.cf_ok(
+    (SELECT pg_temp.cf_try(u_own, format(posta, src, 'see file', jsonb_build_array(pg_temp.cf_up(a, src, 'Screenshot_' || d || '.png')))) LIKE 'ERROR 42501:%'
+       FROM (SELECT '20261301-' || lpad(i::text, 6, '0') AS d FROM generate_series(0, 59) i
+              WHERE chat_sensitive_kinds('20261301-' || lpad(i::text, 6, '0')) = '{card}' LIMIT 1) x),
+    'the date and time exception is too wide');
   UPDATE chat_workspace_settings SET sensitive_scope = 'guests' WHERE account_id = a;
   n := n + 1; failed := failed || pg_temp.cf_ok(
     pg_temp.cf_try(u_own, format(posta, src, 'see file', jsonb_build_array(pg_temp.cf_up(a, src, '4111-1111-1111-1111.pdf')))) ~ uuid_re,
     'scope guests blocked a channel without a guest');
+
+  -- ---------- 5. a read mark only moves forward ----------
+  PERFORM pg_temp.cf_try(u_own, format('SELECT public.chat_mark_read(%L)', src));
+  SELECT last_read_at::text INTO r FROM chat_channel_members WHERE channel_id = src AND user_id = u_own;
+  r2 := pg_temp.cf_try(u_own, format('SELECT public.chat_mark_read(%L, now() - interval ''1 hour'')', src));
+  n := n + 1; failed := failed || pg_temp.cf_ok(
+    r IS NOT NULL AND r2 = 'ok'
+    AND (SELECT last_read_at::text = r FROM chat_channel_members WHERE channel_id = src AND user_id = u_own),
+    'an older read mark moved it back');
 
   RAISE EXCEPTION USING ERRCODE = 'ZT307', MESSAGE = 'verify-chat-forward-once rollback';
   EXCEPTION WHEN SQLSTATE 'ZT307' THEN

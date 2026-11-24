@@ -153,6 +153,14 @@ const SENSITIVE_KINDS: readonly SensitiveKind[] = [
 ];
 
 /**
+ * A date with its time, or milliseconds since 1970, as a phone names its
+ * photos and recordings: 13 to 17 digits that read as a card one time in
+ * ten. The same pattern as chat_assert_not_sensitive (307).
+ */
+const STAMP =
+  /(?<![0-9])(?:20[0-9]{2}[-_. ]?(?:0[1-9]|1[0-2])[-_. ]?(?:0[1-9]|[12][0-9]|3[01])(?:[-_. T]|at)*(?:[01][0-9]|2[0-3])[-_.:h]?[0-5][0-9][-_.:m]?[0-5][0-9](?:[-_.]?[0-9]{1,3})?|1[5-9][0-9]{11})(?![0-9])/g;
+
+/**
  * The kinds a message carries in its text or, each on its own, in its
  * files' names, as the database reads them (158's trigger and 307's check
  * in chat_insert_attachments).
@@ -162,7 +170,9 @@ export function messageSensitiveKinds(
   fileNames: readonly string[]
 ): SensitiveKind[] {
   const found = new Set(
-    [stripMentionTokens(body), ...fileNames].flatMap((s) => sensitiveKinds(s))
+    [stripMentionTokens(body), ...fileNames].flatMap((s) =>
+      sensitiveKinds(s.replace(STAMP, ';'))
+    )
   );
   return SENSITIVE_KINDS.filter((k) => found.has(k));
 }

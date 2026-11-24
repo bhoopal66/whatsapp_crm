@@ -21,6 +21,7 @@
 -- 4. chat_sensitive_guard (158) reads the body, which lists the file names
 --    only when the message has no text. chat_insert_attachments scans each
 --    name; both ask chat_assert_not_sensitive.
+-- 5. chat_mark_read (087) moved a read mark back.
 --
 -- The functions are the catalog's bodies with the marked lines changed;
 -- search_path and grants are unchanged. Nothing here refuses itself on
@@ -404,7 +405,12 @@ BEGIN
           AND (cm.role = 'guest' OR public.chat_user_role(c.account_id, cm.user_id) = 'bank_guest')) THEN
     RETURN;
   END IF;
-  v_kinds := public.chat_sensitive_kinds(p_text);
+  -- A phone names its photos and recordings with the date and time, or the
+  -- milliseconds since 1970: 13 to 17 digits that read as a card one time
+  -- in ten. STAMP in src/lib/chat/composer-gating.ts is the same pattern.
+  v_kinds := public.chat_sensitive_kinds(regexp_replace(p_text,
+    '(?<![0-9])(?:20[0-9]{2}[-_. ]?(?:0[1-9]|1[0-2])[-_. ]?(?:0[1-9]|[12][0-9]|3[01])(?:[-_. T]|at)*(?:[01][0-9]|2[0-3])[-_.:h]?[0-5][0-9][-_.:m]?[0-5][0-9](?:[-_.]?[0-9]{1,3})?|1[5-9][0-9]{11})(?![0-9])',
+    ';', 'g'));
   IF v_kinds <> '{}' THEN
     RAISE EXCEPTION 'chat: this message contains sensitive data (%) and this workspace blocks it %',
       array_to_string(v_kinds, ', '),
@@ -513,13 +519,9 @@ BEGIN
   END IF;
 
   -- 307: the sensitive-data guard reads each file's name too (the body of
-  -- a message without text already lists them). Not the recorder's own
-  -- name of a voice note: its date and time read as a card one time in ten.
+  -- a message without text already lists them).
   FOR v_att IN SELECT * FROM jsonb_array_elements(v_atts) LOOP
-    IF coalesce(v_att->>'kind', 'file') <> 'voice'
-       OR btrim(v_att->>'name') !~ '^voice-20[0-9]{6}-[0-9]{6}[.][a-z0-9]+$' THEN
-      PERFORM public.chat_assert_not_sensitive(p_ch.id, p_ch.account_id, v_att->>'name');
-    END IF;
+    PERFORM public.chat_assert_not_sensitive(p_ch.id, p_ch.account_id, v_att->>'name');
   END LOOP;
 
   INSERT INTO public.message_attachments (message_id, storage_path, name, mime, bytes, kind, duration_ms)
@@ -527,6 +529,25 @@ BEGIN
          coalesce(a->>'kind', 'file'), (a->>'duration_ms')::numeric::integer
     FROM jsonb_array_elements(v_atts) a;
 END $function$;
+
+-- ---------- 5. A read mark only moves forward ----------
+
+-- 087's body: it stored the time it was given, so a slow tab's older mark
+-- brought back what a newer one had cleared.
+CREATE OR REPLACE FUNCTION public.chat_mark_read(p_channel uuid, p_at timestamptz DEFAULT now())
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+DECLARE v_at timestamptz := least(coalesce(p_at, now()), now());
+BEGIN
+  UPDATE public.chat_channel_members SET last_read_at = greatest(last_read_at, v_at)
+   WHERE channel_id = p_channel AND user_id = auth.uid() AND public.chat_can_read_channel(p_channel);
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'chat_mark_read: not a member of this channel' USING ERRCODE = '42501';
+  END IF;
+  UPDATE public.chat_notifications n SET read_at = now()
+    FROM public.internal_messages m
+   WHERE n.message_id = m.id AND m.channel_id = p_channel
+     AND n.user_id = auth.uid() AND n.read_at IS NULL AND m.created_at <= v_at;
+END $$;
 
 RESET lock_timeout;
 NOTIFY pgrst, 'reload schema';

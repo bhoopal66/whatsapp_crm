@@ -94,6 +94,29 @@ describe('messageSensitiveKinds', () => {
     expect(messageSensitiveKinds('see file', ['offer.pdf'])).toEqual([]);
   });
 
+  it('never takes the date and time in a name for a card', () => {
+    const digits = Array.from({ length: 60 }, (_, i) => i);
+    for (const i of digits) {
+      const s = String(i).padStart(2, '0');
+      const names = [
+        `Screenshot_20261124-1530${s}.png`,
+        `PXL_20261124_1530${s}123.jpg`,
+        `WhatsApp Image 2026-11-24 at 15.30.${s} (1).jpeg`,
+        `voice-20261124-1530${s}.ogg`,
+        `FB_IMG_17324567891${s}.jpg`,
+      ];
+      expect(messageSensitiveKinds(names.join(', '), names)).toEqual([]);
+    }
+    // Not a date and time (month 13), and a card next to one.
+    const no = digits
+      .map((i) => `20261301-0000${String(i).padStart(2, '0')}.png`)
+      .find((n) => messageSensitiveKinds('', [n]).length > 0);
+    expect(no).toBeDefined();
+    expect(
+      messageSensitiveKinds('', ['4111 1111 1111 1111 20261124-153000.png'])
+    ).toEqual(['card']);
+  });
+
   it('never joins digits across two names', () => {
     expect(messageSensitiveKinds('', ['4111 1111', '1111 1111'])).toEqual([]);
   });

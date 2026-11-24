@@ -24,10 +24,9 @@ export function shouldMarkRead(i: {
   sent: string | null | undefined;
 }): boolean {
   if (!i.ready || !i.member || !i.visible || !i.at) return false;
-  // Only ever forward: `chat_mark_read` (087) stores what it is given, so
-  // an older mark would bring back what a newer one had cleared. It is
-  // also what marks an idle channel once, not on every list reload that
-  // the mark's own echo causes.
+  // Only ever forward, as `chat_mark_read` (307). It is also what marks an
+  // idle channel once, not on every list reload that the mark's own echo
+  // causes.
   return key(i.at) > Math.max(key(i.held), key(i.sent));
 }
 

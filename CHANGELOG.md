@@ -39,8 +39,9 @@ and polish.
   that failed stays selected; a forward with a file missing is refused. An
   edit no longer reaches the bell of someone who left, leaving a private
   channel or group chat clears its unread bells, and the sensitive-data
-  guard reads file names also when a message has text. **Migration
-  required: 307** (before the build).
+  guard reads file names also when a message has text, without taking the
+  date and time in a photo's name for a card. A read mark never moves back.
+  **Migration required: 307** (before the build).
 - **Privacy and recycling settings are never saved over blindly.** A failed
   load in Settings → Privacy or on Recycle shows Retry instead of a form
   that could wipe what is stored; a save over something a colleague changed
