@@ -38,6 +38,7 @@ import {
   UserPlus,
   Video,
   Wifi,
+  Webhook,
   WifiOff,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
@@ -66,6 +67,7 @@ const TYPE_ICON: Record<Notification['type'], typeof Bell> = {
   inbound_message_failed: MailWarning,
   meta_number_alert: ShieldAlert,
   retention_failed: ShieldAlert,
+  webhook_disabled: Webhook,
   team_activity_alert: ShieldAlert,
   team_activity_unlock_request: ShieldAlert,
   team_activity_unlock_decided: ShieldAlert,
@@ -115,6 +117,7 @@ const FULL_BODY: ReadonlySet<Notification['type']> = new Set([
   'work_handed_over',
   'meta_number_alert',
   'retention_failed',
+  'webhook_disabled',
   'team_activity_alert',
   'pbx_connection_silent',
   'pbx_connection_restored',

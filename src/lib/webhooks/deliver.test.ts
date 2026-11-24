@@ -13,7 +13,11 @@ vi.mock('@/lib/webhooks/ssrf', () => ({
   safeFetch: vi.fn(),
 }));
 
-import { dispatchWebhookEvent, MAX_CONSECUTIVE_FAILURES } from './deliver';
+import {
+  deliverSigned,
+  dispatchWebhookEvent,
+  MAX_CONSECUTIVE_FAILURES,
+} from './deliver';
 import { isDeliverableUrl, safeFetch } from './ssrf';
 
 interface Row {
@@ -145,6 +149,39 @@ describe('dispatchWebhookEvent', () => {
 
     expect(fetchMock).not.toHaveBeenCalled();
     expect(calls.rpcs[0].name).toBe('record_webhook_failure');
+  });
+
+  it('says and logs when the endpoints could not be read, sending nothing', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const b: Record<string, unknown> = {};
+    b.select = b.eq = () => b;
+    b.contains = async () => ({ data: null, error: { message: 'db down' } });
+    const down = { from: () => b } as unknown as SupabaseClient;
+    expect(await deliverSigned(down, 'acct-1', 'contact.opted_out', {})).toBe(
+      false
+    );
+    expect(log).toHaveBeenCalledWith(
+      expect.stringContaining('could not be read'),
+      'db down'
+    );
+    expect(safeFetch).not.toHaveBeenCalled();
+    log.mockRestore();
+  });
+
+  it('answers true once the endpoints were read, even when a POST fails', async () => {
+    vi.mocked(safeFetch).mockResolvedValue({
+      ok: false,
+      status: 500,
+    } as Response);
+    const row = { id: 'b', url: 'https://b.test/hook', secret: 's2' };
+    expect(
+      await deliverSigned(
+        makeDb([row], emptyCalls()),
+        'acct-1',
+        'contact.opted_out',
+        {}
+      )
+    ).toBe(true);
   });
 
   it('does nothing when no endpoints are subscribed', async () => {

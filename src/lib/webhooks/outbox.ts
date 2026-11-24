@@ -7,6 +7,9 @@
 // out once and marks it delivered in the same statement, so delivery
 // is at-most-once like dispatchWebhookEvent; each row is then signed
 // and POSTed through deliver.ts (deliverSigned), which never throws.
+// A row whose endpoints could not be read is given back
+// (`webhook_outbox_release`, 293): that read comes before any POST, so
+// at-most-once still holds.
 // ============================================================
 
 import { randomUUID } from 'node:crypto';
@@ -40,13 +43,17 @@ export interface OutboxDrainResult {
   claimed: number;
   delivered: number;
   failed: number;
-  /** True when the deadline stopped the drain with the cap not reached. */
+  /** True when the deadline, or rows given back, stopped the drain with
+   *  the cap not reached. */
   stoppedEarly: boolean;
 }
 
+/** Returns whether the row was handed to delivery; `released` is told
+ *  of a row that went back to the queue. */
 async function deliverRow(
   db: SupabaseClient,
-  row: OutboxRow
+  row: OutboxRow,
+  released: () => void
 ): Promise<boolean> {
   if (!isWebhookEvent(row.event)) {
     console.warn('[webhooks] outbox row with unknown event:', row.id);
@@ -57,20 +64,32 @@ async function deliverRow(
     typeof payload.occurred_at === 'string'
       ? payload.occurred_at
       : row.created_at;
-  await deliverSigned(db, row.account_id, row.event, {
+  const read = await deliverSigned(db, row.account_id, row.event, {
     id: randomUUID(),
     event: row.event,
     occurred_at: occurredAt,
     account_id: row.account_id,
     data: payload,
   });
+  if (read === false) {
+    released();
+    const { error } = await db.rpc('webhook_outbox_release', { p_id: row.id });
+    if (error) {
+      console.error(
+        `[webhooks] outbox row ${row.id} could not be given back:`,
+        error.message
+      );
+    }
+    return false;
+  }
   return true;
 }
 
 /**
  * Drains the outbox in small claims against a deadline: claim up to
  * OUTBOX_BATCH_SIZE rows, deliver them in parallel, repeat until a
- * claim comes back short, OUTBOX_CLAIM_LIMIT rows are claimed, or the
+ * claim comes back short, OUTBOX_CLAIM_LIMIT rows are claimed, a row is
+ * given back (the next claim would hand out the same one), or the
  * deadline passes (rows not yet claimed wait for the next run). A claim
  * failure throws (the cron logs it); a delivery failure does not.
  */
@@ -102,12 +121,21 @@ export async function drainWebhookOutbox(
     if (error) throw new Error(`webhook_outbox_claim failed: ${error.message}`);
     const rows = (Array.isArray(data) ? data : []) as OutboxRow[];
     result.claimed += rows.length;
+    let givenBack = false;
     const settled = await Promise.allSettled(
-      rows.map((row) => deliverRow(db, row))
+      rows.map((row) =>
+        deliverRow(db, row, () => {
+          givenBack = true;
+        })
+      )
     );
     for (const s of settled) {
       if (s.status === 'fulfilled' && s.value) result.delivered += 1;
       else result.failed += 1;
+    }
+    if (givenBack) {
+      result.stoppedEarly = true;
+      break;
     }
     if (rows.length < size) break;
   }

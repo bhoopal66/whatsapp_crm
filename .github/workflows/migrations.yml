@@ -1507,3 +1507,8 @@ jobs:
       # cost ledger, and never written by a session.
       - name: Verify message failure reasons
         run: supabase db query --local --file supabase/ci/verify-message-failure-reason.sql
+
+      # Migration 293: a webhook endpoint goes off only after 30 minutes of
+      # failures and rings; a claimed event can be given back.
+      - name: Verify webhook off bell
+        run: supabase db query --local --file supabase/ci/verify-webhook-off-bell.sql

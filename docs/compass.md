@@ -751,8 +751,9 @@ const ok = crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(v1));
 Delivery is **at most once**: events are queued in the database, claimed
 by the automations cron (at most once a minute) and sent with one attempt,
 no redirects and a short timeout. A failure is not retried, and an
-endpoint that fails repeatedly is auto-disabled (`is_active: false`;
-re-enable it with `PATCH /webhooks/{id}`). So:
+endpoint that fails repeatedly for 30 minutes is auto-disabled
+(`is_active: false`, and the owners and admins are notified; re-enable it
+with `PATCH /webhooks/{id}`). So:
 
 - respond `2xx` quickly and do the work after;
 - dedupe on `id` and do not assume ordering;

@@ -8236,6 +8236,7 @@
       "inbound_message_failed": "WhatsApp 메시지를 저장하지 못함",
       "meta_number_alert": "Meta 번호 상태 악화",
       "retention_failed": "자동 데이터 삭제(보관 기간) 실패",
+      "webhook_disabled": "웹훅이 반복 실패로 꺼짐",
       "pbx_connection_silent": "전화 시스템 응답 없음",
       "pbx_connection_restored": "전화 시스템 복구됨",
       "team_activity_alert": "팀 활동 알림",

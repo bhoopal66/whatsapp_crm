@@ -33,6 +33,13 @@ and polish.
   template paused, ...) now stands under the message, for the last 60
   days' failures too, and more of Meta's codes are put in words.
   **Migration required: 292**, after 291.
+- **A webhook no longer switches itself off in a bad minute, or in
+  silence.** Fifteen failed deliveries in one burst were enough, and
+  nobody was told. The failures must now span 30 minutes, and the owners
+  and admins get a notification. An event whose webhooks could not be read
+  from the database goes back to the queue instead of being lost.
+  **Migration required: 293**, after 292; needs a superuser or BYPASSRLS
+  role.
 
 ### Security
 

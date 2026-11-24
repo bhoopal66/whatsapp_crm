@@ -8236,6 +8236,7 @@
       "inbound_message_failed": "تعذّر حفظ رسالة WhatsApp",
       "meta_number_alert": "تدهور حالة رقم Meta",
       "retention_failed": "فشل الحذف التلقائي للبيانات (مدة الاحتفاظ)",
+      "webhook_disabled": "إيقاف Webhook بعد تكرار فشله",
       "pbx_connection_silent": "صمت نظام الهاتف",
       "pbx_connection_restored": "عودة نظام الهاتف",
       "team_activity_alert": "تنبيهات نشاط الفريق",
