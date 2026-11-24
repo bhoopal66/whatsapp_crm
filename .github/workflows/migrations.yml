@@ -839,7 +839,10 @@ jobs:
 
       # Migration 308: a hidden number leaving makes a joined customer unknown.
       - name: Verify submission groups ended and joined
-        run: supabase db query --local --file supabase/ci/verify-sg-ended-and-joined.sql
+        # Several statements: `supabase db query` takes one.
+        run: psql "$CI_DB_URL" -v ON_ERROR_STOP=1 -q -f supabase/ci/verify-sg-ended-and-joined.sql
+        env:
+          CI_DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
 
       # Migration 211: adding a number to a submission group.
       - name: Verify submission group add number
@@ -1156,7 +1159,10 @@ jobs:
 
       # Migration 303: the case desk and case cron fixes.
       - name: Verify desk fixes
-        run: supabase db query --local --file supabase/ci/verify-desk-fixes.sql
+        # Several statements: `supabase db query` takes one.
+        run: psql "$CI_DB_URL" -v ON_ERROR_STOP=1 -q -f supabase/ci/verify-desk-fixes.sql
+        env:
+          CI_DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
 
       # Migration 231: one document across a company's bank cases (design
       # 035 slice B). A trigger refuses a cross-customer case file on

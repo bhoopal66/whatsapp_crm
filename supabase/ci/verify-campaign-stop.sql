@@ -107,4 +107,3 @@ BEGIN
     IF SQLERRM <> 'cst-rollback' THEN RAISE; END IF;
   END;
 END $$;
-SELECT 'campaign stop ok' AS result;
