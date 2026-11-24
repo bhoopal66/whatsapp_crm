@@ -37,8 +37,10 @@ and polish.
   the two who answered could: the other's outcome and note were refused,
   and their wrap-up was never offered again. Everyone who answered a part
   of the call can now write them, and see that call. Reports credit the
-  same person as before. **Migration required: 294**, after 292 and before
-  the build.
+  same person as before. One person's note no longer replaces the other's
+  unseen: the second save is refused and shows the stored note, and saving
+  a note no longer rewrites the outcome. **Migration required: 294**,
+  after 292 and before the build.
 - **OpenWA numbers past the tenth were never checked.** The gateway takes
   ten requests a second per route; the five-minute status check asked for
   every number at once, so the last ones were refused every time and kept

@@ -337,6 +337,8 @@ export function blindTransferChannel(others: CallMember[]): string | null {
 export interface OutcomePatch {
   disposition?: Disposition | null;
   notes?: string | null;
+  /** The note its writer last saw; null: an empty one. */
+  notesSeen?: string | null;
 }
 
 /**
@@ -366,6 +368,11 @@ export function parseOutcome(
     )
       return `Notes are limited to ${NOTES_MAX} characters`;
     out.notes = b.notes;
+    if (b.notesSeen !== undefined) {
+      if (b.notesSeen !== null && typeof b.notesSeen !== 'string')
+        return 'notesSeen must be text or null';
+      out.notesSeen = b.notesSeen;
+    }
   }
   return Object.keys(out).length ? out : 'Nothing to change';
 }

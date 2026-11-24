@@ -2,7 +2,8 @@
 -- Migration 294: after a transfer, everyone who answered a leg of a call
 -- (calls.meta.answered_user_ids) may see it and write its note, in their
 -- active account; nobody else gains anything, a leader of one of them
--- included. Leaves nothing behind (everything in one rolled-back block).
+-- included. And pbx_save_call_note: the same people, only the fields sent,
+-- a note only over the text its writer last saw. Leaves nothing behind (everything in one rolled-back block).
 -- ============================================================
 DO $verify$
 DECLARE
@@ -16,6 +17,7 @@ DECLARE
   a_acct uuid; a_x uuid; t_team uuid; k uuid; k_bad uuid; k_json text;
   failed text[] := '{}'; n int := 0; r text;
   what text; who uuid; want text; seen text;
+  fields jsonb; stored text; by_now uuid; row_now text; said jsonb;
 BEGIN
   BEGIN
   EXECUTE $fn$
@@ -95,6 +97,87 @@ BEGIN
       failed := array_append(failed, format('%s: pbx_can_view_call says %s', what, r));
     END IF;
   END LOOP;
+  -- pbx_save_call_note refuses and admits as pbx_set_disposition.
+  FOR what, who, want IN VALUES
+    ('the call''s person', u_a, 'ok'),
+    ('the one it was transferred to', u_b, 'ok'),
+    ('the owner', u_own, 'ok'),
+    ('a colleague who did not answer', u_c, 'P0002'),
+    ('the leader of one who answered', u_lead, 'P0002'),
+    ('a viewer in the list', u_view, '42501'),
+    ('another account''s person in the list', u_x, 'P0002')
+  LOOP
+    r := pg_temp.pcn_try(who, format(
+      'SELECT pbx_save_call_note(%L, ''{"disposition": "interested"}'') ->> ''disposition''', k));
+    n := n + 1;
+    IF (CASE WHEN r = 'interested' THEN 'ok' ELSE r END) <> want THEN
+      failed := array_append(failed, format('%s saves a note: %s, not %s', what, r, want));
+    END IF;
+  END LOOP;
+
+  -- Each from a stored note of `stored` by `by_now` and an outcome of
+  -- call_back: what the answer is, and what the row holds after.
+  FOR what, who, stored, by_now, fields, want, row_now IN VALUES
+    ('a note over the text seen', u_b, 'one', u_a,
+     '{"notes": " two ", "notes_seen": "one"}'::jsonb, 'two', 'two|call_back|b'),
+    ('a first note', u_b, NULL, NULL, '{"notes": "two", "notes_seen": null}', 'two', 'two|call_back|b'),
+    ('a note over text never seen', u_b, 'one', u_a,
+     '{"notes": "two", "notes_seen": null}', 'conflict:one', 'one|call_back|a'),
+    ('a note over text changed since', u_b, 'three', u_a,
+     '{"notes": "two", "notes_seen": "one"}', 'conflict:three', 'three|call_back|a'),
+    ('over the writer''s own, changed since', u_b, 'three', u_b,
+     '{"notes": "two", "notes_seen": "one"}', 'conflict:three', 'three|call_back|b'),
+    ('a note someone cleared since', u_b, NULL, u_a,
+     '{"notes": "two", "notes_seen": "one"}', 'conflict:', '|call_back|a'),
+    ('the text already stored', u_b, 'two', u_a,
+     '{"notes": "two ", "notes_seen": "one"}', 'two', 'two|call_back|a'),
+    ('a conflict with an outcome', u_b, 'three', u_a,
+     '{"notes": "two", "notes_seen": "one", "disposition": "interested"}', 'conflict:three', 'three|call_back|a'),
+    ('both', u_b, 'one', u_a,
+     '{"notes": "two", "notes_seen": "one", "disposition": null}', 'two', 'two||b'),
+    ('clearing', u_b, 'one', u_a, '{"notes": null, "notes_seen": "one"}', '', '|call_back|b'),
+    ('an outcome alone', u_b, 'one', u_a, '{"disposition": "interested"}', 'one', 'one|interested|a'),
+    ('an old tab over a colleague''s', u_b, 'one', u_a, '{"notes": "two"}', 'conflict:one', 'one|call_back|a'),
+    ('an old tab over its own', u_b, 'one', u_b, '{"notes": "two"}', 'two', 'two|call_back|b'),
+    ('an old tab over an empty one', u_b, NULL, u_a, '{"notes": "two"}', 'two', 'two|call_back|b'),
+    ('nothing', u_b, 'one', u_a, '{"notes_seen": "one"}', '22023', 'one|call_back|a'),
+    ('not an object', u_b, 'one', u_a, '["notes"]', '22023', 'one|call_back|a'),
+    ('a note that is not text', u_b, 'one', u_a, '{"notes": 5, "notes_seen": "one"}', '22023', 'one|call_back|a'),
+    ('an unknown outcome', u_b, 'one', u_a, '{"disposition": "sold"}', '22023', 'one|call_back|a'),
+    ('too long a note', u_b, 'one', u_a,
+     jsonb_build_object('notes', repeat('x', 4001), 'notes_seen', 'one'), '22023', 'one|call_back|a')
+  LOOP
+    UPDATE calls SET notes = stored, disposition = 'call_back', notes_updated_by = by_now,
+                     notes_updated_at = '2026-01-01T00:00:00Z' WHERE id = k;
+    r := pg_temp.pcn_try(who, format('SELECT pbx_save_call_note(%L, %L)', k, fields));
+    IF r LIKE '{%' THEN
+      said := r::jsonb;
+      r := CASE WHEN (said -> 'conflict') = 'true' THEN 'conflict:' ELSE '' END
+           || COALESCE(said ->> 'notes', '');
+    END IF;
+    n := n + 1;
+    IF r <> want THEN failed := array_append(failed, format('%s: answered %s, not %s', what, r, want)); END IF;
+    SELECT format('%s|%s|%s', c.notes, c.disposition,
+                  CASE c.notes_updated_by WHEN u_a THEN 'a' WHEN u_b THEN 'b' END) INTO r
+      FROM calls c WHERE c.id = k;
+    n := n + 1;
+    IF r <> row_now THEN failed := array_append(failed, format('%s: stored %s, not %s', what, r, row_now)); END IF;
+    -- The stamp moves with the note and only with it.
+    n := n + 1;
+    IF (SELECT (c.notes IS DISTINCT FROM stored)
+               <> (c.notes_updated_at > '2026-01-02') FROM calls c WHERE c.id = k) THEN
+      failed := array_append(failed, format('%s: the wrong stamp', what));
+    END IF;
+  END LOOP;
+  -- An erased call is an error, never a conflict.
+  UPDATE calls SET erased_at = now(), recording_state = 'erased', disposition = NULL, notes = NULL WHERE id = k;
+  r := pg_temp.pcn_try(u_a, format('SELECT pbx_save_call_note(%L, ''{"notes": "x"}'')', k));
+  n := n + 1;
+  IF r <> '55000' THEN failed := array_append(failed, ('a note on an erased call: ' || r)::text); END IF;
+  r := pg_temp.pcn_try(u_b, format('SELECT pbx_save_call_note(%L, ''{"notes": "x"}'')', k_bad));
+  n := n + 1;
+  IF r <> 'P0002' THEN failed := array_append(failed, ('a note through a list that is an object: ' || r)::text); END IF;
+
   r := pg_temp.pcn_try(u_b, format('SELECT count(*) FROM calls WHERE id = %L', k_bad))
     || pg_temp.pcn_try(u_b, format('SELECT pbx_set_disposition(%L, NULL, ''x'')', k_bad));
   n := n + 1;
@@ -113,6 +196,8 @@ BEGIN
   IF has_function_privilege('authenticated', 'public.pbx_answered_call(public.calls)', 'EXECUTE')
      OR has_function_privilege('anon', 'public.pbx_set_disposition(uuid, text, text)', 'EXECUTE')
      OR has_function_privilege('anon', 'public.pbx_can_view_call(public.calls)', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.pbx_save_call_note(uuid, jsonb)', 'EXECUTE')
+     OR NOT has_function_privilege('authenticated', 'public.pbx_save_call_note(uuid, jsonb)', 'EXECUTE')
      OR NOT has_function_privilege('authenticated', 'public.pbx_set_disposition(uuid, text, text)', 'EXECUTE')
      OR NOT has_function_privilege('authenticated', 'public.pbx_can_view_call(public.calls)', 'EXECUTE') THEN
     failed := array_append(failed, 'function grants'::text);
