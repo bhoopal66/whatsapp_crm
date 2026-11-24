@@ -123,7 +123,7 @@ export async function PATCH(
             .eq('id', id)
             .eq('account_id', ctx.accountId)
             .maybeSingle();
-          if (readErr) {
+          if (readErr && readErr.code !== '22P02') {
             console.error('[api/v1/webhooks] read error:', readErr);
             return fail('internal', 'Failed to update webhook', 500);
           }

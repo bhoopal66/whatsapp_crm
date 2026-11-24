@@ -54,7 +54,7 @@ const PLAN = {
   skippedOptedOut: 0,
 };
 
-import { BroadcastError } from '@/lib/whatsapp/broadcast-core';
+import { BroadcastError, isRefusal } from '@/lib/whatsapp/broadcast-core';
 import { POST } from './route';
 import { claimBroadcastDelivery } from '@/lib/whatsapp/broadcast-resume';
 
@@ -286,6 +286,31 @@ describe('POST /api/v1/broadcasts with an Idempotency-Key', () => {
     expect(await keyed()).toMatchObject(unknown);
     expect(await keyed()).toMatchObject(unknown);
     expect(insert).toHaveBeenCalledTimes(1);
+  });
+
+  it('a creation the database refused can be tried again', async () => {
+    insert.mockRejectedValueOnce(
+      new BroadcastError('internal', 'Failed to create broadcast', 500, true)
+    );
+    expect(await keyed()).toMatchObject({ status: 500, code: 'internal' });
+    expect(await keyed()).toMatchObject({ status: 202 });
+    expect(insert).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ['23514', true],
+    ['57014', true],
+    ['55P03', true],
+    ['P0001', true],
+    ['08006', false],
+    ['57P01', false],
+    ['40003', false],
+    ['XX000', false],
+    ['PGRST202', false],
+    ['', false],
+    [undefined, false],
+  ])('a database answer of %s proves nothing was created: %s', (code, sure) => {
+    expect(isRefusal(code)).toBe(sure);
   });
 
   it('creates nothing when the key cannot be recorded', async () => {

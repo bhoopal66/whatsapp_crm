@@ -59,6 +59,7 @@ vi.mock('./invites', () => ({ sendRoomInvites }));
 import { MetaError } from '@/lib/whatsapp/meta-api';
 import {
   groupMessages,
+  groupRetryPauses,
   groupStatuses,
   handleGroupWebhook,
   isGroupChange,
@@ -132,13 +133,18 @@ function fakeDb(
   return { db: db as never, rpc, upload, inserts };
 }
 
-async function run(db: never, value: Record<string, unknown>) {
+async function run(
+  db: never,
+  value: Record<string, unknown>,
+  pauses?: number[]
+) {
   const done = handleGroupWebhook({
     db,
     accountId: 'acct-1',
     phoneNumberId: '106',
     accessToken: 'tok',
     value,
+    pauses,
   });
   await vi.runAllTimersAsync(); // the pause before a STOP's retry
   return done;
@@ -1155,6 +1161,49 @@ describe('group messages and receipts', () => {
       ];
       expect(args.p_media.storage_path).toMatch(/wamid\.3-offer\.pdf$/);
       expect(args.p_media.error).toBeUndefined();
+    });
+
+    it('a file that is refused for good spends no retry of the rest', async () => {
+      const { db, rpc } = fakeDb({ tables: { deal_rooms: ROOM } });
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      downloadMedia.mockRejectedValueOnce(new Error('too large'));
+      downloadMedia.mockRejectedValueOnce(new Error('too large'));
+      const pauses = groupRetryPauses();
+      const before = pauses.length;
+      await run(
+        db,
+        {
+          messages: [
+            {
+              id: 'wamid.4',
+              from: '971501234567',
+              group_id: GROUP,
+              type: 'document',
+              document: { id: 'media-1', filename: 'offer.pdf' },
+            },
+          ],
+        },
+        pauses
+      );
+      expect(downloadMedia).toHaveBeenCalledTimes(2);
+      expect(pauses).toHaveLength(before);
+      expect(rpc).toHaveBeenLastCalledWith(
+        'deal_room_record_message',
+        expect.objectContaining({
+          p_media: expect.objectContaining({ error: 'too large' }),
+        })
+      );
+    });
+
+    it('the values of one request share the pauses', async () => {
+      const { db, rpc } = fakeDb({ tables: { deal_rooms: ROOM } });
+      rpc.mockImplementation((async () => refused) as never);
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      const pauses = groupRetryPauses();
+      await run(db, { statuses: [receipt('wamid.1')] }, pauses);
+      rpc.mockClear();
+      await run(db, { statuses: [receipt('wamid.2')] }, pauses);
+      expect(rpc).toHaveBeenCalledTimes(1);
     });
 
     it('three retries a delivery, then the next item is still tried', async () => {

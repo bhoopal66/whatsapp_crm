@@ -162,8 +162,10 @@ export async function POST(request: Request) {
     return ok(answer, 202);
   } catch (err) {
     if (claim) {
-      await claim.settle({ state: handedOver ? 'unconfirmed' : 'failed' });
-      if (handedOver) {
+      const unsure =
+        handedOver && !(err instanceof BroadcastError && err.refused);
+      await claim.settle({ state: unsure ? 'unconfirmed' : 'failed' });
+      if (unsure) {
         console.error('[api/v1/broadcasts] outcome unconfirmed:', err);
         return toApiErrorResponse(broadcastUnconfirmed());
       }

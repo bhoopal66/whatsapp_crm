@@ -332,6 +332,15 @@ BEGIN
   -- double click, a refresh or a bot repeating itself opens nothing new.
   -- 315: a task closed within the window takes nothing more, so what the
   -- visitor wrote after it gets a task of its own.
+  -- 275: the visitor is told "ok", so what they wrote must be kept: a text
+  -- the open task does not hold yet joins its note (4000 characters in all,
+  -- 085's limit). A name or email is repeated only where it is not the
+  -- contact's own, so a double click of a brand new lead adds nothing.
+  SELECT nullif(concat_ws(E'\n', v_message,
+           'Submitted name: ' || CASE WHEN v_name IS DISTINCT FROM c.name THEN v_name END,
+           'Submitted email: ' || CASE WHEN v_email IS DISTINCT FROM c.email THEN v_email END), '')
+    INTO v_add
+    FROM public.contacts c WHERE c.id = v_contact;
   SELECT t.id, coalesce(t.note, '') INTO v_open, v_old
     FROM public.tasks t
    WHERE t.contact_id = v_contact
@@ -344,29 +353,30 @@ BEGIN
    LIMIT 1
      FOR UPDATE;
   IF NOT FOUND THEN
+    -- Nor does the same submission again after its task was closed.
     INSERT INTO public.tasks
            (account_id, kind, title, note, contact_id, source, source_ref, meta)
-    VALUES (v_acct, 'follow_up', 'New web lead', v_note, v_contact,
-            'automation',
-            'web_form:' || v_contact::text || ':'
-              || floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint::text,
-            jsonb_build_object('web_form', true)
-              || CASE WHEN v_page IS NULL THEN '{}'::jsonb
-                      ELSE jsonb_build_object('page_url', v_page) END
-              || v_meta)
+    SELECT v_acct, 'follow_up', 'New web lead', v_note, v_contact,
+           'automation',
+           'web_form:' || v_contact::text || ':'
+             || floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint::text,
+           jsonb_build_object('web_form', true)
+             || CASE WHEN v_page IS NULL THEN '{}'::jsonb
+                     ELSE jsonb_build_object('page_url', v_page) END
+             || v_meta
+     WHERE NOT EXISTS (
+             SELECT 1 FROM public.tasks t
+              WHERE t.contact_id = v_contact
+                AND t.account_id = v_acct
+                AND t.source = 'automation'
+                AND t.source_ref LIKE 'web_form:%'
+                AND t.created_at > now() - interval '10 minutes'
+                AND (v_add IS NULL
+                     OR strpos(E'\n\n' || coalesce(t.note, '') || E'\n\n', E'\n\n' || v_add || E'\n\n') > 0
+                     OR strpos(E'\n\n' || coalesce(t.note, '') || E'\n\n', E'\n\n' || v_note || E'\n\n') > 0))
     ON CONFLICT (account_id, source, source_ref) DO NOTHING;
     v_task := FOUND;
   ELSIF v_note IS NOT NULL THEN
-    -- 275: the visitor is told "ok", so what they wrote must be kept: a
-    -- text the open task does not hold yet joins its note (4000 characters
-    -- in all, 085's limit). A name or email is repeated only where it is
-    -- not the contact's own, so a double click of a brand new lead adds
-    -- nothing.
-    SELECT nullif(concat_ws(E'\n', v_message,
-             'Submitted name: ' || CASE WHEN v_name IS DISTINCT FROM c.name THEN v_name END,
-             'Submitted email: ' || CASE WHEN v_email IS DISTINCT FROM c.email THEN v_email END), '')
-      INTO v_add
-      FROM public.contacts c WHERE c.id = v_contact;
     IF v_add IS NOT NULL
        AND strpos(E'\n\n' || v_old || E'\n\n', E'\n\n' || v_add || E'\n\n') = 0
        AND strpos(E'\n\n' || v_old || E'\n\n', E'\n\n' || v_note || E'\n\n') = 0 THEN

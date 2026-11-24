@@ -32,6 +32,7 @@ import {
 } from '@/lib/whatsapp/inbound-pipeline';
 import {
   groupMessages,
+  groupRetryPauses,
   groupStatuses,
   handleGroupWebhook,
   isGroupChange,
@@ -600,6 +601,7 @@ async function phoneNumberHalf(
       // rather than confirmed: a claim is confirmed only once its event is
       // persisted, so a later redelivery is still processed.
       const persisted: ScreenDecision[] = [];
+      const pauses = groupRetryPauses();
       for (const n of screened) {
         if (record.status === 'unavailable') {
           try {
@@ -622,6 +624,7 @@ async function phoneNumberHalf(
                 phoneNumberId: n.config.phone_number_id,
                 accessToken,
                 value,
+                pauses,
               });
             }
             persisted.push(...n.groupDecisions);

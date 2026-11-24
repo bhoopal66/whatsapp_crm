@@ -1302,6 +1302,7 @@ describe('POST — deal-room group traffic', () => {
     await runAfterCallbacks();
 
     expect(h.handleGroupWebhook).toHaveBeenCalledTimes(1);
+    expect(h.handleGroupWebhook.mock.calls[0][0].pauses).toHaveLength(3);
     expect(h.handleGroupWebhook.mock.calls[0][0]).toMatchObject({
       accountId: 'acc-1',
       phoneNumberId: NUMBER,

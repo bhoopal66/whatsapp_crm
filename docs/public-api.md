@@ -460,7 +460,7 @@ request creates a campaign.
 | a request that created its campaign      | `200`, the first answer again with `"replayed": true`. Nothing is created; poll the broadcast          |
 | a request that certainly did not         | the campaign is created now                                                                            |
 | a request still running                  | `409 in_progress` with `Retry-After`                                                                   |
-| a request whose outcome is unknown       | `409 delivery_unconfirmed`. The campaign may exist (see the dashboard); this key never creates it again |
+| a request whose outcome is unknown       | `409 delivery_unconfirmed`. The campaign may exist (see the dashboard); this key never creates it again. A creation the database refused is a `500`, and can be repeated |
 | another broadcast with the same key      | `409 idempotency_key_reused`. Nothing is created                                                       |
 
 `503 unavailable` means the key could not be recorded and nothing was
@@ -700,7 +700,8 @@ active and ended groups alike, and the answer adds
   A `changed_at` in the future counts as the moment it arrived (it would
   otherwise make every later update stale).
   Refusals of one item (an outcome reason, a document) are listed in
-  `sync.rejected` as `{ key, error }` and the rest still applies.
+  `sync.rejected` as `{ key, error }` and the rest still applies. Two such
+  updates are ordered by arrival, retries included: send the real time.
 - A move to `Approved`, `Declined`, `Withdrawn` or `Closed` ends the group
   like a final `status`.
 - The API is never blocked by the CRM's "managed in Compass" switch.

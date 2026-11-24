@@ -59,12 +59,18 @@ export interface EditorState {
   form: EditorForm;
 }
 
+/** `slot` was read before `base` was stored: its reload is on its way. */
+function isOlder(slot: EditorSlot, base: EditorSlot): boolean {
+  const at = base.stored?.updatedAt;
+  return !!at && (slot.stored?.updatedAt ?? '') < at;
+}
+
 /**
  * The editor after a reload: an untouched one shows what is stored now, a
  * touched one keeps its text and the version it was read with.
  */
 export function followSlot(state: EditorState, slot: EditorSlot): EditorState {
-  if (slot.key === state.base.key) return state;
+  if (slot.key === state.base.key || isOlder(slot, state.base)) return state;
   const { form, base } = state;
   const touched = (Object.keys(form) as (keyof EditorForm)[]).some(
     (k) => form[k] !== base.initial[k]
@@ -74,7 +80,10 @@ export function followSlot(state: EditorState, slot: EditorSlot): EditorState {
 
 /** Somebody saved the stored row after the editor was filled. */
 export function storedMoved(base: EditorSlot, slot: EditorSlot): boolean {
-  return (base.stored?.updatedAt ?? null) !== (slot.stored?.updatedAt ?? null);
+  return (
+    !isOlder(slot, base) &&
+    (base.stored?.updatedAt ?? null) !== (slot.stored?.updatedAt ?? null)
+  );
 }
 
 /**

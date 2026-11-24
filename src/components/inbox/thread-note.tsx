@@ -199,7 +199,8 @@ export function ThreadNote({
               autoFocus={focusEdit}
               className="min-h-16 text-sm"
             />
-            {base !== note.body && (
+            {/* Not while saving: the own save may arrive before its answer. */}
+            {!busy && base !== note.body && (
               <p className="text-warning text-xs" role="alert">
                 {t('changedMeanwhile', { body: note.body })}
               </p>
