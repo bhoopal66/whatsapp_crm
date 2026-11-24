@@ -1,7 +1,10 @@
 // /api/privacy/ai-transfer — the workspace's legal basis for sending
 // customer text to AI providers abroad (migration 224). Owners and admins.
 //   GET -> `{ basis: {…} | null, last_30_days, refused_30_days }`
-//   PUT `{ basis, note, approvedBy, region, requireBasis }`
+//   PUT `{ basis, note, approvedBy, region, requireBasis,
+//          expectedUpdatedAt }` (the `basis.recorded_at` the form was
+//          loaded with, null when there was no basis): 409 STALE when
+//          somebody saved since, or when none was sent over a saved basis.
 // With requireBasis on, every AI call is refused until all four basis
 // fields are filled (basis consent | contract | adequacy | scc | other,
 // note 20-2000 characters).
@@ -15,6 +18,7 @@ import {
   readBody,
 } from '@/lib/privacy/http';
 import { PrivacyStore } from '@/lib/privacy/store';
+import { isStaleSave, staleSaveResponse } from '@/lib/settings/stale';
 import { supabaseAdmin } from '@/lib/submission-groups/server';
 
 const BASES = ['consent', 'contract', 'adequacy', 'scc', 'other'];
@@ -56,17 +60,28 @@ export async function PUT(request: Request) {
     const note = optText(body.note, 'note', 2000);
     if (note !== null && note.length < 20)
       throw new PrivacyBadRequest('note must be at least 20 characters');
-    const out = await new PrivacyStore(supabaseAdmin()).aiTransfer(
-      ctx.userId,
-      ctx.accountId,
-      {
-        basis,
-        note,
-        approvedBy: optText(body.approvedBy, 'approvedBy', 200),
-        region: optText(body.region, 'region', 100),
-        requireBasis: body.requireBasis,
-      }
-    );
+    const approvedBy = optText(body.approvedBy, 'approvedBy', 200);
+    const region = optText(body.region, 'region', 100);
+    const store = new PrivacyStore(supabaseAdmin());
+    const current = (await store.aiTransfer(ctx.userId, ctx.accountId)) as {
+      basis: { recorded_at: string } | null;
+    };
+    // The save replaces every column, so a form that does not say which
+    // version it was loaded from is stale too.
+    if (
+      isStaleSave(
+        body.expectedUpdatedAt ?? null,
+        current.basis?.recorded_at ?? null
+      )
+    )
+      return noStore(staleSaveResponse());
+    const out = await store.aiTransfer(ctx.userId, ctx.accountId, {
+      basis,
+      note,
+      approvedBy,
+      region,
+      requireBasis: body.requireBasis,
+    });
     return noStore(NextResponse.json(out));
   } catch (err) {
     return privacyErrorResponse(err, 'ai transfer set');

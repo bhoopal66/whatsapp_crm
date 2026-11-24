@@ -7795,7 +7795,10 @@
       "noTags": "No chat tags yet.",
       "save": "Save settings",
       "saved": "Settings saved",
-      "saveFailed": "Could not save the settings"
+      "saveFailed": "Could not save the settings",
+      "loadFailed": "재활용 설정을 불러오지 못했습니다.",
+      "conflict": "다른 사람이 이 설정을 변경했습니다. 아무것도 저장되지 않았습니다. 최신 설정을 보려면 다시 불러오세요.",
+      "reload": "다시 불러오기"
     }
   },
   "Reminders": {
@@ -13681,7 +13684,13 @@
       "lastDryRun": "마지막 실행 {at}: 미리보기. {rows, plural, one {#개 행} other {#개 행}}과 {files, plural, one {#개 파일} other {#개 파일}}을 삭제하거나 비우게 됩니다.",
       "lastApply": "마지막 실행 {at}: {rows, plural, one {#개 행} other {#개 행}}을 삭제하거나 비웠고, {files, plural, one {#개 파일} other {#개 파일}}이 삭제 대기 중입니다.",
       "lastMore": "남은 데이터가 있으며 자동으로 계속됩니다.",
-      "lastFailed": "마지막 실행 {at}이 실패했습니다({code}). 자동으로 다시 시도하며 소유자에게 알렸습니다."
+      "lastFailed": "마지막 실행 {at}이 실패했습니다({code}). 자동으로 다시 시도하며 소유자에게 알렸습니다.",
+      "confirmTitle": "삭제를 켤까요?",
+      "confirmBody": "다음 일일 정리부터 아래 데이터가 영구히 제거되며 되돌릴 수 없습니다:",
+      "confirmNone": "아직 선택한 데이터 종류가 없어 지금은 아무것도 제거되지 않습니다. 나중에 선택하는 종류는 미리보기 없이 제거됩니다.",
+      "confirmDelete": "{kind}: {days}일 후 삭제",
+      "confirmBlank": "{kind}: {days}일 후 비움",
+      "confirm": "지금부터 삭제"
     },
     "ai": {
       "title": "고객 텍스트를 AI 제공자에게 보내기",
@@ -13702,6 +13711,19 @@
       "requireIncomplete": "이 설정이 켜져 있고 근거가 불완전하면 이 워크스페이스의 모든 AI 기능이 멈춥니다.",
       "stats": "최근 30일: AI 호출 {calls}건 기록, {refused}건 거부.",
       "saved": "저장했습니다"
+    },
+    "cancel": "취소",
+    "reload": "다시 불러오기",
+    "errors": {
+      "generic": "문제가 발생했습니다. 다시 시도해 주세요.",
+      "network": "서버에 연결할 수 없습니다. 연결을 확인하고 다시 시도해 주세요.",
+      "NOT_ALLOWED": "소유자와 관리자만 할 수 있습니다.",
+      "NOT_FOUND": "고객을 찾을 수 없습니다.",
+      "INVALID": "올바르지 않은 요청입니다.",
+      "CONFIRM_REQUIRED": "삭제하려면 확인 문구를 정확히 입력하세요.",
+      "REASON_REQUIRED": "사유가 필요합니다.",
+      "LEGAL_HOLD": "이 고객은 법적 보존 중이므로 아무것도 삭제되지 않았습니다.",
+      "STALE": "다른 사람이 이 설정을 변경했습니다. 아무것도 저장되지 않았고 입력한 내용은 그대로입니다. 최신 설정을 보려면 다시 불러오세요."
     }
   },
   "CaseReview": {

@@ -11,10 +11,11 @@
  *    and whether it is required.
  * Every rule is the server's; this only collects and shows.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useFormatter, useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 
+import { ErrorState } from '@/components/dashboard/error-state';
 import {
   ContactPicker,
   type ContactOption,
@@ -27,36 +28,65 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { RETENTION_RULES, type RetentionAction } from '@/lib/privacy/retention';
-import type { RetentionLastRun } from '@/lib/privacy/store';
+import { PRIVACY_REFUSALS, type RetentionLastRun } from '@/lib/privacy/store';
 
 const FIELD =
   'border-input bg-card dark:bg-input/30 h-9 rounded-md border px-3 text-sm';
 
+/** A failed request; status 0 when no answer came. */
+interface Failure {
+  status: number;
+  code: string | null;
+  error: string | null;
+}
+
+async function failureOf(res: Response): Promise<Failure> {
+  const body = (await res.json().catch(() => null)) as {
+    error?: unknown;
+    code?: unknown;
+  } | null;
+  return {
+    status: res.status,
+    code: typeof body?.code === 'string' ? body.code : null,
+    error: typeof body?.error === 'string' ? body.error : null,
+  };
+}
+
 async function call<T>(
   url: string,
   init?: RequestInit
-): Promise<{ ok: true; data: T } | { ok: false; error: string }> {
+): Promise<{ ok: true; data: T } | ({ ok: false } & Failure)> {
   try {
     const res = await fetch(url, init);
-    const body = (await res.json().catch(() => ({}))) as Record<
-      string,
-      unknown
-    >;
-    if (!res.ok)
-      return {
-        ok: false,
-        error:
-          typeof body.error === 'string' ? body.error : 'Something went wrong',
-      };
-    return { ok: true, data: body as T };
+    if (!res.ok) return { ok: false, ...(await failureOf(res)) };
+    return { ok: true, data: (await res.json()) as T };
   } catch {
-    return { ok: false, error: 'Network error' };
+    return { ok: false, status: 0, code: null, error: null };
   }
+}
+
+const CODES: readonly string[] = [...PRIVACY_REFUSALS, 'STALE'];
+
+/** What to tell the user: the server's own text only where it has no code. */
+function problem(t: (key: string) => string, f: Failure): string {
+  if (f.code && CODES.includes(f.code)) return t(`errors.${f.code}`);
+  if (f.status === 0) return t('errors.network');
+  if (f.status === 403) return t('errors.NOT_ALLOWED');
+  if (f.status >= 500 || !f.error) return t('errors.generic');
+  return f.error;
 }
 
 const json = (method: string, body: unknown): RequestInit => ({
@@ -64,6 +94,53 @@ const json = (method: string, body: unknown): RequestInit => ({
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify(body),
 });
+
+/**
+ * Loads a form once, and again when the returned Retry is called. Never by
+ * itself: a later load would replace what was typed. `load` answers what
+ * went wrong, or null.
+ */
+function useFirstLoad(
+  load: () => Promise<string | null>,
+  setFailed: (failed: string | null) => void
+): () => void {
+  const started = useRef(false);
+  const run = () => {
+    setFailed(null);
+    void load().then(setFailed);
+  };
+  useEffect(() => {
+    if (started.current) return;
+    started.current = true;
+    void load().then(setFailed);
+  }, [load, setFailed]);
+  return run;
+}
+
+/**
+ * A refused save keeps what was typed. When somebody saved meanwhile it
+ * offers a reload, which is the only thing that replaces it.
+ */
+function showSaveProblem(
+  t: (key: string) => string,
+  f: Failure,
+  reload: () => Promise<string | null>
+): void {
+  toast.error(
+    problem(t, f),
+    f.code === 'STALE'
+      ? {
+          action: {
+            label: t('reload'),
+            onClick: () =>
+              void reload().then((failed) => {
+                if (failed) toast.error(failed);
+              }),
+          },
+        }
+      : undefined
+  );
+}
 
 export function PrivacyPanel() {
   return (
@@ -139,11 +216,7 @@ function CustomerRequest() {
         '/api/privacy/export',
         json('POST', { contactId: contact.id })
       );
-      if (!res.ok) {
-        const b = (await res.json().catch(() => ({}))) as { error?: string };
-        toast.error(b.error ?? 'Something went wrong');
-        return;
-      }
+      if (!res.ok) return void toast.error(problem(t, await failureOf(res)));
       const blob = await res.blob();
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
@@ -151,6 +224,8 @@ function CustomerRequest() {
       a.click();
       URL.revokeObjectURL(a.href);
       toast.success(t('request.exported'));
+    } catch {
+      toast.error(t('errors.network'));
     } finally {
       setBusy(false);
     }
@@ -171,7 +246,7 @@ function CustomerRequest() {
     setBusy(false);
     setConfirmRelease(false);
     if (currentId.current !== forId) return;
-    if (!r.ok) return void toast.error(r.error);
+    if (!r.ok) return void toast.error(problem(t, r));
     setHold(r.data);
     setHoldReason('');
     // A preview made under the old hold no longer says what erasing does.
@@ -193,7 +268,7 @@ function CustomerRequest() {
     );
     setBusy(false);
     if (currentId.current !== forId) return;
-    if (!r.ok) return void toast.error(r.error);
+    if (!r.ok) return void toast.error(problem(t, r));
     setResult(r.data);
     if (!dryRun && !r.data.blocked) {
       toast.success(t('request.erased'));
@@ -378,55 +453,75 @@ function CustomerRequest() {
 
 type Row = { on: boolean; days: string; action: RetentionAction };
 
+interface RetentionOut {
+  policy: {
+    tables?: Record<string, { days: number; action: RetentionAction }>;
+  };
+  apply: boolean;
+  updatedAt: string | null;
+  lastRun: RetentionLastRun | null;
+}
+type RetentionSaved = Pick<RetentionOut, 'apply' | 'updatedAt'>;
+
 function Retention() {
   const t = useTranslations('Privacy');
   const format = useFormatter();
   const [rows, setRows] = useState<Record<string, Row> | null>(null);
   const [apply, setApply] = useState(false);
+  // What the form was loaded from: a save names its version.
+  const [saved, setSaved] = useState<RetentionSaved | null>(null);
+  const [failed, setFailed] = useState<string | null>(null);
+  const [confirmApply, setConfirmApply] = useState(false);
   const [lastRun, setLastRun] = useState<RetentionLastRun | null>(null);
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    void call<{
-      policy: {
-        tables?: Record<string, { days: number; action: RetentionAction }>;
-      };
-      apply: boolean;
-      lastRun: RetentionLastRun | null;
-    }>('/api/privacy/retention').then((r) => {
-      if (!r.ok) return void toast.error(r.error);
-      const tables = r.data.policy?.tables ?? {};
-      setRows(
-        Object.fromEntries(
-          Object.entries(RETENTION_RULES).map(([k, rule]) => [
-            k,
-            {
-              on: k in tables,
-              days: String(tables[k]?.days ?? 365),
-              action: tables[k]?.action ?? rule.actions[0]!,
-            },
-          ])
-        )
-      );
-      setApply(r.data.apply);
-      setLastRun(r.data.lastRun ?? null);
-    });
-  }, []);
+  const load = useCallback(async () => {
+    const r = await call<RetentionOut>('/api/privacy/retention');
+    if (!r.ok) return problem(t, r);
+    const tables = r.data.policy?.tables ?? {};
+    setRows(
+      Object.fromEntries(
+        Object.entries(RETENTION_RULES).map(([k, rule]) => [
+          k,
+          {
+            on: k in tables,
+            days: String(tables[k]?.days ?? 365),
+            action: tables[k]?.action ?? rule.actions[0]!,
+          },
+        ])
+      )
+    );
+    setApply(r.data.apply);
+    setSaved({ apply: r.data.apply, updatedAt: r.data.updatedAt });
+    setLastRun(r.data.lastRun ?? null);
+    return null;
+  }, [t]);
+  const firstLoad = useFirstLoad(load, setFailed);
+
+  const chosen = Object.entries(rows ?? {}).filter(([, r]) => r.on);
 
   const save = async () => {
-    if (!rows) return;
-    const tables = Object.fromEntries(
-      Object.entries(rows)
-        .filter(([, r]) => r.on)
-        .map(([k, r]) => [k, { days: Number(r.days), action: r.action }])
-    );
+    if (!rows || !saved) return;
+    setConfirmApply(false);
     setBusy(true);
-    const r = await call(
+    const r = await call<RetentionOut>(
       '/api/privacy/retention',
-      json('PUT', { policy: { tables }, apply })
+      json('PUT', {
+        policy: {
+          tables: Object.fromEntries(
+            chosen.map(([k, row]) => [
+              k,
+              { days: Number(row.days), action: row.action },
+            ])
+          ),
+        },
+        apply,
+        expectedUpdatedAt: saved.updatedAt,
+      })
     );
     setBusy(false);
-    if (!r.ok) return void toast.error(r.error);
+    if (!r.ok) return showSaveProblem(t, r, load);
+    setSaved({ apply: r.data.apply, updatedAt: r.data.updatedAt });
     toast.success(t('retention.saved'));
   };
 
@@ -438,7 +533,11 @@ function Retention() {
       </CardHeader>
       <CardContent className="space-y-3">
         {rows === null ? (
-          <p className="text-muted-foreground text-sm">{t('loading')}</p>
+          failed === null ? (
+            <p className="text-muted-foreground text-sm">{t('loading')}</p>
+          ) : (
+            <ErrorState message={failed} onRetry={firstLoad} />
+          )
         ) : (
           <>
             {Object.entries(RETENTION_RULES).map(([k, rule]) => {
@@ -526,9 +625,59 @@ function Retention() {
                 {lastRun.more && ` ${t('retention.lastMore')}`}
               </p>
             )}
-            <Button onClick={save} disabled={busy}>
+            <Button
+              onClick={() =>
+                // Turning it on deletes customer data: say which first.
+                apply && !saved?.apply ? setConfirmApply(true) : void save()
+              }
+              disabled={busy}
+            >
               {t('save')}
             </Button>
+            <Dialog open={confirmApply} onOpenChange={setConfirmApply}>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>{t('retention.confirmTitle')}</DialogTitle>
+                  <DialogDescription>
+                    {chosen.length === 0
+                      ? t('retention.confirmNone')
+                      : t('retention.confirmBody')}
+                  </DialogDescription>
+                </DialogHeader>
+                {chosen.length > 0 && (
+                  <ul className="list-disc space-y-1 ps-5 text-sm">
+                    {chosen.map(([k, r]) => (
+                      <li key={k}>
+                        {t(
+                          r.action === 'delete'
+                            ? 'retention.confirmDelete'
+                            : 'retention.confirmBlank',
+                          {
+                            kind: t(`retention.keys.${k}`),
+                            days: Number(r.days),
+                          }
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <DialogFooter>
+                  <Button
+                    variant="outline"
+                    onClick={() => setConfirmApply(false)}
+                  >
+                    {t('cancel')}
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    disabled={busy}
+                    onClick={() => void save()}
+                  >
+                    {t('retention.confirm')}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           </>
         )}
       </CardContent>
@@ -545,6 +694,7 @@ interface AiOut {
     approved_by: string | null;
     provider_region: string | null;
     require_basis: boolean;
+    recorded_at: string;
   } | null;
   last_30_days: Record<string, number>;
   refused_30_days: number;
@@ -552,45 +702,69 @@ interface AiOut {
 
 const BASES = ['consent', 'contract', 'adequacy', 'scc', 'other'] as const;
 
+interface AiForm {
+  basis: string;
+  note: string;
+  approvedBy: string;
+  region: string;
+  requireBasis: boolean;
+}
+
 function AiTransfer() {
   const t = useTranslations('Privacy');
   const [data, setData] = useState<AiOut | null>(null);
-  const [form, setForm] = useState({
-    basis: '',
-    note: '',
-    approvedBy: '',
-    region: '',
-    requireBasis: false,
-  });
+  // Null until the stored basis was read: an empty form saved over it
+  // would erase the basis and open the gate.
+  const [form, setForm] = useState<AiForm | null>(null);
+  const [failed, setFailed] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const apply = (d: AiOut) => {
-    setData(d);
+  const load = useCallback(async () => {
+    const r = await call<AiOut>('/api/privacy/ai-transfer');
+    if (!r.ok) return problem(t, r);
+    setData(r.data);
     setForm({
-      basis: d.basis?.basis ?? '',
-      note: d.basis?.note ?? '',
-      approvedBy: d.basis?.approved_by ?? '',
-      region: d.basis?.provider_region ?? '',
-      requireBasis: d.basis?.require_basis ?? false,
+      basis: r.data.basis?.basis ?? '',
+      note: r.data.basis?.note ?? '',
+      approvedBy: r.data.basis?.approved_by ?? '',
+      region: r.data.basis?.provider_region ?? '',
+      requireBasis: r.data.basis?.require_basis ?? false,
     });
-  };
+    return null;
+  }, [t]);
+  const firstLoad = useFirstLoad(load, setFailed);
 
-  useEffect(() => {
-    void call<AiOut>('/api/privacy/ai-transfer').then((r) => {
-      if (r.ok) apply(r.data);
-      else toast.error(r.error);
-    });
-  }, []);
+  if (!form || !data)
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>{t('ai.title')}</CardTitle>
+          <CardDescription>{t('ai.description')}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {failed === null ? (
+            <p className="text-muted-foreground text-sm">{t('loading')}</p>
+          ) : (
+            <ErrorState message={failed} onRetry={firstLoad} />
+          )}
+        </CardContent>
+      </Card>
+    );
 
   const save = async () => {
     setBusy(true);
     const r = await call<AiOut>(
       '/api/privacy/ai-transfer',
-      json('PUT', { ...form, basis: form.basis || null })
+      json('PUT', {
+        ...form,
+        basis: form.basis || null,
+        expectedUpdatedAt: data.basis?.recorded_at ?? null,
+      })
     );
     setBusy(false);
-    if (!r.ok) return void toast.error(r.error);
-    apply(r.data);
+    if (!r.ok) return showSaveProblem(t, r, load);
+    // The form stays as it is: what was typed during the save is kept.
+    setData(r.data);
     toast.success(t('ai.saved'));
   };
 
@@ -599,7 +773,7 @@ function AiTransfer() {
     form.note.trim().length >= 20 &&
     form.approvedBy.trim() !== '' &&
     form.region.trim() !== '';
-  const calls = Object.values(data?.last_30_days ?? {}).reduce(
+  const calls = Object.values(data.last_30_days ?? {}).reduce(
     (a, b) => a + b,
     0
   );
@@ -668,11 +842,9 @@ function AiTransfer() {
             )}
           </div>
         </div>
-        {data && (
-          <p className="text-muted-foreground text-sm">
-            {t('ai.stats', { calls, refused: data.refused_30_days })}
-          </p>
-        )}
+        <p className="text-muted-foreground text-sm">
+          {t('ai.stats', { calls, refused: data.refused_30_days })}
+        </p>
         <Button onClick={save} disabled={busy}>
           {t('save')}
         </Button>

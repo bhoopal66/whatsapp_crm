@@ -41,6 +41,12 @@ and polish.
   channel or group chat clears its unread bells, and the sensitive-data
   guard reads file names also when a message has text. **Migration
   required: 307** (before the build).
+- **Privacy and recycling settings are never saved over blindly.** A failed
+  load in Settings → Privacy or on Recycle shows Retry instead of a form
+  that could wipe what is stored; a save over something a colleague changed
+  meanwhile is refused, with what you typed kept; turning on retention's
+  Apply asks first and names what will be deleted. Error messages of the
+  privacy panel and Recycle's dates follow the app's language.
 - **The privacy register no longer calls Draft with AI a reply.** The
   draft and the playground record their own purpose (`draft`,
   `playground`) in the AI transfer register instead of `reply`.

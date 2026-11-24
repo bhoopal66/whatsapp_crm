@@ -7795,7 +7795,10 @@
       "noTags": "No chat tags yet.",
       "save": "Save settings",
       "saved": "Settings saved",
-      "saveFailed": "Could not save the settings"
+      "saveFailed": "Could not save the settings",
+      "loadFailed": "Could not load the recycling settings.",
+      "conflict": "Somebody else changed these settings. Nothing was saved; reload to see the latest.",
+      "reload": "Reload"
     }
   },
   "Reminders": {
@@ -13681,7 +13684,13 @@
       "lastDryRun": "Last run {at}: a preview. It would remove or blank {rows, plural, one {# row} other {# rows}} and {files, plural, one {# file} other {# files}}.",
       "lastApply": "Last run {at}: {rows, plural, one {# row} other {# rows}} removed or blanked, {files, plural, one {# file} other {# files}} queued for deletion.",
       "lastMore": "More is left; it continues automatically.",
-      "lastFailed": "Last run {at} failed ({code}). It is tried again automatically; the owners were told."
+      "lastFailed": "Last run {at} failed ({code}). It is tried again automatically; the owners were told.",
+      "confirmTitle": "Turn on deleting?",
+      "confirmBody": "From the next daily sweep this data is removed for good and cannot be brought back:",
+      "confirmNone": "No kind of data is chosen yet, so nothing is removed now. Every kind you choose later is removed without a preview.",
+      "confirmDelete": "{kind}: deleted after {days} days",
+      "confirmBlank": "{kind}: blanked after {days} days",
+      "confirm": "Delete from now on"
     },
     "ai": {
       "title": "Sending customer text to AI providers",
@@ -13702,6 +13711,19 @@
       "requireIncomplete": "While this is on and the basis is incomplete, every AI feature of this workspace stops.",
       "stats": "Last 30 days: {calls} AI calls logged, {refused} refused.",
       "saved": "Saved"
+    },
+    "cancel": "Cancel",
+    "reload": "Reload",
+    "errors": {
+      "generic": "Something went wrong. Try again.",
+      "network": "Could not reach the server. Check your connection and try again.",
+      "NOT_ALLOWED": "Only owners and admins can do this.",
+      "NOT_FOUND": "Customer not found.",
+      "INVALID": "That request is not valid.",
+      "CONFIRM_REQUIRED": "Type the confirmation exactly to erase.",
+      "REASON_REQUIRED": "A reason is required.",
+      "LEGAL_HOLD": "This customer is under a legal hold; nothing was erased.",
+      "STALE": "Somebody else changed these settings. Nothing was saved and what you typed is kept; reload to see the latest."
     }
   },
   "CaseReview": {
