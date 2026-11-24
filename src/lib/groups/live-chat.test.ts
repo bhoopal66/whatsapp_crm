@@ -6,7 +6,7 @@ import {
   RETRY_DELAYS_MS,
 } from '@/lib/realtime/catch-up';
 
-import { joinFreshPage, startChatCatchUp } from './live-chat';
+import { joinFreshPage, oldestStored, startChatCatchUp } from './live-chat';
 
 const row = (n: number, extra: { id?: string } = {}) => ({
   id: `m${n}`,
@@ -17,6 +17,15 @@ const rows = (from: number, to: number) =>
   Array.from({ length: to - from + 1 }, (_, i) => row(from + i));
 const ids = (log: { messages: { id: string }[] }) =>
   log.messages.map((m) => m.id);
+
+describe('oldestStored', () => {
+  it('is never a send on its way: the server has no such row', () => {
+    expect(oldestStored([row(1, { id: 'tmp-1' }), row(2), row(3)])?.id).toBe(
+      'm2'
+    );
+    expect(oldestStored([row(1, { id: 'tmp-1' })])).toBeUndefined();
+  });
+});
 
 describe('joinFreshPage', () => {
   it('is the page on a first load', () => {

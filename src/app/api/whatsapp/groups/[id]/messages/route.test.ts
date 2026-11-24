@@ -37,6 +37,7 @@ vi.mock('@/lib/groups/server', async (importOriginal) => ({
 import { OpenWAError } from '@/lib/whatsapp/openwa-api';
 import { WhapiError } from '@/lib/whatsapp/whapi-api';
 
+import { messagePageQuery } from '@/lib/groups/live-chat';
 import { __resetRateLimitForTests } from '@/lib/rate-limit';
 
 import { GET, POST } from './route';
@@ -128,6 +129,26 @@ describe('GET', () => {
       'm3',
     ]);
     expect(body.hasMore).toBe(false);
+  });
+
+  it('skips nothing of an album cut by a page', async () => {
+    const at = '2026-10-01T00:30:00+00:00';
+    const ids = [1, 2, 3, 4, 5, 6].map(
+      (i) => `44444444-4444-4444-8444-44444444444${i}`
+    );
+    // Stored in no order of their own, all in one second.
+    mocks.rls.tables.whatsapp_group_messages = [4, 1, 6, 3, 5, 2].map((i) =>
+      msg(i, { id: ids[i - 1], created_at: at })
+    );
+    const seen: string[] = [];
+    let after: { id: string; created_at: string } | undefined;
+    for (let page = 0; page < 3; page++) {
+      const body = await (await get(`?${messagePageQuery(2, after)}`)).json();
+      expect(body.hasMore).toBe(page < 2);
+      seen.unshift(...body.messages.map((m: { id: string }) => m.id));
+      after = body.messages[0];
+    }
+    expect(seen).toEqual(ids);
   });
 
   it('refuses a bad limit', async () => {

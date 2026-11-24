@@ -34,6 +34,9 @@ and polish.
 
 ### Fixed
 
+- **Load older in a WhatsApp group skips no message.** Photos of one album
+  share a second, and a page that ended inside it lost the rest of them. No
+  migration.
 - **Words typed to a group wait for you.** Opening another group, case or
   tab no longer empties the box of a WhatsApp group, submission group or
   case: the words are there on coming back (until the browser tab closes;

@@ -22,6 +22,27 @@ type Op = 'select' | 'update' | 'insert' | 'upsert' | 'delete';
 
 let seq = 0;
 
+/** Splits at the commas outside parentheses and quotes. */
+const splitGroup = (group: string) =>
+  group.match(/(?:"[^"]*"|\([^)]*\)|[^,])+/g) ?? [];
+
+function groupTerm(term: string): (r: Row) => boolean {
+  const and = term.match(/^and\((.*)\)$/);
+  if (and) {
+    const all = splitGroup(and[1]).map(groupTerm);
+    return (r) => all.every((t) => t(r));
+  }
+  const m = term.match(/^(\w+)\.(lt|eq)\."?([^"]*)"?$/);
+  if (!m) throw new Error(`test-db: unsupported or() term ${term}`);
+  const [, col, op, v] = m;
+  return (r) => (op === 'lt' ? String(r[col]) < v : String(r[col]) === v);
+}
+
+function orGroup(group: string): (r: Row) => boolean {
+  const any = splitGroup(group).map(groupTerm);
+  return (r) => any.some((t) => t(r));
+}
+
 class FakeQuery {
   private preds: ((r: Row) => boolean)[] = [];
   private op: Op = 'select';
@@ -73,6 +94,18 @@ class FakeQuery {
       col,
       (x) => x != null && Date.parse(String(x)) >= Date.parse(v)
     );
+  }
+  lte(col: string, v: string) {
+    return this.where(
+      col,
+      (x) => x != null && Date.parse(String(x)) <= Date.parse(v)
+    );
+  }
+  /** `col.op.value` and `and(...)` groups; lt and eq only. */
+  or(group: string) {
+    const test = orGroup(group);
+    this.preds.push(test);
+    return this;
   }
   order(col: string, opts: { ascending?: boolean } = {}) {
     this.orderBy.push([col, opts.ascending !== false]);
