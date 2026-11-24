@@ -146,8 +146,14 @@ type Verdict =
   | { kind: 'refused'; message: string }
   | { kind: 'not_asked' };
 
+interface VerdictColumns {
+  status: string;
+  meta_template_id?: string;
+  submission_error?: string | null;
+}
+
 /** The verdict as columns. Not asked: an earlier refusal stays. */
-function verdictColumns(verdict: Verdict) {
+function verdictColumns(verdict: Verdict): VerdictColumns {
   switch (verdict.kind) {
     case 'taken':
       return {
@@ -170,7 +176,7 @@ function verdictColumns(verdict: Verdict) {
 async function writeRow(
   supabase: SupabaseClient,
   ownRowId: string | undefined,
-  row: ReturnType<typeof coreColumns> & ReturnType<typeof verdictColumns>
+  row: ReturnType<typeof coreColumns> & VerdictColumns
 ) {
   const table = supabase.from('message_templates');
   if (!ownRowId) return table.insert(row).select().single();
