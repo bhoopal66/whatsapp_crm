@@ -22,6 +22,9 @@ and polish.
 
 ### Fixed
 
+- **Groups: removing somebody WhatsApp shows without a number is reported.**
+  Their phone stayed in the group and nothing was said; now the person who
+  removed them is told to check the group (normal and submission groups).
 - **Groups: a join request no longer rings only a deactivated login.** Live
   managers are rung; with none, the owners and admins.
 - **Groups: every way of adding or messaging people has the hourly limit.**

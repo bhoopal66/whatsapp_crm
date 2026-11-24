@@ -23,7 +23,7 @@ export interface ManagerNumberPlan {
   add: ManagerNumberChange[];
   remove: ManagerNumberChange[];
   /** People whose number would have changed but can't (block). */
-  skipped: { name: string; reason: NumberBlock }[];
+  skipped: { name: string; reason: NumberBlock | 'number_unconfirmed' }[];
 }
 
 /** The numbers report the managers PUT answers with. */
@@ -56,7 +56,8 @@ const digitsOf = (value: string | null | undefined): string =>
  * app as before; the route reports a removed one). Our own number is
  * never touched; an added number already in the group and a removed
  * number not in it need nothing. A participant WhatsApp shows only by its
- * LID (`<digits>@lid`) never matches.
+ * LID (`<digits>@lid`) never matches: a removed number not found beside
+ * such a participant may be them, so it is reported `number_unconfirmed`.
  */
 export function planManagerNumbers(args: {
   added: readonly string[];
@@ -72,12 +73,18 @@ export function planManagerNumbers(args: {
 }): ManagerNumberPlan {
   const present = new Set(args.participants.filter((w) => /^\d+$/.test(w)));
   const ours = digitsOf(args.ourNumber);
+  const hidden = args.participants.some((w) => w.endsWith('@lid'));
   const plan: ManagerNumberPlan = { add: [], remove: [], skipped: [] };
   const consider = (userId: string, adding: boolean) => {
     const waId = digitsOf(args.phones.get(userId));
     if (!waId || waId === ours) return;
-    if (present.has(waId) === adding) return;
     const name = args.names.get(userId) ?? '';
+    if (present.has(waId) === adding) {
+      if (!adding && hidden) {
+        plan.skipped.push({ name, reason: 'number_unconfirmed' });
+      }
+      return;
+    }
     if (args.block) {
       plan.skipped.push({ name, reason: args.block });
       return;

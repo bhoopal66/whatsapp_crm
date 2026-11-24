@@ -155,8 +155,12 @@ export async function removeStaffNumber(
     const members = await deps.getParticipants(plan.channelId, plan.waGroupId);
     if (members === null)
       return { status: 'skipped', reason: 'number_unavailable' };
-    if (!members.some((m) => samePhone(plan.phone, m)))
-      return { status: 'none', reason: 'not_in_group' };
+    // `samePhone` drops the suffix, and a LID's digits are no phone.
+    const hidden = members.some((m) => m.endsWith('@lid'));
+    if (!members.some((m) => !m.endsWith('@lid') && samePhone(plan.phone, m)))
+      return hidden
+        ? { status: 'failed', reason: 'number_unconfirmed' }
+        : { status: 'none', reason: 'not_in_group' };
     await deps.removeParticipant(plan.channelId, plan.waGroupId, plan.phone);
     return { status: 'removed' };
   } catch (err) {
