@@ -370,6 +370,13 @@ export function parseOutcome(
   return Object.keys(out).length ? out : 'Nothing to change';
 }
 
+/**
+ * PostgREST or(): the calls `userId` may write the note of, as
+ * pbx_answered_call (294): the call's person, or one who answered a leg.
+ */
+export const answeredByFilter = (userId: string): string =>
+  `user_id.eq.${userId},meta->answered_user_ids.cs.${JSON.stringify([userId])}`;
+
 // ---------- Call lists ----------
 
 export const CALL_SCOPES = [

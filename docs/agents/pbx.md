@@ -9,7 +9,12 @@ parser, signature check, WebSocket helpers, token manager and CDR helpers.
 - Who sees a call is `pbx_can_view_call`; guests see none. Since 113:
   owners/admins all; everyone else the calls they were on or that rang
   them (`meta.rang_user_ids`), a leader also their teams' calls, plus
-  the calls of contacts they can see. `call_live_select` follows. Secrets
+  the calls of contacts they can see. `call_live_select` follows. Since
+  294 also each person who answered a leg (`meta.answered_user_ids`, that
+  person alone, not their leader): after a transfer `user_id` names one of
+  them, and each may write the outcome and note (`pbx_set_disposition` ↔
+  `answeredByFilter`, the wrap-up list). `user_id` alone still credits the
+  reports. Re-running 089 or 198 reverts 294. `verify-call-notes.sql`. Secrets
   (app-encrypted) live only in `pbx_connection_secrets`: RLS on, no policy, no
   client grant.
 - **Tokens.** Yeastar allows 8 live tokens per application, each for 30

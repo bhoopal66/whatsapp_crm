@@ -998,6 +998,52 @@ describe('ingestPbxEvent', () => {
       }
     );
 
+    it('keeps everyone who answered, live and after the end; a ring answers nothing', async () => {
+      const answeredIds = () =>
+        (callRow('call-1').meta as Row).answered_user_ids;
+      await ingest(
+        ring('call-1', [
+          inbound('ALERT'),
+          ext('1001', 'RING'),
+          ext('1002', 'RING'),
+        ])
+      );
+      expect(answeredIds()).toBeUndefined();
+      await ingest(
+        ring('call-1', [inbound('ANSWERED'), ext('1001', 'ANSWERED')])
+      );
+      expect(answeredIds()).toEqual(['u1']);
+      // Transferred: the frame names only the new person, and so does
+      // user_id; the first one stays on the list.
+      await ingest(
+        ring('call-1', [inbound('ANSWERED'), ext('1002', 'ANSWERED')])
+      );
+      expect(callRow('call-1').user_id).toBe('u2');
+      expect(answeredIds()).toEqual(['u1', 'u2']);
+      // A row an older build wrote has no list: its person is kept.
+      const old = { ...(callRow('call-1').meta as Row) };
+      delete old.answered_user_ids;
+      callRow('call-1').meta = old;
+      await ingest(
+        leg('call-1', 'call-1-c', 'ANSWERED', { to: '1001', dur: 25, talk: 20 })
+      );
+      expect(callRow('call-1').user_id).toBe('u1');
+      expect(answeredIds()).toEqual(['u2', 'u1']);
+    });
+
+    it('a call between colleagues keeps no such list', async () => {
+      await ingest(
+        leg('call-1', 'call-1-i', 'ANSWERED', {
+          type: 'Internal',
+          from: '1001',
+          to: '1002',
+          dur: 25,
+          talk: 20,
+        })
+      );
+      expect((callRow('call-1').meta as Row).answered_user_ids).toBeUndefined();
+    });
+
     it.each([
       ['the transfer leg first', true],
       ['the customer leg first', false],
@@ -1037,6 +1083,12 @@ describe('ingestPbxEvent', () => {
           status: 'answered',
         });
         expect((callRow('call-1').meta as Row).cdr_legs).toHaveLength(2);
+        // Both people answered a leg: each may write the note (294).
+        expect(
+          [
+            ...((callRow('call-1').meta as Row).answered_user_ids as string[]),
+          ].sort()
+        ).toEqual(['u1', 'u2']);
       }
     );
 

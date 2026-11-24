@@ -1512,3 +1512,8 @@ jobs:
       # failures and rings; a claimed event can be given back.
       - name: Verify webhook off bell
         run: supabase db query --local --file supabase/ci/verify-webhook-off-bell.sql
+
+      # Migration 294: after a transfer everyone who answered a leg may
+      # see the call and write its note; nobody else gains anything.
+      - name: Verify call notes
+        run: supabase db query --local --file supabase/ci/verify-call-notes.sql

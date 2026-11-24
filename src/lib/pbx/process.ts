@@ -6,6 +6,7 @@ import { phonesMatch } from '@/lib/contacts/phone-match';
 
 import {
   ANSWERED_STATUSES,
+  answeredExtensions,
   internalPeerExtension,
   legOf,
   legsOf,
@@ -679,6 +680,29 @@ function rangOf(meta: unknown): string[] {
 const withRang = (meta: Row, rang: string[]): Row =>
   rang.length ? { ...meta, rang_user_ids: rang } : meta;
 
+/**
+ * Everyone who answered a leg of a customer call, first first
+ * (calls.meta.answered_user_ids, 294): after a transfer calls.user_id
+ * names one of them, and each may write the call's note. A live row's
+ * user_id is an answerer once answered_at is set, so a row an older
+ * build wrote keeps its person too.
+ */
+function answeredOf(existing: Row | null): string[] {
+  return unique([
+    ...answeredIn(existing?.meta),
+    existing?.answered_at && LIVE.includes(existing.status as CallStatus)
+      ? str(existing.user_id)
+      : null,
+  ]);
+}
+function answeredIn(meta: unknown): string[] {
+  return isRecord(meta) && Array.isArray(meta.answered_user_ids)
+    ? meta.answered_user_ids.filter((u): u is string => typeof u === 'string')
+    : [];
+}
+const withAnswered = (meta: Row, answered: string[]): Row =>
+  answered.length ? { ...meta, answered_user_ids: answered } : meta;
+
 /** 30011: the screen pop (call_live) and a non-final calls row. */
 async function onCallState(ctx: Ctx, ev: CallStateEvent): Promise<void> {
   if (ev.members.length === 0) return;
@@ -743,6 +767,10 @@ async function onCallState(ctx: Ctx, ev: CallStateEvent): Promise<void> {
   const answeredBy =
     unique(answered.map((n) => exts.get(n)?.user_id))[0] ?? null;
   const ringingUsers = unique(ringing.map((n) => exts.get(n)?.user_id));
+  const answeredUsers =
+    direction === 'internal'
+      ? []
+      : unique(answered.map((n) => exts.get(n)?.user_id));
   const live = {
     connection_id: ctx.connectionId,
     pbx_call_id: ev.callId,
@@ -808,9 +836,12 @@ async function onCallState(ctx: Ctx, ev: CallStateEvent): Promise<void> {
           did_number: ws.didNumber,
           status,
           started_at: ctx.receivedAt,
-          meta: withRang(
-            callMeta(null, ws, match),
-            direction === 'inbound' ? ringingUsers : []
+          meta: withAnswered(
+            withRang(
+              callMeta(null, ws, match),
+              direction === 'inbound' ? ringingUsers : []
+            ),
+            answeredUsers
           ),
           ...party,
           ...peer,
@@ -822,21 +853,28 @@ async function onCallState(ctx: Ctx, ev: CallStateEvent): Promise<void> {
     if (ins.error) fail('calls insert', ins.error);
     if ((ins.data as unknown[] | null)?.length) return;
   }
-  // Someone new rang: add them to the row's list. Only over a row read
+  // Someone new rang or answered: add them to the row's lists. Only over a row read
   // here, so a lost insert race never overwrites that row's meta.
   const rangBefore = rangOf(existing?.meta);
   const rang =
     direction === 'inbound'
       ? unique([...rangBefore, ...ringingUsers])
       : rangBefore;
-  const rangMeta =
-    existing && rang.length > rangBefore.length
-      ? { meta: withRang(isRecord(existing.meta) ? existing.meta : {}, rang) }
+  const meta = isRecord(existing?.meta) ? existing.meta : {};
+  const answeredBefore = answeredIn(meta);
+  const people =
+    direction === 'internal'
+      ? answeredBefore
+      : unique([...answeredOf(existing), ...answeredUsers]);
+  const peopleMeta =
+    existing &&
+    (rang.length > rangBefore.length || people.length > answeredBefore.length)
+      ? { meta: withAnswered(withRang(meta, rang), people) }
       : {};
   // Compare-and-set on a live status: a 30012 that landed first wins.
   const upd = await ctx.db
     .from('calls')
-    .update({ status, ...party, ...peer, ...answeredAt, ...rangMeta })
+    .update({ status, ...party, ...peer, ...answeredAt, ...peopleMeta })
     .eq('connection_id', ctx.connectionId)
     .eq('pbx_call_id', ev.callId)
     .in('status', LIVE);
@@ -1004,6 +1042,14 @@ async function writeCallEnd(
         ])
       : [];
 
+  const people =
+    direction === 'internal'
+      ? []
+      : unique([
+          ...answeredOf(existing),
+          ...answeredExtensions(legs).map((e) => exts.get(e)?.user_id),
+        ]);
+
   // A redelivered leg (an identical record on the row) writes nothing; the
   // rest of the end still runs, for a retry after a later step failed.
   if (existing && !added) {
@@ -1063,7 +1109,9 @@ async function writeCallEnd(
   }
   const meta: Row = {
     // A real end supersedes the stale step's guess and retry state.
-    ...withoutStaleMarkers(withRang(callMeta(existing, ws, match), rang)),
+    ...withoutStaleMarkers(
+      withAnswered(withRang(callMeta(existing, ws, match), rang), people)
+    ),
     cdr_legs: legs,
   };
   if (newReference) {

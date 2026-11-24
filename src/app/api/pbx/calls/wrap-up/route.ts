@@ -4,7 +4,8 @@
 // re-open after a reload: { calls: WrapUpCall[], mandatory: boolean },
 // newest end first.
 //
-// The caller's own calls only (calls.user_id, the person on the call),
+// The caller's own calls only (calls.user_id, or one who answered a leg
+// of it: after a transfer both people have a note to write, 294),
 // read on their own client in their active workspace: answered, with a
 // customer (not internal), not erased, with a PBX and no outcome, that
 // ended after wrapUpCutoff: under WRAPUP_MS ago or, where outcomes are
@@ -20,6 +21,7 @@
 
 import { NextResponse } from 'next/server';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
+import { answeredByFilter } from '@/lib/pbx/calls';
 import {
   pickWrapUps,
   wrapUpCutoff,
@@ -54,7 +56,7 @@ export async function GET() {
         'connection_id, pbx_call_id, direction, contact_id, remote_number, answered_at, ended_at, disposition, erased_at'
       )
       .eq('account_id', ctx.accountId)
-      .eq('user_id', ctx.userId)
+      .or(answeredByFilter(ctx.userId))
       .is('disposition', null)
       .not('answered_at', 'is', null)
       .neq('direction', 'internal')
