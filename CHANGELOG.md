@@ -22,6 +22,13 @@ and polish.
 
 ### Fixed
 
+- **Speaking to a customer closes their missed-call task.** When a later
+  call with them is answered (they ring again, or a call back they pick
+  up), the open missed-call tasks of that contact or number close with a
+  note such as "Spoke at 14:05 (Sara)". **Small change of behaviour: any
+  colleague's call counts, not only the task holder's.** A task opened
+  after that call began, or one holding a call missed since, stays open.
+  No migration.
 - **The Calls screen no longer stops at 200 calls or goes stale.** "Load
   older" brings the rest, and the list refreshes when the tab is shown
   again, when one of your calls ends, and every minute while it is on

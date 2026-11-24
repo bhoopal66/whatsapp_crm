@@ -30,7 +30,12 @@ parser, signature check, WebSocket helpers, token manager and CDR helpers.
   never holds PBX credentials). `ingestPbxEvent` (`process.ts`) dedupes on a
   `pbx_events_raw` hash upsert, then writes `calls`, live state, presence, a
   `missed_call` task and a `call_missed` bell, and settles call-backs; a bad
-  event never throws.
+  event never throws. A later customer call with talk at a known extension
+  closes the open `missed_call` tasks of that contact or number opened before
+  it started, whoever holds them (`closeSpokenMissedTasks`, meta
+  `spoke_call_id` / `spoke_user_id`); one holding a call missed since stays.
+  The Calls screen's badges are read on the service role (`missed-tasks.ts`)
+  for calls the caller's RLS read returned.
 - **Recordings** are fetched one at a time (the PBX refuses a second
   concurrent download) into the private `call-recordings` bucket, uploaded
   before their row, hence the orphan sweep's 1 h grace.

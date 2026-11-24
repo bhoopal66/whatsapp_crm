@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import { createSystemTask } from '@/lib/tasks/system';
+import { closeSystemTasks, createSystemTask } from '@/lib/tasks/system';
 import { phonesMatch } from '@/lib/contacts/phone-match';
 
 import {
@@ -16,9 +16,10 @@ import {
   type MergedCall,
 } from './call-legs';
 import { settleCallbackCall } from './callbacks';
+import { DEFAULT_TIME_ZONE } from './calls';
 import { isAllBye } from './event-retry';
 import { foldedCallIds, missedCallNote, missedCallOwner } from './missed-call';
-import { missedDraftOffer } from './timeline';
+import { clock, missedDraftOffer } from './timeline';
 import { digitsOnly } from './extensions';
 import {
   contactPhoneCandidates,
@@ -934,6 +935,16 @@ interface CallEndWrite {
   merged: MergedCall;
   rang: string[];
   settings: Settings;
+  /** The call's start, as the row keeps it. */
+  startedAt: string;
+  spoke: Spoke | null;
+}
+
+/** A customer call a person was on: which extension, whose, from when. */
+interface Spoke {
+  extension: string;
+  userId: string | null;
+  at: string;
 }
 
 /**
@@ -1050,6 +1061,22 @@ async function writeCallEnd(
           ...answeredExtensions(legs).map((e) => exts.get(e)?.user_id),
         ]);
 
+  // Somebody spoke to the customer: an answered leg of the call's own
+  // direction (not only a transfer's), with talk, at a real extension.
+  // An IVR, a queue or a voicemail box answering is nobody.
+  const spoke: Spoke | null =
+    direction !== 'internal' &&
+    merged.talkSeconds > 0 &&
+    extension &&
+    exts.has(extension) &&
+    legs.some(
+      (l) =>
+        ANSWERED_STATUSES.has(l.status) &&
+        (l.direction ?? direction) === direction
+    )
+      ? { extension, userId: merged.userId, at: merged.answeredAt ?? startedAt }
+      : null;
+
   // A redelivered leg (an identical record on the row) writes nothing; the
   // rest of the end still runs, for a retry after a later step failed.
   if (existing && !added) {
@@ -1061,6 +1088,8 @@ async function writeCallEnd(
       merged,
       rang,
       settings,
+      startedAt,
+      spoke,
     };
   }
 
@@ -1181,7 +1210,17 @@ async function writeCallEnd(
     if (!((upd.data ?? []) as unknown[]).length) return null;
     callRowId = String(existing.id);
   }
-  return { callRowId, ws, match, remote, merged, rang, settings };
+  return {
+    callRowId,
+    ws,
+    match,
+    remote,
+    merged,
+    rang,
+    settings,
+    startedAt,
+    spoke,
+  };
 }
 
 /**
@@ -1221,6 +1260,92 @@ async function closeOwnMissedTask(
       .select('id');
     if (closed.error) fail('tasks update', closed.error);
     if (((closed.data ?? []) as unknown[]).length) return;
+  }
+}
+
+/**
+ * Somebody spoke to the customer, so nobody need call them back: closes
+ * the open missed-call tasks of this contact, else of this number,
+ * opened before the call started, whoever holds them. A task holding a
+ * call missed since is left: that one is still owed. Only open tasks
+ * close, so a redelivered event finds nothing to do.
+ */
+async function closeSpokenMissedTasks(
+  ctx: Ctx,
+  call: CallEndWrite
+): Promise<void> {
+  const { ws, match, remote, startedAt, spoke } = call;
+  if (!spoke) return;
+  const open = () =>
+    ctx.db
+      .from('tasks')
+      .select('id, contact_id, note, meta, source_ref, updated_at')
+      .eq('account_id', ws.accountId)
+      .eq('source', 'pbx')
+      .eq('kind', 'missed_call')
+      .eq('status', 'open')
+      .lt('created_at', startedAt);
+  const tasks = new Map<string, Row>();
+  const keep = (res: {
+    data: unknown;
+    error: { message: string; code?: string } | null;
+  }) => {
+    if (res.error) fail('tasks read', res.error);
+    for (const t of (res.data ?? []) as Row[]) tasks.set(String(t.id), t);
+  };
+  if (match.contactId) keep(await open().eq('contact_id', match.contactId));
+  if (remote) {
+    // A number the CRM knew no contact for when it was missed; another
+    // contact's task on a shared number is theirs.
+    const byNumber = open().eq('meta->>remote_number', remote.number);
+    keep(await (match.contactId ? byNumber.is('contact_id', null) : byNumber));
+  }
+  if (!tasks.size) return;
+
+  let who = `ext. ${spoke.extension}`;
+  if (spoke.userId) {
+    const { data, error } = await ctx.db
+      .from('profiles')
+      .select('full_name')
+      .eq('account_id', ws.accountId)
+      .eq('user_id', spoke.userId)
+      .maybeSingle();
+    if (error) fail('profiles read', error);
+    who = str((data as Row | null)?.full_name)?.trim() || who;
+  }
+  const said = `Spoke at ${clock(spoke.at, DEFAULT_TIME_ZONE)} (${who})`;
+
+  for (const task of tasks.values()) {
+    const ids = foldedCallIds(task.meta);
+    if (ids.length) {
+      const since = await ctx.db
+        .from('calls')
+        .select('id')
+        .eq('account_id', ws.accountId)
+        .in('id', ids)
+        .gte('started_at', startedAt)
+        .limit(1);
+      if (since.error) fail('calls read', since.error);
+      if (((since.data ?? []) as unknown[]).length) continue;
+    }
+    const note = str(task.note);
+    await closeSystemTasks(
+      ctx.db,
+      {
+        accountId: ws.accountId,
+        source: 'pbx',
+        sourceRef: String(task.source_ref),
+      },
+      {
+        note: note ? `${said}\n${note}` : said,
+        meta: {
+          ...(isRecord(task.meta) ? task.meta : {}),
+          spoke_call_id: call.callRowId,
+          spoke_user_id: spoke.userId,
+        },
+        updatedAt: String(task.updated_at),
+      }
+    );
   }
 }
 
@@ -1293,6 +1418,14 @@ async function onCallEnd(ctx: Ctx, ev: CallEndEvent): Promise<void> {
   // missed, whichever leg came last.
   if (!isMissedCall(merged.direction, merged.pbxStatus)) {
     await closeOwnMissedTask(ctx, ws.accountId, callRowId);
+    try {
+      await closeSpokenMissedTasks(ctx, written);
+    } catch (err) {
+      // The call is recorded; a task left open is closed by hand.
+      console.error(
+        `[pbx] call ${callRowId}: missed-call tasks not closed: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
     return;
   }
   const conversationId = match.contactId ? match.conversationId : null;
