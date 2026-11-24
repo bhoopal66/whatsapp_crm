@@ -13,7 +13,7 @@ import { loadCampaignContext } from '@/lib/ai/auto-reply'
 import { retrieveKnowledge } from '@/lib/ai/knowledge'
 import { generateReply } from '@/lib/ai/generate'
 import { buildSystemPrompt } from '@/lib/ai/defaults'
-import { logAiUsage } from '@/lib/ai/usage'
+import { logAiUsage, logFailedAiUsage } from '@/lib/ai/usage'
 import { supabaseAdmin } from '@/lib/ai/admin-client'
 import { AiError } from '@/lib/ai/types'
 
@@ -153,7 +153,22 @@ export async function POST(request: Request) {
       campaign,
     })
 
-    const { text, usage } = await generateReply({ config, systemPrompt, messages })
+    const { text, usage } = await generateReply({
+      config,
+      systemPrompt,
+      messages,
+      purpose: 'draft',
+    }).catch(async (err) => {
+      // Billed even when the answer was cut off or empty.
+      await logFailedAiUsage(supabaseAdmin, err, {
+        accountId,
+        conversationId,
+        mode: 'draft',
+        provider: config.provider,
+        model: config.model,
+      })
+      throw err
+    })
 
     // Record spend on the account's BYO key. Best-effort + via the
     // service role (the log has no `authenticated` INSERT policy). This

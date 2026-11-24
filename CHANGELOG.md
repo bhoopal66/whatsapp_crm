@@ -34,6 +34,14 @@ and polish.
 
 ### Fixed
 
+- **The privacy register no longer calls Draft with AI a reply.** The
+  draft and the playground record their own purpose (`draft`,
+  `playground`) in the AI transfer register instead of `reply`.
+- **AI usage counts calls the provider billed but cut off or answered
+  empty.** The reply bot, Draft with AI, the playground and both
+  translations now record the tokens of a call that ended in an error, so
+  Settings -> AI usage no longer under-reports spend. The answer to the
+  agent or customer is unchanged.
 - **A candidate's message is no longer read as a sales lead.** Smart
   insights, automatic chat tags, the attention pin and campaign reply
   sorting now leave HR chats, other departments' chats and HR lines alone
