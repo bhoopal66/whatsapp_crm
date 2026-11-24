@@ -24,7 +24,11 @@ import {
   type VoicePlay,
 } from '@/lib/chat';
 import type { TypingChange } from '@/lib/chat/typing-flow';
-import { droppedChannelIds, timelineCacheKey } from '@/lib/chat/timeline-cache';
+import {
+  droppedChannelIds,
+  timelineCacheKey,
+  timelineMark,
+} from '@/lib/chat/timeline-cache';
 import {
   chatErrorKey,
   inboxHasAssigneeFilter,
@@ -49,6 +53,15 @@ import {
   loadPeopleWithRetries,
   unknownPersonName,
 } from '@/lib/chat/people-load';
+
+/** When each answer of the unread counts was asked for (`timelineMark`). */
+const unreadMarks = new WeakMap<readonly UnreadCount[], number>();
+async function readUnread(read: () => Promise<UnreadCount[]>) {
+  const mark = timelineMark();
+  const counts = await read();
+  unreadMarks.set(counts, mark);
+  return counts;
+}
 
 export type ChatEvent =
   | { kind: 'message'; event: MessageEvent }
@@ -103,7 +116,7 @@ export function useChatWorkspace() {
     listChannels(sb, accountId!, userId!, { includeArchived: true })
   );
   const unreadQuery = useSessionQuery(unreadKey, () =>
-    unreadCounts(sb, accountId!)
+    readUnread(() => unreadCounts(sb, accountId!))
   );
   const channelsError = channelsQuery.error;
   useEffect(() => {
@@ -115,6 +128,15 @@ export function useChatWorkspace() {
     channelsQuery.data ?? (channelsError ? [] : null);
   const channelsFailed = !channelsQuery.data && !!channelsError;
   const unread: UnreadCount[] = unreadQuery.data ?? EMPTY_UNREAD;
+  // The mark of this visit to the chat, or of the last gap in realtime or
+  // message since: counts read before it (cached, in flight) may be short.
+  const [opened] = useState(timelineMark);
+  const countsSince = useRef(opened);
+  /** Whether `unread` was read since. Asked when it matters. */
+  const isUnreadFresh = useCallback(
+    () => (unreadMarks.get(unread) ?? 0) > countsSince.current,
+    [unread]
+  );
   const loadChannels = channelsQuery.refresh;
   // A channel that leaves the list (removed, a 159 audience, a guest's
   // bank switched off) loses its cached timeline: RLS answers it with no
@@ -181,6 +203,7 @@ export function useChatWorkspace() {
     // failed rejects, so that the whole catch-up is tried again.
     const live = startCatchUp(() => {
       timelineGap();
+      countsSince.current = timelineMark();
       return Promise.all([
         ...emit({ kind: 'resync' }),
         handlers.current.rereadChannels(),
@@ -192,6 +215,8 @@ export function useChatWorkspace() {
       userId,
       onMessage: (event) => {
         emit({ kind: 'message', event });
+        // Counts read before it may lack it.
+        countsSince.current = timelineMark();
         later('refreshUnread');
       },
       onReaction: (event) => emit({ kind: 'reaction', event }),
@@ -252,6 +277,7 @@ export function useChatWorkspace() {
     unknownName,
     phonePresence,
     unread,
+    isUnreadFresh,
     refreshUnread,
     reloadChannels: loadChannels,
     listen,

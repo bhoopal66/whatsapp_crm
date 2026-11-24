@@ -37,17 +37,28 @@ vi.mock('@/hooks/use-auth', () => ({ useAuth: () => ({}) }));
 vi.mock('@/hooks/use-channel-members', () => ({ useChannelMembers: () => [] }));
 
 let view: ThreadView;
-vi.mock('@/hooks/use-thread', () => ({
-  useThread: () => ({ view, store: {} }),
-}));
+const fresh = { thread: true, unread: true };
+const store = { isFresh: () => fresh.thread };
+vi.mock('@/hooks/use-thread', () => ({ useThread: () => ({ view, store }) }));
 
 import { openThread, type ThreadView } from '@/lib/chat/thread';
 
 import { ThreadPanel } from './thread-panel';
 
 const REPLIED_AT = '2026-11-24T10:05:00+00:00';
+const ME = 'aaaaaaaa-0000-4000-8000-000000000001';
+let body = '';
 const message = (id: string) =>
-  ({ id, createdAt: REPLIED_AT, deletedAt: null, thread: null }) as never;
+  ({
+    id,
+    body,
+    createdAt: REPLIED_AT,
+    authorId: 'someone',
+    deletedAt: null,
+    erasedAt: null,
+    forwarded: null,
+    thread: null,
+  }) as never;
 const props = { channelId: 'c', rootId: 'root', onClose: () => {} };
 const Panel = () => <ThreadPanel {...props} />;
 
@@ -116,14 +127,46 @@ describe("a thread's read mark", () => {
   const workspace = (unread: unknown) => ({
     channels: [{ id: 'c', kind: 'team', name: 'c', membership }],
     peopleById: new Map(),
+    userId: ME,
     unread,
+    isUnreadFresh: () => fresh.unread,
   });
   afterEach(() => {
     ws = { channels: [] };
+    body = '';
+    Object.assign(fresh, { thread: true, unread: true });
   });
+  type Scroll = (e: { currentTarget: object }) => void;
+  type Scroller = { onScroll: Scroll; ref: { current: unknown } };
+  const scroller = (node: ReactNode): Scroller | undefined => {
+    if (Array.isArray(node)) return node.map(scroller).find(Boolean);
+    if (!isValidElement(node)) return undefined;
+    const p = node.props as Partial<Scroller> & { children?: ReactNode };
+    return p.onScroll ? (p as Scroller) : scroller(p.children);
+  };
+  const list = (scrollTop: number) => ({
+    scrollTop,
+    scrollHeight: 1000,
+    clientHeight: 400,
+  });
+  /** Whether the mark may move, with the list scrolled there. */
+  function mayMark(unread: unknown, scrollTop = 600) {
+    let tree: ReactNode = null;
+    const Probe = () => {
+      tree = ThreadPanel(props);
+      return null;
+    };
+    ws = workspace(unread);
+    render({ phase: 'ready' }, Probe);
+    scroller(tree)!.ref.current = list(scrollTop);
+    return asked!.mayMark();
+  }
+  const counts = (unread: number, mentions: number) => [
+    { channelId: 'c', unread, mentions },
+  ];
 
-  it('covers the newest reply, once nothing in the channel is unread', () => {
-    ws = workspace([{ channelId: 'c', unread: 0, mentions: 1 }]);
+  it('covers the newest reply', () => {
+    ws = workspace(counts(0, 0));
     render({ phase: 'ready' });
     expect(asked).toMatchObject({
       channelId: 'c',
@@ -136,11 +179,28 @@ describe("a thread's read mark", () => {
 
     render({ phase: 'loading' });
     expect(asked?.ready).toBe(false);
-    for (const unread of [[{ channelId: 'c', unread: 1 }], [], undefined]) {
-      ws = workspace(unread);
-      render({ phase: 'ready' });
-      expect(asked?.ready).toBe(false);
-    }
+  });
+
+  it('moves at its end, once nothing else in the channel is unread', () => {
+    expect(mayMark(counts(0, 0))).toBe(true);
+    expect(mayMark(counts(0, 0), 300)).toBe(false);
+    expect(mayMark(counts(1, 0))).toBe(false);
+    expect(mayMark([])).toBe(false);
+    expect(mayMark(undefined)).toBe(false);
+  });
+
+  it("does not clear another thread's mention", () => {
+    expect(mayMark(counts(0, 1))).toBe(false);
+    body = `<@${ME}> see here`;
+    expect(mayMark(counts(0, 1))).toBe(true);
+    expect(mayMark(counts(0, 2))).toBe(false);
+  });
+
+  it('waits for a page and counts read since the gap', () => {
+    fresh.thread = false;
+    expect(mayMark(counts(0, 0))).toBe(false);
+    Object.assign(fresh, { thread: true, unread: false });
+    expect(mayMark(counts(0, 0))).toBe(false);
   });
 
   it('is asked again when the list is scrolled to its end', () => {
@@ -150,17 +210,8 @@ describe("a thread's read mark", () => {
       return null;
     };
     render({ phase: 'ready' }, Probe);
-    type Scroll = (e: { currentTarget: object }) => void;
-    const scroller = (node: ReactNode): Scroll | undefined => {
-      if (Array.isArray(node)) return node.map(scroller).find(Boolean);
-      if (!isValidElement(node)) return undefined;
-      const p = node.props as { onScroll?: Scroll; children?: ReactNode };
-      return p.onScroll ?? scroller(p.children);
-    };
     const scrollTo = (scrollTop: number) =>
-      scroller(tree)?.({
-        currentTarget: { scrollTop, scrollHeight: 1000, clientHeight: 400 },
-      });
+      scroller(tree)?.onScroll({ currentTarget: list(scrollTop) });
     scrollTo(300);
     expect(recheck).not.toHaveBeenCalled();
     scrollTo(600);

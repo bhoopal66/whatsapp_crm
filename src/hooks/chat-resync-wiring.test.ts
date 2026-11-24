@@ -37,10 +37,14 @@ const failing = new Set<string>();
 let channels: { data?: unknown[]; error: unknown } = { error: null };
 // What the state setters were called with: no state is kept here.
 const setStates: unknown[] = [];
+const fetchers = new Map<string, () => Promise<unknown>>();
+// One array, drawn at once and answered again by each read of the counts.
+const counts = [{ channelId: 'c', unread: 0, mentions: 0 }];
 vi.mock('@/hooks/use-session-query', () => ({
-  useSessionQuery: (key: string) => ({
-    data: undefined,
+  useSessionQuery: (key: string, fetcher: () => Promise<unknown>) => ({
+    ...(fetchers.set(key, fetcher) && { data: undefined }),
     ...channels,
+    ...(key.endsWith('chat:unread') && { data: counts }),
     refresh: async () => {},
     reread: async () => {
       const question = key.split(':').slice(3).join(':');
@@ -51,6 +55,7 @@ vi.mock('@/hooks/use-session-query', () => ({
 }));
 
 let status: ((s: string) => void) | undefined;
+let onMessage: ((e: unknown) => void) | undefined;
 const listMessages = vi.fn(
   async (): Promise<{ messages: unknown[]; hasMore: boolean }> => ({
     messages: [],
@@ -60,12 +65,17 @@ const listMessages = vi.fn(
 const attachmentsFor = vi.fn(async () => ({}));
 vi.mock('@/lib/chat', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/chat')>()),
-  subscribeChat: (_sb: unknown, opts: { onStatus?: typeof status }) => {
+  subscribeChat: (
+    _sb: unknown,
+    opts: { onStatus?: typeof status; onMessage?: typeof onMessage }
+  ) => {
     status = opts.onStatus;
+    onMessage = opts.onMessage;
     return () => {};
   },
   listMessages: (...args: unknown[]) => listMessages(...(args as [])),
   attachmentsFor: () => attachmentsFor(),
+  unreadCounts: async () => counts,
 }));
 
 import {
@@ -312,6 +322,30 @@ describe('team chat after a gap', () => {
     expect(attachmentsFor).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(2_000);
     expect(attachmentsFor).toHaveBeenCalledTimes(2);
+  });
+
+  it('the unread counts are proof only when read since', async () => {
+    const read = () => fetchers.get(`s:acc:u1:${CHAT_UNREAD_QUESTION}`)!();
+    useChatWorkspace();
+    await read();
+    // Held from an earlier visit.
+    const ws = useChatWorkspace();
+    expect(ws.isUnreadFresh()).toBe(false);
+    await read();
+    expect(ws.isUnreadFresh()).toBe(true);
+    // A message came: the counts may lack it.
+    onMessage?.({ type: 'delete', id: 'm' });
+    expect(ws.isUnreadFresh()).toBe(false);
+    await read();
+    expect(ws.isUnreadFresh()).toBe(true);
+    status?.('CLOSED');
+    const early = read();
+    status?.('SUBSCRIBED');
+    await vi.advanceTimersByTimeAsync(CATCH_UP_GAP_MS);
+    await early;
+    expect(ws.isUnreadFresh()).toBe(false);
+    await read();
+    expect(ws.isUnreadFresh()).toBe(true);
   });
 
   it('stops with the screen', async () => {

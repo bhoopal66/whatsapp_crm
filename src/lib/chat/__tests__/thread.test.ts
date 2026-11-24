@@ -232,6 +232,25 @@ describe('a resync of an open thread', () => {
     expect(store.get().root.cards).toEqual({});
   });
 
+  it('is whole only once a read begun since the gap has landed', async () => {
+    const { reads, pages } = deferredReads();
+    const s = createThreadStore(reads, CH, ROOT);
+    expect(s.isFresh()).toBe(false);
+    const leave = s.show(() => {});
+    const first = s.resync();
+    pages[0].answer(page([]));
+    await settle();
+    expect(s.isFresh()).toBe(false);
+    pages[1].answer(page([]));
+    await first;
+    expect(s.isFresh()).toBe(true);
+    const missed = s.resync();
+    pages[2].fail(new Error('503'));
+    await missed;
+    expect(s.isFresh()).toBe(false);
+    leave();
+  });
+
   it('keeps a reply that arrives during the read, and its late details', async () => {
     const { store, reads, pages } = await opened([msg('r1', 1)]);
     reads.details.mockResolvedValue({
