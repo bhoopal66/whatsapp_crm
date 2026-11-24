@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useFormatter, useTranslations } from 'next-intl';
 import { Check } from 'lucide-react';
 
@@ -46,7 +46,10 @@ export default function HrTasksPage() {
   const [doneError, setDoneError] = useState(false);
   const [now, setNow] = useState(() => Date.now());
 
+  // An older read that answers late changes nothing.
+  const reads = useRef(0);
   const load = useCallback(async () => {
+    const mine = ++reads.current;
     try {
       const res = await fetch(`/api/tasks?scope=all&hr=1&limit=${LIST_LIMIT}`);
       if (!res.ok) throw new Error(String(res.status));
@@ -54,6 +57,7 @@ export default function HrTasksPage() {
         tasks: Task[];
         truncated?: boolean;
       };
+      if (mine !== reads.current) return;
       setTasks(body.tasks);
       setTruncated(body.truncated === true);
       setFailed(false);
@@ -71,7 +75,7 @@ export default function HrTasksPage() {
           ({ data, error } = await read());
         }
         // The list stands without them; the names shown before stay.
-        if (error) return;
+        if (error || mine !== reads.current) return;
         setNames(
           customerNamesByTask(
             body.tasks,
@@ -82,7 +86,7 @@ export default function HrTasksPage() {
         );
       }
     } catch {
-      setFailed(true);
+      if (mine === reads.current) setFailed(true);
     }
   }, []);
 

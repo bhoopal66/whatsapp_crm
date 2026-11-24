@@ -79,7 +79,9 @@ describe('an HR template', () => {
       'hr_automsg_template_set',
       expect.objectContaining({ p_body: 'Mine {name}', p_expected: 't1' })
     );
-    // Its own save is no change by somebody else.
+    // Shown before the reload is back too, and no change by somebody else.
+    expect(body().value).toBe('Mine {name}');
+    expect(notice()).toBe(false);
     slot = slotOf('Mine {name}', 't2');
     expect(notice()).toBe(false);
     type('Mine again {name}');
@@ -90,11 +92,44 @@ describe('an HR template', () => {
 
   it('a seed is saved over nothing', async () => {
     slot = editorSlots([])[0];
-    rpc.mockResolvedValue({ data: config('Seed', 't1'), error: null });
+    rpc.mockResolvedValue({
+      data: config('First {name}', 't1'),
+      error: null,
+    });
     type('First {name}');
     button('templates.save')!.onClick();
     await settle();
     expect(rpc.mock.lastCall?.[1]).toMatchObject({ p_expected: null });
+    // The seed is older than what was just stored over it.
+    expect(body().value).toBe('First {name}');
+    expect(notice()).toBe(false);
+  });
+
+  it('typing between the save and its reload stays, on the new version', async () => {
+    rpc.mockResolvedValue({ data: config('Mine {name}', 't2'), error: null });
+    type('Mine {name}');
+    button('templates.save')!.onClick();
+    await settle();
+    type('Mine and more {name}');
+    expect(notice()).toBe(false);
+    slot = slotOf('Mine {name}', 't2');
+    expect(body().value).toBe('Mine and more {name}');
+    expect(notice()).toBe(false);
+    button('templates.save')!.onClick();
+    await settle();
+    expect(rpc.mock.lastCall?.[1]).toMatchObject({ p_expected: 't2' });
+  });
+
+  it('a failed Reload keeps the text and the notice', async () => {
+    rpc.mockResolvedValue({ data: null, error: { hint: 'STALE' } });
+    type('Mine {name}');
+    button('templates.save')!.onClick();
+    await settle();
+    onSaved.mockResolvedValue(false);
+    button('templates.reload')!.onClick();
+    await settle();
+    expect(body().value).toBe('Mine {name}');
+    expect(notice()).toBe(true);
   });
 
   it('a refused save keeps the text, and Reload takes the other one', async () => {

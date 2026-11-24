@@ -66,6 +66,7 @@ import {
   CaseFilesSettingsCard,
   ChangedNotice,
   FileSpecEditor,
+  LoadFailed,
 } from './case-files-settings';
 import { ReviewSettingsCard } from '@/components/cases/case-page/review-drafts-section';
 import { CaseRulesSettingsCard } from './case-rules-settings';
@@ -158,6 +159,7 @@ function useConfigRead<T>(url: string, parse: (body: unknown) => T | null) {
         ? { ...prev, failed: true }
         : next;
     });
+    return !next.failed;
   }, [url, parse]);
   const current = state?.url === url ? state : null;
   return {
@@ -399,14 +401,19 @@ export function CasesSettingsPanel() {
       <CaseMacrosSettingsCard />
 
       {loadFailed ? (
-        <p className="text-destructive text-sm" role="alert">
-          {t('loadFailed')}
-        </p>
-      ) : !banks ? (
-        <div
-          className="bg-muted/50 h-40 w-full animate-pulse rounded-xl"
-          aria-busy="true"
+        <LoadFailed
+          text={t('loadFailed')}
+          retry={t('reload')}
+          onRetry={() => void load()}
         />
+      ) : null}
+      {!banks ? (
+        loadFailed ? null : (
+          <div
+            className="bg-muted/50 h-40 w-full animate-pulse rounded-xl"
+            aria-busy="true"
+          />
+        )
       ) : (
         <>
           <Card>
@@ -722,23 +729,18 @@ export function StagesEditor({
     ({ stages: string[]; reset: boolean } & DroppedStageUses) | null
   >(null);
 
-  // A failed Reload keeps the list, and what was typed, on screen.
-  if (loadFailed && !stored)
-    return (
-      <div className="flex flex-wrap items-center gap-2" role="alert">
-        <p className="text-destructive text-sm">{tc('loadFailed')}</p>
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          onClick={() => void load()}
-        >
-          {tc('reload')}
-        </Button>
-      </div>
-    );
+  // A failed read keeps what is on screen, and says so.
+  const unread = loadFailed ? (
+    <LoadFailed
+      text={tc('loadFailed')}
+      retry={tc('reload')}
+      onRetry={() => void load()}
+    />
+  ) : null;
   if (!stored)
-    return <div className="bg-muted/50 h-40 animate-pulse rounded-xl" />;
+    return (
+      unread ?? <div className="bg-muted/50 h-40 animate-pulse rounded-xl" />
+    );
 
   const draft = edits ?? stored.stages;
   const setDraft = (next: string[]) => setEdits(next);
@@ -816,6 +818,7 @@ export function StagesEditor({
     <Card>
       <CardContent className="space-y-4">
         <p className="text-muted-foreground text-sm">{t('help')}</p>
+        {unread}
         {stored.isDefault ? (
           <Badge variant="secondary">{t('usingDefaults')}</Badge>
         ) : null}
@@ -909,10 +912,12 @@ export function StagesEditor({
             busy={busy}
             onReload={async () => {
               setBusy(true);
-              await load();
+              const read = await load();
+              setBusy(false);
+              // A failed read keeps the edits and the notice.
+              if (!read) return;
               setEdits(null);
               setChanged(false);
-              setBusy(false);
             }}
           />
         ) : null}
@@ -999,18 +1004,22 @@ function TemplatesTab({ code }: { code: string }) {
     await load();
   }
 
-  if (loadFailed)
-    return (
-      <p className="text-destructive text-sm" role="alert">
-        {tc('loadFailed')}
-      </p>
-    );
+  const unread = loadFailed ? (
+    <LoadFailed
+      text={tc('loadFailed')}
+      retry={tc('reload')}
+      onRetry={() => void load()}
+    />
+  ) : null;
   if (!rows)
-    return <div className="bg-muted/50 h-40 animate-pulse rounded-xl" />;
+    return (
+      unread ?? <div className="bg-muted/50 h-40 animate-pulse rounded-xl" />
+    );
 
   return (
     <Card>
       <CardContent className="space-y-4">
+        {unread}
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <p className="text-muted-foreground text-sm">{t('help')}</p>
           <Button
@@ -1258,14 +1267,17 @@ function DocumentsTab({ code }: { code: string }) {
     await load();
   }
 
-  if (loadFailed)
-    return (
-      <p className="text-destructive text-sm" role="alert">
-        {tc('loadFailed')}
-      </p>
-    );
+  const unread = loadFailed ? (
+    <LoadFailed
+      text={tc('loadFailed')}
+      retry={tc('reload')}
+      onRetry={() => void load()}
+    />
+  ) : null;
   if (!rows)
-    return <div className="bg-muted/50 h-40 animate-pulse rounded-xl" />;
+    return (
+      unread ?? <div className="bg-muted/50 h-40 animate-pulse rounded-xl" />
+    );
 
   const groups = groupByProduct(rows);
 
@@ -1273,6 +1285,7 @@ function DocumentsTab({ code }: { code: string }) {
     <div className="space-y-4">
       <Card>
         <CardContent className="space-y-4">
+          {unread}
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <p className="text-muted-foreground text-sm">{t('help')}</p>
             <Button
@@ -1545,19 +1558,23 @@ function SlaTab({ code }: { code: string }) {
     timer: SlaTimerKey;
   } | null>(null);
 
-  if (loadFailed)
-    return (
-      <p className="text-destructive text-sm" role="alert">
-        {tc('loadFailed')}
-      </p>
-    );
+  const unread = loadFailed ? (
+    <LoadFailed
+      text={tc('loadFailed')}
+      retry={tc('reload')}
+      onRetry={() => void load()}
+    />
+  ) : null;
   if (!data)
-    return <div className="bg-muted/50 h-40 animate-pulse rounded-xl" />;
+    return (
+      unread ?? <div className="bg-muted/50 h-40 animate-pulse rounded-xl" />
+    );
 
   return (
     <Card>
       <CardContent className="space-y-4">
         <p className="text-muted-foreground text-sm">{t('help')}</p>
+        {unread}
         <div className="border-border relative overflow-x-auto rounded-lg border">
           <table className="w-full min-w-[36rem] text-sm">
             <thead className="bg-muted/50 text-muted-foreground text-xs">

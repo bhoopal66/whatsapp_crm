@@ -66,12 +66,26 @@ import {
 export class BroadcastError extends Error {
   readonly code: string;
   readonly status: number;
-  constructor(code: string, message: string, status: number) {
+  /** The database refused the creation: certainly nothing was created. */
+  readonly refused: boolean;
+  constructor(code: string, message: string, status: number, refused = false) {
     super(message);
     this.name = 'BroadcastError';
     this.code = code;
     this.status = status;
+    this.refused = refused;
   }
+}
+
+/**
+ * Whether a database error proves that its transaction was rolled back: a
+ * SQLSTATE, except those of a connection or server that broke (nobody knows
+ * whether it committed). No answer at all has no code.
+ */
+export function isRefusal(code: string | null | undefined): boolean {
+  return (
+    /^[0-9A-Z]{5}$/.test(code ?? '') && !/^(08|57P|58|XX|40003)/.test(code!)
+  );
 }
 
 /**
@@ -487,7 +501,12 @@ export async function createBroadcast(
   );
   if (createErr || !createdRows || createdRows.length === 0) {
     console.error('[broadcast-core] create broadcast error:', createErr);
-    throw new BroadcastError('internal', 'Failed to create broadcast', 500);
+    throw new BroadcastError(
+      'internal',
+      'Failed to create broadcast',
+      500,
+      isRefusal(createErr?.code)
+    );
   }
 
   const broadcastId = createdRows[0].broadcast_id as string;

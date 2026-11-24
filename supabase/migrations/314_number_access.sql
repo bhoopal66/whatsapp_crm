@@ -21,7 +21,8 @@
 --    arguments are REQUIRED, so a call without them fits only the older
 --    function and the old build keeps working.
 --
--- Apply before the build that reads it; safe to run twice.
+-- Apply before the build that reads it; safe to run twice. Re-running 285
+-- takes the column grant below away again: re-run this file after it.
 -- supabase/ci/verify-number-access.sql asserts it.
 
 SET lock_timeout = '5s';

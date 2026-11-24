@@ -458,6 +458,32 @@ export function refreshedDrafts(
   );
 }
 
+/**
+ * The stored version each draft may be saved over. A touched draft keeps
+ * the one it was typed over, so a wording somebody else saved meanwhile is
+ * refused once; `seen` is the wording whose refusal the screen just showed.
+ */
+export function refreshedVersions(
+  before: readonly IntakeTemplateView[],
+  after: readonly IntakeTemplateView[],
+  drafts: Readonly<Record<string, string>>,
+  versions: Readonly<Record<string, string | null>>,
+  seen?: string
+): Record<string, string | null> {
+  return Object.fromEntries(
+    after.map((row) => {
+      const old = before.find((r) => r.kind === row.kind)?.body ?? '';
+      const touched = (drafts[row.kind] ?? '') !== old;
+      return [
+        row.kind,
+        touched && row.kind !== seen
+          ? (versions[row.kind] ?? null)
+          : row.updatedAt,
+      ];
+    })
+  );
+}
+
 /** Why a wording cannot be saved, or null. */
 export function templateBodyProblem(body: string): 'blank' | 'tooLong' | null {
   if (/^\s*$/.test(body)) return 'blank';

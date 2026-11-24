@@ -49,7 +49,8 @@ export function AutomsgTemplates({
 }: {
   templates: readonly AutoMsgTemplateView[];
   role: AutomsgRole;
-  onSaved: () => Promise<void> | void;
+  /** Reads the config again; false when that failed. */
+  onSaved: () => Promise<boolean> | void;
   /** An RCS provider is connected; until then the RCS tab says so. */
   rcsConnected?: boolean;
   /** The SMS gateway is connected; until then the SMS tab says so. */
@@ -105,7 +106,8 @@ export function TemplatesPanel({
   channel: AutomsgChannel;
   templates: readonly AutoMsgTemplateView[];
   role: AutomsgRole;
-  onSaved: () => Promise<void> | void;
+  /** Reads the config again; false when that failed. */
+  onSaved: () => Promise<boolean> | void;
   rcsConnected?: boolean;
   smsConnected?: boolean;
 }) {
@@ -159,7 +161,8 @@ export function TemplateCard({
 }: {
   slot: EditorSlot;
   role: AutomsgRole;
-  onSaved: () => Promise<void> | void;
+  /** Reads the config again; false when that failed. */
+  onSaved: () => Promise<boolean> | void;
 }) {
   const t = useTranslations('Hr.automsg');
   const [editor, setEditor] = useState<EditorState>({
@@ -209,10 +212,15 @@ export function TemplateCard({
     }
   };
 
-  const reload = () => {
+  const reload = async () => {
+    setSaving(true);
+    const read = await onSaved();
+    setSaving(false);
+    // A failed read keeps the text and the notice.
+    if (read === false) return;
     setRefused(false);
-    setEditor({ base: slot, form: slot.initial });
-    void onSaved();
+    // Given up: the editor follows the row just read.
+    setEditor({ base: { ...base, initial: form }, form });
   };
 
   return (
@@ -319,7 +327,12 @@ export function TemplateCard({
           className="bg-warning-soft text-warning flex flex-wrap items-center justify-between gap-2 rounded px-2 py-1 text-xs"
         >
           <span>{t('templates.changed')}</span>
-          <Button size="sm" variant="outline" onClick={reload}>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={saving}
+            onClick={() => void reload()}
+          >
             {t('templates.reload')}
           </Button>
         </div>

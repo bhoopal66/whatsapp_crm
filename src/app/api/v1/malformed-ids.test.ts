@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const m = vi.hoisted(() => ({
   answer: { data: null as unknown, error: null as unknown },
+  scopes: [] as string[],
 }));
 
 vi.mock('@/lib/auth/api-context', () => ({
@@ -12,7 +13,12 @@ vi.mock('@/lib/auth/api-context', () => ({
     for (const k of ['select', 'update', 'delete', 'eq', 'is'])
       chain[k] = () => chain;
     chain.maybeSingle = async () => m.answer;
-    return { accountId: 'acct-1', supabase: { from: () => chain } };
+    return {
+      accountId: 'acct-1',
+      keyId: 'key-1',
+      scopes: m.scopes,
+      supabase: { from: () => chain },
+    };
   },
 }));
 
@@ -31,6 +37,7 @@ const patch = () =>
   req({ method: 'PATCH', body: JSON.stringify({ is_active: true }) });
 
 beforeEach(() => {
+  m.scopes = [];
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
 
@@ -40,6 +47,13 @@ describe('a malformed id', () => {
     ['GET conversations/[id]', () => conversation(req(), params)],
     ['GET webhooks/[id]', () => hook(req(), params)],
     ['PATCH webhooks/[id]', () => patchHook(patch(), params)],
+    [
+      'PATCH webhooks/[id] with messages:read',
+      () => {
+        m.scopes = ['messages:read'];
+        return patchHook(patch(), params);
+      },
+    ],
     ['DELETE webhooks/[id]', () => dropHook(req(), params)],
   ];
 

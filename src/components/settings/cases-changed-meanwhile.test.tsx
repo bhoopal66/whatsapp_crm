@@ -26,6 +26,7 @@ import {
   ChangedNotice,
   FileSpecEditor,
   IntakeWording,
+  LoadFailed,
 } from './case-files-settings';
 import { StagesEditor } from './cases-settings-panel';
 
@@ -108,6 +109,33 @@ describe('the stage list', () => {
     )[0];
     await (notice.props.onReload as () => Promise<void>)();
     expect(shown()).toEqual(stages);
+  });
+
+  it('a failed Reload keeps the edits and the notice, and says so', async () => {
+    let up = true;
+    replies = (_u, init) =>
+      init?.method === 'PUT'
+        ? { status: 409, body: { code: 'STAGES_CHANGED' } }
+        : up
+          ? { status: 200, body: { stages: first, isDefault: false } }
+          : { status: 500, body: null };
+    await load(view);
+    await edit();
+    await click(view, 'save');
+    const notices = () =>
+      findElements(render(view), (el) => el.type === ChangedNotice);
+    const unread = () =>
+      findElements(render(view), (el) => el.type === LoadFailed);
+    expect(unread()).toHaveLength(0);
+    up = false;
+    await (notices()[0].props.onReload as () => Promise<void>)();
+    const labels = findElements(
+      render(view),
+      (el) => el.props['aria-label'] === 'stageLabel'
+    );
+    expect(labels[1].props.value).toBe('Bank review');
+    expect(notices()).toHaveLength(1);
+    expect(unread()).toHaveLength(1);
   });
 
   it('names what uses a dropped stage, then sends the confirmed save', async () => {
@@ -231,6 +259,51 @@ describe('the intake wording', () => {
     expect(text().props.value).toBe('Mine');
     await click(view, 'save');
     expect(sent[1].body).toEqual({ body: 'Mine', updatedAt: 'v2' });
+  });
+
+  it('another wording being refused gives no draft a newer version', async () => {
+    const two = (a: string, b: string, at: string) => ({
+      templates: [
+        {
+          kind: 'document_classify',
+          body: a,
+          approved: false,
+          updatedAt: at,
+        },
+        { kind: 'document_rejected', body: b, approved: false, updatedAt: at },
+      ],
+    });
+    let now = two('A', 'B', 'v1');
+    replies = (_u, init) =>
+      init?.method === 'PUT'
+        ? { status: 409, body: { code: 'TEMPLATE_CHANGED' } }
+        : { status: 200, body: now };
+    await open();
+    const type = (id: string, value: string) =>
+      (
+        findElements(render(view), (el) => el.props.id === `intake-${id}`)[0]
+          .props.onChange as (e: object) => void
+      )({ target: { value } });
+    const save = async (i: number) => {
+      const buttons = findElements(
+        render(view),
+        (el) =>
+          !!el.props.onClick &&
+          textOf(el.props.children as ReactNode).endsWith('save')
+      );
+      (buttons[i].props.onClick as () => void)();
+      await settle();
+    };
+    type('document_classify', 'My A');
+    type('document_rejected', 'My B');
+    now = two('Their A', 'Their B', 'v2');
+    await save(0);
+    // B was typed over v1, and nobody was shown v2 of it.
+    await save(1);
+    await save(0);
+    expect(sent.map((s) => s.body.updatedAt)).toEqual(['v1', 'v1', 'v2']);
+    await save(1);
+    expect(sent[3].body).toEqual({ body: 'My B', updatedAt: 'v2' });
   });
 
   it('a failed first read offers Reload, never "no wording"', async () => {

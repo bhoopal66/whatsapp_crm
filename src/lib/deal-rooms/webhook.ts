@@ -219,14 +219,25 @@ export interface HandleGroupWebhookArgs {
   phoneNumberId: string;
   accessToken: string;
   value: GroupWebhookValue;
+  /** Shared by the values of one request (`groupRetryPauses`). */
+  pauses?: number[];
 }
 
 class UnknownGroup extends Error {}
 
 /** Before the one retry of a STOP's database work. */
 const STOP_RETRY_MS = 500;
-/** Before the retries one delivery may spend on everything else. */
-const RETRY_MS = [500, 2_000, 8_000];
+/** Before the one retry of a file: a lasting refusal is no database blip. */
+const FILE_RETRY_MS = 2_000;
+
+/**
+ * The pauses before the retries one delivery may spend on everything else:
+ * a database that stays down holds a request about 10 s, however many
+ * groups and items it carries.
+ */
+export function groupRetryPauses(): number[] {
+  return [500, 2_000, 8_000];
+}
 
 /**
  * Meta delivers everything once (the route has answered 200), so a blip
@@ -252,8 +263,7 @@ export async function handleGroupWebhook(
 ): Promise<void> {
   const { db, accountId } = args;
   const rooms = new Map<string, Room | null>();
-  // Shared by the whole delivery: a database that stays down holds it 10 s.
-  const pauses = [...RETRY_MS];
+  const pauses = args.pauses ?? groupRetryPauses();
 
   // The room of this ACCOUNT for a group id; the id alone is global.
   async function room(groupId: string): Promise<Room> {
@@ -686,7 +696,7 @@ export async function handleGroupWebhook(
           maxBytes: WHATSAPP_MAX_FILE_BYTES,
         });
         return { buffer, reported: mimeType };
-      }, pauses);
+      }, [FILE_RETRY_MS]);
       // The participant chose this type: never store it as such (164).
       const mimeType = safeStoredMime(reported);
       const safe = (s: string) =>
@@ -698,7 +708,7 @@ export async function handleGroupWebhook(
           .from(DEAL_FILES_BUCKET)
           .upload(path, buffer, { contentType: mimeType, upsert: true });
         if (upErr) throw new Error(`upload failed: ${upErr.message}`);
-      }, pauses);
+      }, [FILE_RETRY_MS]);
       const { data: file, error } = await db
         .from('deal_files')
         .insert({

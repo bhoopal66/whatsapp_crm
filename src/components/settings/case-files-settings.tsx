@@ -36,6 +36,7 @@ import {
   parseIntakeTemplates,
   readyStageOptions,
   refreshedDrafts,
+  refreshedVersions,
   specBody,
   specDraft,
   specExpected,
@@ -249,7 +250,7 @@ const INTAKE_URL = '/api/cases/config/intake-templates';
  * own (any edit withdraws its approval) and approved by an owner other
  * than whoever last edited it. Independent of the card's Save.
  */
-function LoadFailed({
+export function LoadFailed({
   text,
   retry,
   onRetry,
@@ -268,6 +269,12 @@ function LoadFailed({
   );
 }
 
+interface IntakeForm {
+  drafts: Record<string, string>;
+  /** The stored version each draft may be saved over. */
+  versions: Record<string, string | null>;
+}
+
 export function IntakeWording({ canEdit }: { canEdit: boolean }) {
   const t = useTranslations('CaseFilesSettings.wording');
   const tc = useTranslations('CaseSettings');
@@ -279,7 +286,10 @@ export function IntakeWording({ canEdit }: { canEdit: boolean }) {
   const [loadFailed, setLoadFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [saved, setSaved] = useState<IntakeTemplateView[] | null>(null);
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [{ drafts, versions }, setForm] = useState<IntakeForm>({
+    drafts: {},
+    versions: {},
+  });
   const [busy, setBusy] = useState<string | null>(null);
 
   useEffect(() => {
@@ -291,7 +301,10 @@ export function IntakeWording({ canEdit }: { canEdit: boolean }) {
       if (!answer.ok) return;
       const rows = parseIntakeTemplates(answer.body);
       setSaved(rows);
-      setDrafts(Object.fromEntries(rows.map((r) => [r.kind, r.body ?? ''])));
+      setForm({
+        drafts: Object.fromEntries(rows.map((r) => [r.kind, r.body ?? ''])),
+        versions: Object.fromEntries(rows.map((r) => [r.kind, r.updatedAt])),
+      });
     });
     return () => {
       off = true;
@@ -308,13 +321,12 @@ export function IntakeWording({ canEdit }: { canEdit: boolean }) {
     const text = drafts[kind] ?? '';
     if (templateBodyProblem(text)) return;
     setBusy(kind);
-    const shown = (saved ?? []).find((r) => r.kind === kind);
     const answer = await call(`${INTAKE_URL}/${kind}`, {
       method: 'PUT',
-      body: JSON.stringify({ body: text, updatedAt: shown?.updatedAt ?? null }),
+      body: JSON.stringify({ body: text, updatedAt: versions[kind] ?? null }),
     });
     // Somebody else's wording is shown beside what is typed here.
-    if (answer.status === 409) await refresh(saved ?? []);
+    if (answer.status === 409) await refresh(saved ?? [], kind);
     if (answer.ok) {
       // The version an approval names is the server's: without it, the
       // saver's own approve would read as somebody else's change.
@@ -332,12 +344,15 @@ export function IntakeWording({ canEdit }: { canEdit: boolean }) {
   }
 
   /** Re-reads the list; a failed read leaves what is shown. */
-  async function refresh(before: IntakeTemplateView[]) {
+  async function refresh(before: IntakeTemplateView[], seen?: IntakeKind) {
     const answer = await call(INTAKE_URL);
     if (!answer.ok) return;
     const rows = parseIntakeTemplates(answer.body);
     setSaved(rows);
-    setDrafts((d) => refreshedDrafts(before, rows, d));
+    setForm((f) => ({
+      drafts: refreshedDrafts(before, rows, f.drafts),
+      versions: refreshedVersions(before, rows, f.drafts, f.versions, seen),
+    }));
   }
 
   async function approve(kind: IntakeKind, updatedAt: string) {
@@ -359,7 +374,14 @@ export function IntakeWording({ canEdit }: { canEdit: boolean }) {
         ? { updatedAt: row.updatedAt }
         : {}),
     });
-    if (body !== null) setDrafts((d) => ({ ...d, [kind]: body }));
+    if (body !== null)
+      setForm((f) => ({
+        drafts: { ...f.drafts, [kind]: body },
+        versions:
+          typeof row?.updatedAt === 'string'
+            ? { ...f.versions, [kind]: row.updatedAt }
+            : f.versions,
+      }));
     toast.success(t('approvedToast'));
   }
 
@@ -412,7 +434,10 @@ export function IntakeWording({ canEdit }: { canEdit: boolean }) {
                     readOnly={!canEdit}
                     disabled={busy !== null}
                     onChange={(e) =>
-                      setDrafts((d) => ({ ...d, [row.kind]: e.target.value }))
+                      setForm((f) => ({
+                        ...f,
+                        drafts: { ...f.drafts, [row.kind]: e.target.value },
+                      }))
                     }
                   />
                   <p className="text-muted-foreground text-xs">

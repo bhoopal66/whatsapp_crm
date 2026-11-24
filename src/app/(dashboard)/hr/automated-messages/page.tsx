@@ -105,12 +105,13 @@ export default function HrAutomatedMessagesPage() {
     const res = await automsgConfig(createClient());
     if ('error' in res) {
       setFailed(true);
-      return;
+      return false;
     }
     setFailed(false);
     setConfig(res.data);
     setForm((cur) => nextSettingsForm(cur, res.data.settings, reason));
     if (reason !== 'other') setInvalid([]);
+    return true;
   }, []);
 
   useEffect(() => {
@@ -214,7 +215,7 @@ export default function HrAutomatedMessagesPage() {
 
       {role === null ? (
         <p className="text-muted-foreground text-sm">{t('noAccess')}</p>
-      ) : failed ? (
+      ) : failed && !config ? (
         <div className="border-border bg-card space-y-2 rounded-lg border p-4">
           <p className="text-destructive text-sm">{t('loadFailed')}</p>
           <Button variant="outline" size="sm" onClick={() => void load()}>
@@ -225,6 +226,18 @@ export default function HrAutomatedMessagesPage() {
         <div className="bg-card-2 h-24 animate-pulse rounded-lg" />
       ) : (
         <>
+          {/* Over what was read before: what is typed in a card stays. */}
+          {failed && (
+            <div
+              role="alert"
+              className="bg-destructive-soft text-destructive flex flex-wrap items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm"
+            >
+              <p>{t('loadFailed')}</p>
+              <Button variant="outline" size="sm" onClick={() => void load()}>
+                {t('retry')}
+              </Button>
+            </div>
+          )}
           <Banner
             config={config}
             role={role}

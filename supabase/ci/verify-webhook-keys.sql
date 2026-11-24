@@ -137,6 +137,22 @@ BEGIN
   n := n + 1; IF (j ->> 'task_created')::boolean IS NOT TRUE
        OR (SELECT note LIKE 'third%' FROM tasks WHERE contact_id = c3 AND status = 'open') IS NOT TRUE THEN
     failed := failed || 'a text after the task was closed is lost'::text; END IF;
+  -- The same again, after that task was closed too, opens nothing: with the
+  -- same text, and with nothing but the contact's own name.
+  UPDATE tasks SET status = 'done', completed_at = now() WHERE contact_id = c3;
+  PERFORM pg_sleep(0.005);
+  j := web_form_submit(tok, 'Whk', '971509990010', NULL, 'third', NULL);
+  n := n + 1; IF (j ->> 'task_created')::boolean OR EXISTS (SELECT 1 FROM tasks WHERE contact_id = c3 AND status = 'open') THEN
+    failed := failed || 'the same text again opened a task'::text; END IF;
+  j := web_form_submit(tok, 'Whk', '971509990010', NULL, NULL, NULL);
+  n := n + 1; IF (j ->> 'task_created')::boolean OR EXISTS (SELECT 1 FROM tasks WHERE contact_id = c3 AND status = 'open') THEN
+    failed := failed || 'a submission with nothing new opened a task'::text; END IF;
+  -- Out of the window it is a new lead again.
+  UPDATE tasks SET created_at = now() - interval '11 minutes' WHERE contact_id = c3;
+  PERFORM pg_sleep(0.005);
+  j := web_form_submit(tok, 'Whk', '971509990010', NULL, NULL, NULL);
+  n := n + 1; IF (j ->> 'task_created')::boolean IS NOT TRUE THEN
+    failed := failed || 'a submission after the window opened nothing'::text; END IF;
 
   -- 4: one customer in another form is found; two, or a foreign number, are not.
   FOREACH t IN ARRAY ARRAY['050 777 0001', '50 777 0002', '+9710507770003', '00971507770004', '04 777 0005'] LOOP
@@ -178,8 +194,8 @@ BEGIN
   RAISE EXCEPTION USING ERRCODE = 'ZP315', MESSAGE = 'rollback';
   EXCEPTION WHEN SQLSTATE 'ZP315' THEN NULL;
   END;
-  IF n <> 26 OR cardinality(failed) > 0 THEN
-    RAISE EXCEPTION 'verify-webhook-keys: % of 26 checks ran, failed: %', n, array_to_string(failed, '; ');
+  IF n <> 29 OR cardinality(failed) > 0 THEN
+    RAISE EXCEPTION 'verify-webhook-keys: % of 29 checks ran, failed: %', n, array_to_string(failed, '; ');
   END IF;
   RAISE NOTICE 'verify-webhook-keys: % checks passed', n;
 END
