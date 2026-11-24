@@ -8889,6 +8889,8 @@
         "remove": "Remove from group",
         "toastMadeAdmin": "{name} is now an admin",
         "toastRemovedAdmin": "{name} is no longer an admin",
+        "toastMakeAdminFailed": "WhatsApp refused: {name} is not an admin.",
+        "toastRemoveAdminFailed": "WhatsApp refused: {name} is still an admin.",
         "toastRemoved": "{name} was removed from the group",
         "removeTitle": "Remove {name}?",
         "removeBody": "They will leave {group} and stop seeing new messages. You can add them again later.",

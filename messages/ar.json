@@ -8889,6 +8889,8 @@
         "remove": "إزالة من المجموعة",
         "toastMadeAdmin": "أصبح {name} مسؤولاً",
         "toastRemovedAdmin": "لم يعد {name} مسؤولاً",
+        "toastMakeAdminFailed": "رفض WhatsApp الطلب: {name} ليس مسؤولاً.",
+        "toastRemoveAdminFailed": "رفض WhatsApp الطلب: {name} لا يزال مسؤولاً.",
         "toastRemoved": "تمت إزالة {name} من المجموعة",
         "removeTitle": "إزالة {name}؟",
         "removeBody": "سيغادر {group} ولن يرى الرسائل الجديدة. يمكنك إضافته مرة أخرى لاحقاً.",

@@ -7,7 +7,8 @@
 // owner/admin sends `overrideConsent: true`; at most 60 people an hour
 // per person and 120 per number: the rest are `notAttempted` with
 // `error: too_many_adds`, 429 when nobody is left to add), DELETE
-// removes them, PATCH promotes or demotes. Our own number can be neither
+// removes them, PATCH promotes or demotes; both answer 200 with `failed`
+// naming whoever WhatsApp refused. Our own number can be neither
 // removed nor demoted: that would strand the group. After a change the
 // snapshot is re-read, best effort.
 // ============================================================
@@ -172,9 +173,20 @@ export async function PATCH(request: Request, { params }: Params) {
       throw ownNumber();
     }
     const change = role === 'admin' ? promoteAdmins : demoteAdmins;
-    await change({ channel, groupId: group.wa_group_id, participants: waIds });
+    const result = await change({
+      channel,
+      groupId: group.wa_group_id,
+      participants: waIds,
+    });
     const resynced = await resyncGroup(channel, group.wa_group_id);
-    return NextResponse.json({ ok: true, waIds, role, resynced });
+    return NextResponse.json({
+      ok: result.failed.length === 0,
+      waIds,
+      role,
+      changed: result.processed,
+      failed: result.failed,
+      resynced,
+    });
   } catch (err) {
     return groupErrorResponse(err);
   }

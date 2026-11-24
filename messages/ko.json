@@ -8889,6 +8889,8 @@
         "remove": "그룹에서 내보내기",
         "toastMadeAdmin": "{name}님이 관리자가 되었습니다",
         "toastRemovedAdmin": "{name}님이 더 이상 관리자가 아닙니다",
+        "toastMakeAdminFailed": "WhatsApp에서 거부했습니다. {name}님은 관리자가 아닙니다.",
+        "toastRemoveAdminFailed": "WhatsApp에서 거부했습니다. {name}님은 아직 관리자입니다.",
         "toastRemoved": "{name}님을 그룹에서 내보냈습니다",
         "removeTitle": "{name}님을 내보낼까요?",
         "removeBody": "{group} 그룹에서 나가며 새 메시지를 볼 수 없게 됩니다. 나중에 다시 추가할 수 있습니다.",

@@ -6,9 +6,11 @@ import {
   GroupsUnsupportedError,
   addParticipants,
   createGroup,
+  demoteAdmins,
   describeGroupFailure,
   getGroup,
   listGroupsWithStatus,
+  promoteAdmins,
   updateGroupSetting,
 } from './groups';
 import { OpenWAError } from './openwa-api';
@@ -25,12 +27,18 @@ vi.mock('./openwa-groups', async (importOriginal) => {
     addParticipants: vi.fn(),
     listGroupSummaries: vi.fn(),
     updateSetting: vi.fn(),
+    promoteParticipants: vi.fn(),
+    demoteParticipants: vi.fn(),
   };
 });
 
 vi.mock('./whapi-api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./whapi-api')>();
-  return { ...actual, getGroup: vi.fn() };
+  return {
+    ...actual,
+    getGroup: vi.fn(),
+    promoteGroupAdmins: vi.fn(async () => {}),
+  };
 });
 
 const GID = '120363025555555555@g.us';
@@ -273,6 +281,41 @@ describe('listGroupsWithStatus on OpenWA', () => {
     });
     expect(out.groups).toHaveLength(3);
     expect(out.complete).toBe(true);
+  });
+});
+
+describe('promoteAdmins / demoteAdmins', () => {
+  const who = ['971501234567', '971507654321'];
+  const results = [
+    { id: '971501234567@c.us', success: true, status: 200 },
+    { id: '971507654321@c.us', success: false, status: 403 },
+  ];
+
+  it.each([
+    ['promoteAdmins', promoteAdmins, openwa.promoteParticipants],
+    ['demoteAdmins', demoteAdmins, openwa.demoteParticipants],
+  ] as const)(
+    "%s tells OpenWA's refusals from its changes",
+    async (_, run, gateway) => {
+      vi.mocked(gateway).mockResolvedValue(results);
+      const out = await run({
+        channel: openwaChannel,
+        groupId: GID,
+        participants: who,
+      });
+      expect(out.processed.map((p) => p.waId)).toEqual(['971501234567']);
+      expect(out.failed.map((p) => p.waId)).toEqual(['971507654321']);
+    }
+  );
+
+  it('counts everyone Whapi was asked about as changed', async () => {
+    const out = await promoteAdmins({
+      channel: whapiChannel,
+      groupId: GID,
+      participants: who,
+    });
+    expect(out.processed.map((p) => p.waId)).toEqual(who);
+    expect(out.failed).toEqual([]);
   });
 });
 

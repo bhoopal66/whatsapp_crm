@@ -34,6 +34,8 @@ and polish.
 
 ### Fixed
 
+- **"Is now an admin" only when WhatsApp agreed.** A refused promotion or
+  demotion in a WhatsApp group (OpenWA numbers) is said to be refused.
 - **A submission group message that went nowhere comes back to the box.**
   While the app restarted, or when the CRM broke before the message was
   stored, the words were lost; now only a message that is in the log
