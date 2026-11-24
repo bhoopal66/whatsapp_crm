@@ -39,7 +39,11 @@ and polish.
   of the call can now write them, and see that call. Reports credit the
   same person as before. One person's note no longer replaces the other's
   unseen: the second save is refused and shows the stored note, and saving
-  a note no longer rewrites the outcome. **Migration required: 294**,
+  a note no longer rewrites the outcome. The call window no longer loses
+  what it could not save: it stays open and says so, a wrap-up that closes
+  by itself keeps the text behind a message until it is opened again, and
+  what is typed before the call loads is saved when it does.
+  **Migration required: 294**,
   after 292 and before the build.
 - **OpenWA numbers past the tenth were never checked.** The gateway takes
   ten requests a second per route; the five-minute status check asked for

@@ -38,6 +38,7 @@ import {
   noteFrames,
   noteOutcome,
   recoverWrapUps,
+  reopenWrapUp,
   ringFloor,
   selectPanel,
   wrapUpPanel,
@@ -78,6 +79,11 @@ interface CallsValue {
   closable: boolean;
   /** Closes the panel of that call; a live one only while `closable`. */
   closePanel: (key: string) => void;
+  /**
+   * Opens a closed wrap-up again, its two minutes from now. False while
+   * a live call has the panel.
+   */
+  reopenPanel: (panel: PanelCall) => boolean;
   /** The panel reports whether its call has an outcome chosen. */
   noteOutcome: (key: string, chosen: boolean) => void;
   softphone: SoftphoneAdapter | null;
@@ -114,6 +120,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const [closable, setClosable] = useState<string[]>([]);
   const [panels, setPanels] = useState<PanelState>(NO_PANEL);
   const panel = panels.panel;
+  // For reopenPanel, which a message outside the tree calls later.
+  const panelRef = useRef(panel);
+  useEffect(() => {
+    panelRef.current = panel;
+  }, [panel]);
   const [adapter, setAdapter] = useState<SoftphoneAdapter | null>(null);
   const [adapterActive, setAdapterActive] = useState(false);
   const adapterRef = useRef<SoftphoneAdapter | null>(null);
@@ -374,6 +385,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     []
   );
 
+  const reopenPanel = useCallback((call: PanelCall) => {
+    if (panelRef.current && panelRef.current.endedAt === null) return false;
+    setPanels((s) => reopenWrapUp(s, call, Date.now()));
+    return true;
+  }, []);
+
   const registerSoftphone = useCallback((a: SoftphoneAdapter) => {
     adapterRef.current = a;
     setAdapter(a);
@@ -432,6 +449,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           )
         );
       },
+      reopenPanel,
       noteOutcome: reportOutcome,
       softphone,
       registerSoftphone,
@@ -458,6 +476,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       panel,
       closable,
       pulseAt,
+      reopenPanel,
       reportOutcome,
       softphone,
       registerSoftphone,

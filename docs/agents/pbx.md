@@ -17,6 +17,9 @@ parser, signature check, WebSocket helpers, token manager and CDR helpers.
   reports. A note is saved only over the text its writer last saw
   (`pbx_save_call_note`, `notesSeen`): a conflict is a 409 with
   `conflict: true` and the stored text, an erased call a 409 without it.
+  The in-call panel's draft is `call-note.ts` (pure) and `call-note-store.ts`:
+  a panel never goes with an unsaved draft unless the person says so; it is
+  kept in `sessionCache` behind a message (`keepCallNote`, `reopenPanel`).
   Re-running 089 or 198 reverts 294. `verify-call-notes.sql`. Secrets
   (app-encrypted) live only in `pbx_connection_secrets`: RLS on, no policy, no
   client grant.
