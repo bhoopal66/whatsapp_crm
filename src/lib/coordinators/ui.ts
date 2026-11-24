@@ -153,7 +153,7 @@ export function banksChanged(
 
 /** Saved WhatsApp numbers (142) by person. */
 export function phonesByUser(
-  rows: readonly Pick<CoordinatorRow, 'user_id' | 'whatsapp_phone'>[]
+  rows: readonly (Partial<CoordinatorRow> & { user_id: string })[]
 ): Map<string, string> {
   const out = new Map<string, string>();
   for (const c of rows) {

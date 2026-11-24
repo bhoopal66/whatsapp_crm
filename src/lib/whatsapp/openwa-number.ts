@@ -36,10 +36,7 @@ import {
   personalNumbersAdmin,
   promoteOldestToPrimary,
 } from './personal-numbers';
-import {
-  messagesWaitingResponse,
-  waitingMessages,
-} from './waiting-messages';
+import { messagesWaitingResponse, waitingMessages } from './waiting-messages';
 import { generateWebhookSecret } from './whapi-webhook-auth';
 
 /** A failure the connect turns into its own answer (after the undo). */

@@ -609,7 +609,9 @@ async function applyTransition(
       phone
     );
     if (refusal) {
-      console.warn(`[channel-health] ${channel.id}: first link refused, same phone`);
+      console.warn(
+        `[channel-health] ${channel.id}: first link refused, same phone`
+      );
       await disconnectOpenWANumber(
         admin,
         channel.accountId,

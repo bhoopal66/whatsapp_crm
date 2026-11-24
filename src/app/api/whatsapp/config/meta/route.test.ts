@@ -77,7 +77,8 @@ function makeSupabase() {
           return resolve({ count: null, data: null, error: db.countError });
         }
         const sharedOnly = q.filters.some(
-          ([f, col, val]) => f === 'eq' && col === 'is_personal' && val === false
+          ([f, col, val]) =>
+            f === 'eq' && col === 'is_personal' && val === false
         );
         return resolve({
           count: db.siblings.filter((r) => !sharedOnly || !r.is_personal)
