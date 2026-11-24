@@ -373,6 +373,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [loading, setLoading] = useState(true);
   const [signingOut, setSigningOut] = useState(false);
+  const signingOutRef = useRef(false);
   const [sessionStalled, setSessionStalled] = useState(false);
   const retrySessionRef = useRef<() => void>(() => {});
   const retrySession = useCallback(() => retrySessionRef.current(), []);
@@ -953,9 +954,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [fetchProfile]);
 
   const signOut = useCallback(async () => {
+    // One under way ends this session by itself, however long it takes.
+    if (signingOutRef.current) return;
+    signingOutRef.current = true;
     setSigningOut(true);
-    if (!(await signOutThisDevice(createClient().auth))) {
+    let slow: string | number | undefined;
+    const ended = await signOutThisDevice(createClient().auth, () => {
+      slow ??= toast.loading(t("stillSigningOut"));
+    });
+    if (!ended) {
+      signingOutRef.current = false;
       setSigningOut(false);
+      if (slow !== undefined) toast.dismiss(slow);
       toast.error(t("signOutFailed"));
       return;
     }

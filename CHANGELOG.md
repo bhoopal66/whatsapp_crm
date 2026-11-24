@@ -35,7 +35,8 @@ and polish.
   migration.
 - **"Sign out" ends this device only.** It used to sign the person out of
   every device; Settings → "Sign out of all devices" is the button for that.
-  A sign-out that did not work says so and leaves you signed in. No
+  A sign-out that did not work says so and leaves you signed in; a slow one
+  says "Still signing out…" until it is over. No migration.
 - **More screens catch up after the connection was lost.** Who is online, the
   chats shared with a coordinator, reminder suggestions, a chat's timeline
   notes, the HR panel, the groups list and the calendar now read again when a

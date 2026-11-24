@@ -58,6 +58,68 @@ describe('signOutThisDevice', () => {
     expect(await done).toBe(true);
   });
 
+  it.each([
+    ['refused', { error: refused }, signedIn, false],
+    ['that worked', { error: null }, nobody, true],
+  ])(
+    'waits for a slow one %s, and says so',
+    async (_what, answer, left, ended) => {
+      vi.useFakeTimers();
+      const a = auth(null, signedIn);
+      let settle: (value: typeof answer) => void = () => {};
+      a.signOut.mockReturnValue(new Promise((resolve) => (settle = resolve)));
+      const onSlow = vi.fn();
+      const result = vi.fn();
+      const done = signOutThisDevice(a, onSlow).then(result);
+      await vi.advanceTimersByTimeAsync(SIGN_OUT_WAIT_MS * 3);
+      expect(onSlow).toHaveBeenCalled();
+      expect(result).not.toHaveBeenCalled();
+      a.getSession.mockResolvedValue(left);
+      settle(answer);
+      await done;
+      expect(result).toHaveBeenCalledWith(ended);
+      expect(a.signOut).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  // The real auth-js: the refresh is retried for about 25 s.
+  it('is a sign-out when the token had expired and nothing answers', async () => {
+    vi.useFakeTimers();
+    const store = new Map<string, string>();
+    store.set(
+      'k',
+      JSON.stringify({
+        access_token: 'a.b.c',
+        refresh_token: 'r',
+        token_type: 'bearer',
+        expires_in: 3600,
+        expires_at: Math.floor(Date.now() / 1000) - 60,
+        user: { id: 'u1' },
+      })
+    );
+    const client = createClient('http://supabase.invalid', 'anon', {
+      auth: {
+        storageKey: 'k',
+        autoRefreshToken: false,
+        storage: {
+          getItem: (k) => store.get(k) ?? null,
+          setItem: (k, v) => void store.set(k, v),
+          removeItem: (k) => void store.delete(k),
+        },
+      },
+      global: { fetch: () => Promise.reject(new TypeError('offline')) },
+    });
+    const result = vi.fn();
+    const done = signOutThisDevice(client.auth).then(result);
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(store.get('k')).toBeDefined();
+    expect(result).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(60_000);
+    await done;
+    expect(store.get('k')).toBeUndefined();
+    expect(result).toHaveBeenCalledWith(true);
+  });
+
   // The real auth-js, against a server that is down.
   it('leaves no session on this device when the server is down', async () => {
     const store = new Map<string, string>();

@@ -46,7 +46,11 @@ vi.mock('next-intl', () => {
   const t = (key: string) => key;
   return { useTranslations: () => t };
 });
-const toast = vi.hoisted(() => ({ error: vi.fn() }));
+const toast = vi.hoisted(() => ({
+  error: vi.fn(),
+  loading: vi.fn(() => 'slow'),
+  dismiss: vi.fn(),
+}));
 vi.mock('sonner', () => ({ toast }));
 
 const ROW = {
@@ -198,6 +202,31 @@ describe('signing out', () => {
     expect(toast.error).toHaveBeenCalledWith('signOutFailed');
     expect(location.href).toBe('');
     expect(auth()).toMatchObject({ user: { id: 'u1' }, signingOut: false });
+  });
+
+  it('waits for a slow one, which a second press does not start again', async () => {
+    const { signOut } = await start();
+    let settle: (answer: { error: unknown }) => void = () => {};
+    db.signOut.mockReturnValue(new Promise((resolve) => (settle = resolve)));
+    const first = signOut();
+    void signOut();
+    await tick(20_000);
+    void auth().signOut();
+    await tick();
+    expect(db.signOut).toHaveBeenCalledTimes(1);
+    expect(toast.loading).toHaveBeenCalledWith('stillSigningOut');
+    expect(toast.error).not.toHaveBeenCalled();
+    expect(auth()).toMatchObject({ user: { id: 'u1' }, signingOut: true });
+
+    settle({ error: new Error('refused') });
+    await first;
+    expect(toast.dismiss).toHaveBeenCalledWith('slow');
+    expect(toast.error).toHaveBeenCalledWith('signOutFailed');
+    expect(auth()).toMatchObject({ user: { id: 'u1' }, signingOut: false });
+
+    db.signOut.mockResolvedValue({ error: null });
+    await auth().signOut();
+    expect(location.href).toBe('/login');
   });
 });
 

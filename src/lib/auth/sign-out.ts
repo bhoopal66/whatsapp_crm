@@ -5,6 +5,8 @@
 // ============================================================
 
 import { signOutReleasingPush } from '@/lib/push/sign-out';
+
+import { markExplicitSignOut } from './explicit-sign-out';
 import { statusFromAnswer } from './session-state';
 
 /** The part of `supabase.auth` this needs. */
@@ -16,7 +18,7 @@ export interface DeviceAuth {
   }>;
 }
 
-/** How long one call to the auth service may hold the sign-out up. */
+/** How long one question to the auth service may take. */
 export const SIGN_OUT_WAIT_MS = 8_000;
 
 async function answerOf<T>(
@@ -35,17 +37,44 @@ async function answerOf<T>(
   }
 }
 
+async function sessionGone(auth: DeviceAuth): Promise<boolean> {
+  const left = await answerOf(auth.getSession());
+  return statusFromAnswer(left.data.session?.user, left.error) === 'signed_out';
+}
+
 /**
  * Release push, then end this device's session. Whether it ended: a
  * local sign-out drops the stored session before asking the server to
  * revoke it, so an error (offline, a 5xx) usually comes with the session
  * gone, and that is a sign-out. False = this device is still signed in.
+ *
+ * A sign-out under way cannot be called off: offline with an expired
+ * token auth-js spends about 25 s on the refresh and then signs out
+ * after all. So a slow one is waited for, never given up on; `onSlow`
+ * says it is, every `SIGN_OUT_WAIT_MS`.
  */
-export async function signOutThisDevice(auth: DeviceAuth): Promise<boolean> {
-  const { error } = await signOutReleasingPush(() =>
-    answerOf(auth.signOut({ scope: 'local' }))
-  );
-  if (!error) return true;
-  const left = await answerOf(auth.getSession());
-  return statusFromAnswer(left.data.session?.user, left.error) === 'signed_out';
+export async function signOutThisDevice(
+  auth: DeviceAuth,
+  onSlow?: () => void
+): Promise<boolean> {
+  let answer: { error: unknown } | undefined;
+  const ended = await signOutReleasingPush(async () => ({
+    settled: auth.signOut({ scope: 'local' }).then(
+      (value) => {
+        answer = value;
+      },
+      (error: unknown) => {
+        answer = { error };
+      }
+    ),
+  }));
+  for (;;) {
+    await answerOf(ended.settled);
+    if (answer) return !answer.error || sessionGone(auth);
+    onSlow?.();
+    // The other tabs' memory of it is 30 s long.
+    markExplicitSignOut();
+    // The server may never answer the revoking; that is no reason to stay.
+    if (await sessionGone(auth)) return true;
+  }
 }
