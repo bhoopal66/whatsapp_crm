@@ -1909,7 +1909,10 @@
         "languageLabel": "اللغة",
         "select": "اختر قالبًا…",
         "unknown": "{name} ({lang}) — ليس في قائمة المعتمدة",
-        "unknownLang": "غير معروفة"
+        "unknownLang": "غير معروفة",
+        "value": "قيمة {name}",
+        "headerValue": "قيمة الترويسة",
+        "valuesHint": "مطلوب. استخدم {{ message.text }} لإدراج رسالة العميل."
       },
       "branches": {
         "yes": "نعم",

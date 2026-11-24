@@ -1909,7 +1909,10 @@
         "languageLabel": "언어",
         "select": "템플릿 선택…",
         "unknown": "{name} ({lang}) — 승인 목록에 없음",
-        "unknownLang": "알 수 없음"
+        "unknownLang": "알 수 없음",
+        "value": "{name}의 값",
+        "headerValue": "머리글 값",
+        "valuesHint": "필수입니다. 고객 메시지는 {{ message.text }}로 넣으세요."
       },
       "branches": {
         "yes": "예",

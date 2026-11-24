@@ -43,7 +43,12 @@ export async function templateValueIssues(
       const child = step.branches?.[side];
       if (child) {
         issues.push(
-          ...(await templateValueIssues(db, accountId, child, `${path}.${side}.`))
+          ...(await templateValueIssues(
+            db,
+            accountId,
+            child,
+            `${path}.${side}.`
+          ))
         );
       }
     }

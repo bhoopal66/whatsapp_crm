@@ -22,6 +22,9 @@ and polish.
 
 ### Fixed
 
+- **The automation builder asks for a template's values**: one field per
+  placeholder of the body and of a text header, with the filled text below.
+  No migration.
 - **"Time-Based" and "Conversation Assigned" automations say they do not run
   yet.** Nothing ever started them: they are disabled in the builder, cannot
   be activated, and one that is on shows "On, but never runs". No migration.

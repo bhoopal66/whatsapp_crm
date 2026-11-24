@@ -59,7 +59,9 @@ export function resolveTemplateValues(
   });
   const headerText = step.header_text ? fill(step.header_text) : undefined;
   if (headerTakesValue(template) && !headerText?.trim()) {
-    missing.push(`header ${extractVariableKeys(template.header_content!).map((k) => `{{${k}}}`)[0]}`);
+    missing.push(
+      `header ${extractVariableKeys(template.header_content!).map((k) => `{{${k}}}`)[0]}`
+    );
   }
   return {
     params: Array.from(params, (v) => v ?? ''),

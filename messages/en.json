@@ -1909,7 +1909,10 @@
         "languageLabel": "Language",
         "select": "Select a template…",
         "unknown": "{name} ({lang}) — not in approved list",
-        "unknownLang": "unknown"
+        "unknownLang": "unknown",
+        "value": "Value for {name}",
+        "headerValue": "Header value",
+        "valuesHint": "Required. Use {{ message.text }} for the customer's message."
       },
       "branches": {
         "yes": "Yes",
