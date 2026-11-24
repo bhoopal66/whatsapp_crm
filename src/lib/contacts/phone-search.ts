@@ -1,3 +1,5 @@
+import { latinDigits } from './digits';
+
 /**
  * Phone search on digits. A phone is stored as typed (`+971 58 833 6503`),
  * so a search for `588336503` never matches the raw text; the database
@@ -17,11 +19,11 @@ export const PHONE_SEARCH_MIN_DIGITS = 4;
  */
 export function phoneSearchDigits(term: string): string | null {
   if (/\p{L}/u.test(term)) return null;
-  const digits = term.replace(/\D/g, '').replace(/^0+/, '');
+  const digits = latinDigits(term).replace(/\D/g, '').replace(/^0+/, '');
   return digits.length >= PHONE_SEARCH_MIN_DIGITS ? digits : null;
 }
 
 /** A phone's digits, for comparing against {@link phoneSearchDigits}. */
 export function phoneDigits(phone: string | null | undefined): string {
-  return (phone ?? '').replace(/\D/g, '');
+  return latinDigits(phone ?? '').replace(/\D/g, '');
 }

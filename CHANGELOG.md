@@ -22,6 +22,19 @@ and polish.
 
 ### Fixed
 
+- **Numbers typed in Arabic digits work.** Contact search, the inbox,
+  groups and forward searches read Arabic-Indic and Persian digits as 0-9,
+  and a number typed or imported with them keeps its digits.
+- **The "task assigned" bell gives the due time in the workspace's time
+  zone**, not in UTC. **Migration required: 298.**
+- **The in-call task list says when there are more** than it shows, links
+  to the customer page, and loads the next ones after a tick.
+- **Contact search no longer loses customers behind a filter.** Searching
+  Contacts with a chat tag, a lead source or (for a team leader) "my own"
+  took the best 200 matches first and filtered those, so a customer past
+  them vanished. The filters now narrow the search itself; a search that
+  finds more than it lists says "First 500 matches".
+  **Migration required: 298.**
 - **A failed filter change no longer leaves the old figures under the new
   filter.** The funnel report and Team activity now show figures only under
   the filter they were fetched for; after a failed load the error with Retry

@@ -8,6 +8,7 @@
  * client, which must stay out of the browser bundle, so its limits are
  * restated here and `ui.test.ts` checks they still agree.
  */
+import { latinDigits } from '@/lib/contacts/digits';
 import { hasMinRole, type AccountRole } from '@/lib/auth/roles';
 import { validateContactPhone } from '@/lib/contacts/phone-validation';
 
@@ -104,7 +105,7 @@ export function filterGroups(
   query: string
 ): GroupListItem[] {
   const q = query.trim().toLowerCase();
-  const digits = q.replace(/\D/g, '');
+  const digits = latinDigits(q).replace(/\D/g, '');
   const hit = (g: GroupListItem) =>
     !q ||
     g.name.toLowerCase().includes(q) ||
@@ -564,10 +565,10 @@ export function formatWaId(waId: string): string {
  * escaped; a phone query also matches on its digits alone.
  */
 export function contactSearchFilter(query: string): string | null {
-  const q = query.replace(/[,()*%\\"']/g, ' ').trim();
+  const q = latinDigits(query).replace(/[,()*%\\"']/g, ' ').trim();
   if (q.length < 2) return null;
   const parts = [`name.ilike.*${q}*`, `phone.ilike.*${q}*`];
-  const digits = q.replace(/\D/g, '');
+  const digits = latinDigits(q).replace(/\D/g, '');
   if (digits.length >= 3 && digits !== q) parts.push(`phone.ilike.*${digits}*`);
   return parts.join(',');
 }

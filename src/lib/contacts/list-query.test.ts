@@ -3,7 +3,6 @@ import type { Contact } from '@/types';
 import { sessionKey } from '@/lib/session-cache';
 import {
   firstCloseMatchId,
-  narrowHits,
   pageOfHits,
   buildContactListQuery,
   CONTACT_LIST_QUESTION_PREFIX,
@@ -350,21 +349,6 @@ describe('close-match search paging', () => {
     exact,
   });
   const hits = [hit('a'), hit('b'), hit('c', false), hit('d', false)];
-
-  it('keeps rank order and applies every narrowing set', () => {
-    expect(
-      narrowHits(hits, [new Set(['d', 'a', 'c']), null]).map((h) => h.contactId)
-    ).toEqual(['a', 'c', 'd']);
-    expect(
-      narrowHits(hits, [new Set(['a', 'c']), new Set(['c', 'd'])]).map(
-        (h) => h.contactId
-      )
-    ).toEqual(['c']);
-  });
-
-  it('does not narrow when no set applies', () => {
-    expect(narrowHits(hits, [null, null])).toEqual(hits);
-  });
 
   it('pages the ranked hits and reports the total', () => {
     const p = pageOfHits(hits, 2, 2);

@@ -1,3 +1,4 @@
+import { latinDigits } from '@/lib/contacts/digits';
 import {
   validateContactPhone,
   withUaeCountryCode,
@@ -15,13 +16,7 @@ export type RemoteNumber =
 
 /** Extensions and short codes; anything longer is an outside number. */
 const MAX_INTERNAL_DIGITS = 6;
-/** Arabic-Indic U+0660-0669 and Eastern Arabic-Indic U+06F0-06F9. */
-const ARABIC_DIGITS = /[٠-٩۰-۹]/g;
-
-/** Arabic-Indic and Persian digits as 0-9; everything else unchanged. */
-export function latinDigits(text: string): string {
-  return text.replace(ARABIC_DIGITS, (c) => String(c.charCodeAt(0) & 0xf));
-}
+export { latinDigits };
 
 /**
  * A typed number search as the digits to find inside a stored number

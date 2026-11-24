@@ -1,5 +1,6 @@
 'use client';
 
+import { latinDigits } from '@/lib/contacts/digits';
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
@@ -80,7 +81,7 @@ export function MembersTab({
 
   const shown = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const digits = q.replace(/\D/g, '');
+    const digits = latinDigits(q).replace(/\D/g, '');
     return detail.participants.filter(
       (p) =>
         !q ||

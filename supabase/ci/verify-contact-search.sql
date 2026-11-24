@@ -227,7 +227,7 @@ BEGIN
 
   -- ---- The restated policies ---------------------------------------
   -- search_contact_candidates restates exactly these two SELECT
-  -- policies. If this fails, update its visibility term (193) and then
+  -- policies. If this fails, update its visibility term (298) and then
   -- this text.
   n := n + 1;
   IF (SELECT string_agg(polname || '=' || pg_get_expr(polqual, polrelid), E'\n' ORDER BY polname)
@@ -237,7 +237,7 @@ BEGIN
      'contacts_coordinator_select=((account_id = ( SELECT current_account_id() AS current_account_id)) AND ( SELECT i_hold_open_coordinator_shares() AS i_hold_open_coordinator_shares) AND (id IN ( SELECT coordinator_granted_contact_ids() AS coordinator_granted_contact_ids)))'
      || E'\n' ||
      'contacts_select=((account_id = ( SELECT current_account_id() AS current_account_id)) AND ((( SELECT current_role_rank() AS current_role_rank) >= 4) OR (user_id IN ( SELECT contact_visibility_people() AS contact_visibility_people)) OR (id IN ( SELECT contact_visibility_chat_contact_ids() AS contact_visibility_chat_contact_ids))))' THEN
-    failed := array_append(failed, 'the contacts SELECT policies changed: update search_contact_candidates (193) to match'::text);
+    failed := array_append(failed, 'the contacts SELECT policies changed: update search_contact_candidates (298) to match'::text);
   END IF;
 
   -- ---- Privileges --------------------------------------------------
