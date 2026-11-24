@@ -38,6 +38,8 @@ export interface DigestSettings {
   language: string;
   sendHour: number;
   gapDays: number;
+  /** The stored version this was read at; null when nothing is stored. */
+  updatedAt: string | null;
 }
 
 export type DeskAnswer<T> =
@@ -178,8 +180,13 @@ export const deskApi = {
   // Reminder digest (migration 234)
   digest: () =>
     call('/api/desk/digest', undefined, (b) => b.settings as DigestSettings),
-  saveDigest: (body: DigestSettings) =>
-    call('/api/desk/digest', json('PUT', body), () => true),
+  /** Answers the version saved; 409 SETTINGS_CHANGED over another (316). */
+  saveDigest: ({ updatedAt, ...body }: DigestSettings) =>
+    call(
+      '/api/desk/digest',
+      json('PUT', { ...body, expectedUpdatedAt: updatedAt }),
+      (b) => (b.updatedAt as string | undefined) ?? null
+    ),
   // Cover and leave (migration 232)
   cover: () =>
     call('/api/desk/cover', undefined, (b) => b.banks as BankCover[]),
@@ -257,7 +264,13 @@ export const deskApi = {
     routingEnabled: boolean;
     deskChannelIds: string[];
     escalateMinutes: number;
-  }) => call('/api/desk/settings', json('PUT', body), () => true),
+    expectedUpdatedAt: string | null;
+  }) =>
+    call(
+      '/api/desk/settings',
+      json('PUT', body),
+      (b) => (b.updatedAt as string | undefined) ?? null
+    ),
   setDuty: (userId: string | null) =>
     call('/api/desk/duty', json('PUT', { userId }), () => true),
   retag: (itemId: string, tags: ItemTags) =>

@@ -13449,7 +13449,8 @@
         "pro": "PRO",
         "accountant": "회계 담당자",
         "other": "기타"
-      }
+      },
+      "capped": "처음 {count}개만 표시됩니다. 다른 회사를 찾으려면 이름이나 허가 번호를 더 입력하세요."
     },
     "tray": {
       "intro": "확실하게 등록할 수 없었던 WhatsApp 고객 문서입니다. 미리 선택된 것은 없습니다: 케이스를 직접 선택하세요.",
@@ -13514,7 +13515,8 @@
       "noNumbers": "연결된 회사 WhatsApp 번호가 없습니다.",
       "escalate": "대기 문서 에스컬레이션 시간(분)",
       "save": "저장",
-      "saved": "라우팅 저장됨"
+      "saved": "라우팅 저장됨",
+      "storedNow": "현재 저장된 값: {enabled, select, yes {라우팅 켜짐} other {라우팅 꺼짐}}; 데스크 번호: {numbers}; {minutes}분 후 에스컬레이션."
     },
     "banks": {
       "title": "은행 및 문서",
@@ -13583,7 +13585,8 @@
       "sendHour": "발송 시작 시각(두바이)",
       "gapDays": "알림 간격(일)",
       "save": "저장",
-      "saved": "알림 저장됨"
+      "saved": "알림 저장됨",
+      "storedNow": "현재 저장된 값: {enabled, select, yes {알림 켜짐} other {알림 꺼짐}}; 템플릿 {template} ({language}); {hour}:00부터; 알림 간격(일): {days}."
     },
     "worklist": {
       "title": "케이스 데스크",
@@ -13593,7 +13596,8 @@
       "tasks": "나에게 배정된 데스크 후속 조치 {count, plural, other {#개}}",
       "oldest": "가장 오래된 항목 {age}",
       "open": "케이스 데스크 열기"
-    }
+    },
+    "settingsChanged": "여는 동안 다른 사람이 이 설정을 변경했습니다. 변경 내용은 저장되지 않았습니다."
   },
   "DeskPreview": {
     "title": "파일: {name}",

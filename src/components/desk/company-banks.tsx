@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 
+import { dubaiDay } from '@/lib/case-files/day';
 import { docTypeLabel } from '@/lib/desk/doc-types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -26,11 +27,13 @@ import {
 
 import { deskApi } from './desk-api';
 import { DeskSelect } from './desk-select';
+import { LoadFailed } from './load-failed';
 
 export function CompanyBanks({ company }: { company: DeskCompany }) {
   const t = useTranslations('Desk');
   const [o, setO] = useState<CompanyOverview | null>(null);
   const [list, setList] = useState<ApplicationChecklist | null>(null);
+  const [failed, setFailed] = useState({ overview: false, list: false });
   const load = useCallback(
     () =>
       Promise.all([
@@ -40,6 +43,7 @@ export function CompanyBanks({ company }: { company: DeskCompany }) {
         if (r.ok) setO(r.data);
         else toast.error(r.error);
         if (c.ok) setList(c.data);
+        setFailed({ overview: !r.ok, list: !c.ok });
       }),
     [company.customerId]
   );
@@ -51,7 +55,14 @@ export function CompanyBanks({ company }: { company: DeskCompany }) {
     () => [...new Set((o?.cases ?? []).map((c) => c.bankCode))].sort(),
     [o]
   );
-  if (!o) return null;
+  if (!o)
+    return failed.overview ? (
+      <Card>
+        <CardContent>
+          <LoadFailed title={t('banks.title')} onRetry={load} />
+        </CardContent>
+      </Card>
+    ) : null;
   const caseNumber = (id: string) =>
     o.cases.find((c) => c.caseId === id)?.caseNumber ?? id;
 
@@ -106,6 +117,9 @@ export function CompanyBanks({ company }: { company: DeskCompany }) {
           </div>
         )}
 
+        {failed.list && (
+          <LoadFailed title={t('banks.checklist')} onRetry={load} />
+        )}
         {list && list.items.length > 0 && <Checklist list={list} />}
 
         {o.files.length === 0 ? (
@@ -136,7 +150,7 @@ export function CompanyBanks({ company }: { company: DeskCompany }) {
   );
 }
 
-function ConsentRow({
+export function ConsentRow({
   bank,
   company,
   overview,
@@ -148,16 +162,54 @@ function ConsentRow({
   onChanged: () => Promise<unknown>;
 }) {
   const t = useTranslations('Desk');
-  const [text, setText] = useState('');
-  const [busy, setBusy] = useState(false);
   const live = overview.consents.find(
     (c) => c.bankCode === bank && !c.revokedAt
   );
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="w-16 font-medium">{bank}</span>
+      <span className="text-muted-foreground min-w-0 flex-1 text-xs break-words">
+        {live
+          ? t('banks.consented', {
+              date: dubaiDay(new Date(live.grantedAt)),
+              evidence: live.evidence,
+            })
+          : t('banks.noConsent')}
+      </span>
+      {company.canManage && (
+        // Keyed by the consent it acts on: a colleague's grant arriving on
+        // a reload must not turn typed evidence into a revoke reason.
+        <ConsentAction
+          key={live ? `revoke-${live.grantedAt}` : 'grant'}
+          bank={bank}
+          customerId={company.customerId}
+          live={!!live}
+          onChanged={onChanged}
+        />
+      )}
+    </div>
+  );
+}
+
+function ConsentAction({
+  bank,
+  customerId,
+  live,
+  onChanged,
+}: {
+  bank: string;
+  customerId: string;
+  live: boolean;
+  onChanged: () => Promise<unknown>;
+}) {
+  const t = useTranslations('Desk');
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
   const act = async () => {
     setBusy(true);
     const r = live
-      ? await deskApi.revokeConsent(company.customerId, bank, text)
-      : await deskApi.grantConsent(company.customerId, bank, text);
+      ? await deskApi.revokeConsent(customerId, bank, text)
+      : await deskApi.grantConsent(customerId, bank, text);
     setBusy(false);
     if (!r.ok) {
       toast.error(r.error);
@@ -168,37 +220,24 @@ function ConsentRow({
     await onChanged();
   };
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <span className="w-16 font-medium">{bank}</span>
-      <span className="text-muted-foreground min-w-0 flex-1 text-xs break-words">
-        {live
-          ? t('banks.consented', {
-              date: live.grantedAt.slice(0, 10),
-              evidence: live.evidence,
-            })
-          : t('banks.noConsent')}
-      </span>
-      {company.canManage && (
-        <span className="flex flex-wrap items-center gap-2">
-          <Input
-            className="w-56"
-            value={text}
-            maxLength={500}
-            placeholder={live ? t('banks.revokeReason') : t('banks.evidence')}
-            aria-label={live ? t('banks.revokeReason') : t('banks.evidence')}
-            onChange={(e) => setText(e.target.value)}
-          />
-          <Button
-            size="sm"
-            variant={live ? 'ghost' : 'outline'}
-            disabled={busy || text.trim().length < 3}
-            onClick={act}
-          >
-            {live ? t('banks.revoke') : t('banks.record')}
-          </Button>
-        </span>
-      )}
-    </div>
+    <span className="flex flex-wrap items-center gap-2">
+      <Input
+        className="w-56"
+        value={text}
+        maxLength={500}
+        placeholder={live ? t('banks.revokeReason') : t('banks.evidence')}
+        aria-label={live ? t('banks.revokeReason') : t('banks.evidence')}
+        onChange={(e) => setText(e.target.value)}
+      />
+      <Button
+        size="sm"
+        variant={live ? 'ghost' : 'outline'}
+        disabled={busy || text.trim().length < 3}
+        onClick={act}
+      >
+        {live ? t('banks.revoke') : t('banks.record')}
+      </Button>
+    </span>
   );
 }
 

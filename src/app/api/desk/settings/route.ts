@@ -1,18 +1,22 @@
 // GET /api/desk/settings — desk WhatsApp routing (migration 230):
 // `{ settings, numbers }` (numbers = this workspace's company WhatsApp
 // numbers, for an admin to mark as desk numbers). Staff.
-// PUT — `{ routingEnabled, deskChannelIds, escalateMinutes }`, owners and
-// admins: routing is off until switched on here.
+// PUT — `{ routingEnabled, deskChannelIds, escalateMinutes,
+// expectedUpdatedAt }`, owners and admins; answers `{ ok, updatedAt }`:
+// routing is off until switched on here. `expectedUpdatedAt` is the
+// `updatedAt` the card loaded (null: nothing stored); another stored
+// version, or no key, is 409 SETTINGS_CHANGED (316).
 import { NextResponse } from 'next/server';
 
 import { assertSalesAccess, getCurrentAccount } from '@/lib/auth/account';
 import {
   DeskBadRequest,
   deskErrorResponse,
+  expectedVersion,
   readJson,
   requireUuid,
 } from '@/lib/desk/http';
-import { DeskStore } from '@/lib/desk/store';
+import { DeskStore, DeskStoreError } from '@/lib/desk/store';
 import { supabaseAdmin } from '@/lib/submission-groups/server';
 
 export async function GET() {
@@ -23,11 +27,13 @@ export async function GET() {
       ctx.userId,
       ctx.accountId
     );
-    const { data } = await admin
+    const { data, error } = await admin
       .from('whatsapp_config')
       .select('id, provider, label, waba_id, is_personal')
       .eq('account_id', ctx.accountId)
       .order('created_at', { ascending: true });
+    // A failed read is not "no numbers".
+    if (error) throw new DeskStoreError('whatsapp_config', error.code ?? null);
     const numbers = (
       (data ?? []) as {
         id: string;
@@ -68,16 +74,17 @@ export async function PUT(request: Request) {
       minutes > 1440
     )
       throw new DeskBadRequest('escalateMinutes must be 15 to 1440');
-    await new DeskStore(supabaseAdmin()).setSettings(
+    const updatedAt = await new DeskStore(supabaseAdmin()).setSettings(
       ctx.userId,
       ctx.accountId,
       {
         routingEnabled: body.routingEnabled,
         deskChannelIds: ids,
         escalateMinutes: minutes,
+        expectedUpdatedAt: expectedVersion(body),
       }
     );
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, updatedAt });
   } catch (err) {
     return deskErrorResponse(err, 'settings save');
   }
