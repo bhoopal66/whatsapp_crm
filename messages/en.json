@@ -10682,7 +10682,12 @@
         "firstFinal": "The first stage can’t be a final stage (“{stage}”). Move a working stage to the top.",
         "finalSpelling": "Spell the final stage exactly “{stage}”.",
         "missingFinal": "“{stage}” is missing. Approved, Declined, Withdrawn and Closed must all be in the list."
-      }
+      },
+      "dropTitle": "Stages still in use",
+      "dropMappings": "Compass statuses that move a case to a removed stage: {list}.",
+      "dropSla": "Deadline rules on a removed stage: {list}.",
+      "dropBody": "They will stop working if you save. Save anyway?",
+      "dropConfirm": "Save anyway"
     },
     "templates": {
       "help": "Tasks that staff can add to a case at this bank with one click.",
@@ -10760,8 +10765,10 @@
       "stageNotConfigured": "That stage is no longer in this bank’s list. Reload and try again.",
       "invalid": "That value is not allowed.",
       "notAllowed": "Only owners and admins can change these settings.",
-      "generic": "Could not save: {error}"
-    }
+      "generic": "Could not save: {error}",
+      "stagesChanged": "Another admin changed this list. Reload to see it, then make your change again."
+    },
+    "reload": "Reload"
   },
   "CaseRules": {
     "settings": {
@@ -11017,7 +11024,9 @@
       "notAllowed": "Only owners and admins can change this.",
       "selfApproval": "Another owner must approve wording you edited.",
       "templateInvalid": "That wording is not valid. Write 1 to 1,000 characters.",
-      "generic": "Couldn't save ({error})."
+      "generic": "Couldn't save ({error}).",
+      "specChanged": "Another admin changed this spec. Reload to see it, then make your change again.",
+      "templateChanged": "The wording was changed meanwhile. Read the new text before you approve it."
     },
     "spec": {
       "title": "Document files",
@@ -12440,7 +12449,9 @@
       "REUSE_WOULD_FAIL": "This is an earlier version that would fail its checks now, so nothing was changed.",
       "STORAGE_UNAVAILABLE": "The file store did not answer. Try again in a moment.",
       "generic": "Something went wrong. Try again."
-    }
+    },
+    "downloadBlocked": "Your browser blocked the new tab. Allow pop-ups for this site and try again.",
+    "buildLoadFailed": "The assembled case file could not be loaded."
   },
   "CaseSnooze": {
     "snooze": "Snooze",

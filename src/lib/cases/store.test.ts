@@ -966,3 +966,36 @@ describe('endClaimedGroup (the claim case_sync_from_submission took)', () => {
     expect(db.of('case_finish_group_end')).toEqual([]);
   });
 });
+
+describe('setStages against the loaded list (309)', () => {
+  it('passes the list and the confirmation, and answers what uses a dropped stage', async () => {
+    const rpc = vi.fn(async () => ({
+      data: {
+        saved: false,
+        mappings: [{ status: 'Under review', stage: 'b' }],
+        sla: [],
+      },
+      error: null,
+    }));
+    const store = new CaseStore({ rpc } as never);
+    expect(
+      await store.setStages(ACTOR, ACCOUNT, 'ADCB', ['a'], {
+        expected: ['a', 'b'],
+        confirmDropped: false,
+      })
+    ).toEqual({
+      saved: false,
+      count: 0,
+      mappings: [{ status: 'Under review', stage: 'b' }],
+      sla: [],
+    });
+    expect(rpc).toHaveBeenCalledWith('case_bank_stages_set', {
+      p_actor: ACTOR,
+      p_account: ACCOUNT,
+      p_bank_code: 'ADCB',
+      p_stages: ['a'],
+      p_expected: ['a', 'b'],
+      p_confirm: false,
+    });
+  });
+});

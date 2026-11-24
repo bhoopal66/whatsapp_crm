@@ -151,6 +151,45 @@ describe('GET file specs', () => {
 });
 
 describe('PUT file specs', () => {
+  it("passes the loaded rows on as the database's, every key present", async () => {
+    const res = await put({
+      product: 'Personal loan',
+      rows: [ROW],
+      expected: [{ ...ROW, minValidDays: undefined }],
+    });
+    expect(res.status).toBe(200);
+    expect(admin.rpcs[0].args).toMatchObject({
+      p_expected: [
+        {
+          doc_key: ROW.docKey,
+          position: ROW.position,
+          name_pattern: ROW.namePattern,
+          required: ROW.required,
+          max_mb: ROW.maxMb,
+          allowed_mime: ROW.allowedMime,
+          min_valid_days: null,
+          merged: ROW.merged,
+        },
+      ],
+    });
+  });
+
+  it('answers 409 SPEC_CHANGED', async () => {
+    setResult = { error: { code: '23514', hint: 'SPEC_CHANGED' } };
+    const res = await put({ product: 'P', rows: [ROW], expected: [] });
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe('SPEC_CHANGED');
+    expect(admin.rpcs[0].args).toMatchObject({ p_expected: [] });
+  });
+
+  it('refuses an expected that is not a list of rows', async () => {
+    for (const expected of ['x', [1], null]) {
+      const res = await put({ product: 'P', rows: [ROW], expected });
+      expect(res.status).toBe(422);
+    }
+    expect(admin.rpcs).toEqual([]);
+  });
+
   it('replaces the spec as the caller and answers the audit id', async () => {
     const res = await put({
       product: ' Personal loan ',

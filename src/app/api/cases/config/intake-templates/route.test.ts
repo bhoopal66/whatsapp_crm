@@ -42,8 +42,14 @@ const put = (kind: string, body: unknown) =>
     new Request('http://x', { method: 'PUT', body: JSON.stringify(body) }),
     params(kind)
   );
-const post = (kind: string) =>
-  approve(new Request('http://x', { method: 'POST' }), params(kind));
+const post = (kind: string, body?: unknown) =>
+  approve(
+    new Request('http://x', {
+      method: 'POST',
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    }),
+    params(kind)
+  );
 
 beforeEach(() => {
   vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -198,6 +204,46 @@ describe('POST approve intake template', () => {
   it('404s an unknown kind', async () => {
     as('owner');
     expect((await post('nope')).status).toBe(404);
+    expect(admin.rpcs).toHaveLength(0);
+  });
+
+  it('approves the wording the owner was shown and answers its row', async () => {
+    as('owner');
+    const updatedAt = '2026-11-24T10:00:00.123456+00:00';
+    approveResult = {
+      data: {
+        kind: 'document_rejected',
+        body: 'Text',
+        approved: true,
+        updated_at: '2026-11-24T10:05:00.5+00:00',
+      },
+    };
+    const res = await post('document_rejected', { updatedAt });
+    expect(await res.json()).toEqual({
+      kind: 'document_rejected',
+      body: 'Text',
+      approved: true,
+      updatedAt: '2026-11-24T10:05:00.5+00:00',
+    });
+    expect(admin.rpcs[0].args).toMatchObject({
+      p_expected_updated_at: updatedAt,
+    });
+  });
+
+  it('answers 409 TEMPLATE_CHANGED', async () => {
+    as('owner');
+    approveResult = { error: { code: '23514', hint: 'TEMPLATE_CHANGED' } };
+    const res = await post('document_rejected', {
+      updatedAt: '2026-11-24T10:00:00Z',
+    });
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe('TEMPLATE_CHANGED');
+  });
+
+  it('400s a version that is no date', async () => {
+    as('owner');
+    for (const updatedAt of ['yesterday', 5, '2026-99-99T00:00:00Z'])
+      expect((await post('document_rejected', { updatedAt })).status).toBe(400);
     expect(admin.rpcs).toHaveLength(0);
   });
 

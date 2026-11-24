@@ -21,7 +21,12 @@ describe('intake wording helpers', () => {
   it('reads body and approval, never approved without a body', () => {
     const out = parseIntakeTemplates({
       templates: [
-        { kind: 'document_rejected', body: 'Hi {doc}', approved: true },
+        {
+          kind: 'document_rejected',
+          body: 'Hi {doc}',
+          approved: true,
+          updatedAt: '2026-11-24T10:00:00.123456+00:00',
+        },
         { kind: 'document_classify', body: null, approved: true },
         { kind: 'other', body: 'x', approved: true },
       ],
@@ -30,11 +35,13 @@ describe('intake wording helpers', () => {
       kind: 'document_classify',
       body: null,
       approved: false,
+      updatedAt: null,
     });
     expect(out[1]).toEqual({
       kind: 'document_rejected',
       body: 'Hi {doc}',
       approved: true,
+      updatedAt: '2026-11-24T10:00:00.123456+00:00',
     });
     expect(out[2].body).toBeNull();
   });

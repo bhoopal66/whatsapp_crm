@@ -38,10 +38,18 @@ and polish.
   text (and a post still on its way) is kept by the case page, Ctrl+Enter
   pressed twice posts one note, and text written while a note was being
   posted is no longer erased.
-- **Case settings: the database half of "somebody else changed this".**
-  **Migration required: 309.** Overloads of the stage-list, file-spec and
-  intake-wording approval functions that take what the page had loaded.
-  The screens do not call them yet.
+- **Case settings say when somebody else changed them.**
+  **Migration required: 309, before the new build.** A bank's stage list
+  and file spec, and the approval of an intake wording, are compared with
+  what the page had loaded: another admin's change is no longer
+  overwritten, and an owner approves only the wording on the screen.
+  Dropping a stage that a Compass status or a deadline rule still uses
+  names them and asks first.
+- **A case file opens on an iPhone.** Safari silently blocked the tab
+  Download opened after the link had been fetched; the tab now opens on
+  the click. A blocked tab, or a link that cannot be made, says so.
+- **A failed read of the assembled case file no longer reads as "none".**
+  The case page says it could not be loaded and offers Retry.
 - **The privacy register no longer calls Draft with AI a reply.** The
   draft and the playground record their own purpose (`draft`,
   `playground`) in the AI transfer register instead of `reply`.

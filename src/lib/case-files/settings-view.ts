@@ -238,6 +238,16 @@ export function parseFileSpec(body: unknown): FileSpecView | null {
   };
 }
 
+/**
+ * The GET's `rows` exactly as they came, for the PUT's `expected`:
+ * `parseFileSpec` may normalise or drop some, and the database compares
+ * with what is stored.
+ */
+export function specExpected(body: unknown): unknown[] | undefined {
+  const rows = obj(body)?.rows;
+  return Array.isArray(rows) ? rows : undefined;
+}
+
 /** One editable row: the number fields as typed. */
 export interface SpecRowDraft {
   docKey: string;
@@ -374,11 +384,13 @@ export function specBody(
 /** A refusal code of these routes -> its key under `CaseFilesSettings.errors`. */
 const ERROR_KEYS: Record<string, string> = {
   SPEC_INVALID: 'specInvalid',
+  SPEC_CHANGED: 'specChanged',
   DOCS_INVALID: 'docsInvalid',
   BANK_UNKNOWN: 'bankUnknown',
   SETTING_INVALID: 'settingInvalid',
   NOT_ALLOWED: 'notAllowed',
   SELF_APPROVAL: 'selfApproval',
+  TEMPLATE_CHANGED: 'templateChanged',
   TEMPLATE_INVALID: 'templateInvalid',
 };
 
@@ -411,6 +423,8 @@ export interface IntakeTemplateView {
   kind: IntakeKind;
   body: string | null;
   approved: boolean;
+  /** The version an approval names; kept as text (microseconds). */
+  updatedAt: string | null;
 }
 
 /** Always the three kinds, in order; anything unreadable is "no wording". */
@@ -420,8 +434,28 @@ export function parseIntakeTemplates(payload: unknown): IntakeTemplateView[] {
   return INTAKE_KINDS.map((kind) => {
     const row = rows.map(obj).find((r) => r?.kind === kind);
     const body = typeof row?.body === 'string' ? row.body : null;
-    return { kind, body, approved: body !== null && row?.approved === true };
+    return {
+      kind,
+      body,
+      approved: body !== null && row?.approved === true,
+      updatedAt: body === null ? null : str(row?.updatedAt),
+    };
   });
+}
+
+/** The texts after a re-read: what was typed stays, the rest follows. */
+export function refreshedDrafts(
+  before: readonly IntakeTemplateView[],
+  after: readonly IntakeTemplateView[],
+  drafts: Readonly<Record<string, string>>
+): Record<string, string> {
+  return Object.fromEntries(
+    after.map((row) => {
+      const old = before.find((r) => r.kind === row.kind)?.body ?? '';
+      const typed = drafts[row.kind] ?? '';
+      return [row.kind, typed === old ? (row.body ?? '') : typed];
+    })
+  );
 }
 
 /** Why a wording cannot be saved, or null. */

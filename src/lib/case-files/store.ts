@@ -38,6 +38,8 @@ export const CASE_FILES_REFUSALS = [
   'FILE_NOT_READY',
   'BUILD_INVALID',
   'BUILD_STALE',
+  // Migration 309 (the spec is not the one the screen had loaded).
+  'SPEC_CHANGED',
 ] as const;
 
 /** Refused in TypeScript before anything is written (intake-file.ts). */
@@ -285,7 +287,9 @@ export class CaseFilesStore {
     actor: string,
     bankCode: string,
     product: string,
-    specRows: readonly CaseFileSpecInput[]
+    specRows: readonly CaseFileSpecInput[],
+    /** The stored rows the caller had loaded; SPEC_CHANGED otherwise (309). */
+    expected?: readonly Record<string, unknown>[]
   ): Promise<string> {
     const id = str(
       await this.rpc('case_file_spec_set', {
@@ -293,6 +297,7 @@ export class CaseFilesStore {
         p_bank_code: bankCode,
         p_product: product,
         p_rows: specRows,
+        ...(expected ? { p_expected: expected } : {}),
       })
     );
     if (!id) throw new CaseFilesStoreError('case_file_spec_set', null);
