@@ -8,6 +8,7 @@ import {
   chatTemplateSendsFrom,
   contactTemplateSendsFrom,
   offerTemplates,
+  templateOptions,
 } from './template-offer';
 
 const row = (
@@ -69,6 +70,62 @@ describe('offerTemplates', () => {
     const { offered, blocked } = offerTemplates(rows, 'unknown');
     expect(ids(offered)).toEqual(['local', 'refused', 'approved']);
     expect(blocked).toEqual([]);
+  });
+});
+
+describe('templateOptions', () => {
+  const named = (
+    id: string,
+    name: string,
+    metaId?: string,
+    error?: string
+  ) => ({
+    ...row(id, 'APPROVED', metaId, error),
+    name,
+    language: 'en_US',
+  });
+  const list = [
+    named('refused', 'a', undefined, 'Invalid parameter'),
+    named('b-local', 'b'),
+    named('b-meta', 'b', '1'),
+    { ...named('wait', 'c', '2'), status: 'PENDING' as const },
+  ];
+  const shown = (sendsFrom: 'meta' | 'linked' | 'unknown') =>
+    templateOptions(list, sendsFrom).map((o) => [o.template.id, o.reason]);
+
+  it('lists one row per template, blocked ones last with the reason', () => {
+    expect(shown('meta')).toEqual([
+      ['b-meta', null],
+      ['refused', 'not_approved'],
+      ['wait', 'waiting'],
+    ]);
+  });
+
+  it('blocks nothing on a linked number, nor while the number is unknown', () => {
+    expect(shown('linked')).toEqual([
+      ['refused', null],
+      ['b-meta', null],
+      ['wait', null],
+    ]);
+    expect(shown('unknown')).toEqual([
+      ['refused', null],
+      ['b-meta', null],
+    ]);
+  });
+});
+
+describe('the automation builder', () => {
+  const src = readFileSync(
+    join(process.cwd(), 'src/components/automations/automation-builder.tsx'),
+    'utf8'
+  );
+
+  it('reads every status and offers by the automation route', () => {
+    expect(src).not.toMatch(/\.eq\("status", "APPROVED"\)/);
+    expect(src).toMatch(/\.eq\("surface", "automation"\)/);
+    expect(src).toContain('broadcastTemplateSendsFrom(numbers, routedId)');
+    expect(src).toContain('templateOptions(templates, templatesSendFrom)');
+    expect(src).toContain('disabled={reason !== null}');
   });
 });
 

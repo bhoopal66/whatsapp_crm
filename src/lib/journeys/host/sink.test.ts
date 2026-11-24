@@ -249,6 +249,26 @@ describe('journey sink: templates', () => {
     ]);
   });
 
+  it('a template Meta refused is dropped on a Meta number, marked approved or not', async () => {
+    h.templateRow.mockResolvedValue({
+      row: { status: 'APPROVED', submission_error: 'Invalid parameter' },
+    });
+    const meta = sink(FILE, { data: 'claimed' });
+    await meta.sink.deliver(item(send('pos_quote', 'UTILITY')));
+    expect(outboxUpdates(meta.queries)).toEqual([
+      { status: 'dropped', drop_reason: 'TEMPLATE_UNAVAILABLE' },
+    ]);
+    expect(h.createTask.mock.calls[0][1].meta.reason).toBe(
+      'Meta refused it: Invalid parameter'
+    );
+    expect(h.sendTemplate).not.toHaveBeenCalled();
+
+    h.botChannel.mockResolvedValue({ id: 'ch2', provider: 'openwa' });
+    const linked = sink(FILE, { data: 'claimed' });
+    await linked.sink.deliver(item(send('pos_quote', 'UTILITY')));
+    expect(h.sendTemplate).toHaveBeenCalledTimes(1);
+  });
+
   it('a task failure is logged and the item still drops', async () => {
     h.templateRow.mockResolvedValue({ row: null });
     h.createTask.mockRejectedValue(new Error('tasks: boom'));

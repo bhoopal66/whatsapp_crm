@@ -38,6 +38,7 @@ import {
 } from '@/lib/flows/channel-send';
 import { engineSendTemplate } from '@/lib/automations/channel-send';
 import { resolveBotChannel } from '@/lib/whatsapp/channels';
+import { refusedByMeta } from '@/lib/whatsapp/template-offer';
 import { resolveTemplateRow } from '@/lib/whatsapp/template-body';
 import { createSystemTask, resolveTaskOwner } from '@/lib/tasks/system';
 import type { ActionSink, OutboxItem } from '../ports';
@@ -265,7 +266,10 @@ export function createJourneySink({
         const status = String(
           (row as { status?: unknown }).status ?? ''
         ).toUpperCase();
-        if (status !== 'APPROVED') {
+        // A save marks a row approved before Meta answers, and a refused
+        // submission keeps that.
+        const refused = refusedByMeta(row);
+        if (status !== 'APPROVED' || refused) {
           // The number engineSendTemplate will use (its 'automation' route).
           const channel = await resolveBotChannel(
             db,
@@ -278,7 +282,9 @@ export function createJourneySink({
               item,
               a,
               ctx,
-              `status ${status || 'unknown'} on a Meta number`
+              refused
+                ? `Meta refused it: ${row.submission_error}`
+                : `status ${status || 'unknown'} on a Meta number`
             );
         }
         const r = await engineSendTemplate({

@@ -4,6 +4,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useMemo,
   useId,
   useState,
   type ReactNode,
@@ -17,6 +18,12 @@ import {
 } from "@/lib/automations/template-values"
 import { renderTemplateBody } from "@/lib/whatsapp/template-body"
 import { extractVariableKeys } from "@/lib/whatsapp/template-validators"
+import {
+  broadcastTemplateSendsFrom,
+  templateOptions,
+  type TemplateSendsFrom,
+} from "@/lib/whatsapp/template-offer"
+import { useAccountNumbers } from "@/hooks/use-whatsapp-numbers"
 import { triggerRuns } from "@/lib/automations/trigger-meta"
 import {
   CONDITION_CONTACT_FIELDS,
@@ -263,7 +270,7 @@ function blankConfig(type: AutomationStepType): Record<string, unknown> {
 }
 
 // ------------------------------------------------------------
-// Account resources (members, approved templates, pipelines)
+// Account resources (members, templates, pipelines)
 //
 // Loaded once at the builder root and shared via context so the
 // tag / agent / template pickers below can offer existing resources
@@ -274,7 +281,9 @@ function blankConfig(type: AutomationStepType): Record<string, unknown> {
 
 interface AutomationResources {
   members: AccountMember[]
+  /** Every status: what may be picked depends on `templatesSendFrom`. */
   templates: MessageTemplate[]
+  templatesSendFrom: TemplateSendsFrom
   customFields: CustomField[]
   pipelines: PipelineOption[]
   stages: PipelineStageOption[]
@@ -307,6 +316,7 @@ interface PipelineStageOption {
 const ResourcesContext = createContext<AutomationResources>({
   members: [],
   templates: [],
+  templatesSendFrom: "unknown",
   customFields: [],
   pipelines: [],
   stages: [],
@@ -321,6 +331,9 @@ function useResources(): AutomationResources {
 function ResourcesProvider({ children }: { children: ReactNode }) {
   const [members, setMembers] = useState<AccountMember[]>([])
   const [templates, setTemplates] = useState<MessageTemplate[]>([])
+  const numbers = useAccountNumbers()
+  // Undefined until it is read, or when it could not be.
+  const [routedId, setRoutedId] = useState<string | null | undefined>()
   const [customFields, setCustomFields] = useState<CustomField[]>([])
   const [pipelines, setPipelines] = useState<PipelineOption[]>([])
   const [stages, setStages] = useState<PipelineStageOption[]>([])
@@ -372,17 +385,18 @@ function ResourcesProvider({ children }: { children: ReactNode }) {
     const supabase = createClient()
 
     // Templates and custom fields come straight from the DB — RLS
-    // scopes them to the caller's account. Only APPROVED templates can
-    // actually be sent (anything else 400s at send time), matching the
-    // broadcast picker.
+    // scopes them to the caller's account. Templates of every status:
+    // which can be sent depends on the number automations go out on
+    // (`templateOptions`).
     void (async () => {
-      const [templatesRes, customFieldsRes, pipelinesRes, stagesRes] =
+      const [templatesRes, routeRes, customFieldsRes, pipelinesRes, stagesRes] =
         await Promise.all([
+          supabase.from("message_templates").select("*").order("name"),
           supabase
-            .from("message_templates")
-            .select("*")
-            .eq("status", "APPROVED")
-            .order("name"),
+            .from("whatsapp_routes")
+            .select("config_id")
+            .eq("surface", "automation")
+            .maybeSingle(),
           supabase.from("custom_fields").select("*").order("field_name"),
           supabase.from("pipelines").select("id, name").order("name"),
           supabase
@@ -391,6 +405,7 @@ function ResourcesProvider({ children }: { children: ReactNode }) {
             .order("position"),
         ])
       if (cancelled) return
+      if (!routeRes.error) setRoutedId(routeRes.data?.config_id ?? null)
       setTemplates((templatesRes.data as MessageTemplate[] | null) ?? [])
       setCustomFields((customFieldsRes.data as CustomField[] | null) ?? [])
       setPipelines((pipelinesRes.data as PipelineOption[] | null) ?? [])
@@ -421,6 +436,7 @@ function ResourcesProvider({ children }: { children: ReactNode }) {
       value={{
         members,
         templates,
+        templatesSendFrom: broadcastTemplateSendsFrom(numbers, routedId),
         customFields,
         pipelines,
         stages,
@@ -946,9 +962,10 @@ function TemplateValueFields({
   )
 }
 
-/** Template dropdown showing approved templates by name + language,
- *  storing both template_name and language. Falls back to manual name +
- *  language inputs when no approved templates are synced yet. */
+/** Template dropdown by name + language, storing both template_name and
+ *  language. One that the number automations send from cannot send is
+ *  shown disabled, with the reason. Falls back to manual name + language
+ *  inputs when there is no template at all. */
 function SendTemplateFields({
   templateName,
   language,
@@ -964,7 +981,12 @@ function SendTemplateFields({
   onValues: (patch: TemplateStepValues) => void
   t: ReturnType<typeof useTranslations>
 }) {
-  const { templates } = useResources()
+  const { templates, templatesSendFrom } = useResources()
+  const tPicker = useTranslations("Inbox.templatePicker")
+  const options = useMemo(
+    () => templateOptions(templates, templatesSendFrom),
+    [templates, templatesSendFrom],
+  )
 
   if (templates.length === 0) {
     return (
@@ -995,12 +1017,9 @@ function SendTemplateFields({
   // share a name across languages stay distinct.
   const toValue = (name: string, lang: string) => `${name}::${lang}`
   const current = templateName ? toValue(templateName, language) : ""
-  const hasMatch = templates.some(
-    (t) => toValue(t.name, t.language ?? "en_US") === current,
-  )
-
-  const picked = templates.find(
-    (tmpl) => toValue(tmpl.name, tmpl.language ?? "en_US") === current,
+  const picked = options.find(
+    ({ template }) =>
+      toValue(template.name, template.language ?? "en_US") === current,
   )
 
   return (
@@ -1015,24 +1034,34 @@ function SendTemplateFields({
         className={SELECT_CLASS}
       >
         <option value="">{t("templates.select")}</option>
-        {templates.map((tmpl) => {
-          const lang = tmpl.language ?? "en_US"
+        {options.map(({ template, reason }) => {
+          const lang = template.language ?? "en_US"
           return (
-            <option key={tmpl.id} value={toValue(tmpl.name, lang)}>
-              {tmpl.name} ({lang})
+            <option
+              key={template.id}
+              value={toValue(template.name, lang)}
+              disabled={reason !== null}
+            >
+              {template.name} ({lang})
+              {reason && ` · ${tPicker(`blocked.${reason}`)}`}
             </option>
           )
         })}
-        {current && !hasMatch && (
+        {current && !picked && (
           <option value={current}>
             {t("templates.unknown", { name: templateName, lang: language || t("templates.unknownLang") })}
           </option>
         )}
       </select>
     </FieldBlock>
+    {picked?.reason && (
+      <p className="text-warning text-xs">
+        {tPicker(`blocked.${picked.reason}`)}
+      </p>
+    )}
     {picked && (
       <TemplateValueFields
-        template={picked}
+        template={picked.template}
         values={values}
         onValues={onValues}
         t={t}

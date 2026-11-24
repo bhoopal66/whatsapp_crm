@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import {
+  onePerTemplate,
+  pickTemplateRow,
   renderedForLinkedDevice,
   renderTemplateBody,
   resolveTemplateRow,
@@ -261,6 +263,67 @@ describe('resolveTemplateRow: two teammates hold the same one', () => {
   it('falls back when the id is not among them', async () => {
     expect((await pick([local, metas], 'elsewhere')).row?.id).toBe('meta');
     expect((await pick([local, metas], null)).row?.id).toBe('meta');
+  });
+});
+
+describe('pickTemplateRow', () => {
+  const at = (day: number) => `2026-11-0${day}T00:00:00Z`;
+  const rows = [
+    row({ id: 'paused', meta_template_id: 'M', status: 'PAUSED' }),
+    row({ id: 'refused', submission_error: 'Bad', created_at: at(9) }),
+    row({ id: 'old', created_at: at(2) }),
+    row({ id: 'new', created_at: at(3) }),
+    row({ id: 'meta', meta_template_id: 'M2', created_at: at(1) }),
+  ];
+  const order = (list: MessageTemplate[]) => {
+    const left = list.slice();
+    const out: string[] = [];
+    while (left.length) {
+      const hit = pickTemplateRow(left, 'en_US')!;
+      out.push(hit.id);
+      left.splice(left.indexOf(hit), 1);
+    }
+    return out;
+  };
+
+  it("Meta's approved, then approved, then refused, then the rest; newest first", () => {
+    const expected = ['meta', 'new', 'old', 'refused', 'paused'];
+    expect(order(rows)).toEqual(expected);
+    expect(order(rows.slice().reverse())).toEqual(expected);
+  });
+
+  it('a language before a preference, its base when it has no exact row', () => {
+    const ar = row({ id: 'ar', language: 'ar' });
+    const en = row({ id: 'en', language: 'en', status: 'PAUSED' });
+    expect(pickTemplateRow([ar, en], 'EN')?.id).toBe('en');
+    expect(pickTemplateRow([ar, en], 'en_US')?.id).toBe('en');
+    expect(pickTemplateRow([ar, en])?.id).toBe('en');
+    expect(pickTemplateRow([ar], 'en')).toBeUndefined();
+    expect(pickTemplateRow([], 'en')).toBeUndefined();
+  });
+
+  it('the chosen row, when it is among them', () => {
+    expect(pickTemplateRow(rows, 'ar', 'old')?.id).toBe('old');
+    expect(pickTemplateRow(rows, 'en_US', 'gone')?.id).toBe('meta');
+  });
+
+  it('leaves the rows as they were', () => {
+    const before = rows.map((r) => r.id);
+    pickTemplateRow(rows);
+    expect(rows.map((r) => r.id)).toEqual(before);
+  });
+});
+
+describe('onePerTemplate', () => {
+  it('keeps the row a send of each name and language uses, in order', () => {
+    const out = onePerTemplate([
+      row({ id: 'b-refused', name: 'b', submission_error: 'Bad' }),
+      row({ id: 'a-en', name: 'a', language: 'en' }),
+      row({ id: 'a-ar', name: 'a', language: 'ar' }),
+      row({ id: 'b-meta', name: 'b', meta_template_id: 'M' }),
+      row({ id: 'c-none', name: 'c', language: undefined }),
+    ]);
+    expect(out.map((r) => r.id)).toEqual(['b-meta', 'a-en', 'a-ar', 'c-none']);
   });
 });
 
