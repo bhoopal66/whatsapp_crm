@@ -24,6 +24,10 @@ import {
 } from "lucide-react";
 import { collectTemplateVariableSlots as collectVariableSlots } from "@/lib/whatsapp/template-slots";
 import { renderTemplateBody } from "@/lib/whatsapp/template-body";
+import {
+  offerTemplates,
+  type TemplateSendsFrom,
+} from "@/lib/whatsapp/template-offer";
 import { useTranslations } from "next-intl";
 
 export interface TemplateSendValues {
@@ -32,9 +36,14 @@ export interface TemplateSendValues {
   buttonParams?: Record<number, string>;
 }
 
+/** More than any workspace keeps; the newest first. */
+const MAX_TEMPLATES = 500;
+
 interface TemplatePickerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** What a template from here goes out on (template-offer.ts). */
+  sendsFrom: TemplateSendsFrom;
   onSelect: (template: MessageTemplate, values: TemplateSendValues) => void;
 }
 
@@ -45,14 +54,42 @@ function renderBodyPreview(body: string, params: string[]): string {
   return renderTemplateBody(body, filled as string[]);
 }
 
+function TemplateSummary({ template }: { template: MessageTemplate }) {
+  return (
+    <div className="min-w-0 flex-1">
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="truncate text-sm font-medium text-popover-foreground">
+          {template.name}
+        </p>
+        <Badge className="border border-primary/30 bg-primary/20 text-xs text-primary">
+          {template.category}
+        </Badge>
+        {template.language && (
+          <span className="text-xs uppercase text-muted-foreground">
+            {template.language}
+          </span>
+        )}
+      </div>
+      <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+        {template.body_text}
+      </p>
+    </div>
+  );
+}
+
 export function TemplatePicker({
   open,
   onOpenChange,
+  sendsFrom,
   onSelect,
 }: TemplatePickerProps) {
   const t = useTranslations("Inbox.templatePicker");
 
   const [templates, setTemplates] = useState<MessageTemplate[]>([]);
+  const offer = useMemo(
+    () => offerTemplates(templates, sendsFrom),
+    [templates, sendsFrom],
+  );
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   const [reload, setReload] = useState(0);
@@ -79,8 +116,9 @@ export function TemplatePicker({
         const { data, error } = await createClient()
           .from("message_templates")
           .select("*")
-          .eq("status", "APPROVED")
-          .order("created_at", { ascending: false });
+          // Not by status: what may be sent depends on the number.
+          .order("created_at", { ascending: false })
+          .limit(MAX_TEMPLATES);
         if (error) console.error("Failed to fetch templates:", error);
         else rows = (data as MessageTemplate[]) ?? [];
       } catch (err) {
@@ -186,7 +224,9 @@ export function TemplatePicker({
           <DialogDescription className="text-muted-foreground">
             {selected
               ? t("fillPlaceholders")
-              : t("pickTemplate")}
+              : sendsFrom === "linked"
+                ? t("pickTemplateLinked")
+                : t("pickTemplate")}
           </DialogDescription>
         </DialogHeader>
 
@@ -209,44 +249,45 @@ export function TemplatePicker({
                   {t("retry")}
                 </Button>
               </div>
-            ) : templates.length === 0 ? (
+            ) : offer.offered.length === 0 && offer.blocked.length === 0 ? (
               <div className="rounded-md border border-border bg-background/50 p-6 text-center">
-                <p className="text-sm text-popover-foreground">{t("noApprovedTemplates")}</p>
+                <p className="text-sm text-popover-foreground">{sendsFrom === "linked" ? t("noTemplates") : t("noApprovedTemplates")}</p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {t("noApprovedTemplatesHint")}
+                  {sendsFrom === "linked"
+                    ? t("noTemplatesHint")
+                    : t("noApprovedTemplatesHint")}
                 </p>
               </div>
             ) : (
-              templates.map((t) => (
-                <button
-                  key={t.id}
-                  type="button"
-                  onClick={() => pickTemplate(t)}
-                  className="w-full rounded-md border border-border bg-background/50 p-3 text-start transition-colors hover:border-primary/40 hover:bg-popover"
-                >
-                  <div className="flex items-start gap-2">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="truncate text-sm font-medium text-popover-foreground">
-                          {t.name}
-                        </p>
-                        <Badge className="border border-primary/30 bg-primary/20 text-xs text-primary">
-                          {t.category}
-                        </Badge>
-                        {t.language && (
-                          <span className="text-xs uppercase text-muted-foreground">
-                            {t.language}
-                          </span>
-                        )}
-                      </div>
-                      <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                        {t.body_text}
-                      </p>
+              <>
+                {offer.offered.map((template) => (
+                  <button
+                    key={template.id}
+                    type="button"
+                    onClick={() => pickTemplate(template)}
+                    className="w-full rounded-md border border-border bg-background/50 p-3 text-start transition-colors hover:border-primary/40 hover:bg-popover"
+                  >
+                    <div className="flex items-start gap-2">
+                      <TemplateSummary template={template} />
+                      <ChevronRight className="h-4 w-4 flex-shrink-0 text-muted-foreground rtl:rotate-180" />
                     </div>
-                    <ChevronRight className="h-4 w-4 flex-shrink-0 text-muted-foreground rtl:rotate-180" />
+                  </button>
+                ))}
+                {offer.blocked.map(({ template, reason }) => (
+                  <div
+                    key={template.id}
+                    aria-disabled="true"
+                    className="rounded-md border border-border bg-background/50 p-3"
+                  >
+                    <div className="opacity-60">
+                      <TemplateSummary template={template} />
+                    </div>
+                    <p className="text-warning mt-1 text-xs">
+                      {t(`blocked.${reason}`)}
+                    </p>
                   </div>
-                </button>
-              ))
+                ))}
+              </>
             )}
           </div>
         ) : (

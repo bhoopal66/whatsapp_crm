@@ -148,6 +148,7 @@ import {
   type ComposerModeState,
 } from '@/lib/inbox/composer-mode';
 import { predictSendingNumber } from '@/lib/inbox/sending-number';
+import { chatTemplateSendsFrom } from '@/lib/whatsapp/template-offer';
 import {
   latestCustomerMessage,
   mayNeedServiceWindow,
@@ -1631,10 +1632,11 @@ export function MessageThread({
   const deliver = useCallback(
     async (attempt: SendAttempt) => {
       const { message } = attempt;
-      const toastPrefix =
-        message.content_type === 'template'
-          ? 'Failed to send template'
-          : 'Failed to send';
+      const failedTitle = (reason: string) =>
+        tFailedSend(
+          message.content_type === 'template' ? 'toastTemplate' : 'toast',
+          { reason }
+        );
       const startsChat = outreachStartingRef.current;
 
       const conversationId = message.conversation_id;
@@ -1703,7 +1705,7 @@ export function MessageThread({
         const kind = thrownSendKind(offlineBefore, isOffline());
         const reason = tFailedSend(kind === 'offline' ? 'offline' : 'noAnswer');
         toast.error(
-          `${toastPrefix}: ${reason}`,
+          failedTitle(reason),
           kind === 'maybe'
             ? { description: tFailedSend('maybeSent') }
             : undefined
@@ -1754,7 +1756,7 @@ export function MessageThread({
         setOutreachRefresh((k) => k + 1);
       } else {
         toast.error(
-          `${toastPrefix}: ${reason}`,
+          failedTitle(reason),
           shouldWarnMaybeSent(res.status, payload)
             ? { description: tFailedSend('maybeSent') }
             : undefined
@@ -2807,6 +2809,15 @@ export function MessageThread({
         <TemplatePicker
           open={templateModalOpen}
           onOpenChange={setTemplateModalOpen}
+          sendsFrom={
+            conversation
+              ? chatTemplateSendsFrom(
+                  accountNumbers,
+                  conversation,
+                  lastCustomer
+                )
+              : 'unknown'
+          }
           onSelect={handleSendTemplate}
         />
 

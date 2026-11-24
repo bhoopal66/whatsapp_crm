@@ -630,7 +630,9 @@
       "copyFailed": "Could not copy. Select the text and copy it yourself.",
       "discardMaybeTitle": "Remove this message from the list",
       "offline": "You are offline.",
-      "noAnswer": "The connection was lost before an answer came back."
+      "noAnswer": "The connection was lost before an answer came back.",
+      "toast": "Failed to send: {reason}",
+      "toastTemplate": "Failed to send template: {reason}"
     },
     "composer": {
       "templates": "Templates",
@@ -817,7 +819,15 @@
       "finalUrl": "Final URL: {url}",
       "back": "Back",
       "cancel": "Cancel",
-      "send": "Send template"
+      "send": "Send template",
+      "pickTemplateLinked": "Pick a saved template to send to this contact.",
+      "noTemplates": "No templates",
+      "noTemplatesHint": "An admin can add one in Settings → Templates.",
+      "blocked": {
+        "not_approved": "Not approved by Meta",
+        "waiting": "Waiting for Meta",
+        "paused": "Paused by Meta"
+      }
     },
     "sidebar": {
       "contactInfo": "Contact info",
@@ -1111,7 +1121,6 @@
       "toastCustomFieldsSaved": "Custom fields saved",
       "toastCustomFieldsNotSaved": "Not saved: {names}. Please try again.",
       "toastCustomFieldsGone": "Not saved: {names}. You may no longer have access, or the value was already removed.",
-      "toastTemplateSent": "Template \"{name}\" sent",
       "toastTemplateFailed": "Failed to send template: {reason}",
       "sendPersonalBtn": "Message from my WhatsApp",
       "noPersonalNumber": "You have no personal WhatsApp number connected.",
@@ -1130,7 +1139,9 @@
       "channelHint": {
         "message": "Messages go out from {channel}",
         "template": "Templates go out from {channel}"
-      }
+      },
+      "toastTemplateHandedOver": "Template \"{name}\" handed to WhatsApp. Open the chat to see if it was delivered.",
+      "toastOpenChat": "Open chat"
     },
     "importModal": {
       "planChecking": "Checking which numbers you already have…",

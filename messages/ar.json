@@ -630,7 +630,9 @@
       "copyFailed": "تعذّر النسخ. حدّد النص وانسخه بنفسك.",
       "discardMaybeTitle": "إزالة هذه الرسالة من القائمة",
       "offline": "أنت غير متصل بالإنترنت.",
-      "noAnswer": "انقطع الاتصال قبل وصول الرد."
+      "noAnswer": "انقطع الاتصال قبل وصول الرد.",
+      "toast": "تعذّر الإرسال: {reason}",
+      "toastTemplate": "تعذّر إرسال القالب: {reason}"
     },
     "composer": {
       "templates": "القوالب",
@@ -817,7 +819,15 @@
       "finalUrl": "عنوان URL النهائي: {url}",
       "back": "رجوع",
       "cancel": "إلغاء",
-      "send": "إرسال القالب"
+      "send": "إرسال القالب",
+      "pickTemplateLinked": "اختر قالبًا محفوظًا لإرساله إلى جهة الاتصال هذه.",
+      "noTemplates": "لا توجد قوالب",
+      "noTemplatesHint": "يمكن للمسؤول إضافة قالب من الإعدادات ← القوالب.",
+      "blocked": {
+        "not_approved": "غير معتمد من Meta",
+        "waiting": "بانتظار Meta",
+        "paused": "أوقفته Meta مؤقتًا"
+      }
     },
     "sidebar": {
       "contactInfo": "بيانات جهة الاتصال",
@@ -1111,7 +1121,6 @@
       "toastCustomFieldsSaved": "تم حفظ الحقول المخصصة",
       "toastCustomFieldsNotSaved": "لم يُحفظ: {names}. حاول مرة أخرى.",
       "toastCustomFieldsGone": "لم يُحفظ: {names}. ربما لم يعد لديك صلاحية الوصول، أو تم حذف القيمة بالفعل.",
-      "toastTemplateSent": "أُرسل القالب «{name}»",
       "toastTemplateFailed": "تعذّر إرسال القالب: {reason}",
       "sendPersonalBtn": "مراسلة من WhatsApp الخاص بي",
       "noPersonalNumber": "ليس لديك رقم WhatsApp شخصي مربوط.",
@@ -1130,7 +1139,9 @@
       "channelHint": {
         "message": "تُرسل الرسائل من {channel}",
         "template": "تُرسل القوالب من {channel}"
-      }
+      },
+      "toastTemplateHandedOver": "سُلّم القالب «{name}» إلى WhatsApp. افتح المحادثة لمعرفة ما إذا تم تسليمه.",
+      "toastOpenChat": "فتح المحادثة"
     },
     "importModal": {
       "planChecking": "جارٍ التحقق من الأرقام الموجودة لديك…",

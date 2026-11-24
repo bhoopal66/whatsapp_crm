@@ -28,6 +28,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Loader2, LayoutTemplate, MessageSquarePlus, Send } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 
@@ -58,6 +59,7 @@ import {
 import type { SendChannelPrediction } from '@/lib/contacts/predict-send-channels';
 import { limitNotices } from '@/lib/team-activity/thread-guard';
 import { providerLabel } from '@/lib/whatsapp/channel-management';
+import { contactTemplateSendsFrom } from '@/lib/whatsapp/template-offer';
 import type { MessageTemplate } from '@/types';
 
 export function channelName(c: AccountNumber): string {
@@ -95,6 +97,7 @@ export function useContactOutreach({
   onSent,
 }: ContactOutreachProps): ContactOutreachState {
   const t = useTranslations('Contacts.detailView');
+  const router = useRouter();
   const { user, accountRole } = useAuth();
   const contactId = contact?.id ?? null;
   const { messageChannel } = prediction;
@@ -246,11 +249,22 @@ export function useContactOutreach({
         return;
       }
 
-      toast.success(t('toastTemplateSent', { name: template.name }));
+      // Accepted, not delivered: Meta may refuse it a moment later, and
+      // that reason shows under the message in the chat.
+      const chatId = payload?.conversation_id;
+      toast.success(t('toastTemplateHandedOver', { name: template.name }), {
+        duration: 10_000,
+        ...(typeof chatId === 'string' && {
+          action: {
+            label: t('toastOpenChat'),
+            onClick: () => router.push(`/inbox?c=${chatId}`),
+          },
+        }),
+      });
       onSent?.();
     } catch (err) {
       const reason = err instanceof Error ? err.message : 'network error';
-      toast.error(`Failed to send template: ${reason}`);
+      toast.error(t('toastTemplateFailed', { reason }));
     } finally {
       setSendingTemplate(false);
     }
@@ -319,6 +333,7 @@ export function useContactOutreach({
       <TemplatePicker
         open={templatePickerOpen}
         onOpenChange={setTemplatePickerOpen}
+        sendsFrom={contactTemplateSendsFrom(prediction)}
         onSelect={handleSendTemplate}
       />
     </>

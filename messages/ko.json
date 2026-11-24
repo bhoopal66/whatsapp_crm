@@ -630,7 +630,9 @@
       "copyFailed": "복사하지 못했습니다. 텍스트를 선택해 직접 복사하세요.",
       "discardMaybeTitle": "이 메시지를 목록에서 제거",
       "offline": "오프라인 상태입니다.",
-      "noAnswer": "응답을 받기 전에 연결이 끊어졌습니다."
+      "noAnswer": "응답을 받기 전에 연결이 끊어졌습니다.",
+      "toast": "보내지 못했습니다: {reason}",
+      "toastTemplate": "템플릿을 보내지 못했습니다: {reason}"
     },
     "composer": {
       "templates": "템플릿",
@@ -817,7 +819,15 @@
       "finalUrl": "최종 URL: {url}",
       "back": "뒤로",
       "cancel": "취소",
-      "send": "템플릿 보내기"
+      "send": "템플릿 보내기",
+      "pickTemplateLinked": "이 연락처에 보낼 저장된 템플릿을 선택하세요.",
+      "noTemplates": "템플릿이 없습니다",
+      "noTemplatesHint": "관리자가 설정 → 템플릿에서 추가할 수 있습니다.",
+      "blocked": {
+        "not_approved": "Meta에서 승인되지 않음",
+        "waiting": "Meta 검토 대기 중",
+        "paused": "Meta에서 일시 중지함"
+      }
     },
     "sidebar": {
       "contactInfo": "연락처 정보",
@@ -1111,7 +1121,6 @@
       "toastCustomFieldsSaved": "커스텀 필드가 저장되었습니다",
       "toastCustomFieldsNotSaved": "저장되지 않음: {names}. 다시 시도해 주세요.",
       "toastCustomFieldsGone": "저장되지 않음: {names}. 더 이상 접근 권한이 없거나 값이 이미 삭제되었을 수 있습니다.",
-      "toastTemplateSent": "\"{name}\" 템플릿을 보냈습니다",
       "toastTemplateFailed": "템플릿을 보내지 못했습니다: {reason}",
       "sendPersonalBtn": "내 WhatsApp으로 메시지 보내기",
       "noPersonalNumber": "연결된 개인 WhatsApp 번호가 없습니다.",
@@ -1130,7 +1139,9 @@
       "channelHint": {
         "message": "메시지는 {channel}에서 발송됩니다",
         "template": "템플릿은 {channel}에서 발송됩니다"
-      }
+      },
+      "toastTemplateHandedOver": "\"{name}\" 템플릿을 WhatsApp에 전달했습니다. 전달 여부는 대화를 열어 확인하세요.",
+      "toastOpenChat": "대화 열기"
     },
     "importModal": {
       "planChecking": "이미 있는 번호를 확인하는 중…",

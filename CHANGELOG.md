@@ -22,6 +22,20 @@ and polish.
 
 ### Fixed
 
+- **Templates can be reached while an attachment is staged**, from the
+  same "+" menu, and the attachment stays as it is. No migration.
+- **A template sent from the customer page no longer says "sent".** It says
+  it was handed to WhatsApp, with a button that opens the chat, where a
+  refusal by Meta shows under the message. No migration.
+- **"Failed to send" and "Failed to send template" are in the app's
+  language**, with the reason after them. No migration.
+- **Editing a template no longer shows it as approved again** when Meta
+  had rejected, paused or not yet reviewed it. No migration.
+- **A chat offers the templates it can send.** The list showed every
+  template marked approved whatever number the chat sends from: one Meta
+  had refused was offered in a Meta chat and failed, and one waiting at
+  Meta was missing on linked numbers, which do not need Meta. A Meta chat
+  now shows the ones that cannot be sent with the reason. No migration.
 - **The call reports start the day at midnight in Dubai**, also for
   someone whose computer is set to another time zone: their report days
   held other calls than everyone else's. No migration.
