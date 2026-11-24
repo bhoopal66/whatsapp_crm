@@ -213,9 +213,12 @@ export function AttentionStrip({
     signalsOn && accountId ? `attention-pins:${accountId}:${refreshKey}` : null,
     loadPinRows
   );
-  const pinCounts = pins.data ? countPinnedTile(pins.data, aiLive) : null;
+  const wideView = inboxHref === '/team-inbox';
+  const pinCounts = pins.data
+    ? countPinnedTile(pins.data, aiLive, userId, wideView, ownDepartment)
+    : null;
   const insightCounts = insights.data
-    ? countInsightTiles(insights.data, aiLive)
+    ? countInsightTiles(insights.data, aiLive, userId, wideView, ownDepartment)
     : null;
   // "Now" for the overdue split, taken once per refresh.
   const [clock, setClock] = useState({ refreshKey, now: new Date() });
@@ -228,7 +231,7 @@ export function AttentionStrip({
         chats.data.unreadRows,
         aiLive,
         userId,
-        inboxHref === '/team-inbox',
+        wideView,
         ownDepartment
       )
     : null;

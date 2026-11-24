@@ -22,7 +22,8 @@ import {
 import type { Conversation } from '@/types';
 
 import { compareForInbox, needsAttention } from './attention';
-import { inCampaignInbox, type CampaignInboxFields } from './campaign-inbox';
+import type { InboxDepartment } from './departments';
+import { isListedInInbox, type ListedChatRow } from './listed';
 import {
   hasMessages,
   inRestrictedInbox,
@@ -593,13 +594,13 @@ export function admitsInsertedConversation(
 
 /** The columns the Pinned chats tile reads. */
 export const PIN_TILE_COLUMNS =
-  'id, last_message_at, ai_attention_at, insight_attention_at, insight_attention_reason, campaign_broadcast_id, human_engaged_at, assigned_agent_id, ai_autoreply_disabled, ai_reply_count, chat_tag_id';
+  'id, last_message_at, ai_attention_at, insight_attention_at, insight_attention_reason, campaign_broadcast_id, human_engaged_at, assigned_agent_id, ai_autoreply_disabled, ai_reply_count, chat_tag_id, user_id, personal_owner_id, inbox_department';
 
 /** The tile's read as an `or` group: anything {@link isPinned} could pin. */
 export const PIN_TILE_OR =
   'insight_attention_at.not.is.null,ai_attention_at.not.is.null';
 
-type PinTileRow = CampaignInboxFields &
+type PinTileRow = ListedChatRow &
   Pick<
     Conversation,
     | 'last_message_at'
@@ -611,18 +612,28 @@ type PinTileRow = CampaignInboxFields &
 /**
  * The home "Pinned chats" tile, counted as the list it opens counts its
  * "N pinned" chip ({@link pinnedSummary}): pinned by a signal OR
- * Important, among chats the Inbox lists (holding a message, not in the
- * Campaign inbox). No personal narrowing: the tile links each role to an
- * un-narrowed list (`inboxHrefFor` — a team leader to the Team inbox).
+ * Important, among chats the Inbox lists (holding a message and
+ * {@link isListedInInbox}: not in the Campaign inbox, not someone else's
+ * personal chat unless `wideView`, department chats as the list shows
+ * them). There is no leader narrowing: the tile links a team leader to
+ * the Team inbox (`inboxHrefFor`), which is the `wideView`.
  */
 export function countPinnedTile(
   rows: readonly PinTileRow[],
-  aiLive: boolean
+  aiLive: boolean,
+  userId: string | null,
+  wideView = false,
+  ownDepartment: InboxDepartment | null = null
 ): { pinned: number; urgent: number } {
   let pinned = 0;
   let urgent = 0;
   for (const r of rows) {
-    if (!hasMessages(r) || inCampaignInbox(r, aiLive) || !isPinned(r)) continue;
+    if (
+      !hasMessages(r) ||
+      !isListedInInbox(r, aiLive, userId, wideView, ownDepartment) ||
+      !isPinned(r)
+    )
+      continue;
     pinned++;
     if (storedAttention(r)?.reason === 'urgent') urgent++;
   }
