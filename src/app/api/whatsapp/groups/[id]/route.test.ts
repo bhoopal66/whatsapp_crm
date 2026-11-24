@@ -152,6 +152,25 @@ describe('GET /api/whatsapp/groups/[id]', () => {
 });
 
 describe('PATCH /api/whatsapp/groups/[id]', () => {
+  it('keeps a setting a colleague saved while WhatsApp was asked', async () => {
+    mocks.updateGroupSetting.mockImplementation(async () => {
+      mocks.group = {
+        ...mocks.group,
+        settings: { edit_group_info: 'anyone' },
+      };
+    });
+    const res = await patch({ settings: { send_messages: 'admins' } });
+    expect(res.status).toBe(200);
+    expect(mocks.adminUpdates).toEqual([
+      {
+        settings: expect.objectContaining({
+          edit_group_info: 'anyone',
+          send_messages: 'admins',
+        }),
+      },
+    ]);
+  });
+
   it('refuses an agent who can see the group but not manage it', async () => {
     mocks.canManage = false;
     const res = await patch({ name: 'New' });

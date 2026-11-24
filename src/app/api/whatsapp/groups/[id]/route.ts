@@ -207,6 +207,7 @@ export async function PATCH(request: Request, { params }: Params) {
 
     const channel = await channelForGroup(group);
     const changes: Record<string, unknown> = {};
+    const accepted: Partial<GroupSettings> = {};
     let failure: unknown = null;
     try {
       if (editsInfo) {
@@ -221,7 +222,6 @@ export async function PATCH(request: Request, { params }: Params) {
           changes.description = patch.description || null;
         }
       }
-      const settings = { ...current };
       for (const [setting, policy] of Object.entries(patch.settings)) {
         await updateGroupSetting({
           channel,
@@ -229,12 +229,23 @@ export async function PATCH(request: Request, { params }: Params) {
           setting: setting as keyof GroupSettings,
           policy,
         });
-        settings[setting as keyof GroupSettings] = policy;
-        changes.settings = settings;
+        accepted[setting as keyof GroupSettings] = policy;
       }
     } catch (err) {
       // Keep what WhatsApp already accepted, then report the failure.
       failure = err;
+    }
+
+    // Onto what is stored now: a colleague may have saved another setting
+    // while WhatsApp was asked.
+    if (Object.keys(accepted).length > 0) {
+      const { data, error } = await supabaseAdmin()
+        .from('whatsapp_groups')
+        .select('settings')
+        .eq('id', group.id)
+        .single();
+      if (error) throw error;
+      changes.settings = { ...parseGroupSettings(data.settings), ...accepted };
     }
 
     let saved = group;

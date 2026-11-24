@@ -408,7 +408,7 @@ export function SubmissionGroupPage({
         return;
       }
       refreshList();
-      router.push(`/cases/${json.caseId}`);
+      if (mounted.current) router.push(`/cases/${json.caseId}`);
     } catch {
       toast.error(t('openNewCaseFailed'));
     } finally {

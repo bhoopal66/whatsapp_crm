@@ -248,7 +248,8 @@ export function GroupPage({ groupId }: { groupId: string }) {
         toast.error(t(`reasons.${reasonKey(body?.code)}`));
         return;
       }
-      router.push('/groups');
+      // Not away from where they have gone meanwhile.
+      if (mounted.current) router.push('/groups');
     } catch {
       toast.error(t('reasons.unknown'));
     }
@@ -279,7 +280,8 @@ export function GroupPage({ groupId }: { groupId: string }) {
       window.dispatchEvent(
         new CustomEvent(GROUP_DELETED_EVENT, { detail: groupId })
       );
-      router.push('/groups');
+      // Not away from where they have gone meanwhile.
+      if (mounted.current) router.push('/groups');
     } catch {
       toast.error(t('deleteFailed', { reason: 'network' }));
     }

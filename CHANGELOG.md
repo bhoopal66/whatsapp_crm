@@ -107,6 +107,9 @@ and polish.
   absence failed, its window was dropped and a new customer chat stayed
   missing until the page was reloaded. The read is now tried again, and what
   it could not read is read with the next one.
+- **Two people's WhatsApp group settings are both kept**, and leaving or
+  deleting a group no longer pulls you off the group you moved to
+  meanwhile.
 - **A template Meta refuses says why.** Meta's answer is "Invalid
   parameter" with the reason in a second text that was dropped; both are
   shown now.
