@@ -69,6 +69,11 @@ export interface CachedTimeline {
   /** Epoch ms the newest page was last fetched; null before that. */
   fetchedAt: number | null;
   /**
+   * The mark (`timelineMark`) that page's read began at; null before
+   * that. What was sent before it is in the window, whenever it landed.
+   */
+  pageMark: number | null;
+  /**
    * The events written into the entry while a fetch for it is open,
    * oldest first. An answer is a snapshot taken at some unknown point of
    * its flight, so it is merged and then these events are replayed over
@@ -120,6 +125,7 @@ export function placeholderTimeline(
     callCards: {},
     loaded: false,
     fetchedAt: null,
+    pageMark: null,
     journal: [],
     flights: [],
     overflowed: [],
@@ -319,6 +325,7 @@ export function revalidateTimeline(
     timeline: replaySince(fresh, base.journal, mark),
     loaded: true,
     fetchedAt: now,
+    pageMark: mark,
   };
 }
 

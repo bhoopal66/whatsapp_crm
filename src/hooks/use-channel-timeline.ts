@@ -50,23 +50,36 @@ import type { ChatWorkspace } from '@/hooks/use-chat-workspace';
 
 const PAGE_SIZE = 50;
 
+/** The mark each newest page now being read began at. */
+const pageReads = new Map<SessionKey, number>();
+
+/**
+ * Realtime was down, or nobody listened: a page read begun before now is
+ * not whole, whenever it lands, so nothing joins it any more.
+ */
+export function timelineGap(): void {
+  pageReads.clear();
+}
+
 /**
  * Fetch a channel's newest page (rows only) into its cache entry. The
  * fetch is opened on the entry (a placeholder when there is none, so
  * realtime events land in it meanwhile) and the page is merged into the
  * entry as it is when the page lands, with the events recorded during
  * the flight replayed over it. Shared by the sidebar's hover prefetch
- * and the timeline itself (prefetchSession joins a fetch already in
- * flight, so a hover is not repeated).
+ * and the timeline itself, which joins one in flight (a hover is not
+ * repeated) unless it began before a gap or `force` asks for one begun
+ * now. Never joining is how a catch-up is sure to cover its gap.
  */
 export function fetchTimelineFirstPage(
   sb: SupabaseClient,
   key: SessionKey,
   channelId: string,
-  opts: { keepOlder?: boolean } = {}
+  { force, ...opts }: { keepOlder?: boolean; force?: boolean } = {}
 ): Promise<CachedTimeline> {
-  return prefetchSession(key, async () => {
+  const read = async () => {
     const mark = timelineMark();
+    pageReads.set(key, mark);
     const open = (e: CachedTimeline) => beginTimelineFetch(e, mark);
     if (!sessionCache.update<CachedTimeline>(key, open))
       sessionCache.set(key, open(placeholderTimeline(channelId)));
@@ -78,6 +91,8 @@ export function fetchTimelineFirstPage(
         endTimelineFetch(e, mark)
       );
       throw err;
+    } finally {
+      if (pageReads.get(key) === mark) pageReads.delete(key);
     }
     const prev = sessionCache.peek<CachedTimeline>(key)?.value;
     // Dropped meanwhile (the channel left the list, the cache was
@@ -86,8 +101,17 @@ export function fetchTimelineFirstPage(
     // an empty, not-loaded placeholder entry comes back. Harmless: it
     // shows the skeleton and the next show revalidates.
     if (!prev) return placeholderTimeline(channelId);
-    return revalidateTimeline(prev, channelId, page, Date.now(), mark, opts);
-  });
+    // A later read of it has landed already: this answer is the older one.
+    const next =
+      (prev.pageMark ?? 0) > mark
+        ? endTimelineFetch(prev, mark)
+        : revalidateTimeline(prev, channelId, page, Date.now(), mark, opts);
+    // Written here too: of two reads prefetchSession stores the later one
+    // only, and the first page to land is shown (and its flight closed).
+    sessionCache.update(key, () => next);
+    return next;
+  };
+  return prefetchSession(key, read, { force: force || !pageReads.has(key) });
 }
 
 /** The sidebar's hover: fetch unless the entry was fetched moments ago. */
@@ -177,20 +201,21 @@ export function useChannelTimeline(ws: ChatWorkspace, channelId: string) {
   );
   useEffect(() => details.show(), [details]);
 
-  // When this visit, or the last gap in realtime, began: until a page has
-  // landed since, rows may be missing before the newest one shown (a
-  // cached timeline, a live row that came before the gap was filled).
+  // The mark of this visit, or of the last gap in realtime: until a page
+  // read since has landed, rows may be missing before the newest one shown
+  // (a cached timeline, a live row that came before the gap was filled).
   const staleSince = useRef(Number.POSITIVE_INFINITY);
-  /** Whether a page has landed since then. Asked when it matters. */
+  /** Whether one has. Asked when it matters. */
   const isFresh = useCallback(() => {
-    const at = key && sessionCache.peek<CachedTimeline>(key)?.value.fetchedAt;
-    return typeof at === 'number' && at >= staleSince.current;
+    const mark = key && sessionCache.peek<CachedTimeline>(key)?.value.pageMark;
+    return typeof mark === 'number' && mark >= staleSince.current;
   }, [key]);
 
   useEffect(() => {
     if (!key) return;
     let cancelled = false;
-    staleSince.current = Date.now();
+    // A hover's read still under way is joined, and counts.
+    staleSince.current = pageReads.get(key) ?? timelineMark();
     // Cached or not, always revalidate: rows first, details after.
     fetchTimelineFirstPage(sb, key, channelId)
       .then((fresh) => details.load(fresh.timeline.messages.map((m) => m.id)))
@@ -249,9 +274,10 @@ export function useChannelTimeline(ws: ChatWorkspace, channelId: string) {
           // the older pages someone may be reading. A failure is silent
           // and what is on screen stays; the catch-up tries again.
           if (!key) return;
-          staleSince.current = Date.now();
+          staleSince.current = timelineMark();
           return fetchTimelineFirstPage(sb, key, channelId, {
             keepOlder: true,
+            force: true,
           }).then((fresh) => {
             void details.catchUp(
               fresh.timeline.messages.slice(-PAGE_SIZE).map((m) => m.id)
@@ -330,7 +356,7 @@ export function useChannelTimeline(ws: ChatWorkspace, channelId: string) {
     loading: !shown?.loaded,
     failed: !shown?.loaded && key !== null && failedKey === key,
     isFresh,
-    fetchedAt: shown?.fetchedAt ?? null,
+    pageMark: shown?.pageMark ?? null,
     retry,
     loadingOlder,
     loadOlder,

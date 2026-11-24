@@ -13,7 +13,7 @@ const timeline = {
   ],
   loading: false,
   isFresh,
-  fetchedAt: 7,
+  pageMark: 7,
 };
 const membership = { lastReadAt: null, joinedAt: '2026-11-01T00:00:00+00:00' };
 vi.mock('./chat-context', () => ({

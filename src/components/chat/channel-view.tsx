@@ -157,7 +157,7 @@ export function ChannelView({
     at: tl.messages[tl.messages.length - 1]?.createdAt ?? null,
     ready: !tl.loading,
     mayMark: tl.isFresh,
-    version: tl.fetchedAt,
+    version: tl.pageMark,
   });
 
   // "Seen by" under the viewer's last own top-level message.

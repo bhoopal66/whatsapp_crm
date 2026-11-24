@@ -32,6 +32,7 @@ import {
 } from '@/lib/chat/view';
 import { INBOX_FILTER } from '@/lib/inbox/campaign-inbox';
 import { assigneeGroup, combineOrGroups } from '@/lib/inbox/pagination';
+import { timelineGap } from '@/hooks/use-channel-timeline';
 import { startCatchUp } from '@/lib/realtime/catch-up';
 import { createClient } from '@/lib/supabase/client';
 import { visibleInterval } from '@/lib/visible-interval';
@@ -178,13 +179,14 @@ export function useChatWorkspace() {
     const emit = (e: ChatEvent) => [...listeners.current].map((fn) => fn(e));
     // Nothing sent while the channel was down is replayed. A read that
     // failed rejects, so that the whole catch-up is tried again.
-    const live = startCatchUp(() =>
-      Promise.all([
+    const live = startCatchUp(() => {
+      timelineGap();
+      return Promise.all([
         ...emit({ kind: 'resync' }),
         handlers.current.rereadChannels(),
         handlers.current.rereadUnread(),
-      ])
-    );
+      ]);
+    });
     const off = subscribeChat(sb, {
       accountId,
       userId,
@@ -220,6 +222,7 @@ export function useChatWorkspace() {
     });
     return () => {
       live.stop();
+      timelineGap();
       Object.values(timers).forEach(clearTimeout);
       off();
     };

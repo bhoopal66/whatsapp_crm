@@ -51,7 +51,12 @@ vi.mock('@/hooks/use-session-query', () => ({
 }));
 
 let status: ((s: string) => void) | undefined;
-const listMessages = vi.fn(async () => ({ messages: [], hasMore: false }));
+const listMessages = vi.fn(
+  async (): Promise<{ messages: unknown[]; hasMore: boolean }> => ({
+    messages: [],
+    hasMore: false,
+  })
+);
 const attachmentsFor = vi.fn(async () => ({}));
 vi.mock('@/lib/chat', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/chat')>()),
@@ -62,28 +67,21 @@ vi.mock('@/lib/chat', async (importOriginal) => ({
   listMessages: (...args: unknown[]) => listMessages(...(args as [])),
   attachmentsFor: () => attachmentsFor(),
 }));
-vi.mock('@/lib/session-cache', async (importOriginal) => {
-  const real = await importOriginal<typeof import('@/lib/session-cache')>();
-  return {
-    ...real,
-    prefetchSession: async (
-      key: SessionKey,
-      fetcher: () => Promise<unknown>
-    ) => {
-      const value = await fetcher();
-      real.sessionCache.set(key, value);
-      return value;
-    },
-  };
-});
 
 import {
   CHAT_CHANNELS_QUESTION,
   CHAT_UNREAD_QUESTION,
 } from '@/lib/chat/channel-list-cache';
 import { CATCH_UP_GAP_MS, RETRY_DELAYS_MS } from '@/lib/realtime/catch-up';
-import { sessionCache, type SessionKey } from '@/lib/session-cache';
-import { useChannelTimeline } from './use-channel-timeline';
+import {
+  timelineCacheKey,
+  type CachedTimeline,
+} from '@/lib/chat/timeline-cache';
+import { sessionCache } from '@/lib/session-cache';
+import {
+  fetchTimelineFirstPage,
+  useChannelTimeline,
+} from './use-channel-timeline';
 import { useChatWorkspace, type ChatEvent } from './use-chat-workspace';
 
 const CHANNEL = 'c0000000-0000-4000-8000-000000000001';
@@ -196,6 +194,99 @@ describe('team chat after a gap', () => {
 
     cleanups.splice(0).forEach((fn) => fn());
     expect(tl.isFresh()).toBe(false);
+  });
+
+  describe('a page read begun before the gap', () => {
+    const row = (id: string, minute: number) => ({
+      id,
+      channelId: CHANNEL,
+      threadRootId: null,
+      createdAt: `2026-11-24T08:0${minute}:00+00:00`,
+      deletedAt: null,
+      attachments: [],
+      reactions: [],
+    });
+    const held = () =>
+      sessionCache
+        .peek<CachedTimeline>(timelineCacheKey('acc', 'u1', CHANNEL)!)
+        ?.value.timeline.messages.map((m) => m.id);
+    /** Page reads that answer when told to. */
+    function slowPages() {
+      const answers: ((ids: ReturnType<typeof row>[]) => void)[] = [];
+      for (let i = 0; i < 2; i++)
+        listMessages.mockImplementationOnce(
+          () =>
+            new Promise((ok) =>
+              answers.push((messages) => ok({ messages, hasMore: false }))
+            )
+        );
+      return answers;
+    }
+    function useOpenChannel() {
+      const heard: ((e: ChatEvent) => unknown)[] = [];
+      const listen = (fn: (e: ChatEvent) => unknown) => {
+        heard.push(fn);
+        return () => {};
+      };
+      const ws = { ...useChatWorkspace(), listen, fail: () => '' };
+      const tl = useChannelTimeline(ws, CHANNEL);
+      return { tl, resync: () => void heard[0]({ kind: 'resync' }) };
+    }
+
+    it('is not joined by the catch-up, and does not count for it', async () => {
+      const answers = slowPages();
+      const { tl, resync } = useOpenChannel();
+      resync();
+      expect(listMessages).toHaveBeenCalledTimes(2);
+      answers[0]([row('m1', 1)]);
+      await vi.advanceTimersByTimeAsync(10);
+      // Shown meanwhile, not marked read: m2 was sent in the gap.
+      expect([held(), tl.isFresh()]).toEqual([['m1'], false]);
+      answers[1]([row('m1', 1), row('m2', 2)]);
+      await vi.advanceTimersByTimeAsync(10);
+      expect([held(), tl.isFresh()]).toEqual([['m1', 'm2'], true]);
+    });
+
+    it('does not undo the catch-up when it lands after it', async () => {
+      const answers = slowPages();
+      const { tl, resync } = useOpenChannel();
+      resync();
+      answers[1]([row('m1', 1), row('m2', 2)]);
+      await vi.advanceTimersByTimeAsync(10);
+      answers[0]([row('m1', 1)]);
+      await vi.advanceTimersByTimeAsync(10);
+      expect([held(), tl.isFresh()]).toEqual([['m1', 'm2'], true]);
+      const key = timelineCacheKey('acc', 'u1', CHANNEL)!;
+      expect(sessionCache.peek<CachedTimeline>(key)?.value.flights).toEqual([]);
+    });
+
+    it("a hover's read is joined and counts, unless a gap came since", async () => {
+      const key = timelineCacheKey('acc', 'u1', CHANNEL)!;
+      let answers = slowPages();
+      void fetchTimelineFirstPage({} as never, key, CHANNEL);
+      const hovered = useOpenChannel();
+      expect(listMessages).toHaveBeenCalledTimes(1);
+      answers[0]([row('m1', 1)]);
+      await vi.advanceTimersByTimeAsync(10);
+      expect(hovered.tl.isFresh()).toBe(true);
+
+      cleanups.splice(0).forEach((fn) => fn());
+      listMessages.mockReset();
+      answers = slowPages();
+      useChatWorkspace();
+      void fetchTimelineFirstPage({} as never, key, CHANNEL);
+      status?.('CLOSED');
+      status?.('SUBSCRIBED');
+      await vi.advanceTimersByTimeAsync(CATCH_UP_GAP_MS);
+      const { tl } = useOpenChannel();
+      expect(listMessages).toHaveBeenCalledTimes(2);
+      answers[0]([row('m1', 1)]);
+      await vi.advanceTimersByTimeAsync(10);
+      expect(tl.isFresh()).toBe(false);
+      answers[1]([row('m1', 1)]);
+      await vi.advanceTimersByTimeAsync(10);
+      expect(tl.isFresh()).toBe(true);
+    });
   });
 
   it('reads the files of a new message again when they were not read', async () => {
