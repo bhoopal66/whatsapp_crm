@@ -20,6 +20,9 @@
 -- Re-runnable. Needs 229 (privacy_extensions).
 -- ============================================================
 
+-- The foreign keys lock messages, contacts, accounts and api_keys.
+SET lock_timeout = '5s';
+
 DO $$
 BEGIN
   IF to_regclass('public.privacy_extensions') IS NULL THEN
@@ -96,5 +99,7 @@ ON CONFLICT (name) DO UPDATE SET export_fn = excluded.export_fn, erase_fn = excl
 REVOKE ALL ON FUNCTION public.privacy_v1_message_keys_export(uuid, uuid),
   public.privacy_v1_message_keys_erase(uuid, uuid)
 FROM PUBLIC, anon, authenticated, service_role;
+
+RESET lock_timeout;
 
 NOTIFY pgrst, 'reload schema';

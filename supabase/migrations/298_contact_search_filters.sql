@@ -30,6 +30,8 @@
 -- account's time zone, as the reminder bells do, not in UTC.
 -- Re-runnable: CREATE OR REPLACE throughout.
 
+SET lock_timeout = '5s';
+
 CREATE OR REPLACE FUNCTION public.search_contact_candidates(
   p_term text, p_limit int, p_owner uuid, p_sources text[], p_contact_ids uuid[])
 RETURNS TABLE (contact_id uuid, score real, exact boolean)
@@ -406,3 +408,5 @@ END;
 $function$;
 
 REVOKE ALL ON FUNCTION public.tasks_notify_assigned() FROM PUBLIC, anon, authenticated;
+
+RESET lock_timeout;
