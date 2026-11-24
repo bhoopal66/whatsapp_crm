@@ -34,6 +34,11 @@ and polish.
 
 ### Fixed
 
+- **A bank guest's access to a deal room ends when the bank's last person
+  leaves the WhatsApp group**, as it already did when that person was
+  removed: the messages, the room, its chat channel and the people in it. It
+  is back when somebody of the bank joins again, and a login is no longer
+  added to a room its bank has left. **Migration required: 312.**
 - **Forward a WhatsApp message to any chat.** The dialog's search reaches
   every chat you may open, not only the 200 latest.
 - **A failed search or list no longer looks empty.** The inbox search and
