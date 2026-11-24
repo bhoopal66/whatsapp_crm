@@ -21,9 +21,11 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   BroadcastError,
   assertHeaderMedia,
+  assertTemplateNotRefused,
   CONSENT_FAILURE_REASONS,
   OPTED_OUT_REASON,
   quietHoursMessage,
+  templateReadFailed,
   type BroadcastPlan,
 } from '@/lib/whatsapp/broadcast-core';
 import {
@@ -484,6 +486,7 @@ export async function planBroadcastResume(
       500
     );
   }
+  if (resolvedTemplate.readFailed) throw templateReadFailed();
   if (!resolvedTemplate.row) {
     throw new BroadcastError(
       'template_not_found',
@@ -491,6 +494,8 @@ export async function planBroadcastResume(
       404
     );
   }
+
+  assertTemplateNotRefused(resolvedTemplate.row, channel, 400);
 
   const headerMediaUrl =
     typeof broadcast.header_media_url === 'string' &&

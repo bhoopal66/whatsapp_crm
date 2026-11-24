@@ -149,6 +149,8 @@ export interface ResolvedTemplate {
    * all — Meta rejects the pair as a missing translation.
    */
   language: string;
+  /** Set when the read failed: no row is then not "there is none". */
+  readFailed?: true;
 }
 
 /**
@@ -171,7 +173,7 @@ export async function resolveTemplateRow(
   requestedLanguage?: string | null,
   templateId?: string | null
 ): Promise<ResolvedTemplate> {
-  const { data } = await db
+  const { data, error } = await db
     .from('message_templates')
     .select('*')
     .eq('account_id', accountId)
@@ -189,7 +191,12 @@ export async function resolveTemplateRow(
   const fallbackLanguage = requestedLanguage || 'en_US';
 
   if (rows.length === 0) {
-    return { row: null, malformed: false, language: fallbackLanguage };
+    return {
+      row: null,
+      malformed: false,
+      language: fallbackLanguage,
+      ...(error ? { readFailed: true as const } : {}),
+    };
   }
 
   const pick = (): TemplateCandidate | undefined => {

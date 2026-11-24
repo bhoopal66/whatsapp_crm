@@ -598,6 +598,37 @@ describe('planBroadcastResume', () => {
   });
 });
 
+describe('planBroadcastResume — a template Meta refused', () => {
+  const plan = (provider: string, over: Record<string, unknown>) =>
+    planBroadcastResume(
+      planDb({
+        broadcast: BROADCAST,
+        config: { ...CONFIG, provider, waba_id: 'waba-1' },
+        recipients: [recipient('r1', '+15551234567')],
+        templates: [{ ...TEMPLATE_ROW, ...over }],
+      }),
+      'acct-1',
+      'bc-1',
+      'pending'
+    ).catch((e: unknown) => e);
+  const REFUSED = { meta_template_id: null, submission_error: 'Bad footer' };
+
+  it('is refused on the Meta number, and never as a 409', async () => {
+    expect(await plan('meta', REFUSED)).toMatchObject({
+      code: 'template_refused',
+      status: 400,
+      message: expect.stringContaining('Bad footer'),
+    });
+  });
+
+  it.each([
+    ['a linked number', 'whapi', REFUSED],
+    ['one Meta took since', 'meta', { ...REFUSED, meta_template_id: 'M' }],
+  ])('goes out: %s', async (_, provider, over) => {
+    expect(await plan(provider, over)).toHaveProperty('plan');
+  });
+});
+
 describe('planBroadcastResume — header media (Meta)', () => {
   const META_CONFIG = { ...CONFIG, provider: 'meta', waba_id: 'waba-1' };
   const VIDEO_TEMPLATE = {

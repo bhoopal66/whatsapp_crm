@@ -36,6 +36,7 @@ import {
   type ResumeScope,
 } from '@/lib/whatsapp/broadcast-resume';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
+import { failRefusedCampaign } from '@/lib/whatsapp/broadcast-continue';
 import {
   checkRateLimit,
   rateLimitResponse,
@@ -156,6 +157,13 @@ export async function POST(
     if (error instanceof BroadcastError) {
       if (error.code === 'nothing_to_resume' && settleId) {
         await settleIfSending(settleId).catch(() => {});
+      }
+      if (error.code === 'template_refused' && settleId) {
+        await failRefusedCampaign(
+          supabaseAdmin(),
+          settleId,
+          error.message
+        ).catch(() => {});
       }
       return NextResponse.json(
         { error: error.message, code: error.code },

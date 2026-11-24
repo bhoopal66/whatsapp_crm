@@ -144,3 +144,26 @@ export async function recordContinueRefusal(
     .eq('status', 'pending')
     .or(RESENDABLE_FILTER);
 }
+
+/**
+ * Meta refused the campaign's template (`template_refused`): no later try
+ * ends differently, so the campaign is failed instead of coming due again,
+ * with the reason on its first pending recipient. The rest stay pending:
+ * Resume works once the template is accepted. Never touches a draft or a
+ * campaign that has already ended.
+ */
+export async function failRefusedCampaign(
+  admin: SupabaseClient,
+  broadcastId: string,
+  reason: string
+): Promise<void> {
+  await recordContinueRefusal(admin, broadcastId, reason);
+  const { error } = await admin
+    .from('broadcasts')
+    .update({ status: 'failed', updated_at: new Date().toISOString() })
+    .eq('id', broadcastId)
+    .in('status', ['sending', 'scheduled']);
+  if (error) {
+    console.error('[broadcast-continue] refusal not recorded:', error.message);
+  }
+}
