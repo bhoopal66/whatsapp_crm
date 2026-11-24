@@ -212,6 +212,30 @@ describe('the access dialog', () => {
     expect(toast.error).toHaveBeenCalledWith('accessChanged:Sales line');
   });
 
+  it('a save does not close the dialog of another number', async () => {
+    numbers = [number(), number({ id: 'n2', label: 'Other line' })];
+    await open();
+    tick('BO', true);
+    let answer = () => {};
+    patchReply = () =>
+      new Promise<Reply>((done) => {
+        answer = () => done({ status: 200, body: {} });
+      });
+    await press(view(), 'saveAccess');
+    await press(view(), 'cancel');
+    const second = findElements(
+      view(),
+      (el) =>
+        !!el.props.onClick &&
+        textOf(el.props.children as ReactNode).endsWith('manageAccess')
+    )[1];
+    (second.props.onClick as () => void)();
+    answer();
+    await settle();
+    await settle();
+    expect(texts(view())).toContain('accessTitle:Other line');
+  });
+
   it('only a deactivated person: the card and the dialog say admins only', async () => {
     numbers = [number({ member_ids: ['old'] })];
     await open();

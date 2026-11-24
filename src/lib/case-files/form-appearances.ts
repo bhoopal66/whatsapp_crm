@@ -9,9 +9,9 @@
  * without `V`), misplaces appearances with their own `BBox` or `Matrix`, and
  * throws on fields that are on no page.
  *
- * Throws when a value on a page has no appearance and cannot be drawn (e.g.
- * Arabic: the standard fonts have none); the caller refuses the build rather
- * than send a blank.
+ * Throws when a value on a page has no appearance and cannot be read or drawn
+ * (e.g. Arabic: the standard fonts have none); the caller refuses the build
+ * rather than send a blank.
  */
 import {
   PDFAcroCheckBox,
@@ -56,6 +56,9 @@ const OFF = key('Off');
 /** How to draw a widget's value, and whether it has an appearance already. */
 type Todo = { draw: () => void; stored: boolean };
 
+/** A value readers would show, which this cannot read. */
+class LostValue extends Error {}
+
 /** False: something in the form could not be read and was left as it was. */
 export function drawFormValues(doc: PDFDocument): boolean {
   const acroForm = doc.catalog.lookup(key('AcroForm'));
@@ -80,7 +83,8 @@ export function drawFormValues(doc: PDFDocument): boolean {
       let todo: Todo | 'unread' | null;
       try {
         todo = readWidget(doc, dict, own instanceof PDFRef ? own : null, font);
-      } catch {
+      } catch (err) {
+        if (err instanceof LostValue) throw err;
         todo = 'unread';
       }
       if (todo === 'unread') complete = false;
@@ -112,7 +116,8 @@ function readWidget(
   font: () => PDFFont
 ): Todo | 'unread' | null {
   const widget = PDFWidgetAnnotation.fromDict(dict);
-  if (widget.getFlags() & (HIDDEN | NO_VIEW)) return null;
+  const f = dict.lookup(key('F'));
+  if (f instanceof PDFNumber && f.asNumber() & (HIDDEN | NO_VIEW)) return null;
 
   const type = inherited(dict, 'FT');
   const ff = inherited(dict, 'Ff');
@@ -131,7 +136,9 @@ function readWidget(
 
   if (type === key('Btn')) {
     if (flags & PUSH_BUTTON) return null;
-    if (normal) {
+    const on = as ?? (value instanceof PDFName ? value : OFF);
+    // An `N` with nothing but its unticked state shows a tick nowhere.
+    if (normal && (on === OFF || hasOnState(normal))) {
       if (
         !as &&
         value instanceof PDFName &&
@@ -141,7 +148,6 @@ function readWidget(
         widget.setAppearanceState(value);
       return null;
     }
-    const on = as ?? (value instanceof PDFName ? value : OFF);
     if (on === OFF || !sized(widget)) return null;
     // The field's value alone does not say which of several boxes is on.
     const kids = field.lookup(key('Kids'));
@@ -167,11 +173,28 @@ function readWidget(
       ? as !== null && normal.lookup(as) instanceof PDFStream
       : normal !== null;
 
+  // What a reader that redraws the form shows for an emptied field.
+  const cleared = stored ? { draw: () => {}, stored } : null;
+  const read = <T>(values: () => T): T => {
+    try {
+      return values();
+    } catch (err) {
+      if (stored || !sized(widget)) throw err;
+      throw new LostValue('a value could not be read', { cause: err });
+    }
+  };
+  // Dingbats: the value's letters are the codes of signs.
+  const signs = /\/ZaDb\b/.test(
+    read(() => textOf(inherited(dict, 'DA'))) ?? ''
+  );
+
   if (type === key('Tx')) {
     // A reader shows a password as asterisks: nothing to lose.
     if (flags & PASSWORD) return null;
-    const text = textOf(value);
-    if (!text?.trim() || !sized(widget)) return null;
+    const text = drawable(read(() => textOf(value)) ?? '');
+    if (!text.trim()) return cleared;
+    if (!sized(widget) || (signs && stored)) return null;
+    if (signs) throw new LostValue('a sign of a symbol font');
     const draw = () => {
       const acro = PDFAcroText.fromDict(field, ref);
       acro.getWidgets = () => [widget];
@@ -183,11 +206,14 @@ function readWidget(
   }
 
   if (type === key('Ch')) {
-    const values = (value instanceof PDFArray ? value.asArray() : [value])
-      .map((v) => textOf(v instanceof PDFRef ? doc.context.lookup(v) : v))
-      .filter((v): v is string => !!v?.trim())
-      .map((v) => shownAs(v, inherited(dict, 'Opt')));
-    if (values.length === 0 || !sized(widget)) return null;
+    const values = read(() =>
+      (value instanceof PDFArray ? value.asArray() : [value])
+        .map((v) => textOf(v instanceof PDFRef ? doc.context.lookup(v) : v))
+        .filter((v): v is string => !!v?.trim())
+        .map((v) => drawable(shownAs(v, inherited(dict, 'Opt'))))
+    );
+    if (values.length === 0) return cleared;
+    if (!sized(widget) || (signs && stored)) return null;
     const draw = () => {
       if (flags & COMBO) {
         const acro = PDFAcroComboBox.fromDict(field, ref);
@@ -200,7 +226,13 @@ function readWidget(
         acro.getWidgets = () => [widget];
         const f = PDFOptionList.of(acro, ref, doc);
         f.getSelected = () => values;
-        f.updateAppearances(font());
+        try {
+          f.updateAppearances(font());
+        } catch {
+          // An option nobody chose may be what cannot be drawn.
+          f.getOptions = () => values;
+          f.updateAppearances(font());
+        }
       }
     };
     return { draw, stored };
@@ -218,6 +250,16 @@ function normalAppearance(widget: PDFDict): PDFStream | PDFDict | null {
     n.keys().some((k) => n.lookup(k) instanceof PDFStream)
     ? n
     : null;
+}
+
+/** Whether `N` can show a box as ticked. */
+function hasOnState(normal: PDFStream | PDFDict): boolean {
+  return (
+    normal instanceof PDFStream ||
+    normal
+      .keys()
+      .some((k) => k !== OFF && normal.lookup(k) instanceof PDFStream)
+  );
 }
 
 /** Nothing shows in a widget without an area; pdf-lib needs it upright. */
@@ -246,9 +288,23 @@ function inherited(widget: PDFDict, name: string): PDFObject | undefined {
   return undefined;
 }
 
+/** Without the marks nobody sees, and with the signs the fonts have. */
+function drawable(text: string): string {
+  return text
+    .replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF]/g, '')
+    .replace(/[\u202F\u2009]/g, ' ')
+    .replace(/\u2212/g, '-');
+}
+
 function textOf(value: PDFObject | undefined): string | null {
-  if (value instanceof PDFString || value instanceof PDFHexString)
-    return value.decodeText();
+  if (value instanceof PDFString || value instanceof PDFHexString) {
+    const bytes = value.asBytes();
+    // PDF 2.0: UTF-8 behind its mark.
+    return bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf
+      ? Buffer.from(bytes.subarray(3)).toString('utf8')
+      : value.decodeText();
+  }
+  if (value instanceof PDFName) return value.decodeText();
   // Long text may be a stream; pdf-lib reads that as no value.
   if (value instanceof PDFRawStream)
     return PDFHexString.of(

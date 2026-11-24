@@ -138,6 +138,32 @@ describe('the stage list', () => {
     expect(unread()).toHaveLength(1);
   });
 
+  it('a Retry that brings another list moves no edit onto it', async () => {
+    let stages = first;
+    let up = true;
+    replies = (_u, init) =>
+      init?.method === 'PUT'
+        ? { status: 200, body: { count: 6 } }
+        : up
+          ? { status: 200, body: { stages, isDefault: false } }
+          : { status: 500, body: null };
+    await load(view);
+    // Saved, but the read after it failed: the old list is on screen.
+    await edit();
+    up = false;
+    await click(view, 'save');
+    await edit();
+    up = true;
+    stages = first.map((s) => (s === 'Review' ? 'Saved review' : s));
+    (
+      findElements(render(view), (el) => el.type === LoadFailed)[0].props
+        .onRetry as () => void
+    )();
+    await settle();
+    await click(view, 'save');
+    expect(sent[1].body.expected).toEqual(first);
+  });
+
   it('names what uses a dropped stage, then sends the confirmed save', async () => {
     let confirmed = false;
     replies = (_u, init) => {

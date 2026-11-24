@@ -506,7 +506,8 @@ export function WhatsAppNumbers() {
                 count: access.people.length,
               })
       );
-      closeAccess();
+      // Not the dialog of another number, opened while this one was saved.
+      if (openAccessId.current === accessFor.id) closeAccess();
     }
   }
 

@@ -717,8 +717,12 @@ export function StagesEditor({
     failed: loadFailed,
     reload: load,
   } = useConfigRead(bankUrl(code, 'stages'), parseStages);
-  // null: no edits, the stored list is shown.
-  const [edits, setEdits] = useState<string[] | null>(null);
+  // null: no edits, the stored list is shown. `from`: the list they began
+  // from, which a later read does not move.
+  const [edits, setEdits] = useState<{
+    list: string[];
+    from: string[];
+  } | null>(null);
   const [adding, setAdding] = useState('');
   const [busy, setBusy] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
@@ -742,8 +746,9 @@ export function StagesEditor({
       unread ?? <div className="bg-muted/50 h-40 animate-pulse rounded-xl" />
     );
 
-  const draft = edits ?? stored.stages;
-  const setDraft = (next: string[]) => setEdits(next);
+  const draft = edits?.list ?? stored.stages;
+  const setDraft = (list: string[]) =>
+    setEdits({ list, from: edits?.from ?? stored.stages });
   const problem = validateStages(draft);
   const dirty =
     JSON.stringify(stagesBody(draft).stages) !== JSON.stringify(stored.stages);
@@ -778,7 +783,7 @@ export function StagesEditor({
       method: 'PUT',
       body: JSON.stringify({
         stages,
-        expected: stored?.stages,
+        expected: edits?.from ?? stored?.stages,
         ...(confirmDropped ? { confirmDropped: true } : {}),
       }),
     });
@@ -1124,7 +1129,7 @@ function TemplateDialog({
   row: Template | null;
   taken: string[];
   onClose: () => void;
-  onSaved: () => Promise<void>;
+  onSaved: () => Promise<unknown>;
 }) {
   const t = useTranslations('CaseSettings.templates');
   const tc = useTranslations('CaseSettings');
@@ -1408,7 +1413,7 @@ function DocumentDialog({
   product: string;
   rows: DocumentRequirement[];
   onClose: () => void;
-  onSaved: () => Promise<void>;
+  onSaved: () => Promise<unknown>;
 }) {
   const t = useTranslations('CaseSettings.documents');
   const tc = useTranslations('CaseSettings');
@@ -1657,7 +1662,7 @@ function SlaDialog({
   timer: SlaTimerKey;
   row: SlaConfigRow | null;
   onClose: () => void;
-  onSaved: () => Promise<void>;
+  onSaved: () => Promise<unknown>;
 }) {
   const t = useTranslations('CaseSettings.sla');
   const tc = useTranslations('CaseSettings');

@@ -806,6 +806,99 @@ describe('what the bank receives', () => {
       expect(w.draws).toContain(hex('AED 12500'));
     });
 
+    it('nothing over a value that was emptied', async () => {
+      const list = { FT: 'Ch', T: str('l') };
+      const { widgets } = await drawn(
+        await form(
+          (d) => [
+            text(undefined, { AP: { N: ap(d, TICK) } }),
+            text(' ', { AP: { N: ap(d, TICK) } }),
+            { ...list, AP: { N: ap(d, TICK) } },
+          ],
+          NEED
+        )
+      );
+      expect(widgets.map((w) => w.draws)).toEqual([null, null, null]);
+    });
+
+    it('a widget whose flags are no number, a name, and UTF-8', async () => {
+      const { widgets } = await drawn(
+        await form(
+          (d) => [
+            text('AED 12500', { F: n('odd') }),
+            text(undefined, { V: n('NAMED') }),
+            text(undefined, {
+              V: PDFHexString.of(
+                Buffer.from('\uFEFFZoë', 'utf8').toString('hex')
+              ),
+              AP: { N: ap(d, TICK) },
+            }),
+          ],
+          NEED
+        )
+      );
+      expect(widgets[0].draws).toContain(hex('AED 12500'));
+      expect(widgets[1].draws).toContain(hex('NAMED'));
+      expect(widgets[2].draws).toContain('5A6FEB');
+    });
+
+    it('a value with marks nobody sees', async () => {
+      const w = await only(await form(() => [text('\u200E+971 50\u200B1')]));
+      expect(w.draws).toContain(hex('+971 501'));
+    });
+
+    it('a list whose other option cannot be drawn', async () => {
+      const w = await only(
+        await form((d) => [
+          {
+            FT: 'Ch',
+            T: str('l'),
+            V: str('Oman'),
+            Opt: d.context.obj([[str(ARABIC)], [str('Oman')]] as never),
+          },
+        ])
+      );
+      expect(w.draws).toContain(hex('Oman'));
+    });
+
+    it('a tick whose N has only its unticked state', async () => {
+      const w = await only(
+        await form((d) => [
+          box({ V: 'Yes', AS: 'Yes', AP: { N: { Off: ap(d, BLANK) } } }),
+        ])
+      );
+      expect(w.as).toBe('Yes');
+      expect(w.draws).toMatch(/ [lc]\n/);
+    });
+
+    it('not a sign of a symbol font as a letter', async () => {
+      const sign = { DA: str('/ZaDb 12 Tf 0 g') };
+      const w = await only(
+        await form(
+          (d) => [text('4', { ...sign, AP: { N: ap(d, TICK) } })],
+          NEED
+        )
+      );
+      expect(w.draws).toBe(TICK);
+      expect(await refusal(await form(() => [text('4', sign)]))).toEqual(
+        REFUSED
+      );
+    });
+
+    it('refuses a value it cannot read', async () => {
+      const bad = (d: PDFDocument) =>
+        d.context.register(d.context.stream('x', { Filter: 'NoSuchFilter' }));
+      expect(
+        await refusal(await form((d) => [text(undefined, { V: bad(d) })]))
+      ).toEqual(REFUSED);
+      const w = await only(
+        await form((d) => [
+          text(undefined, { V: bad(d), AP: { N: ap(d, TICK) } }),
+        ])
+      );
+      expect(w.draws).toBe(TICK);
+    });
+
     it('text stored as a stream, or on the parent', async () => {
       const { widgets } = await drawn(
         await form((d) => [
