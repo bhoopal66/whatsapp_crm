@@ -34,6 +34,13 @@ import {
   type CompassSelection,
 } from '@/lib/broadcasts/compass-audience';
 import { buildCsvContactInsert } from '@/lib/broadcasts/csv-contact-insert';
+import {
+  capCutoff,
+  MESSAGED_STATUSES,
+  PENDING_CAMPAIGN_STATUSES,
+  willStillSend,
+  type PendingCampaign,
+} from '@/lib/broadcasts/frequency-cap';
 import { completeCampaign } from '@/lib/broadcasts/draft-send';
 import { partitionRowsByPhone } from '@/lib/contacts/phone-validation';
 import { chatTagFilterOrGroup } from '@/lib/chat-tags/tree';
@@ -120,9 +127,11 @@ export interface AudienceConfig {
   excludeChatTagIds?: string[];
   /**
    * Frequency cap: drop contacts who were sent any campaign in the last
-   * N days (migration 053 — stored in `audience_filter`). 0/undefined =
-   * off. Counts a recipient row at or past 'sent'; a failed send is not
-   * a contact who was messaged.
+   * N days (migration 053 — stored in `audience_filter`), or whom another
+   * campaign is still going to message. 0/undefined = off. Counts a
+   * recipient row at or past 'sent'; a failed send is not a contact who
+   * was messaged. Also stored as `broadcasts.skip_recent_days` (301),
+   * which the delivery checks again per recipient.
    */
   skipRecentDays?: number;
 }
@@ -605,10 +614,56 @@ async function fetchOptedOutContactIds(supabase: Supabase): Promise<string[]> {
   return rows.map((r) => r.id);
 }
 
+/**
+ * Contacts the frequency cap leaves out: sent any campaign in the last
+ * `days`, or pending in a campaign that will still go out. None when the
+ * cap is off. Shared by the send and the wizard's count.
+ */
+async function fetchCappedContactIds(
+  supabase: Supabase,
+  days: number | undefined
+): Promise<string[]> {
+  if (!days || days <= 0) return [];
+  const cutoff = capCutoff(days);
+  const [recent, pending] = await Promise.all([
+    fetchAllPages<{ contact_id: string | null }>(
+      (from, to) =>
+        supabase
+          .from('broadcast_recipients')
+          .select('contact_id')
+          .in('status', MESSAGED_STATUSES)
+          .gte('sent_at', cutoff)
+          .order('id')
+          .range(from, to),
+      'recent recipients for the frequency cap'
+    ),
+    fetchAllPages<{ contact_id: string; broadcasts: PendingCampaign }>(
+      (from, to) =>
+        supabase
+          .from('broadcast_recipients')
+          .select(
+            'contact_id, broadcasts!inner(status, scheduled_at, created_at)'
+          )
+          .eq('status', 'pending')
+          .not('contact_id', 'is', null)
+          .in('broadcasts.status', PENDING_CAMPAIGN_STATUSES)
+          .order('id')
+          .range(from, to) as unknown as PageResult<{
+          contact_id: string;
+          broadcasts: PendingCampaign;
+        }>,
+      'pending recipients for the frequency cap'
+    ),
+  ]);
+  const waiting = pending.filter((r) => willStillSend(r.broadcasts));
+  return uniqueIds([...recent, ...waiting].map((r) => r.contact_id));
+}
+
 export interface AudienceEstimate extends AudienceCount {
   /**
    * A Compass slice is counted by its size: its numbers are only read
-   * at send, so exclusions and opt-outs may still lower it.
+   * at send, so exclusions, opt-outs and the frequency cap may still
+   * lower it.
    */
   approximate: boolean;
 }
@@ -616,8 +671,7 @@ export interface AudienceEstimate extends AudienceCount {
 /**
  * How many contacts `resolveAudience` will produce, and how many
  * opted-out customers it leaves out — the wizard's count in steps 2
- * and 4. Null while the audience is not configured. The frequency cap
- * is not reflected (it would cost a recipients scan per change).
+ * and 4. Null while the audience is not configured.
  */
 export async function estimateAudience(
   supabase: Supabase,
@@ -647,12 +701,13 @@ export async function estimateAudience(
     return null;
   }
 
-  const [excludedIds, optedOutIds, narrow] = await Promise.all([
+  const [excludedIds, cappedIds, optedOutIds, narrow] = await Promise.all([
     fetchChatTaggedContactIds(supabase, audience.excludeChatTagIds),
+    fetchCappedContactIds(supabase, audience.skipRecentDays),
     fetchOptedOutContactIds(supabase),
     audience.type === 'csv' ? null : fetchNarrowingIds(supabase, audience),
   ]);
-  const excluded = new Set(excludedIds);
+  const excluded = new Set([...excludedIds, ...cappedIds]);
   const optedOut = new Set(optedOutIds);
   const inNarrow = (id: string) => !narrow || narrow.has(id);
 
@@ -860,35 +915,18 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
       contacts = await upsertCsvContacts(supabase, csvRows);
     }
 
-    // Exclude chat tags, then every customer who asked not to be
-    // messaged — for every audience type, CSV and Compass included
+    // Exclude chat tags and the frequency cap, then every customer who
+    // asked not to be messaged — for every audience type, CSV and Compass included
     // (their rows are real contacts by now, opt-out stamp and all).
-    const excluded = new Set(
-      await fetchChatTaggedContactIds(supabase, audience.excludeChatTagIds)
-    );
+    const excluded = new Set([
+      ...(await fetchChatTaggedContactIds(
+        supabase,
+        audience.excludeChatTagIds
+      )),
+      ...(await fetchCappedContactIds(supabase, audience.skipRecentDays)),
+    ]);
     contacts = finalAudience(contacts, excluded);
     if (narrow) contacts = contacts.filter((c) => narrow.has(c.id));
-
-    // Frequency cap: anyone already sent a campaign in the window is
-    // dropped, whatever list they came from (CSV included — a phone
-    // uploaded twice in a week is exactly the case).
-    const days = audience.skipRecentDays ?? 0;
-    if (days > 0 && contacts.length > 0) {
-      const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
-      const recent = await fetchAllPages<{ contact_id: string }>(
-        (from, to) =>
-          supabase
-            .from('broadcast_recipients')
-            .select('contact_id')
-            .in('status', ['sent', 'delivered', 'read', 'replied'])
-            .gte('sent_at', cutoff)
-            .order('id')
-            .range(from, to),
-        'recent recipients for the frequency cap'
-      );
-      const recentIds = new Set(recent.map((r) => r.contact_id));
-      contacts = contacts.filter((c) => !recentIds.has(c.id));
-    }
 
     return { contacts, csvRows };
   }
@@ -1077,53 +1115,67 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
 
       // ── Step 2: Create broadcast row ──────────────────────────────
       setProgress(10);
-      const { data: broadcast, error: broadcastError } = await supabase
-        .from('broadcasts')
-        .insert({
-          user_id: user.id,
-          account_id: accountId,
-          name: payload.name,
-          template_name: payload.template.name,
-          template_language: payload.template.language ?? 'en_US',
-          template_variables: payload.variables,
-          audience_filter: {
-            type: payload.audience.type,
-            chatTagIds: payload.audience.chatTagIds,
-            // Track D U14: only written when set, so an old reader (and
-            // an unchanged campaign) sees today's shape.
-            chatTagMatch:
-              payload.audience.chatTagMatch === 'all' ? 'all' : undefined,
-            bankCodes: payload.audience.bankCodes?.length
-              ? payload.audience.bankCodes
-              : undefined,
-            bankSource: payload.audience.bankCodes?.length
-              ? (payload.audience.bankSource ?? 'case')
-              : undefined,
-            leadSources: payload.audience.leadSources?.length
-              ? payload.audience.leadSources
-              : undefined,
-            customField: payload.audience.customField,
-            excludeChatTagIds: payload.audience.excludeChatTagIds,
-            skipRecentDays: payload.audience.skipRecentDays || undefined,
-            compass:
-              payload.audience.type === 'compass'
-                ? normalizeCompassSelection(payload.audience.compass)
+      const insertCampaign = (cap: { skip_recent_days?: number }) =>
+        supabase
+          .from('broadcasts')
+          .insert({
+            user_id: user.id,
+            account_id: accountId,
+            name: payload.name,
+            template_name: payload.template.name,
+            template_language: payload.template.language ?? 'en_US',
+            template_variables: payload.variables,
+            audience_filter: {
+              type: payload.audience.type,
+              chatTagIds: payload.audience.chatTagIds,
+              // Track D U14: only written when set, so an old reader (and
+              // an unchanged campaign) sees today's shape.
+              chatTagMatch:
+                payload.audience.chatTagMatch === 'all' ? 'all' : undefined,
+              bankCodes: payload.audience.bankCodes?.length
+                ? payload.audience.bankCodes
                 : undefined,
-          },
-          header_media_url: messageParams?.headerMediaUrl ?? null,
-          quiet_hours: payload.quietHours ?? null,
-          follow_up_flow_id: payload.followUpFlowId ?? null,
-          scheduled_at: sendAt ? sendAt.toISOString() : null,
-          status: sendAt ? 'scheduled' : 'sending',
-          total_recipients: contacts.length,
-          sent_count: 0,
-          delivered_count: 0,
-          read_count: 0,
-          replied_count: 0,
-          failed_count: 0,
-        })
-        .select()
-        .single();
+              bankSource: payload.audience.bankCodes?.length
+                ? (payload.audience.bankSource ?? 'case')
+                : undefined,
+              leadSources: payload.audience.leadSources?.length
+                ? payload.audience.leadSources
+                : undefined,
+              customField: payload.audience.customField,
+              excludeChatTagIds: payload.audience.excludeChatTagIds,
+              skipRecentDays: payload.audience.skipRecentDays || undefined,
+              compass:
+                payload.audience.type === 'compass'
+                  ? normalizeCompassSelection(payload.audience.compass)
+                  : undefined,
+            },
+            header_media_url: messageParams?.headerMediaUrl ?? null,
+            quiet_hours: payload.quietHours ?? null,
+            follow_up_flow_id: payload.followUpFlowId ?? null,
+            scheduled_at: sendAt ? sendAt.toISOString() : null,
+            status: sendAt ? 'scheduled' : 'sending',
+            total_recipients: contacts.length,
+            sent_count: 0,
+            delivered_count: 0,
+            read_count: 0,
+            replied_count: 0,
+            failed_count: 0,
+            ...cap,
+          })
+          .select()
+          .single();
+      const days = payload.audience.skipRecentDays ?? 0;
+      let created = await insertCampaign(
+        days > 0 ? { skip_recent_days: days } : {}
+      );
+      // Before migration 301 the cap is the one applied above, only.
+      if (
+        days > 0 &&
+        (created.error?.code === 'PGRST204' || created.error?.code === '42703')
+      ) {
+        created = await insertCampaign({});
+      }
+      const { data: broadcast, error: broadcastError } = created;
 
       if (broadcastError || !broadcast) {
         throw new Error(

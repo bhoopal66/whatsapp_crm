@@ -1584,7 +1584,7 @@
         "excludeChatTags": "제외할 채팅 태그 (선택)",
         "optedOutSkipped": "{count, plural, other {메시지 수신을 거부한 고객 #명은 건너뜁니다.}}",
         "frequencyCap": "발송 빈도 제한",
-        "frequencyCapDesc": "최근 N일 안에 이미 캠페인을 받은 연락처는 건너뜁니다. 0 = 끄기.",
+        "frequencyCapDesc": "최근 N일 안에 다른 캠페인을 받았거나 곧 받을 연락처는 건너뜁니다. 캠페인을 보낼 때 다시 확인합니다. 0 = 끄기.",
         "frequencyCapDays": "일",
         "field": "필드",
         "selectField": "필드 선택...",

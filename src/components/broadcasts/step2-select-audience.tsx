@@ -318,16 +318,15 @@ export function Step2SelectAudience({
 
   // Audience estimate: `estimateAudience` (use-broadcast-sending.ts)
   // counts what the send's `resolveAudience` will produce — the base
-  // list, minus contacts whose chat carries an excluded chat tag, minus
-  // every customer who asked not to be messaged — so the number here is
-  // the number sent. Debounced so a burst of toggles asks once. The
-  // frequency cap is still not reflected — see the note on that control
-  // below.
+  // list, minus contacts whose chat carries an excluded chat tag or whom
+  // the frequency cap skips, minus every customer who asked not to be
+  // messaged — so the number here is the number sent. Debounced so a
+  // burst of toggles asks once.
   //
   // A Compass slice is counted from `compassTotal` (already read for
   // the sample) and is approximate: its numbers are only read at send,
-  // where exclusions and opt-outs can still lower it (noted under the
-  // estimate).
+  // where exclusions, opt-outs and the frequency cap can still lower it
+  // (noted under the estimate).
   const estimateSeq = useRef(0);
   const fetchEstimate = useCallback(async () => {
     const seq = ++estimateSeq.current;
@@ -363,6 +362,7 @@ export function Step2SelectAudience({
           customField: audience.customField,
           csvContacts: audience.csvContacts,
           excludeChatTagIds,
+          skipRecentDays: audience.skipRecentDays,
         })
       );
     } catch (err) {
@@ -380,6 +380,7 @@ export function Step2SelectAudience({
     audience.customField,
     audience.csvContacts,
     excludeChatTagIds,
+    audience.skipRecentDays,
     compassSelection,
     compassTotal,
   ]);
@@ -1007,10 +1008,8 @@ export function Step2SelectAudience({
         )}
       </div>
 
-      {/* Frequency cap — applies regardless of audience type. Not
-          reflected in the estimate below: that would cost a second
-          recipients query per keystroke, and the exact count shows on
-          the campaign once created. */}
+      {/* Frequency cap — applies regardless of audience type, and again
+          to each recipient when the campaign is sent. */}
       <div className="border-border bg-card/50 rounded-xl border p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
