@@ -311,6 +311,8 @@ describe('POST /api/whatsapp/send — contact_id template path', () => {
     expect(res.status).toBe(200);
     expect(json.success).toBe(true);
     expect(json.whatsapp_message_id).toBe('wamid-1');
+    // The customer page's toast opens the chat with it.
+    expect(json.conversation_id).toBe('conv-new');
 
     // A conversation was created for this contact, assigned to the
     // agent who opened it — an outbound chat is never Unassigned.
