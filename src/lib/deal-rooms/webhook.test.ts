@@ -523,18 +523,21 @@ describe('participants and join requests', () => {
             failed: [{ joinRequestId: 'jr-1', code: 1, message: 'no' }],
           }),
       ],
-    ])('is pending again and the managers are asked: %s', async (_w, answer) => {
-      vi.spyOn(console, 'error').mockImplementation(() => {});
-      approveJoinRequests.mockImplementationOnce(answer as never);
-      const tables = await joinRequest();
-      expect(tables.deal_room_join_requests[0]).toMatchObject({
-        decision: 'pending',
-        decided_at: null,
-      });
-      expect(tables.notifications).toEqual([
-        expect.objectContaining({ type: 'deal_room_join_request' }),
-      ]);
-    });
+    ])(
+      'is pending again and the managers are asked: %s',
+      async (_w, answer) => {
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        approveJoinRequests.mockImplementationOnce(answer as never);
+        const tables = await joinRequest();
+        expect(tables.deal_room_join_requests[0]).toMatchObject({
+          decision: 'pending',
+          decided_at: null,
+        });
+        expect(tables.notifications).toEqual([
+          expect.objectContaining({ type: 'deal_room_join_request' }),
+        ]);
+      }
+    );
 
     it('leaves a decision a person made meanwhile', async () => {
       vi.spyOn(console, 'error').mockImplementation(() => {});
