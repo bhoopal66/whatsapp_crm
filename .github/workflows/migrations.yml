@@ -1554,3 +1554,9 @@ jobs:
       # never claims and is never refused; only the service role calls.
       - name: Verify case document request once
         run: supabase db query --local --file supabase/ci/verify-case-doc-request-once.sql
+
+      # Migration 300: a flow is saved at once or not at all, in place by
+      # node_key (a run keeps its node), by an admin of the account only,
+      # and never over somebody else's save; a counted run is no edit.
+      - name: Verify flow save
+        run: supabase db query --local --file supabase/ci/verify-flow-save.sql

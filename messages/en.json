@@ -2207,7 +2207,17 @@
       "fixIssues": "Fix the issues below before activating.",
       "statusActivated": "Flow activated.",
       "statusArchived": "Archived.",
-      "statusDraft": "Saved as draft."
+      "statusDraft": "Saved as draft.",
+      "saveFailed": "The flow could not be saved. Your changes are still here; try again.",
+      "fixBeforeSaving": "This flow is live. Fix the problems below, or pause it, before saving.",
+      "changedTitle": "Somebody else saved this flow",
+      "changedBy": "{name} saved this flow on {time}, after you opened it.",
+      "changedAt": "This flow was saved on {time}, after you opened it.",
+      "changedChoices": "Your changes are not saved. Reload to see the saved flow, which drops your changes, or keep yours.",
+      "reload": "Reload",
+      "keepMine": "Keep mine",
+      "keepMineWarning": "Your version will replace theirs. This cannot be undone.",
+      "keepMineConfirm": "Replace their version"
     },
     "summary": {
       "options": "{count} {count, plural, =1 {option} other {options}}",

@@ -4,9 +4,13 @@ import {
   requireRole,
   toErrorResponse,
   assertSalesAccess,
+  type AccountContext,
 } from '@/lib/auth/account';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
 import { resolveFallbackPolicy } from '@/lib/flows/fallback';
+import { flowVersion } from '@/lib/flows/save-request';
+import type { FlowRow } from '@/lib/flows/types';
+import { validateFlowForActivation } from '@/lib/flows/validate';
 import { serverErrorResponse } from '@/lib/api/server-error';
 import {
   AuthUnavailableError,
@@ -16,10 +20,10 @@ import {
 /**
  * GET   /api/flows/[id]  — fetch one flow with its nodes.
  * PUT   /api/flows/[id]  — replace name/trigger/entry/fallback + the
- *                          full node graph (delete-then-insert under
- *                          the hood; not atomic, but the runner is
- *                          resilient to mid-edit reads — node_not_found
- *                          gracefully ends the run).
+ *                          full node graph, in one transaction
+ *                          (`flow_save`, 300): 409 when somebody saved it
+ *                          since `expected`, 422 when the flow is active
+ *                          and what would be saved does not validate.
  * DELETE /api/flows/[id] — hard delete (RLS+CASCADE clean up nodes,
  *                          runs, events).
  *
@@ -99,7 +103,7 @@ export async function GET(
 interface PutBody {
   name?: string;
   description?: string | null;
-  trigger_type?: 'keyword' | 'first_inbound_message' | 'manual';
+  trigger_type?: FlowRow['trigger_type'];
   trigger_config?: Record<string, unknown>;
   entry_node_id?: string | null;
   fallback_policy?: Record<string, unknown>;
@@ -110,6 +114,64 @@ interface PutBody {
     position_x?: number;
     position_y?: number;
   }>;
+  /** The version the editor loaded (`flowVersion`); absent is unchecked. */
+  expected?: string;
+}
+
+/** Who saved the flow after the caller loaded it, and when. */
+async function changedResponse(ctx: AccountContext, id: string) {
+  const { data: flow } = await ctx.supabase
+    .from('flows')
+    .select('edited_at, edited_by, created_at')
+    .eq('id', id)
+    .maybeSingle();
+  if (!flow) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  const { data: who } = flow.edited_by
+    ? await ctx.supabase
+        .from('profiles')
+        .select('full_name')
+        .eq('user_id', flow.edited_by)
+        .eq('account_id', ctx.accountId)
+        .maybeSingle()
+    : { data: null };
+  const version = flowVersion(flow);
+  return NextResponse.json(
+    {
+      error: `Somebody else saved this flow at ${version}; reload to see it`,
+      changed: { version, at: version, by: who?.full_name || null },
+    },
+    { status: 409 }
+  );
+}
+
+/** The separate writes, for a database where `flow_save` does not exist. */
+async function saveBefore300(
+  admin: ReturnType<typeof supabaseAdmin>,
+  id: string,
+  patch: Record<string, unknown>,
+  nodes: PutBody['nodes']
+) {
+  const { error: updErr } = await admin
+    .from('flows')
+    .update({ ...patch, updated_at: new Date().toISOString() })
+    .eq('id', id);
+  if (updErr || nodes === undefined) return updErr;
+  const { error: delErr } = await admin
+    .from('flow_nodes')
+    .delete()
+    .eq('flow_id', id);
+  if (delErr || nodes.length === 0) return delErr;
+  const { error: insErr } = await admin.from('flow_nodes').insert(
+    nodes.map((n) => ({
+      flow_id: id,
+      node_key: n.node_key,
+      node_type: n.node_type,
+      config: n.config,
+      position_x: n.position_x ?? 0,
+      position_y: n.position_y ?? 0,
+    }))
+  );
+  return insErr;
 }
 
 export async function PUT(
@@ -118,11 +180,11 @@ export async function PUT(
 ) {
   const { id } = await context.params;
 
-  // Writes require at least `agent` — the RLS flows_update policy demands
-  // it, but this route mutates via the service-role client which bypasses
-  // RLS, so the role must be enforced here (a viewer passes ownership).
+  // RLS enforces the role on `flow_save`; the pre-300 path below writes
+  // as the service role, and the department rule lives only here.
+  let ctx: AccountContext;
   try {
-    assertSalesAccess(await requireRole('admin'));
+    ctx = assertSalesAccess(await requireRole('admin'));
   } catch (err) {
     return toErrorResponse(err);
   }
@@ -141,14 +203,19 @@ export async function PUT(
     );
   }
 
+  if (body.nodes !== undefined && !Array.isArray(body.nodes)) {
+    return NextResponse.json(
+      { error: 'nodes must be a list' },
+      { status: 400 }
+    );
+  }
+
+  const { supabase } = guard;
   const admin = supabaseAdmin();
 
-  // Update the flow row first — the body may not include `nodes` (a
-  // header-only save for editing the trigger config without touching
-  // the graph). Skip node replacement in that case.
-  const flowPatch: Record<string, unknown> = {
-    updated_at: new Date().toISOString(),
-  };
+  // The body may not include `nodes` (a header-only save for editing the
+  // trigger config without touching the graph): the stored ones stay.
+  const flowPatch: Record<string, unknown> = {};
   if (body.name !== undefined) flowPatch.name = body.name.trim();
   if (body.description !== undefined) flowPatch.description = body.description;
   if (body.trigger_type !== undefined)
@@ -162,39 +229,66 @@ export async function PUT(
   if (body.fallback_policy !== undefined)
     flowPatch.fallback_policy = resolveFallbackPolicy(body.fallback_policy);
 
-  const { error: updErr } = await admin
+  // A live flow answers customers from the moment it is saved, so it has
+  // to pass what activating it would. Drafts may be incomplete.
+  const { data: current, error: readErr } = await supabase
     .from('flows')
-    .update(flowPatch)
-    .eq('id', id);
-  if (updErr) {
-    return serverErrorResponse('PUT /api/flows/[id]', updErr);
+    .select('status, name, trigger_type, trigger_config, entry_node_id')
+    .eq('id', id)
+    .maybeSingle();
+  if (readErr) return serverErrorResponse('PUT /api/flows/[id]', readErr);
+  if (current?.status === 'active') {
+    let nodes = body.nodes?.map((n) => ({ ...n, config: n.config ?? {} }));
+    if (!nodes) {
+      const { data, error } = await supabase
+        .from('flow_nodes')
+        .select('node_key, node_type, config')
+        .eq('flow_id', id);
+      if (error) return serverErrorResponse('PUT /api/flows/[id]', error);
+      nodes = data ?? [];
+    }
+    const merged = { ...current, ...flowPatch } as Parameters<
+      typeof validateFlowForActivation
+    >[0];
+    const issues = validateFlowForActivation(
+      { ...merged, trigger_config: merged.trigger_config ?? {} },
+      nodes
+    );
+    if (issues.some((i) => i.severity === 'error')) {
+      return NextResponse.json(
+        {
+          error: 'This flow is live — fix the issues below before saving.',
+          issues,
+        },
+        { status: 422 }
+      );
+    }
   }
 
-  if (body.nodes !== undefined) {
-    // Delete-then-insert. Not transactional but the runner handles
-    // mid-edit reads safely (a node_not_found ends the run cleanly).
-    const { error: delErr } = await admin
-      .from('flow_nodes')
-      .delete()
-      .eq('flow_id', id);
-    if (delErr) {
-      return serverErrorResponse('PUT /api/flows/[id]', delErr);
+  // As the caller: RLS decides who may save.
+  const { data: saved, error: saveErr } = await supabase.rpc('flow_save', {
+    p_flow: id,
+    p_patch: flowPatch,
+    p_nodes: body.nodes ?? null,
+    p_expected: typeof body.expected === 'string' ? body.expected : null,
+  });
+  if (saveErr) {
+    if (saveErr.hint === 'FLOW_CHANGED') return changedResponse(ctx, id);
+    if (saveErr.hint === 'FLOW_NOT_FOUND') {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
-    if (body.nodes.length > 0) {
-      const { error: insErr } = await admin.from('flow_nodes').insert(
-        body.nodes.map((n) => ({
-          flow_id: id,
-          node_key: n.node_key,
-          node_type: n.node_type,
-          config: n.config,
-          position_x: n.position_x ?? 0,
-          position_y: n.position_y ?? 0,
-        }))
+    if (saveErr.hint === 'FLOW_DUPLICATE_KEY') {
+      return NextResponse.json(
+        { error: `Two steps have the key "${saveErr.details}"` },
+        { status: 400 }
       );
-      if (insErr) {
-        return serverErrorResponse('PUT /api/flows/[id]', insErr);
-      }
     }
+    // Only a database without 300 gets the separate writes.
+    if (saveErr.code !== 'PGRST202' && saveErr.code !== '42883') {
+      return serverErrorResponse('PUT /api/flows/[id]', saveErr);
+    }
+    const oldErr = await saveBefore300(admin, id, flowPatch, body.nodes);
+    if (oldErr) return serverErrorResponse('PUT /api/flows/[id]', oldErr);
   }
 
   // Re-fetch and return the new state — the editor uses the response
@@ -207,7 +301,12 @@ export async function PUT(
       .eq('flow_id', id)
       .order('created_at', { ascending: true }),
   ]);
-  return NextResponse.json({ flow, nodes: nodes ?? [] });
+  // The version of THIS save: the re-read may already be somebody else's.
+  return NextResponse.json({
+    flow,
+    nodes: nodes ?? [],
+    version: (saved as { edited_at?: string } | null)?.edited_at ?? null,
+  });
 }
 
 export async function DELETE(

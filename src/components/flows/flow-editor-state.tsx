@@ -51,6 +51,13 @@ import {
 } from "@/lib/flows/validate";
 import { useTranslations } from "next-intl";
 import { unlinkNodeReferences } from "@/lib/flows/edges";
+import {
+  afterSave,
+  flowVersion,
+  requestFlowSave,
+  type FlowConflict,
+  type FlowSaveMeta,
+} from "@/lib/flows/save-request";
 import type {
   FlowFallbackPolicy,
   FlowNodeRow,
@@ -109,7 +116,14 @@ export interface FlowEditorContextValue {
   removeNode: (key: string) => void;
 
   // Actions
-  save: () => Promise<void>;
+  /**
+   * Resolves true when the flow was saved. `overVersion` saves over the
+   * version named in a conflict the person has been shown.
+   */
+  save: (overVersion?: string) => Promise<boolean>;
+  /** Set while somebody else's later save refused ours. */
+  conflict: FlowConflict | null;
+  dismissConflict: () => void;
   setStatus: (status: BuilderState["status"]) => Promise<void>;
   deleteFlow: () => Promise<void>;
 
@@ -265,11 +279,23 @@ export function FlowEditorProvider({
   // dirty flips on user edits; status-only updates (after the activate
   // API succeeds) use setStateRaw so they don't falsely re-flag the
   // form as dirty.
-  const [dirty, setDirty] = useState(false);
+  const [meta, setMeta] = useState<FlowSaveMeta>(() => ({
+    dirty: false,
+    expected: flowVersion(initialFlow),
+    conflict: null,
+  }));
+  const { dirty, expected, conflict } = meta;
+  // Counts edits: one made while a save is under way is not in it.
+  const editsRef = useRef(0);
   const setState = useCallback<typeof setStateRaw>((updaterOrValue) => {
-    setDirty(true);
+    editsRef.current += 1;
+    setMeta((m) => (m.dirty ? m : { ...m, dirty: true }));
     setStateRaw(updaterOrValue);
   }, []);
+  const dismissConflict = useCallback(
+    () => setMeta((m) => ({ ...m, conflict: null })),
+    [],
+  );
 
   // Cross-view "look here" signal (see FlowEditorContextValue docs).
   // Tracked via a ref alongside state so a rapid second click on a
@@ -333,35 +359,37 @@ export function FlowEditorProvider({
   );
 
   // ---- Save (PUT) ----
-  const save = useCallback(async () => {
-    setSaving(true);
-    try {
-      const res = await fetch(`/api/flows/${initialFlow.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: state.name,
-          description: state.description || null,
-          trigger_type: state.trigger_type,
-          trigger_config: state.trigger_config,
-          entry_node_id: state.entry_node_id,
-          fallback_policy: state.fallback_policy,
-          nodes: state.nodes,
-        }),
+  const save = useCallback(
+    async (overVersion?: string) => {
+      setSaving(true);
+      const editsSent = editsRef.current;
+      const outcome = await requestFlowSave(initialFlow.id, {
+        name: state.name,
+        description: state.description || null,
+        trigger_type: state.trigger_type,
+        trigger_config: state.trigger_config,
+        entry_node_id: state.entry_node_id,
+        fallback_policy: state.fallback_policy,
+        nodes: state.nodes,
+        expected: overVersion ?? expected,
       });
-      if (!res.ok) {
-        const json = await res.json().catch(() => ({}));
-        throw new Error(json.error ?? `Save failed: ${res.status}`);
-      }
-      setDirty(false);
-      toast.success(t("saved"));
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Save failed";
-      toast.error(msg);
-    } finally {
       setSaving(false);
-    }
-  }, [initialFlow.id, state]);
+      const editedMeanwhile = editsRef.current !== editsSent;
+      setMeta((m) => afterSave(m, outcome, editedMeanwhile));
+      if (outcome.kind === "saved") toast.success(t("saved"));
+      if (outcome.kind === "failed")
+        toast.error(outcome.error ?? t("saveFailed"));
+      if (outcome.kind === "invalid") {
+        // The problem list is the validation panel's, as on activate.
+        toast.error(t("fixBeforeSaving"), {
+          description: outcome.issues.find((i) => i.severity === "error")
+            ?.message,
+        });
+      }
+      return outcome.kind === "saved";
+    },
+    [initialFlow.id, state, expected, t],
+  );
 
   // ---- Activate / Pause / Archive ----
   const setStatus = useCallback(
@@ -375,9 +403,9 @@ export function FlowEditorProvider({
         // Always save first so the activation validator sees the
         // latest state — the user shouldn't have to remember "save
         // then activate".
-        if (next === "active") {
-          await save();
-        }
+        // A refused save stops here: activating would put live what is
+        // stored, not what is on the screen.
+        if (next === "active" && !(await save())) return;
         const res = await fetch(`/api/flows/${initialFlow.id}/activate`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -540,6 +568,8 @@ export function FlowEditorProvider({
       updateNodePositions,
       removeNode,
       save,
+      conflict,
+      dismissConflict,
       setStatus,
       deleteFlow,
       flashKey,
@@ -561,6 +591,8 @@ export function FlowEditorProvider({
       updateNodePositions,
       removeNode,
       save,
+      conflict,
+      dismissConflict,
       setStatus,
       deleteFlow,
       flashKey,
