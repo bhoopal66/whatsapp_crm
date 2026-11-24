@@ -22,8 +22,9 @@ DECLARE
   u_agent  UUID := '00000000-0000-4000-8000-000000290003';
   u_owner2 UUID := '00000000-0000-4000-8000-000000290004';
   a_acct UUID; b_acct UUID;
-  g1 UUID; g2 UUID; g3 UUID; g4 UUID; g_other UUID;
+  g1 UUID; g2 UUID; g3 UUID; g4 UUID; g_other UUID; g_gone UUID;
   e1 UUID; e2 UUID;
+  c_id UUID; v_id UUID; cs UUID[] := '{}'; gs UUID[] := '{}';
   res JSONB; r TEXT;
   st kb_learn_settings;
   n INT := 0;
@@ -219,9 +220,26 @@ BEGIN
     jsonb_build_object('label', 'open', 'question_count', 1, 'first_seen_at', now(), 'last_seen_at', now(), 'gap_ids', jsonb_build_array(g3, g4))), '{}');
   SELECT string_agg(t.label || ':' || (t.gap_ids = ARRAY[g4, g3])::text, '|') INTO r FROM kb_learn_open_topics(a_acct, 1) t;
   IF r IS DISTINCT FROM 'open:true' THEN failed := failed || ('open topics: ' || coalesce(r, 'null')); END IF; n := n + 1;
-  PERFORM kb_learn_record_discard(a_acct, NULL, encode(sha256(convert_to(a_acct::text || E'\n' || 'open', 'UTF8')), 'hex'), ARRAY[g4], 2);
+  PERFORM kb_learn_record_discard(a_acct, NULL, repeat('f', 64), ARRAY[g4, g3], 2);
   IF EXISTS (SELECT 1 FROM kb_learn_open_topics(a_acct)) THEN failed := failed || 'a backed-off topic is still offered'::text; END IF; n := n + 1;
-  DELETE FROM kb_learned_drafts WHERE account_id = a_acct AND gap_ids = ARRAY[g4];
+  DELETE FROM kb_learned_drafts WHERE account_id = a_acct AND topic_key = repeat('f', 64);
+
+  -- ---------- looks: the looked-at wait behind, three failures back off ----------
+  PERFORM kb_gap_topics_replace(a_acct, jsonb_build_array(
+    jsonb_build_object('label', 'busy', 'question_count', 9, 'first_seen_at', now(), 'last_seen_at', now(), 'gap_ids', jsonb_build_array(g3)),
+    jsonb_build_object('label', 'quiet', 'question_count', 1, 'first_seen_at', now(), 'last_seen_at', now(), 'gap_ids', jsonb_build_array(g4))),
+    (SELECT jsonb_object_agg(id::text, jsonb_build_object('status', status, 'dismissed_at', dismissed_at)) FROM kb_gap_topics WHERE account_id = a_acct));
+  PERFORM kb_learn_note_look(a_acct, ARRAY[g3, g_other], false);
+  SELECT string_agg(t.label, '|' ORDER BY o) INTO r FROM kb_learn_open_topics(a_acct) WITH ORDINALITY AS t(id, label, coverage, gap_ids, o);
+  IF r IS DISTINCT FROM 'quiet|busy' OR EXISTS (SELECT 1 FROM kb_learn_looks WHERE gap_id = g_other) THEN failed := failed || ('looks: ' || coalesce(r, 'null')); END IF; n := n + 1;
+  FOR i IN 1..3 LOOP PERFORM kb_learn_note_look(a_acct, ARRAY[g3], true); END LOOP;
+  SELECT string_agg(t.label, '|') INTO r FROM kb_learn_open_topics(a_acct) t;
+  IF r IS DISTINCT FROM 'quiet' THEN failed := failed || ('failed topic offered: ' || coalesce(r, 'null')); END IF; n := n + 1;
+  UPDATE kb_learn_looks SET looked_at = now() - interval '29 days' WHERE gap_id = g3;
+  IF (SELECT count(*) FROM kb_learn_open_topics(a_acct)) <> 2 THEN failed := failed || 'backed off for ever'::text; END IF; n := n + 1;
+  IF has_table_privilege('authenticated', 'public.kb_learn_looks', 'SELECT')
+     OR has_function_privilege('authenticated', 'public.kb_learn_note_look(uuid,uuid[],boolean)', 'EXECUTE')
+     OR NOT has_function_privilege('service_role', 'public.kb_learn_note_look(uuid,uuid[],boolean)', 'EXECUTE') THEN failed := failed || 'looks grants'::text; END IF; n := n + 1;
 
   -- ---------- discarded: not again for 28 days ----------
   r := kb_learn_record_discard(a_acct, NULL, repeat('b', 64), ARRAY[g3], 2)::text;
@@ -284,6 +302,51 @@ BEGIN
   r := pg_temp.kl_try(u_owner2, 'select count(*)::text from public.kb_learned_drafts');
   IF r <> '0' THEN failed := failed || ('another workspace read the ledger: ' || r); END IF; n := n + 1;
 
+  -- ---------- a deleted gap leaves the ledger; its thin draft goes ----------
+  INSERT INTO ai_knowledge_gaps (account_id, question) VALUES (a_acct, 'gone soon') RETURNING id INTO g_gone;
+  res := kb_learn_record_draft(a_acct, NULL, repeat('9', 64), ARRAY[g_gone, g4], 'LRN-HHHHHH', 'q', 'a', NULL, NULL, 2);
+  e2 := (res->>'entry_id')::uuid;
+  DELETE FROM ai_knowledge_gaps WHERE id = g_gone;
+  IF e2 IS NULL OR EXISTS (SELECT 1 FROM kb_learned_drafts WHERE g_gone = ANY (gap_ids))
+     OR NOT EXISTS (SELECT 1 FROM kb_learned_drafts WHERE topic_key = repeat('9', 64) AND gap_ids = ARRAY[g4]) THEN
+    failed := failed || 'a deleted gap stayed in the ledger'::text; END IF; n := n + 1;
+  IF EXISTS (SELECT 1 FROM kb_entries WHERE id = e2) THEN failed := failed || 'the thin draft stayed'::text; END IF; n := n + 1;
+
+  -- ---------- erasing a customer (262) does the same; two in one transaction too ----------
+  FOR i IN 1..3 LOOP
+    INSERT INTO contacts (account_id, user_id, phone, name) VALUES (a_acct, u_owner, '97150029000' || i, 'Kb Customer') RETURNING id INTO c_id;
+    INSERT INTO conversations (account_id, user_id, contact_id) VALUES (a_acct, u_owner, c_id) RETURNING id INTO v_id;
+    INSERT INTO ai_knowledge_gaps (account_id, conversation_id, question) VALUES (a_acct, v_id, 'erase me') RETURNING id INTO g_gone;
+    cs := cs || c_id; gs := gs || g_gone;
+  END LOOP;
+  res := kb_learn_record_draft(a_acct, NULL, repeat('8', 64), gs, 'LRN-JJJJJJ', 'q', 'a', NULL, NULL, 3);
+  e2 := (res->>'entry_id')::uuid;
+  PERFORM privacy_subject_erase(u_owner, a_acct, cs[1], false, 'ERASE ' || cs[1]);
+  IF e2 IS NULL OR NOT EXISTS (SELECT 1 FROM kb_entries WHERE id = e2)
+     OR NOT EXISTS (SELECT 1 FROM kb_learned_drafts WHERE entry_id = e2 AND gap_ids @> gs[2:3] AND gap_ids <@ gs[2:3]) THEN
+    failed := failed || 'an erase that leaves two chats'::text; END IF; n := n + 1;
+  PERFORM privacy_subject_erase(u_owner, a_acct, cs[2], false, 'ERASE ' || cs[2]);
+  IF EXISTS (SELECT 1 FROM kb_entries WHERE id = e2)
+     OR NOT EXISTS (SELECT 1 FROM kb_learned_drafts WHERE topic_key = repeat('8', 64) AND entry_id IS NULL AND gap_ids = gs[3:3]) THEN
+    failed := failed || 'an erased customer stayed in the ledger'::text; END IF; n := n + 1;
+
+  -- ---------- an approved entry stays ----------
+  res := kb_learn_record_draft(a_acct, NULL, repeat('7', 64), ARRAY[gs[3], g4], 'LRN-KKKKKK', 'q', 'a', NULL, NULL, 2);
+  e2 := (res->>'entry_id')::uuid;
+  UPDATE kb_entries SET status = 'approved', approved_at = now() WHERE id = e2;
+  DELETE FROM ai_knowledge_gaps WHERE id = gs[3];
+  IF NOT EXISTS (SELECT 1 FROM kb_entries WHERE id = e2 AND status = 'approved') THEN failed := failed || 'an approved entry went with its gap'::text; END IF; n := n + 1;
+
+  -- ---------- deleting an account is not held up ----------
+  INSERT INTO kb_learned_drafts (account_id, topic_key, gap_ids, evidence_count, discarded_at) VALUES (b_acct, repeat('6', 64), ARRAY[g_other], 2, now());
+  BEGIN
+    DELETE FROM desk_customers WHERE account_id = b_acct;
+    DELETE FROM accounts WHERE id = b_acct;
+    r := (SELECT count(*)::text FROM kb_learned_drafts WHERE account_id = b_acct);
+  EXCEPTION WHEN OTHERS THEN r := SQLERRM;
+  END;
+  IF r <> '0' THEN failed := failed || ('deleting an account: ' || r); END IF; n := n + 1;
+
   -- ---------- switched off again: nothing ----------
   UPDATE kb_learn_settings SET next_run_at = NULL, last_run_at = NULL WHERE account_id = a_acct;
   r := pg_temp.kl_try(u_owner, 'select (public.kb_learn_set_enabled(false))->>''enabled''');
@@ -325,7 +388,7 @@ BEGIN
     IF SQLERRM <> 'KL_ROLLBACK' THEN RAISE; END IF;
   END;
 
-  IF n <> 56 THEN RAISE EXCEPTION 'verify-kb-learn: only % checks ran', n; END IF;
+  IF n <> 66 THEN RAISE EXCEPTION 'verify-kb-learn: only % checks ran', n; END IF;
   IF cardinality(failed) > 0 THEN
     RAISE EXCEPTION 'verify-kb-learn: % failed: %', cardinality(failed), array_to_string(failed, '; ');
   END IF;

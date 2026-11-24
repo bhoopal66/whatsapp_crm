@@ -175,7 +175,9 @@ and polish.
 superuser or BYPASSRLS role; after 152 and 202).
 - New switch under **Unanswered questions** (Settings → AI Agents →
   Knowledge): **Learn from team answers**. Off by default; owners and
-  admins switch it on.
+  admins switch it on. Names and numbers are masked first, but a name
+  nobody saved or a nickname can still get through, so an admin must read
+  every draft.
 - Once a week it takes open question topics the knowledge base cannot
   answer, finds how people on the team answered them in chat (within
   48 hours, a person's own reply, not the bot, an automation or a
@@ -184,9 +186,9 @@ superuser or BYPASSRLS role; after 152 and 202).
   drafts one general answer with the workspace's own AI key. "Let me
   check" and greetings are not answers; an answer sent in several
   bubbles is read as one. A topic needs answers from at least two chats.
-  AI-written, forwarded and failed messages are left out, and so is a
-  reply given after the customer asked something else (unless it quotes
-  the question). It runs only while the AI assistant is on. A topic the
+  AI-written, forwarded and unsent messages are left out, and so are a
+  reply that quotes another message and one given after the customer
+  asked something else or sent a file (unless it quotes the question). It runs only while the AI assistant is on. A topic the
   AI could not answer is left for 28 days, so the others get their turn.
   The switch shows when it last ran and how many drafts it wrote. A run
   that could not finish (AI off or no key, a failed read, the AI service
@@ -194,8 +196,8 @@ superuser or BYPASSRLS role; after 152 and 202).
   three times a day, and the switch says why. At most ten topics are
   asked in any seven days, retries included.
 - Before anything is sent, phone numbers, e-mails, IBANs, IDs, card and
-  account numbers, case numbers, any run of five or more digits, and the
-  names saved in the CRM (contacts and their companies, members, case
+  account numbers, case numbers, links, PO boxes, any run of five or more
+  digits (also with separators or spelled out), and the names saved in the CRM (contacts and their companies, members, case
   customers, bank contacts) are masked, in English and Arabic. If a list
   or chat cannot be read, or a text cannot be screened, nothing is sent.
   A name that is not saved anywhere in the CRM is not recognised.
@@ -205,7 +207,8 @@ superuser or BYPASSRLS role; after 152 and 202).
 - Each draft appears in **Approved answers** with a **Learned** badge
   (filter: **Learned only**) and a note on how many replies it came
   from. It is never approved or sent by itself: edit it and approve it
-  as usual. A topic is drafted once, again only if its draft is deleted
+  as usual. Erasing a customer takes their questions out, and an
+  unapproved draft left with fewer than two chats is deleted. A topic is drafted once, again only if its draft is deleted
   or set to Remove.
 - The tokens show in AI usage as **Learned answers**.
 

@@ -262,7 +262,8 @@ that have no learned draft yet are looked at. For each:
    message a **person** wrote in that chat after the question, within
    48 hours (`sender_type` `agent` with a sender, plain text, not a
    template). The bot, automations, templates and holding or courtesy
-   lines ("let me check", "one moment", "Hi Sara,", "شكرا") do not
+   lines ("let me check", "one moment", "Hi Sara,", "شكرا"), deferrals
+   ("I will call you") and replies that only ask something back do not
    count. An answer split over bubbles is joined: the same person's next
    messages, each within 10 minutes, until the customer writes again (at
    most 4). Personal chats, HR, IT and accounts chats (the bot's own
@@ -273,14 +274,20 @@ that have no learned draft yet are looked at. For each:
    different chats, or it waits for more.
 2. Every question and answer is redacted (the second-brain redactor:
    e-mail, IBAN, Emirates ID, card, OTP, account, passport, phone; a
-   phone keeps its last 3 digits), then case numbers (`TC-…` and caption
-   codes), IBAN-like strings and any run of 5+ digits in any script, then
-   the account's names, read once per run in full: contacts and their
+   phone keeps its last 3 digits), then links, spelled-out e-mails, PO
+   boxes, case numbers (`TC-…` and caption codes), IBAN-like strings,
+   tokens mixing letters and digits, any run of 5+ digits in any script
+   (up to two separators between them; an amount survives only with
+   thousands commas) and five or more digits in words, then the
+   account's names, read once per run in full: contacts and their
    companies, every member, submission-group customers, case-desk
    companies and bank contacts. Names match as whole words in any case,
-   Arabic folded and behind و ف ب ل ك س ال; a name's words also match
-   alone unless they are common business words. A name saved nowhere in
-   the CRM, or spelled differently, is not recognised. If a list cannot
+   Arabic folded and behind و ف ب ل ك س ال, joined or split, in close
+   spellings and across Latin and Arabic script; a company also without
+   its legal suffix; a name's words also match alone unless they are
+   common business words (two brand words together still match). A name
+   saved nowhere in the CRM, a nickname or a spelling too far off is not
+   recognised. If a list cannot
    be read or a text screened, nothing is sent. The topic's label is a
    customer's message: it is never sent or stored.
 3. The workspace's own AI key (`model_small` if set, else `model`) is
@@ -300,6 +307,11 @@ that have no learned draft yet are looked at. For each:
    prospective client, the general question, and a reviewer note
    "Drafted from N team replies, <dates>. Check before approving."
 
+**Masking is not perfect: an admin must read every draft before approving
+it.** A name nobody saved (in contacts, members, cases or submission
+groups), a nickname, or a customer described without a name can still
+reach the AI provider and the draft.
+
 The draft shows in **Approved answers** with a **Learned** badge, and
 the **Learned only** filter lists them. Edit it and approve it the usual
 way; until then the bot never uses it (`kb_shortlist` returns approved
@@ -317,15 +329,25 @@ week. Switching it off and on forgets the last run and starts again
 within the hour.
 
 A topic is drafted once (`kb_learned_drafts`): the same gaps (half or
-more) or the same label (kept as a SHA-256 only) under a new topic id count as the same topic.
+more) or the same label (kept only as an HMAC with
+`ENCRYPTION_KEY`, which the database does not hold) under a new topic id
+count as the same topic.
 It is drafted again only if its draft was deleted or set to **Remove**.
 A topic the AI declined, answered malformed or was cut off on is left for
 28 days, like a discarded one; covered, drafted and waiting topics are not
-read at all. The newest 25 questions of a topic are looked at.
+read at all. The newest 25 questions of a topic are looked at. Topics
+never looked at come first, then those looked at longest ago; one the AI
+service failed on three times in a row waits 28 days.
 
-A message the AI wrote, a forwarded one and one that failed to send are
-not answers. Once the customer asks something else, only a reply that
-quotes the original question counts. A holding line is a short message
+Erasing a customer deletes their questions: the ids leave the ledger, and
+an unapproved draft left with fewer than two chats is deleted. An approved
+entry stays.
+
+A message the AI wrote, a forwarded one and one that is not sent,
+delivered or read are not answers, nor is a reply that quotes another
+message. Once the customer asks something else or sends an image,
+document or video, only a reply that quotes the original question counts
+("hello?" or "any update?" is not a new question). A holding line is a short message
 made of nothing but holding words ("please wait 3 working days" is an
 answer).
 

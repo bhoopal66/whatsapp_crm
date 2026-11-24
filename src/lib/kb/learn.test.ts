@@ -32,6 +32,7 @@ const msg = (over: Partial<ThreadMessage>): ThreadMessage => ({
   content_type: 'text',
   content_text: 'You need a trade licence.',
   template_name: null,
+  status: 'sent',
   created_at: at(5),
   ...over,
 });
@@ -376,6 +377,7 @@ describe('what counts as the answer', () => {
     content_type: 'text',
     content_text: 'Yes, a freelance permit works.',
     template_name: null,
+    status: 'sent',
     created_at: new Date(Date.parse(T0) + min * 60_000).toISOString(),
     ...over,
   });
@@ -435,5 +437,81 @@ describe('what counts as the answer', () => {
       'خليني أتأكد وأرد عليك',
     ])
       expect(isHoldingReply(t), t).toBe(true);
+  });
+});
+
+describe('evidence probes', () => {
+  const base = (min: number, over: Partial<ThreadMessage>) =>
+    msg({ created_at: at(min), ...over });
+  const pick = (ms: ThreadMessage[]) =>
+    pickTeamAnswer(GAP_AT, ms, ['m1'])?.content_text ?? null;
+
+  it('a reply quoting something else is not the answer', () => {
+    expect(pick([base(5, { reply_to_message_id: 'other' })])).toBeNull();
+    expect(pick([base(5, { reply_to_message_id: 'm1' })])).not.toBeNull();
+    expect(
+      pick([
+        base(5, {}),
+        base(6, { reply_to_message_id: 'other', content_text: 'No, 900.' }),
+      ])
+    ).toBe('You need a trade licence.');
+  });
+  it('a short question stops it; a nudge does not', () => {
+    const customer = (text: string) =>
+      base(2, {
+        sender_type: 'customer',
+        sender_id: null,
+        content_text: text,
+      });
+    for (const q of ['POS fees?', 'الرسوم؟', 'ok\nand cards?', 'visa?'])
+      expect(pick([customer(q), base(5, {})]), q).toBeNull();
+    for (const q of [
+      'Hello?',
+      'any update?',
+      '??',
+      'are you there',
+      'في جديد؟',
+    ])
+      expect(pick([customer(q), base(5, {})]), q).not.toBeNull();
+  });
+  it('a customer file stops it', () => {
+    for (const content_type of ['image', 'document'])
+      expect(
+        pick([
+          base(2, {
+            sender_type: 'customer',
+            content_type,
+            content_text: null,
+          }),
+          base(5, {}),
+        ])
+      ).toBeNull();
+  });
+  it('passes over deferrals and questions back, keeps answers', () => {
+    for (const t of [
+      'I am checking with my manager and will revert',
+      'I will call you',
+      "I'll get back to you tomorrow.",
+      'سأعود اليك',
+      'سوف أتواصل معك',
+      'Please share your documents',
+      'which bank?',
+      'Sure. Which bank is it with?',
+    ])
+      expect(pick([base(5, { content_text: t })]), t).toBeNull();
+    for (const t of [
+      'Yes, you can.',
+      'I am checking with my manager. You need a licence.',
+      'We will open the account in 5 days.',
+      'You can send a copy of the licence by e-mail.',
+      'نعم يمكنك فتح الحساب',
+    ])
+      expect(pick([base(5, { content_text: t })]), t).toBe(t);
+  });
+  it('counts only sent, delivered and read', () => {
+    for (const status of ['sent', 'delivered', 'read'])
+      expect(pick([base(5, { status })])).not.toBeNull();
+    for (const status of ['failed', 'sending', 'deleted', null, undefined])
+      expect(pick([base(5, { status })])).toBeNull();
   });
 });

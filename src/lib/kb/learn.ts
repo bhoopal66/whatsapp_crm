@@ -68,6 +68,8 @@ export interface ThreadMessage {
   reply_to_message_id?: string | null;
 }
 
+const COUNTED_STATUS = new Set(['sent', 'delivered', 'read']);
+
 /**
  * A message a person on the team typed: an agent row with a sender (the
  * same test as 077's pause trigger), plain text, not a template send.
@@ -83,7 +85,7 @@ export function isPersonReply(m: ThreadMessage): boolean {
     !m.template_name &&
     m.ai_generated !== true &&
     m.is_forwarded !== true &&
-    m.status !== 'failed' &&
+    COUNTED_STATUS.has(m.status ?? '') &&
     typeof m.content_text === 'string' &&
     m.content_text.trim() !== ''
   );
@@ -144,6 +146,43 @@ export function isHoldingReply(text: string): boolean {
   return words <= MAX_HOLDING_WORDS && HOLDING.test(t);
 }
 
+// "I am checking with my manager and will revert", "سأعود إليك".
+const DEFERRAL =
+  /^(?:(?:ok(?:ay)?|sure|hi|hello|dear|sir|madam|and|noted)[\s,]+)*(?:(?:i|we)(?:['’]?(?:m|re|ll)| am| are| will| shall| need to| have to| want to)?|will|let me|allow me to|am|are)\s+(?:just |be |now |still |also |shortly |soon )*(?:check|checking|call|calling|revert|reverting|get back|getting back|come back|ask|asking|confirm|confirming|contact|contacting|let (?:you|u) know|update|updating|follow|following up|discuss|discussing|speak|speaking|look into|looking into|inform|verify|verifying|clarify)(?!\p{L})/iu;
+const DEFERRAL_AR =
+  /^(?:(?:تمام|حاضر|مرحبا|اهلا|طيب|نعم)[\s،,]+)*(?:(?:سوف|راح|رح)\s+)?(?:[سب])?[انت]?(?:عود|تواصل|تصل|رد|تاكد|سال|تحقق|راجع|شيك|بلغك|خبرك)(?:ك|كم)?(?!\p{L})(?=\s+(?:معك|معكم|اليك|اليكم|عليك|عليكم|بك|بكم|لك|لكم|من|مع|و|ال|قريبا|لاحقا|الان)|\s*$)/u;
+// A reply that only asks the customer for something.
+const ASK =
+  /^(?:(?:hi|hello|dear|sir|madam|ok(?:ay)?|sure)[\s,]+)*(?:(?:can|could|would) you\s+)?(?:please|kindly|pls|plz)?\s*(?:share|send|provide|tell|give|upload|advise|confirm)\s+(?:us\s+|me\s+)?(?:your|the following|a copy|copy|more details?|details)(?!\p{L})/iu;
+const ASK_AR =
+  /^(?:يرجي|الرجاء|ممكن|من فضلك|لو سمحت)\s+(?:تزويدنا|ارسال|ترسل|ارسل|مشاركه)/u;
+
+/** Arabic letters as DEFERRAL_AR writes them. */
+const plainArabic = (t: string) =>
+  t
+    .normalize('NFKD')
+    .replace(/[\p{M}\p{Cf}ـء]/gu, '')
+    .replace(/[ىی]/gu, 'ي')
+    .replace(/ة/gu, 'ه');
+
+/** Nothing but holding lines, deferrals and questions back. */
+export function isNonAnswer(text: string): boolean {
+  const sentences = text.match(/[^.!?؟\n]+[.!?؟]*/gu) ?? [];
+  return sentences.every((raw) => {
+    const t = raw.trim();
+    if (isHoldingReply(t)) return true;
+    if (/[?؟]$/u.test(t)) return true;
+    const ar = plainArabic(t);
+    return (
+      DEFERRAL.test(t) || DEFERRAL_AR.test(ar) || ASK.test(t) || ASK_AR.test(ar)
+    );
+  });
+}
+
+/** Customer lines that ask nothing new. */
+const NUDGE =
+  /^(?:(?:(?:hi|hello|hey|ok(?:ay)?|please|pls|sir|madam|dear|any (?:updates?|news)|update|(?:are )?(?:you|u) there|still there|مرحبا|السلام عليكم|في جديد|اي (?:جديد|تحديث|اخبار)|وينك|وينكم|لو سمحت)[\s,.!]*)*[?؟\s.!]*)$/iu;
+
 const QUESTION_START =
   /^(?:(?:and|also|ok|so|then)\s+)?(?:can|could|what|how|when|where|which|who|why|is|are|do|does|did|will|would|should|may|هل|كم|كيف|متى|وين|أين|اين|ما|ماذا|شو|ليش|لماذا|من)(?![\p{L}\p{N}])/iu;
 
@@ -153,8 +192,12 @@ export function isCustomerQuestion(m: ThreadMessage): boolean {
   if (m.sender_type !== 'customer') return false;
   if (m.content_type === 'audio') return true;
   const t = (m.content_text ?? '').trim();
-  if (t.split(/\s+/u).length < 3) return false;
-  return /[?؟]/u.test(t) || QUESTION_START.test(t);
+  return t.split('\n').some((raw) => {
+    const line = raw.trim();
+    if (!line || NUDGE.test(plainArabic(line))) return false;
+    if (/[?؟]/u.test(line)) return true;
+    return line.split(/\s+/u).length >= 3 && QUESTION_START.test(line);
+  });
 }
 
 /**
@@ -162,9 +205,9 @@ export function isCustomerQuestion(m: ThreadMessage): boolean {
  * wrote in the chat after the question, within ANSWER_WINDOW_MS, joined
  * with the same person's next bubbles (each within BURST_GAP_MS, before
  * the customer writes again, at most MAX_BURST_MESSAGES). Customer
- * nudges, the bot's hand-off, automation sends and holding lines ("let
- * me check") in between are passed over; from the customer's next
- * question on, only a reply that quotes the gap's own message
+ * nudges, the bot's hand-off, automation sends, holding lines ("let me
+ * check"), deferrals, questions back and replies quoting something else
+ * are passed over; from the customer's next question or file on, only a reply that quotes the gap's own message
  * (`questionIds`) counts. The answer carries the first bubble's sender
  * and time.
  */
@@ -182,15 +225,20 @@ export function pickTeamAnswer(
       return Number.isFinite(at) && at > from && at <= until;
     })
     .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
-  const next = inWindow.findIndex(isCustomerQuestion);
+  const next = inWindow.findIndex(
+    (m) =>
+      isCustomerQuestion(m) ||
+      (m.sender_type === 'customer' &&
+        ['image', 'document', 'video'].includes(m.content_type ?? ''))
+  );
+  const quotes = (m: ThreadMessage) =>
+    !!m.reply_to_message_id && questionIds.includes(m.reply_to_message_id);
   const start = inWindow.findIndex(
     (m, i) =>
       isPersonReply(m) &&
-      !isHoldingReply(m.content_text!) &&
-      (next < 0 ||
-        i < next ||
-        (!!m.reply_to_message_id &&
-          questionIds.includes(m.reply_to_message_id)))
+      !isNonAnswer(m.content_text!) &&
+      (!m.reply_to_message_id || quotes(m)) &&
+      (next < 0 || i < next || quotes(m))
   );
   if (start < 0) return null;
   const first = inWindow[start]!;
@@ -203,7 +251,8 @@ export function pickTeamAnswer(
     if (at - last > BURST_GAP_MS) break;
     if (!isPersonReply(m) || m.sender_id !== first.sender_id) continue;
     last = at;
-    if (!isHoldingReply(m.content_text!)) parts.push(m.content_text!.trim());
+    if (m.reply_to_message_id && !quotes(m)) continue;
+    if (!isNonAnswer(m.content_text!)) parts.push(m.content_text!.trim());
   }
   return { ...first, content_text: parts.join('\n') };
 }
@@ -235,13 +284,44 @@ const clip = (text: string, max: number) =>
 
 // Shapes the brain redactor leaves: our case numbers (TC-26-00001-RAK,
 // TC-20451, tc 20451), IBAN-like strings whose checksum fails, and any
-// run of five or more digits in any script (zero-width characters inside
-// a run do not part it).
+// run of five or more digits in any script, up to two separators between
+// them (a plain amount with thousands commas stays).
 const CASE_NUMBER =
-  /(?<![\p{L}\p{N}])TC[\s\p{Pd}_#:./]{0,3}\p{Nd}+(?:[\p{Pd}_./]\p{Nd}+|[\p{Pd}_./][A-Z]{3}[2-9]?(?![\p{L}\p{N}]))*/giu;
+  /(?<![\p{L}\p{N}])TC[\s\p{Pd}_#:./]{0,3}\p{Nd}+(?:[\s\p{Pd}_./]{1,2}\p{Nd}+|[\p{Pd}_./][A-Z]{3}[2-9]?(?![\p{L}\p{N}]))*/giu;
 const IBAN_LIKE =
   /(?<![\p{L}\p{N}])(?:[A-Z]{2}\p{Nd}{2}(?:[\s\p{Pd}]?[A-Z\p{Nd}]{4}){2,7}(?:[\s\p{Pd}]?[A-Z\p{Nd}]{1,3})?(?![\p{L}\p{N}])|[A-Za-z]{2}\p{Nd}{2}[A-Za-z\p{Nd}]{11,30}(?![\p{L}\p{N}]))/gu;
-const DIGIT_RUN = /\p{Nd}(?:\p{Cf}*\p{Nd}){4,}/gu;
+const DIGIT_RUN =
+  /(?<![\p{Nd},])[1-9]\p{Nd}{0,2}(?:,\p{Nd}{3}){1,3}(?:\.\p{Nd}{1,2})?(?![\p{Nd},]\p{Nd})|\p{Nd}(?:[\s\p{Pd}/.\p{Cf}]{0,2}\p{Nd}){4,}/gu;
+const AMOUNT = /^\p{Nd}{1,3}(?:,\p{Nd}{3})+(?:\.\p{Nd}{1,2})?$/u;
+const UUID =
+  /(?<![\p{L}\p{N}])[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}(?![\p{L}\p{N}])/giu;
+const URL_LIKE = /(?:[a-z][a-z0-9+.-]*:\/\/|www\.)\S+/giu;
+const TLD = '(?:com|ae|net|org|io|co|me|gov|info|biz|app|link)';
+const DOMAIN = new RegExp(
+  `(?<![\\p{L}\\p{N}.@])(?:[\\p{L}\\p{N}-]+\\.)+${TLD}(?![\\p{L}\\p{N}])(?:/\\S*)?`,
+  'giu'
+);
+const SPELLED_EMAIL = new RegExp(
+  '[\\p{L}\\p{N}._-]+\\s*[([]?\\s*(?:@|(?<![\\p{L}])(?:at|آت|ات)(?![\\p{L}]))\\s*[)\\]]?\\s*' +
+    '[\\p{L}\\p{N}-]+(?:\\s*[([]?\\s*(?:\\.|(?<![\\p{L}])(?:dot|دوت|نقطة)(?![\\p{L}]))\\s*[)\\]]?\\s*[\\p{L}\\p{N}-]+){0,2}?' +
+    `\\s*[([]?\\s*(?:\\.|(?<![\\p{L}])(?:dot|دوت|نقطة)(?![\\p{L}]))\\s*[)\\]]?\\s*${TLD}(?![\\p{L}\\p{N}])`,
+  'giu'
+);
+const PO_BOX =
+  /(?:(?<!\p{L})p\.?\s?o\.?\s?box|ص\s?\.\s?ب\.?|صندوق بريد)\s*(?:no\.?|number|رقم)?[\s:#.-]*\p{Nd}+/giu;
+// Letters and digits in one token of six or more (AB12CD34); an amount or
+// a length of time written together (5000AED, 90days) is neither.
+const MIXED =
+  /(?<![\p{L}\p{N}])(?=[A-Z]*[0-9])(?=[0-9]*[A-Z])[A-Z0-9]{6,}(?![\p{L}\p{N}])/giu;
+const PLAIN_MIXED =
+  /^(?:(?:aed|usd|sar|dhs?)[0-9]{1,4}|[0-9]{1,4}(?:aed|usd|sar|dhs?|dirhams?|k|days?|hours?|hrs?|months?|years?|weeks?|minutes?|mins?|th|st|nd|rd))$/iu;
+// Five or more spelled digits in a row.
+const DIGIT_WORD =
+  '(?:zero|oh|one|two|three|four|five|six|seven|eight|nine|double|triple|صفر|واحده?|واحدة|[اإأ]ثن(?:ين|ان)|ثلاث[ةه]?|[اأ]ربع[ةه]?|خمس[ةه]?|ست[ةه]?|سبع[ةه]?|ثماني?[ةه]?|تسع[ةه]?)';
+const DIGIT_WORDS = new RegExp(
+  `(?<![\\p{L}\\p{N}])${DIGIT_WORD}(?:[\\s,،.\\p{Pd}]+${DIGIT_WORD}(?![\\p{L}\\p{N}])){4,}`,
+  'giu'
+);
 const CAPTION_SHAPE =
   /(?<![\p{L}\p{N}])[1-9][0-9]{0,6}[A-Z]{3}[2-9]?[0-9A-Z](?![\p{L}\p{N}])/gu;
 
@@ -252,13 +332,18 @@ const CAPTION_SHAPE =
  */
 export function maskIdentifiers(text: string): string | null {
   if (typeof text !== 'string') return null;
-  const r = brainRedact(text);
+  const r = brainRedact(text.replace(UUID, '[ID]').replace(URL_LIKE, '[LINK]'));
   if (!r.ok) return null;
   return r.text
+    .replace(SPELLED_EMAIL, '[EMAIL]')
+    .replace(DOMAIN, '[LINK]')
+    .replace(PO_BOX, '[ID]')
     .replace(CASE_NUMBER, '[CASE]')
     .replace(CAPTION_SHAPE, (c) => (parseCaption(c) ? '[CASE]' : c))
     .replace(IBAN_LIKE, '[IBAN]')
-    .replace(DIGIT_RUN, '[ID]');
+    .replace(MIXED, (t) => (PLAIN_MIXED.test(t) ? t : '[ID]'))
+    .replace(DIGIT_RUN, (t) => (AMOUNT.test(t) ? t : '[ID]'))
+    .replace(DIGIT_WORDS, '[ID]');
 }
 
 /**
@@ -383,7 +468,7 @@ export interface LearnedAnswer {
 /** True when the text is safe to store: no known name, no identifier or
  *  case-number shape, and no mask the model echoed. */
 export function screenText(text: string, names: NameMatcher): boolean {
-  if (echoesRedaction(text) || /\[(?:NAME|ID|CASE)\]/iu.test(text))
+  if (echoesRedaction(text) || /\[(?:NAME|ID|CASE|LINK)\]/iu.test(text))
     return false;
   return maskIdentifiers(text) === text && names.mask(text) === text;
 }

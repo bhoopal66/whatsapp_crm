@@ -26,8 +26,8 @@
 --     replaces the set), so a topic is "the same" when at least half of
 --     a ledger row's gaps are in it, or its label's hash matches (the 152
 --     carry-over idea; the label is a customer's message, so only a
---     SHA-256 of it is kept). A topic is drafted again only when its
---     draft was deleted or set to 'remove', and one whose draft was
+--     HMAC of it is kept, with a secret the database does not hold). A
+--     topic is drafted again only when its draft was deleted or set to 'remove', and one whose draft was
 --     discarded (the model's text carried a name or an identifier), or
 --     that the model declined or answered malformed, only after 28 days. Admin+ reads; service role writes.
 --  4. kb_learn_record_draft(): the one writer of a learned entry, service
@@ -58,6 +58,17 @@ BEGIN
     v_refusal := '290: apply 152_kb_gap_topics.sql first';
   ELSIF to_regclass('public.hr_agent_settings') IS NULL THEN
     v_refusal := '290: apply 202_hr_agents.sql first';
+  ELSIF to_regclass('public.case_bank_contacts') IS NULL THEN
+    v_refusal := '290: apply 124 (case_bank_contacts) first';
+  ELSIF to_regclass('public.desk_customers') IS NULL THEN
+    v_refusal := '290: apply 220 (desk_customers) first';
+  ELSIF NOT EXISTS (
+    SELECT 1 FROM pg_constraint c
+     WHERE c.conrelid = 'public.kb_entries'::regclass AND c.contype IN ('u', 'p')
+       AND (SELECT array_agg(a.attname::text ORDER BY a.attname)
+              FROM unnest(c.conkey) k JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k)
+           = ARRAY['account_id', 'id']) THEN
+    v_refusal := '290: kb_entries has no (id, account_id) key; apply 152_kb_gap_topics.sql first';
   ELSIF (SELECT count(*) FROM pg_constraint
           WHERE conrelid = 'public.ai_usage_log'::regclass
             AND conname = 'ai_usage_log_mode_check' AND contype = 'c'
@@ -144,7 +155,7 @@ CREATE TABLE IF NOT EXISTS public.kb_learned_drafts (
   account_id     uuid NOT NULL REFERENCES public.accounts(id) ON DELETE CASCADE,
   -- No foreign key: a recompute replaces every topic (152).
   topic_id       uuid NULL,
-  topic_key      text NOT NULL,   -- SHA-256 of account and label, never the label
+  topic_key      text NOT NULL,   -- HMAC of account and label, keyed by the app; never the label
   gap_ids        uuid[] NOT NULL DEFAULT '{}',
   entry_id       uuid NULL,
   evidence_count integer NOT NULL,
@@ -163,7 +174,19 @@ CREATE TABLE IF NOT EXISTS public.kb_learned_drafts (
 );
 
 COMMENT ON TABLE public.kb_learned_drafts IS
-  'Learn from team answers (290): which gap topic was drafted into which kb_entries row, so a topic is drafted once. Holds gap ids and a hash of the topic label, no team or customer message text. Admin+ read; written by kb_learn_record_draft() only.';
+  'Learn from team answers (290): which gap topic was drafted into which kb_entries row, so a topic is drafted once. Holds gap ids (a deleted gap leaves them) and a keyed hash of the topic label, no team or customer message text. Admin+ read; written by kb_learn_record_draft() only.';
+
+-- When a topic was last looked at, kept per gap (topic ids change on every
+-- recompute) and gone with it. Service role only.
+CREATE TABLE IF NOT EXISTS public.kb_learn_looks (
+  gap_id         uuid PRIMARY KEY REFERENCES public.ai_knowledge_gaps(id) ON DELETE CASCADE,
+  account_id     uuid NOT NULL REFERENCES public.accounts(id) ON DELETE CASCADE,
+  looked_at      timestamptz NOT NULL DEFAULT now(),
+  model_failures integer NOT NULL DEFAULT 0 CHECK (model_failures >= 0)
+);
+ALTER TABLE public.kb_learn_looks ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.kb_learn_looks FROM PUBLIC, anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.kb_learn_looks TO service_role;
 
 CREATE INDEX IF NOT EXISTS idx_kb_learned_drafts_account
   ON public.kb_learned_drafts (account_id, created_at DESC);
@@ -356,10 +379,70 @@ $$;
 REVOKE ALL ON FUNCTION public.kb_learn_topic_drafted(uuid, uuid[], text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.kb_learn_topic_drafted(uuid, uuid[], text) TO service_role;
 
--- The open topics worth asking about, most asked first, each with its gap
--- ids newest first. Covered, drafted and backed-off topics are left out
--- here, so they never use up the limit. The key is topicKey() of
--- learn-run.ts; the run checks its own again.
+-- The topics' looks: stamped after each, the model's failures in a row.
+CREATE OR REPLACE FUNCTION public.kb_learn_note_look(
+  p_account uuid, p_gap_ids uuid[], p_model_failed boolean
+)
+RETURNS void
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  INSERT INTO public.kb_learn_looks AS l (gap_id, account_id, looked_at, model_failures)
+  SELECT g.id, g.account_id, now(), CASE WHEN p_model_failed THEN 1 ELSE 0 END
+    FROM public.ai_knowledge_gaps g
+   WHERE g.account_id = p_account AND g.id = ANY (coalesce(p_gap_ids, '{}'))
+  ON CONFLICT (gap_id) DO UPDATE
+    SET looked_at = now(),
+        model_failures = CASE WHEN p_model_failed THEN l.model_failures + 1 ELSE 0 END;
+$$;
+
+REVOKE ALL ON FUNCTION public.kb_learn_note_look(uuid, uuid[], boolean) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.kb_learn_note_look(uuid, uuid[], boolean) TO service_role;
+
+-- A gap deleted (a subject erase does): its id leaves the ledger, and an
+-- unapproved learned draft left with fewer than two chats goes.
+CREATE OR REPLACE FUNCTION public.kb_learn_gaps_deleted()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_ids uuid[];
+  v_cut uuid[];
+BEGIN
+  SELECT array_agg(id) INTO v_ids FROM gone;
+  IF v_ids IS NULL THEN RETURN NULL; END IF;
+  -- Two statements: a ledger row touched twice in one transaction has its
+  -- entry key checked again, which must run before the entry goes.
+  WITH cut AS (
+    UPDATE public.kb_learned_drafts l
+       SET gap_ids = coalesce((SELECT array_agg(g) FROM unnest(l.gap_ids) g WHERE g <> ALL (v_ids)), '{}')
+     WHERE l.gap_ids && v_ids
+    RETURNING l.id)
+  SELECT array_agg(id) INTO v_cut FROM cut;
+  IF v_cut IS NULL THEN RETURN NULL; END IF;
+  DELETE FROM public.kb_entries e
+   USING public.kb_learned_drafts c
+   WHERE c.id = ANY (v_cut) AND e.id = c.entry_id AND e.account_id = c.account_id
+     AND e.source = 'learned' AND e.status = 'draft' AND e.approved_at IS NULL
+     AND (SELECT count(DISTINCT k.conversation_id) FROM public.ai_knowledge_gaps k
+           WHERE k.id = ANY (c.gap_ids) AND k.account_id = c.account_id) < 2;
+  RETURN NULL;
+END $$;
+
+REVOKE ALL ON FUNCTION public.kb_learn_gaps_deleted() FROM PUBLIC, anon, authenticated, service_role;
+DROP TRIGGER IF EXISTS kb_learn_gaps_deleted ON public.ai_knowledge_gaps;
+CREATE TRIGGER kb_learn_gaps_deleted AFTER DELETE ON public.ai_knowledge_gaps
+  REFERENCING OLD TABLE AS gone FOR EACH STATEMENT
+  EXECUTE FUNCTION public.kb_learn_gaps_deleted();
+
+-- The open topics worth asking about, each with its gap ids newest first:
+-- never looked at first, then the longest ago (by day), the most asked
+-- first within. Covered, drafted (by gaps; the run checks the label's key,
+-- which only the app can make) and backed-off topics are left out, so they
+-- never use up the limit; three model failures in a row wait 28 days.
 CREATE OR REPLACE FUNCTION public.kb_learn_open_topics(
   p_account uuid,
   p_limit   integer DEFAULT 200
@@ -377,14 +460,16 @@ AS $$
         FROM public.kb_gap_topic_members m
         JOIN public.ai_knowledge_gaps k ON k.id = m.gap_id AND k.account_id = m.account_id
        WHERE m.topic_id = t.id AND m.account_id = t.account_id) g
+    LEFT JOIN LATERAL (
+      SELECT max(x.looked_at) AS looked_at, max(x.model_failures) AS failures
+        FROM public.kb_learn_looks x WHERE x.gap_id = ANY (g.ids)) lk ON true
    WHERE t.account_id = p_account
      AND t.status = 'open'
      AND t.coverage NOT IN ('full', 'partial')
      AND g.ids IS NOT NULL
-     AND NOT public.kb_learn_topic_drafted(p_account, g.ids,
-           encode(sha256(convert_to(p_account::text || E'\n'
-             || lower(btrim(regexp_replace(t.label, '\s+', ' ', 'g'))), 'UTF8')), 'hex'))
-   ORDER BY t.question_count DESC, t.id
+     AND NOT public.kb_learn_topic_drafted(p_account, g.ids, NULL)
+     AND NOT (coalesce(lk.failures, 0) >= 3 AND lk.looked_at > now() - interval '28 days')
+   ORDER BY (lk.looked_at AT TIME ZONE 'UTC')::date NULLS FIRST, t.question_count DESC, t.id
    LIMIT least(greatest(coalesce(p_limit, 200), 1), 500);
 $$;
 
