@@ -13678,4 +13678,24 @@
     "triesSoon": "It tries again within the hour.",
     "usageLabel": "Learned answers"
   }
+,
+  "AiUsage": {
+    "title": "Token usage",
+    "description": "Tokens spent on your provider key by drafts and the auto-reply bot. Counts only — no message content is stored here.",
+    "lastDays": "Last {days} days",
+    "empty": "No AI usage in the last {days} days yet.",
+    "emptyHint": "This fills in as the assistant drafts and auto-replies.",
+    "totalTokens": "Total tokens",
+    "llmCalls": "LLM calls",
+    "autoReply": "Auto-reply",
+    "drafts": "Drafts",
+    "translations": "Translations",
+    "hrDrafts": "HR agent drafts",
+    "tokensPerDay": "Tokens per day",
+    "tokensSeries": "Tokens",
+    "byModel": "By model",
+    "modelRow": "{tokens} tok · {calls, plural, one {# call} other {# calls}}",
+    "truncated": "Showing a partial window — usage is high enough that only the most recent records are summarized here.",
+    "loadFailed": "Failed to load usage"
+  }
 }
