@@ -34,6 +34,10 @@ and polish.
 
 ### Fixed
 
+- **Someone removed from a meeting cannot keep its sound or picture
+  through a request already under way.** If their seat closed while the
+  media server was answering, the session is cut again and the request
+  refused.
 - **Saving a shared contact card says when a colleague already has the
   number**, instead of showing the database's sentence, and a contact
   check that failed says so with Retry instead of offering Save as if the

@@ -24,6 +24,8 @@ Staff-only video meetings on Cloudflare Realtime SFU, at `/meetings`.
   (`cutMemberSeats`), `runSeatAccessSweep` (automations cron, every minute)
   catches the rest, and the room ends itself when heartbeat/state still answer
   401/403 ten seconds on (`REFUSED_FOR_MS`).
+  `sfu/tracks` and `sfu/renegotiate` read the seat again after Cloudflare
+  answers (`seatClosedMeanwhile`): a cut only closes the tracks it can list.
 - **The SFU secret is server-only.** `CLOUDFLARE_CALLS_APP_ID` / `_SECRET` are
   read at request time in `sfu.ts`; unset means meeting CRUD works and join and
   the `sfu/*` routes answer 503 `meetings_not_configured`. The browser only
