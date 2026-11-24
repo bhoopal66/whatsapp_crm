@@ -15,6 +15,11 @@ const mocks = vi.hoisted(() => ({
   admin: null as unknown as FakeDb,
 }));
 
+// `loadGroupForCaller` asks whether the row mirrors a submission group
+// (299); server.load-group.test.ts pins its answers.
+vi.mock('@/lib/groups/submission-ids', () => ({
+  submissionGroupIds: async () => new Set<string>(),
+}));
 vi.mock('@/lib/auth/account', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/auth/account')>()),
   getCurrentAccount: mocks.getCurrentAccount,

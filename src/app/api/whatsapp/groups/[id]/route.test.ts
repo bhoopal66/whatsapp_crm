@@ -20,6 +20,12 @@ const mocks = vi.hoisted(() => ({
   },
 }));
 
+vi.mock('@/lib/groups/submission-ids', () => ({
+  submissionGroupIds: async () => {
+    if (mocks.submissionRead.error) throw mocks.submissionRead.error;
+    return new Set(mocks.submissionRead.data?.map((r) => r.wa_group_id));
+  },
+}));
 vi.mock('@/lib/auth/account', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/auth/account')>()),
   getCurrentAccount: mocks.getCurrentAccount,
@@ -46,7 +52,6 @@ vi.mock('@/lib/groups/server', async (importOriginal) => ({
         q
       );
       for (const m of ['eq', 'select']) q[m] = () => q;
-      q.in = async () => mocks.submissionRead;
       q.single = async () => ({
         data: { ...mocks.group, ...values },
         error: null,
@@ -133,14 +138,16 @@ describe('GET /api/whatsapp/groups/[id]', () => {
     expect(await isSubmissionGroup()).toBe(false);
   });
 
-  it('says true for a mirror of a submission group', async () => {
+  it('answers 404 for the mirror of a submission group', async () => {
     mocks.submissionRead = { data: [{ wa_group_id: WA_ID }], error: null };
-    expect(await isSubmissionGroup()).toBe(true);
+    const res = await GET(new Request('http://x'), params);
+    expect(res.status).toBe(404);
   });
 
-  it('says true when the check fails, hiding what may be refused', async () => {
+  it('answers 503 when the check fails', async () => {
     mocks.submissionRead = { data: null, error: new Error('down') };
-    expect(await isSubmissionGroup()).toBe(true);
+    const res = await GET(new Request('http://x'), params);
+    expect(res.status).toBe(503);
   });
 });
 
@@ -225,8 +232,8 @@ describe('DELETE /api/whatsapp/groups/[id]', () => {
   it('refuses a mirror of a submission group, with no leave', async () => {
     mocks.submissionRead = { data: [{ wa_group_id: WA_ID }], error: null };
     const res = await DELETE(new Request('http://x'), params);
-    expect(res.status).toBe(409);
-    expect(await res.json()).toMatchObject({ code: 'submission_group' });
+    expect(res.status).toBe(404);
+    expect(await res.json()).toMatchObject({ code: 'not_found' });
     expect(mocks.leaveGroup).not.toHaveBeenCalled();
     expect(mocks.adminUpdates).toEqual([]);
   });

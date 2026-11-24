@@ -23,7 +23,6 @@ import {
   groupErrorResponse,
   loadGroupForCaller,
   persistGroupSnapshot,
-  submissionGroupIds,
   supabaseAdmin,
 } from '@/lib/groups/server';
 import { parsePatch } from '@/lib/groups/requests';
@@ -104,7 +103,7 @@ export async function GET(request: Request, { params }: Params) {
 
     // Contact names under the caller's RLS: a customer they cannot see
     // stays a bare number. Manager names are staff names, workspace-wide.
-    const [contacts, profiles, isSubmissionGroup] = await Promise.all([
+    const [contacts, profiles] = await Promise.all([
       contactIds.length
         ? ctx.supabase.from('contacts').select('id, name').in('id', contactIds)
         : Promise.resolve({ data: [] }),
@@ -115,14 +114,6 @@ export async function GET(request: Request, { params }: Params) {
             .eq('account_id', ctx.accountId)
             .in('user_id', managerIds)
         : Promise.resolve({ data: [] }),
-      // Only hides the delete action; the delete route decides. A failed
-      // read hides it rather than offer what may be refused.
-      submissionGroupIds(supabaseAdmin(), ctx.accountId, [group.wa_group_id])
-        .then((ids) => ids.has(group.wa_group_id))
-        .catch((err) => {
-          console.error('[groups] submission check failed', err);
-          return true;
-        }),
     ]);
     const nameOf = new Map(
       ((contacts.data ?? []) as Array<{ id: string; name: string | null }>).map(
@@ -178,7 +169,8 @@ export async function GET(request: Request, { params }: Params) {
       })),
       canManage,
       blocks,
-      is_submission_group: isSubmissionGroup,
+      // `loadGroupForCaller` answers 404 for one.
+      is_submission_group: false,
     });
   } catch (err) {
     return groupErrorResponse(err);
@@ -269,30 +261,6 @@ export async function DELETE(_request: Request, { params }: Params) {
     const { id } = await params;
     const group = await loadGroupForCaller(ctx, id, { manage: true });
     if (group.our_role === 'left') return NextResponse.json({ group });
-    // A Sync mirror of a submission group is still reachable by a
-    // bookmark or an old bell. Leaving would stop the group's sends.
-    const isSubmissionGroup = await submissionGroupIds(
-      supabaseAdmin(),
-      ctx.accountId,
-      [group.wa_group_id]
-    ).then(
-      (ids) => ids.has(group.wa_group_id),
-      (err) => {
-        console.error('[groups] submission check failed', err);
-        throw new GroupHttpError(
-          503,
-          'unavailable',
-          "Couldn't check this group; try again"
-        );
-      }
-    );
-    if (isSubmissionGroup) {
-      throw new GroupHttpError(
-        409,
-        'submission_group',
-        "This is a submission group, so your number can't leave it from here"
-      );
-    }
     const channel = await channelForGroup(group);
     await leaveGroup({ channel, groupId: group.wa_group_id });
     const { data, error } = await supabaseAdmin()
