@@ -97,12 +97,14 @@ export interface ThreadHeaderProps {
   /**
    * Called only after the person confirms the change, with the assignee
    * the question showed. `askAgain` is called when someone else assigned
-   * the chat meanwhile (`assignedAgentId` then shows who).
+   * the chat meanwhile (`assignedAgentId` then shows who); it answers
+   * false while another question is open here.
    */
   onAssign: (
     agentId: string | null,
     expected: string | null,
-    askAgain: () => void
+    askAgain: () => boolean,
+    customer: string
   ) => void;
   onChatTagsChange: (conversationId: string, patch: ChatTagRowPatch) => void;
   /** The refresh button renders only when this is provided. */
@@ -231,6 +233,10 @@ export function ThreadHeader({
     name: string | null;
     meanwhile: boolean;
   } | null>(null);
+  const openQuestion = useRef(pendingAssign);
+  useEffect(() => {
+    openQuestion.current = pendingAssign;
+  });
   const askAssign = (agentId: string | null, name: string | null) => {
     if (!assignChangeKind(assignedAgentId, agentId)) return;
     setPendingAssign({
@@ -244,9 +250,13 @@ export function ThreadHeader({
     const pending = pendingAssign;
     setPendingAssign(null);
     if (!pending || pending.conversationId !== conversation.id) return;
-    onAssign(pending.agentId, assignedAgentId, () =>
-      setPendingAssign({ ...pending, meanwhile: true })
-    );
+    const askAgain = () => {
+      if (openQuestion.current?.conversationId === pending.conversationId)
+        return false;
+      setPendingAssign({ ...pending, meanwhile: true });
+      return true;
+    };
+    onAssign(pending.agentId, assignedAgentId, askAgain, displayName);
   };
 
   const identity = (

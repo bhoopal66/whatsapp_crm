@@ -1538,6 +1538,10 @@ export function ConversationList({
     expected: string | null;
     meanwhile: boolean;
   } | null>(null);
+  const openRowQuestion = useRef(pendingRowAssign);
+  useEffect(() => {
+    openRowQuestion.current = pendingRowAssign;
+  });
   // The assignee the question shows: the row's own, as realtime keeps it.
   const pendingRow = pendingRowAssign
     ? conversations.find((c) => c.id === pendingRowAssign.conversationId)
@@ -1571,9 +1575,13 @@ export function ConversationList({
       },
       {
         patch: (id, assignedAgentId) => onAssignChange?.(id, assignedAgentId),
-        askAgain: (expected) =>
-          setPendingRowAssign({ ...pending, expected, meanwhile: true }),
-        fail: (key) => toast.error(tRowsList(key)),
+        askAgain: (expected) => {
+          if (openRowQuestion.current) return false;
+          setPendingRowAssign({ ...pending, expected, meanwhile: true });
+          return true;
+        },
+        fail: (key) =>
+          toast.error(tRowsList(key, { customer: pending.customer })),
       }
     );
   }, [pendingRowAssign, pendingRowAssignee, onAssignChange, tRowsList]);

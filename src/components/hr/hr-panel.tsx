@@ -326,8 +326,6 @@ export function HrPanel({
 
   const changeOwner = async (next: string | null) => {
     const id = conversationId;
-    const fail = (key: 'assignFailed' | 'assignMoved') =>
-      toast.error(tRows(key));
     setOwnerAgain(null);
     setBusy(true);
     await assignFromScreen(
@@ -338,9 +336,12 @@ export function HrPanel({
           if (isCurrent(id)) setOwner(assignedTo);
           onAssignChange?.(id, assignedTo);
         },
-        askAgain: () =>
-          isCurrent(id) ? setOwnerAgain({ next }) : fail('assignFailed'),
-        fail,
+        askAgain: () => {
+          if (!isCurrent(id)) return false;
+          setOwnerAgain({ next });
+          return true;
+        },
+        fail: (key) => toast.error(tRows(key, { customer: contactName })),
       }
     );
     if (isCurrent(id)) setBusy(false);

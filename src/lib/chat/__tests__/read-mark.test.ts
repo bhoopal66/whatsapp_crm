@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
-import { markLanded, nothingUnread, shouldMarkRead } from '../read-mark';
+import {
+  markLanded,
+  newestSeen,
+  noteSeenMentions,
+  nothingElseUnread,
+  shouldMarkRead,
+  unreadMentions,
+  withSeenMentions,
+} from '../read-mark';
+import type { ChatMessage } from '../types';
 
 const T10_00 = '2026-11-24T10:00:00.000000+00:00';
 const T10_05 = '2026-11-24T10:05:00.000000+00:00';
@@ -84,15 +93,70 @@ describe('markLanded', () => {
   });
 });
 
-describe('nothingUnread', () => {
-  it('is a known count of zero for that channel', () => {
-    const counts = [
-      { channelId: 'a', unread: 0 },
-      { channelId: 'b', unread: 2 },
-    ];
-    expect(nothingUnread(counts, 'a')).toBe(true);
-    expect(nothingUnread(counts, 'b')).toBe(false);
-    expect(nothingUnread(counts, 'c')).toBe(false);
-    expect(nothingUnread(undefined, 'a')).toBe(false);
+const ME = 'aaaaaaaa-0000-4000-8000-000000000001';
+const reply = (id: string, createdAt: string, p: Partial<ChatMessage> = {}) =>
+  ({
+    id,
+    createdAt,
+    body: `<@${ME.toUpperCase()}> look`,
+    authorId: 'someone',
+    deletedAt: null,
+    erasedAt: null,
+    forwarded: null,
+    ...p,
+  }) as ChatMessage;
+
+describe('unreadMentions', () => {
+  it('counts as the server does', () => {
+    const ids = (replies: ChatMessage[], since: string | null = null) =>
+      unreadMentions(replies, ME, since).map((m) => m.id);
+    expect(ids([reply('a', T10_00), reply('b', T10_05)])).toEqual(['a', 'b']);
+    expect(ids([reply('a', T10_00), reply('b', T10_05)], T10_00)).toEqual([
+      'b',
+    ]);
+    expect(
+      ids([
+        reply('mine', T10_05, { authorId: ME }),
+        reply('gone', T10_05, { deletedAt: T10_05 }),
+        reply('erased', T10_05, { erasedAt: T10_05 }),
+        reply('copy', T10_05, { forwarded: {} as never }),
+        reply('plain', T10_05, { body: 'hello @channel' }),
+      ])
+    ).toEqual([]);
+    expect(unreadMentions([reply('a', T10_00)], null, null)).toEqual([]);
+  });
+});
+
+describe('nothingElseUnread', () => {
+  const x = { id: 'x', createdAt: T10_00 };
+  const y = { id: 'y', createdAt: T10_05 };
+  const count = (unread: number, mentions: number) => [
+    { channelId: 'a', unread, mentions },
+  ];
+
+  it('is a known count: no message, no mention but the seen ones', () => {
+    expect(nothingElseUnread(count(0, 0), 'a', [])).toBe(true);
+    expect(nothingElseUnread(count(0, 1), 'a', [y])).toBe(true);
+    // The one in another thread was not seen.
+    expect(nothingElseUnread(count(0, 1), 'a', [])).toBe(false);
+    expect(nothingElseUnread(count(0, 2), 'a', [y])).toBe(false);
+    expect(nothingElseUnread(count(2, 0), 'a', [y])).toBe(false);
+    expect(nothingElseUnread(count(0, 0), 'b', [])).toBe(false);
+    expect(nothingElseUnread(undefined, 'a', [])).toBe(false);
+  });
+
+  it('two threads with a mention each do not wait for each other', () => {
+    const key = 'me:two-threads';
+    const unread = [{ channelId: 'a', unread: 0, mentions: 2 }];
+    noteSeenMentions(key, [y], null);
+    expect(withSeenMentions(key, [y], null)).toEqual([y]);
+    const seen = withSeenMentions(key, [x], null);
+    expect(nothingElseUnread(unread, 'a', seen)).toBe(true);
+    // Both are covered, whichever thread came last.
+    expect(newestSeen(T10_00, seen)).toBe(T10_05);
+    expect(newestSeen(null, [])).toBeNull();
+    // Once the mark covers them they count no more.
+    expect(withSeenMentions(key, [], T10_05)).toEqual([]);
+    expect(withSeenMentions('me:other', [], null)).toEqual([]);
   });
 });

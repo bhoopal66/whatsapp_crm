@@ -17,7 +17,14 @@ import { useChannelMembers } from '@/hooks/use-channel-members';
 import { useMarkRead } from '@/hooks/use-mark-read';
 import { useThread } from '@/hooks/use-thread';
 import { isChannelModerator } from '@/lib/chat/moderation';
-import { nothingUnread } from '@/lib/chat/read-mark';
+import {
+  newestSeen,
+  noteSeenMentions,
+  nothingElseUnread,
+  unreadMentions,
+  withSeenMentions,
+} from '@/lib/chat/read-mark';
+import { unreadSince } from '@/lib/chat/receipts';
 import { missingFiles } from '@/lib/chat/timeline-cache';
 import { isGroupedWithPrevious, toggleReaction } from '@/lib/chat';
 import { offersBroadcasts } from '@/lib/chat/composer-input';
@@ -118,18 +125,33 @@ export function ThreadPanel({ channelId, rootId, onClose }: ThreadPanelProps) {
   }, [view]);
 
   // The channel's read mark, moved on to the newest reply once it is in
-  // view: a mention in a thread counts until then. A thread opens at its
-  // root, so where it is scrolled to is measured as the mark falls due.
-  const atEnd = useCallback(() => {
+  // view and nothing else in the channel is unread: a mention in a thread
+  // counts until then. A thread opens at its root, so where it is scrolled
+  // to is measured as the mark falls due.
+  const { userId, unread, isUnreadFresh } = ws;
+  const since = unreadSince(channel?.membership);
+  const mentions = useMemo(
+    () => unreadMentions(replies.messages, userId, since),
+    [replies.messages, userId, since]
+  );
+  const seenKey = `${userId}:${channelId}`;
+  const mayMark = useCallback(() => {
     const el = scrollerRef.current;
-    return !!el && isAtBottom(el);
-  }, []);
+    if (!el || !isAtBottom(el) || !store.isFresh()) return false;
+    noteSeenMentions(seenKey, mentions, since);
+    const seen = withSeenMentions(seenKey, mentions, since);
+    return isUnreadFresh() && nothingElseUnread(unread, channelId, seen);
+  }, [store, seenKey, mentions, since, unread, isUnreadFresh, channelId]);
   const recheckRead = useMarkRead(ws, {
     channelId,
     membership: channel?.membership,
-    at: replies.messages[replies.messages.length - 1]?.createdAt ?? null,
-    ready: view.phase === 'ready' && nothingUnread(ws.unread, channelId),
-    mayMark: atEnd,
+    at: newestSeen(
+      replies.messages[replies.messages.length - 1]?.createdAt ?? null,
+      withSeenMentions(seenKey, mentions, since)
+    ),
+    ready: view.phase === 'ready',
+    mayMark,
+    version: view.replies.pageMark,
   });
 
   const [highlightId, setHighlightId] = useState<string | null>(null);

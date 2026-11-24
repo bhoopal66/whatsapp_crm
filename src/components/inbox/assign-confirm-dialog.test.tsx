@@ -72,13 +72,13 @@ describe('AssignConfirmDialog', () => {
     expect(asked('sara', 'omar', true)).toMatchObject({
       open: true,
       title: 'Reassign this chat?',
-      description: 'Sara was assigned meanwhile. Assign Omar instead?',
+      description: 'Sara was assigned to Acme meanwhile. Assign Omar instead?',
     });
     expect(asked(null, 'omar', true).description).toBe(
-      'This chat was unassigned meanwhile. Assign it to Omar?'
+      'The chat with Acme was unassigned meanwhile. Assign it to Omar?'
     );
     expect(asked('sara', null, true).description).toBe(
-      'Sara was assigned meanwhile. Unassign the chat anyway?'
+      'Sara was assigned to Acme meanwhile. Unassign the chat anyway?'
     );
   });
 

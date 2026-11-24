@@ -13828,9 +13828,10 @@
     "unknownAgent": "Unknown agent",
     "assignFailed": "Couldn't assign this chat. Try again.",
     "assignMoved": "This chat has moved. Reload the page.",
-    "meanwhileReassign": "{current} was assigned meanwhile. Assign {name} instead?",
-    "meanwhileAssign": "This chat was unassigned meanwhile. Assign it to {name}?",
-    "meanwhileUnassign": "{current} was assigned meanwhile. Unassign the chat anyway?"
+    "assignChanged": "Not changed: someone else changed who the chat with {customer} is assigned to.",
+    "meanwhileReassign": "{current} was assigned to {customer} meanwhile. Assign {name} instead?",
+    "meanwhileAssign": "The chat with {customer} was unassigned meanwhile. Assign it to {name}?",
+    "meanwhileUnassign": "{current} was assigned to {customer} meanwhile. Unassign the chat anyway?"
   },
   "KbLearn": {
     "title": "Learn from team answers",

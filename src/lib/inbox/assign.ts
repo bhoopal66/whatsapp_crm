@@ -72,10 +72,14 @@ export async function assignConversation(
 export interface AssignScreen {
   /** Show this assignee: it came from the database's row. */
   patch(conversationId: string, assignedAgentId: string | null): void;
-  /** Ask the person again, about the assignee just patched in. */
-  askAgain(assignedAgentId: string | null): void;
+  /**
+   * Ask the person again, about the assignee just patched in. False when
+   * it cannot be asked: another question is open by now (never replaced
+   * in place: its answer would go to the wrong chat), or another chat.
+   */
+  askAgain(assignedAgentId: string | null): boolean;
   /** Say it did not happen (an `InboxRows` catalogue key). */
-  fail(key: 'assignFailed' | 'assignMoved'): void;
+  fail(key: 'assignFailed' | 'assignMoved' | 'assignChanged'): void;
 }
 
 /**
@@ -104,7 +108,8 @@ export async function assignFromScreen(
   switch (result.reason) {
     case 'changed':
       screen.patch(change.conversationId, result.assignedAgentId);
-      screen.askAgain(result.assignedAgentId);
+      if (!screen.askAgain(result.assignedAgentId))
+        screen.fail('assignChanged');
       return;
     case 'moved':
       screen.fail('assignMoved');

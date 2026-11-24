@@ -276,6 +276,8 @@ export function createThreadStore(
   rootId: string
 ) {
   let view = openThread(channelId, rootId);
+  /** The mark of this visit, or of the last gap in realtime. */
+  let staleSince = Number.POSITIVE_INFINITY;
   const listeners = new Set<() => void>();
   /** Set while the thread is on screen. */
   let shown: {
@@ -382,6 +384,7 @@ export function createThreadStore(
         missed: 0,
       };
       shown = me;
+      staleSince = timelineMark();
       const stopDetails = replyDetails.show();
       void load();
       return () => {
@@ -391,7 +394,12 @@ export function createThreadStore(
       };
     },
     /** Events were missed. False when the read failed. */
-    resync: () => load(),
+    resync() {
+      staleSince = timelineMark();
+      return load();
+    },
+    /** Whether a read begun since then has landed: no reply is missing. */
+    isFresh: () => (view.replies.pageMark ?? 0) > staleSince,
     /** Read the replies' missing files (`missingFiles`) again. */
     retryFiles: () => replyDetails.retry(),
     /** Try again, after a failed first read. */
