@@ -22,6 +22,10 @@ and polish.
 
 ### Fixed
 
+- **Reminder suggestions read times better.** "tomorrow between 2 and 4"
+  and "call sunday 11" now give the hour named; "don't call tomorrow" and
+  rates or terms such as "3.5 at 12 months" no longer suggest a reminder
+  (English and Arabic).
 - **A failed filter change no longer leaves the old figures under the new
   filter.** The funnel report and Team activity now show figures only under
   the filter they were fetched for; after a failed load the error with Retry

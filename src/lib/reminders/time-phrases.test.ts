@@ -464,3 +464,77 @@ describe('findTimePhrases: time zones', () => {
     );
   });
 });
+
+describe('findTimePhrases: ranges, weekday hours, negation, rates', () => {
+  /** Tuesday 2026-11-24 14:30 in Dubai. */
+  const TUE = new Date('2026-11-24T10:30:00Z');
+  const one = (text: string, local: string, dateOnly = false) =>
+    expectOne(text, local, dateOnly, TUE);
+
+  it.each<Row>([
+    ['tomorrow between 2 and 4', '2026-11-25T14:00', false],
+    ['tomorrow between 2 and 4 pm', '2026-11-25T14:00', false],
+    ['tomorrow between 9 and 11 pm', '2026-11-25T21:00', false],
+    ['tomorrow between 10 and 12', '2026-11-25T10:00', false],
+    ['بكرة بين 2 و 4', '2026-11-25T14:00', false],
+    ['بكرة بين ٣ و ٥ العصر', '2026-11-25T15:00', false],
+  ])('range: %s', (text, local, dateOnly) => one(text, local, dateOnly));
+
+  it('the end of a range is not a second suggestion', () => {
+    expect(find('between 2 and 4 pm', TUE)).toHaveLength(1);
+    expect(find('بين 2 و 4', TUE)).toHaveLength(1);
+  });
+
+  it.each<Row>([
+    ['call sunday 11', '2026-11-29T11:00', false],
+    ['call sunday 11, please', '2026-11-29T11:00', false],
+    ['next Sunday 4', '2026-11-29T16:00', false],
+  ])('a bare hour after a weekday: %s', (text, local, dateOnly) =>
+    one(text, local, dateOnly)
+  );
+
+  it.each(['sunday 11 nov', 'sunday 11/12', 'sunday 11 people', 'sunday 25'])(
+    'a bare number after a weekday that is no hour: %s',
+    (text) => {
+      const got = find(text, TUE);
+      expect(got.every((c) => c.at !== dxb('2026-11-29T11:00'))).toBe(true);
+    }
+  );
+
+  it.each([
+    "don't call tomorrow",
+    'do not call tomorrow',
+    'dont call me tomorrow',
+    'never call tomorrow',
+    'please not tomorrow',
+    'لا تتصل بكرة',
+    'مو بكرة',
+    'مش بكرة',
+  ])('a negated time is nothing: %s', (text) =>
+    expect(find(text, TUE)).toEqual([])
+  );
+
+  it('a question or a new clause still suggests', () => {
+    one("why don't you call tomorrow", '2026-11-25T09:00', true);
+    one("can't today, call me tomorrow at 5", '2026-11-25T17:00');
+    one('not now. call tomorrow at 5', '2026-11-25T17:00');
+  });
+
+  it.each([
+    'the rate is 3.5 at 12 months',
+    'at 12 months',
+    'at 5 years',
+    'at 3 yrs',
+    'at 6 شهر',
+    'الساعه 12 سنه',
+    'profit 3.5 per year',
+    'interest 3.5',
+    'تمويل 3.5 لمده 12 شهر',
+  ])('a rate or a term is no time: %s', (text) =>
+    expect(find(text, TUE)).toEqual([])
+  );
+
+  it('a real time next to a rate still counts', () => {
+    one('the rate is 3.5, call tomorrow at 5', '2026-11-25T17:00');
+  });
+});
