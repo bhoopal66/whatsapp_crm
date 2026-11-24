@@ -137,15 +137,16 @@ describe('a campaign this tab is sending', () => {
   it('holds the tab from reloading by itself until it ends', async () => {
     let answer: (a: unknown) => void = () => {};
     getSession.mockReturnValue(new Promise((resolve) => (answer = resolve)));
-    const box: { hook?: ReturnType<typeof useBroadcastSending> } = {};
+    const seen =
+      vi.fn<(hook: ReturnType<typeof useBroadcastSending>) => void>();
     function Screen() {
-      box.hook = useBroadcastSending();
+      seen(useBroadcastSending());
       return null;
     }
     renderToStaticMarkup(createElement(Screen));
     expect(unsavedInMemory()).toBe(false);
 
-    const sending = box.hook!.createAndSendBroadcast({} as never);
+    const sending = seen.mock.calls[0][0].createAndSendBroadcast({} as never);
     expect(unsavedInMemory()).toBe(true);
     answer({ data: { session: null } });
     await expect(sending).rejects.toThrow('not signed in');
