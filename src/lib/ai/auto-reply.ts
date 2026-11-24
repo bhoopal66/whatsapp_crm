@@ -1,5 +1,10 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { earlierQuestion, isNewestText, unansweredSince } from './stranded';
+import {
+  earlierQuestion,
+  isNewestText,
+  supersededDetail,
+  unansweredSince,
+} from './stranded';
 import { salesChatOnce, type SalesChatCheck } from './not-sales-chat';
 import { supabaseAdmin } from './admin-client';
 import { loadAiConfig } from './config';
@@ -718,7 +723,7 @@ export async function dispatchInboundToAiReply(
       if (newest?.id && newest.id !== inboundMessageId) {
         const outcome = await skip(
           'skipped_superseded',
-          'A newer customer message arrived; its reply answers both.'
+          supersededDetail(inboundText)
         );
         // Unless that message was already answered elsewhere, and looked
         // for this one before the row above was there.
@@ -1633,10 +1638,7 @@ export async function dispatchInboundToAiReply(
     if (flowContext && inboundMessageId) {
       const newest = await newestCustomerMessage(dbc, conversationId);
       if (newest?.id && newest.id !== inboundMessageId) {
-        await record(
-          'skipped_superseded',
-          'A newer customer message arrived; its reply answers both.'
-        );
+        await record('skipped_superseded', supersededDetail(inboundText));
         return 'superseded';
       }
     }

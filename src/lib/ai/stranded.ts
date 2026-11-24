@@ -29,6 +29,17 @@ const SCAN = 10;
 /** Outcomes after which an earlier superseded message is taken care of. */
 const ANSWERED = ['replied', 'handed_off', 'held_for_review'];
 
+/** The `detail` of a superseded greeting: it asked nothing. */
+const SUPERSEDED_GREETING =
+  'A newer customer message arrived; this greeting or thanks needs no reply of its own.';
+
+/** What a message that stands down (`skipped_superseded`) records. */
+export function supersededDetail(inboundText: string | null): string {
+  return isGreetingOrThanks(inboundText ?? '')
+    ? SUPERSEDED_GREETING
+    : 'A newer customer message arrived; its reply answers both.';
+}
+
 /** Messages something else took, by when. A memory of this process only:
  *  a message it does not know costs at most one outcome row too many. */
 const taken = new Map<string, number>();
@@ -121,8 +132,9 @@ export async function closesBurst(
 /**
  * Whether the newest `outcome` row since `since` has had no answer after
  * it: `skipped_superseded` asked by the message that was consumed,
- * `skipped_automation` by the one that stood down for it. Never throws;
- * a failed read is no.
+ * `skipped_automation` by the one that stood down for it. A greeting that
+ * stood down is no question, and says nothing about the one before it.
+ * Never throws; a failed read is no.
  */
 export async function unansweredSince(
   db: SupabaseClient,
@@ -136,14 +148,18 @@ export async function unansweredSince(
   try {
     const { data, error } = await db
       .from('ai_reply_events')
-      .select('outcome, created_at')
+      .select('outcome, detail, created_at')
       .eq('account_id', args.accountId)
       .eq('conversation_id', args.conversationId)
       .gte('created_at', args.since)
       .order('created_at', { ascending: false })
       .limit(50);
     if (error) throw new Error(error.message);
-    for (const { outcome } of (data ?? []) as { outcome: string }[]) {
+    for (const { outcome, detail } of (data ?? []) as {
+      outcome: string;
+      detail: string | null;
+    }[]) {
+      if (detail === SUPERSEDED_GREETING) continue;
       if (ANSWERED.includes(outcome)) return false;
       if (outcome === args.outcome) return true;
     }
