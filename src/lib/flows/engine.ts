@@ -1533,6 +1533,7 @@ async function handleReplyForActiveRun(
           consumed: true,
           flow_run_id: run.id,
           outcome: 'fallback_fired',
+          ai_outcome: aiOutcome,
         };
       }
       if (aiOutcome === 'handed_off') {
@@ -1541,7 +1542,12 @@ async function handleReplyForActiveRun(
           reason: 'ai_handoff',
         });
         await endRun(db, run.id, 'handed_off', 'ai_handoff');
-        return { consumed: true, flow_run_id: run.id, outcome: 'handed_off' };
+        return {
+          consumed: true,
+          flow_run_id: run.id,
+          outcome: 'handed_off',
+          ai_outcome: aiOutcome,
+        };
       }
     }
     aiAvailable = false;

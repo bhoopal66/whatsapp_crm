@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { earlierQuestionAt, isNewestText, unansweredSince } from './stranded';
+import { earlierQuestion, isNewestText, unansweredSince } from './stranded';
 import { salesChatOnce, type SalesChatCheck } from './not-sales-chat';
 import { supabaseAdmin } from './admin-client';
 import { loadAiConfig } from './config';
@@ -248,8 +248,9 @@ export interface DispatchArgs {
    *  the dispatch reads its own. */
   salesChat?: SalesChatCheck | null;
   /** Something else took this message (a Flow, a journey, a case rating):
-   *  nothing is answered, but a question it superseded is flagged. Only
-   *  set when the message closes a burst (`earlierQuestionAt`). */
+   *  nothing is answered or recorded, unless it superseded a question
+   *  nobody answered, which is flagged. Only set when the message closes
+   *  a burst (`closesBurst`). */
   consumedBy?: string | null;
   /** Clock for the dispatch budget (`aiDispatchBudgetMs`). Tests only. */
   now?: () => number;
@@ -468,31 +469,36 @@ export async function dispatchInboundToAiReply(
    * This message was answered elsewhere. A question of the same burst
    * that stood down for it (`skipped_superseded`) has then lost its
    * reply (stranded.ts): flag the chat. The outcome row goes first, so
-   * a slower dispatch of that question still finds it.
+   * a slower dispatch of that question still finds it; a message with no
+   * dispatch of its own (`consumedBy`) writes it only for such a question.
    */
   const skipConsumed = async (
     dbc: SupabaseClient,
     detail: string
   ): Promise<AiReplyOutcome> => {
-    await record('skipped_automation', detail);
-    const since = inboundMessageId
-      ? await earlierQuestionAt(dbc, conversationId, inboundMessageId)
+    if (!args.consumedBy) await record('skipped_automation', detail);
+    const earlier = inboundMessageId
+      ? await earlierQuestion(dbc, conversationId, inboundMessageId)
       : null;
-    if (!since || !inboundMessageId) return 'skipped';
+    if (!earlier || !inboundMessageId) return 'skipped';
+    // Unless a newer message yet came: its dispatch answers, or looks in
+    // its turn.
+    const isLost = async () =>
+      (await isNewestText(dbc, conversationId, inboundMessageId)) &&
+      (await unansweredSince(dbc, {
+        accountId,
+        conversationId,
+        since: earlier.since,
+        outcome: 'skipped_superseded',
+      }));
+    if (args.consumedBy) {
+      if (!earlier.pending && !(await isLost())) return 'skipped';
+      await record('skipped_automation', detail);
+    }
     // The question's own dispatch waits this long before it stands down.
     const waitMs = aiBurstWaitMs();
     if (waitMs > 0) await new Promise((r) => setTimeout(r, waitMs));
-    // A newer message yet: its dispatch answers, or looks in its turn.
-    if (!(await isNewestText(dbc, conversationId, inboundMessageId))) {
-      return 'skipped';
-    }
-    const lost = await unansweredSince(dbc, {
-      accountId,
-      conversationId,
-      since,
-      outcome: 'skipped_superseded',
-    });
-    if (lost) {
+    if (await isLost()) {
       // A question only stands down in a chat that is the bot's.
       botsChat = true;
       await flagUnanswered(UNANSWERED_STRANDED);

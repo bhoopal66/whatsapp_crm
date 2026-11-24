@@ -59,7 +59,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { runAutomationsForTrigger } from '@/lib/automations/engine';
 import { dispatchInboundToFlows } from '@/lib/flows/engine';
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply';
-import { earlierQuestionAt } from '@/lib/ai/stranded';
+import { closesBurst, noteTaken } from '@/lib/ai/stranded';
 import { salesChatOnce } from '@/lib/ai/not-sales-chat';
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver';
 import { watchInboundMessage } from '@/lib/ai/typesafe-watch';
@@ -1382,6 +1382,11 @@ export async function processMessage(
           }).catch(() => ({ consumed: false }))
         ).consumed;
   const botConsumed = flowConsumed || journeyConsumed || csatConsumed;
+  // No dispatch of this message will stand down for a newer one. One whose
+  // own AI fallback did has left the row that says so.
+  if (botConsumed && flowResult.ai_outcome !== 'superseded') {
+    noteTaken(message.id);
+  }
 
   // An `interested` campaign reply tags an untagged chat with the
   // account's chosen main tag (and runs the chat_tag_set automations).
@@ -1523,7 +1528,8 @@ export async function processMessage(
 
   // A message something else took never reaches the bot, so a question it
   // superseded in the same burst would be nobody's: the bot then flags the
-  // chat (lib/ai/stranded.ts), after its burst wait, so `later`.
+  // chat (lib/ai/stranded.ts), after its burst wait, so `later`. Not when
+  // the flow's own AI fallback took it: that has its outcome.
   const consumedBy = journeyConsumed
     ? 'A journey'
     : csatConsumed
@@ -1533,8 +1539,9 @@ export async function processMessage(
         : null;
   if (
     consumedBy &&
+    !flowResult.ai_outcome &&
     inboundText.trim() &&
-    (await earlierQuestionAt(supabaseAdmin(), conversation.id, message.id))
+    (await closesBurst(supabaseAdmin(), accountId, conversation.id, message.id))
   ) {
     const flagged = dispatchInboundToAiReply({
       accountId,

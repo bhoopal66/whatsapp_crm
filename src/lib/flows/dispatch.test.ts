@@ -540,7 +540,11 @@ describe('dispatchInboundToFlows — `ai` fallback (054)', () => {
   it("hands an off-script question to the AI agent with the step's context, and keeps the run where it is", async () => {
     const result = await dispatchOffScript();
 
-    expect(result).toMatchObject({ consumed: true, outcome: 'fallback_fired' });
+    expect(result).toMatchObject({
+      consumed: true,
+      outcome: 'fallback_fired',
+      ai_outcome: 'replied',
+    });
     expect(aiReply).toHaveBeenCalledTimes(1);
     expect(aiReply.mock.calls[0][0]).toMatchObject({
       accountId: 'acct-1',
@@ -563,7 +567,11 @@ describe('dispatchInboundToFlows — `ai` fallback (054)', () => {
 
     const result = await dispatchOffScript();
 
-    expect(result).toMatchObject({ consumed: true, outcome: 'fallback_fired' });
+    expect(result).toMatchObject({
+      consumed: true,
+      outcome: 'fallback_fired',
+      ai_outcome: 'superseded',
+    });
     expect(engineSendInteractiveButtons).not.toHaveBeenCalled();
     expect(runUpdates()).toEqual([]);
   });
@@ -573,7 +581,11 @@ describe('dispatchInboundToFlows — `ai` fallback (054)', () => {
 
     const result = await dispatchOffScript();
 
-    expect(result).toMatchObject({ consumed: true, outcome: 'handed_off' });
+    expect(result).toMatchObject({
+      consumed: true,
+      outcome: 'handed_off',
+      ai_outcome: 'handed_off',
+    });
     expect(runUpdates()).toContainEqual(
       expect.objectContaining({
         status: 'handed_off',

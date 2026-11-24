@@ -21,7 +21,8 @@ type Result = { data: unknown; error: unknown };
 /** The customer_documents row the recording of message 'row-1' made. */
 const DOC_ROW_ID = '22222222-2222-4222-8222-222222222222';
 
-const strandedAt = vi.hoisted(() => ({ value: null as string | null }));
+const noteTaken = vi.hoisted(() => vi.fn());
+const closesBurst = vi.hoisted(() => ({ value: false }));
 const h = vi.hoisted(() => ({
   // The workspace's "understand meaning" switch (Smart insights).
   meaningOn: true,
@@ -157,7 +158,8 @@ function fakeDb() {
 }
 
 vi.mock('@/lib/ai/stranded', () => ({
-  earlierQuestionAt: async () => strandedAt.value,
+  noteTaken,
+  closesBurst: async () => closesBurst.value,
 }));
 vi.mock('@/lib/flows/admin-client', () => ({ supabaseAdmin: () => fakeDb() }));
 vi.mock('@/lib/contacts/dedupe', () => ({
@@ -1691,19 +1693,43 @@ describe('the sales-chat decision', () => {
   });
 });
 
-describe('a consumed message that closes a burst', () => {
+describe('a consumed message and the bot', () => {
+  beforeEach(() => {
+    noteTaken.mockClear();
+    closesBurst.value = true;
+  });
+  afterEach(() => {
+    closesBurst.value = false;
+  });
+
   it.each([
-    ['an earlier question', '2026-10-09T10:00:00Z', 1],
-    ['nothing before it', null, 0],
-  ])('goes to the bot as consumed: %s', async (_name, value, calls) => {
-    strandedAt.value = value;
-    try {
-      h.flows.mockResolvedValue({ consumed: true, outcome: 'advanced' });
-      await processMessage(message, 'acct-1', 'owner-1', channel);
-    } finally {
-      strandedAt.value = null;
-    }
+    ['an earlier question', true, 1],
+    ['nothing before it', false, 0],
+  ])('goes to the bot as consumed: %s', async (_name, closes, calls) => {
+    closesBurst.value = closes;
+    h.flows.mockResolvedValue({ consumed: true, outcome: 'advanced' });
+    await processMessage(message, 'acct-1', 'owner-1', channel);
     expect(h.ai).toHaveBeenCalledTimes(calls);
     if (calls) expect(h.ai.mock.calls[0][0].consumedBy).toBe('A flow');
+    expect(noteTaken).toHaveBeenCalledExactlyOnceWith(message.id);
+  });
+
+  it.each([
+    ['replied', 'fallback_fired', true],
+    ['handed_off', 'handed_off', true],
+    ['superseded', 'fallback_fired', false],
+  ])(
+    "does not when the flow's own AI fallback took it: %s",
+    async (ai_outcome, outcome, taken) => {
+      h.flows.mockResolvedValue({ consumed: true, outcome, ai_outcome });
+      await processMessage(message, 'acct-1', 'owner-1', channel);
+      expect(h.ai).not.toHaveBeenCalled();
+      expect(noteTaken).toHaveBeenCalledTimes(taken ? 1 : 0);
+    }
+  );
+
+  it('an unconsumed message is nobody else’s', async () => {
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+    expect(noteTaken).not.toHaveBeenCalled();
   });
 });

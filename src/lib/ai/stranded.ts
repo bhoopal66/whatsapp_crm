@@ -1,5 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+import { loadAiConfig } from './config';
+import { aiBurstWaitMs } from './defaults';
 import { isGreetingOrThanks } from './router';
 
 /**
@@ -11,14 +13,36 @@ import { isGreetingOrThanks } from './router';
  * is nobody's. Both sides look, each after writing its own outcome row,
  * so whichever is later sees the other; the chat is then flagged for a
  * person, which is idempotent, and no second reply can go out.
+ *
+ * A B that a Flow, a journey or a rating took has no dispatch, hence no
+ * row of its own: an ordinary answer must leave none. It looks first and
+ * writes only when A's row is there, or may still come (`pending`).
  */
 
 /** A question this much older than the message that took over is not its burst. */
 const BURST_MS = 120_000;
+/** How long after a message was sent its dispatch may still be starting:
+ *  the gateway's delivery and the pipeline before it. */
+const DISPATCH_LAG_MS = 10_000;
 const SCAN = 10;
 
 /** Outcomes after which an earlier superseded message is taken care of. */
 const ANSWERED = ['replied', 'handed_off', 'held_for_review'];
+
+/** Messages something else took, by when. A memory of this process only:
+ *  a message it does not know costs at most one outcome row too many. */
+const taken = new Map<string, number>();
+
+/** A Flow, a journey or a rating took this message: no dispatch of its
+ *  own will ever stand down, so it is nobody's lost question. */
+export function noteTaken(messageId: string): void {
+  const now = Date.now();
+  for (const [id, at] of taken) {
+    if (now - at <= 2 * BURST_MS) break;
+    taken.delete(id);
+  }
+  taken.set(messageId, now);
+}
 
 async function customerTexts(db: SupabaseClient, conversationId: string) {
   const { data, error } = await db
@@ -39,32 +63,59 @@ async function customerTexts(db: SupabaseClient, conversationId: string) {
   ).filter((m) => m.content_text?.trim());
 }
 
-/** The oldest question of the burst this message closes, or null. A bare
- *  greeting or thanks asks nothing. Never throws. */
-export async function earlierQuestionAt(
+/**
+ * The questions of the burst this message closes: when the oldest was
+ * asked, and whether the newest one's dispatch may not have stood down
+ * yet. Null for none: a bare greeting or thanks asks nothing, and a
+ * message something else took is owed nothing. Never throws.
+ */
+export async function earlierQuestion(
   db: SupabaseClient,
   conversationId: string,
   messageId: string
-): Promise<string | null> {
+): Promise<{ since: string; pending: boolean } | null> {
   try {
     const rows = await customerTexts(db, conversationId);
     const i = rows.findIndex((m) => m.message_id === messageId);
     if (i < 0) return null;
     const at = Date.parse(rows[i]!.created_at);
-    return (
-      rows
-        .slice(i + 1)
-        .filter(
-          (m) =>
-            at - Date.parse(m.created_at) <= BURST_MS &&
-            !isGreetingOrThanks(m.content_text)
-        )
-        .at(-1)?.created_at ?? null
-    );
+    const questions = rows
+      .slice(i + 1)
+      .filter(
+        (m) =>
+          at - Date.parse(m.created_at) <= BURST_MS &&
+          !isGreetingOrThanks(m.content_text) &&
+          !(m.message_id && taken.has(m.message_id))
+      );
+    if (questions.length === 0) return null;
+    return {
+      since: questions.at(-1)!.created_at,
+      pending:
+        Date.now() - Date.parse(questions[0]!.created_at) <=
+        aiBurstWaitMs() + DISPATCH_LAG_MS,
+    };
   } catch (err) {
     console.error('[ai auto-reply] earlier question lookup failed:', err);
     return null;
   }
+}
+
+/** Whether the bot has to look at a message something else took. With
+ *  auto-reply off nothing is read past that. Never throws. */
+export async function closesBurst(
+  db: SupabaseClient,
+  accountId: string,
+  conversationId: string,
+  messageId: string
+): Promise<boolean> {
+  try {
+    const config = await loadAiConfig(db, accountId);
+    if (!config?.autoReplyEnabled) return false;
+  } catch (err) {
+    console.error('[ai auto-reply] consumed message not looked at:', err);
+    return false;
+  }
+  return (await earlierQuestion(db, conversationId, messageId)) !== null;
 }
 
 /**

@@ -400,6 +400,7 @@ import {
   retrievalGateFailure,
   RETRIEVAL_GATE_MIN_WORDS,
 } from './auto-reply';
+import { closesBurst, noteTaken } from './stranded';
 
 const ARGS = {
   accountId: 'acct-1',
@@ -3476,7 +3477,88 @@ describe('dispatchInboundToAiReply — a burst whose newest message went elsewhe
     arrange();
     await dispatchInboundToAiReply({ ...newest, consumedBy: 'A flow' });
     expect(h.state.flags).toHaveLength(0);
-    expect(h.state.outcomes).toHaveLength(1);
+    expect(h.state.outcomes).toHaveLength(0);
+  });
+
+  it('leaves no outcome on the ordinary answers of a flow or journey', async () => {
+    vi.stubEnv('AI_BURST_WAIT_MS', '60000');
+    h.state.events = [{ outcome: 'replied', created_at: at(-1_000) }];
+    await dispatchInboundToAiReply({ ...newest, consumedBy: 'A journey' });
+    expect(h.state.outcomes).toEqual([]);
+    expect(h.state.inserts).toEqual([]);
+    expect(h.state.flags).toEqual([]);
+  });
+
+  it('leaves none for quick ones either, when the earlier was an answer too', async () => {
+    const now = new Date().toISOString();
+    h.state.events = [];
+    h.state.customerMessages = [
+      { ...RATING, created_at: now },
+      { ...QUESTION, message_id: 'wamid-taken', created_at: now },
+    ];
+    noteTaken('wamid-taken');
+    await dispatchInboundToAiReply({ ...newest, consumedBy: 'A flow' });
+    expect(h.state.outcomes).toEqual([]);
+  });
+
+  it('marks a question whose dispatch has not stood down yet, which then flags', async () => {
+    const now = Date.now();
+    const asked = new Date(now - 2_000).toISOString();
+    h.state.events = [];
+    h.state.customerMessages = [
+      { ...RATING, created_at: new Date(now - 1_000).toISOString() },
+      { ...QUESTION, created_at: asked },
+    ];
+    await dispatchInboundToAiReply({ ...newest, consumedBy: 'A flow' });
+    expect(lastOutcome()).toBe('skipped_automation');
+    expect(h.state.flags).toHaveLength(0);
+
+    // The question's dispatch, after the look above.
+    h.state.events = [
+      {
+        outcome: 'skipped_automation',
+        created_at: new Date(now).toISOString(),
+      },
+    ];
+    await dispatchInboundToAiReply({
+      ...ARGS,
+      inboundMessageId: 'wamid-a',
+      inboundText: QUESTION.content_text,
+    });
+    expect(h.state.flags).toHaveLength(1);
+  });
+
+  it('reads no messages with auto-reply off', async () => {
+    h.loadAiConfig.mockResolvedValue(aiConfig({ autoReplyEnabled: false }));
+    let reads = 0;
+    const rows = h.state.customerMessages;
+    Object.defineProperty(h.state, 'customerMessages', {
+      configurable: true,
+      enumerable: true,
+      get: () => (reads++, rows),
+    });
+    const closes = () =>
+      closesBurst(
+        supabaseAdmin() as SupabaseClient,
+        ARGS.accountId,
+        ARGS.conversationId,
+        'wamid-b'
+      );
+    try {
+      expect(await closes()).toBe(false);
+      expect(reads).toBe(0);
+      h.loadAiConfig.mockResolvedValue(aiConfig());
+      expect(await closes()).toBe(true);
+    } finally {
+      Object.defineProperty(h.state, 'customerMessages', {
+        configurable: true,
+        enumerable: true,
+        writable: true,
+        value: rows,
+      });
+    }
+    expect(reads).toBe(1);
+    expect(h.state.outcomes).toEqual([]);
   });
 
   it('the question itself flags when the newer message was already consumed', async () => {
