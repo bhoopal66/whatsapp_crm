@@ -852,11 +852,16 @@ produce a webhook event.
 
 All under scope `webhooks:manage`.
 
-- `POST /api/v1/webhooks` — register `{ "url": "https://…", "events": ["message.received"] }`. `url` must be `https://` and must resolve to a public internet address. A URL that resolves to a private, loopback or link-local address is rejected with `400 bad_request` when you save it, not only skipped at delivery time. **The response includes `secret` exactly once** — store it to verify signatures; Taamul Connect keeps only an encrypted copy.
+- `POST /api/v1/webhooks` — register `{ "url": "https://…", "events": ["message.received"] }`. `url` must be `https://` and must resolve to a public internet address. A URL that resolves to a private, loopback or link-local address is rejected with `400 bad_request` when you save it, not only skipped at delivery time. **The response includes `secret` exactly once** — store it to verify signatures; Taamul Connect keeps only an encrypted copy. To subscribe to `message.received` or `message.status_updated` the key also needs `messages:read` (`403 forbidden` otherwise).
 - `GET /api/v1/webhooks` — list your endpoints (never returns the secret).
 - `GET /api/v1/webhooks/{id}` — read one.
-- `PATCH /api/v1/webhooks/{id}` — update `url`, `events`, or `is_active` (re-enabling clears the failure counter).
+- `PATCH /api/v1/webhooks/{id}` — update `url`, `events`, or `is_active` (re-enabling clears the failure counter). Changing `url` or `events`, or switching it on, makes it the endpoint of the key you call with; on an endpoint with message events that key needs `messages:read`.
 - `DELETE /api/v1/webhooks/{id}` — remove one.
+
+**An endpoint belongs to an API key.** When that key is revoked or deleted, its
+endpoints are switched off (`is_active: false`) and the workspace's owners and
+admins are told. To use one again, switch it on with a live key. Endpoints made
+before keys were recorded belong to none until a key changes them.
 
 ```bash
 curl -X POST https://your-crm.example.com/api/v1/webhooks \
