@@ -52,6 +52,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@/hooks/use-auth';
 import { useCan } from '@/hooks/use-can';
 import { channelsWithGuests, listChannels, shareCall } from '@/lib/chat';
+import { createPostIds } from '@/lib/chat/post-id';
 import {
   OUTCOMES,
   canTransferToOwner,
@@ -137,6 +138,8 @@ function Panel() {
   const { outcome, notes } = draft;
   // A person's Close found something unsaved.
   const [stayed, setStayed] = useState(false);
+  // One id per call and channel: the retries below post one card.
+  const [shareIds] = useState(() => createPostIds());
   const [muted, setMuted] = useState(false);
   const [held, setHeld] = useState(false);
   const [transfer, setTransfer] = useState<string | null>(null);
@@ -322,10 +325,17 @@ function Panel() {
     // call, so the post's own text names nothing of the customer.
     const callId = row?.id;
     if (share && channelId) {
+      const body = t('shareCardBody');
+      const clientId = shareIds.idFor(channelId, {
+        body,
+        fileIds: callId ? [callId] : [],
+        replyToId: null,
+        threadRootId: null,
+      });
       const shared =
         !!callId &&
         (await tryTimes(auto ? AUTO_SHARE_TRIES : 1, () =>
-          shareCall(sb, { channelId, callId, body: t('shareCardBody') })
+          shareCall(sb, { channelId, callId, body, clientId })
         ));
       if (!shared) {
         toast.error(

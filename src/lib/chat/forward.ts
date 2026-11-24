@@ -11,6 +11,7 @@ import {
 } from '@/lib/auth/roles';
 
 import { countsAsChannelAdmin } from './composer-gating';
+import { newPostId } from './post-id';
 import { normalizeDigits } from './search-view';
 import { channelDisplayName, dmOthers } from './view';
 import type { ChannelWithMembership, ChatMessage, ChatPerson } from './types';
@@ -114,6 +115,48 @@ export function toggleForwardTarget(
 ): string[] {
   if (picked.includes(id)) return picked.filter((p) => p !== id);
   return picked.length >= FORWARD_MAX_TARGETS ? [...picked] : [...picked, id];
+}
+
+/**
+ * The id each forward carries (307's p_client_id): one per open dialog
+ * and target, so a retry after a lost answer gets the copy already made.
+ */
+export interface ForwardIds {
+  idFor(target: string): string | undefined;
+  /** Forwarded: the next one there is a new copy. */
+  forget(target: string): void;
+}
+
+export function createForwardIds(newId = newPostId): ForwardIds {
+  const kept = new Map<string, string>();
+  return {
+    idFor(target) {
+      const known = kept.get(target);
+      if (known) return known;
+      const id = newId();
+      if (id) kept.set(target, id);
+      return id;
+    },
+    forget: (target) => void kept.delete(target),
+  };
+}
+
+/** One at a time: each forward copies the files into its target's prefix. */
+export async function forwardToAll(
+  targets: readonly string[],
+  ids: ForwardIds,
+  send: (target: string, clientId: string | undefined) => Promise<unknown>
+): Promise<{ done: number; failed: { id: string; error: unknown }[] }> {
+  const failed: { id: string; error: unknown }[] = [];
+  for (const id of targets) {
+    try {
+      await send(id, ids.idFor(id));
+      ids.forget(id);
+    } catch (error) {
+      failed.push({ id, error });
+    }
+  }
+  return { done: targets.length - failed.length, failed };
 }
 
 /** What the preview line names: the first line of text, else the files. */

@@ -1581,3 +1581,8 @@ jobs:
       # person is added back only by the workspace that removed them.
       - name: Verify leaving and coming back
         run: supabase db query --local --file supabase/ci/verify-member-leaving.sql
+
+      # Migration 307: a forward and a shared call are made once and whole,
+      # bells end with the read access, file names are guarded.
+      - name: Verify chat forward once
+        run: supabase db query --local --file supabase/ci/verify-chat-forward-once.sql

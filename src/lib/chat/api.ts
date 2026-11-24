@@ -139,16 +139,24 @@ export async function postMessage(
     // and would reject the named argument, so ordinary posts must not carry it.
     ...(i.replyToId ? { p_reply_to: i.replyToId } : {}),
   };
-  if (!i.clientId) return rpc(sb, 'chat_post_message', args);
+  return rpcOnce(sb, 'chat_post_message', args, i.clientId);
+}
+
+/** Calls `fn` with p_client_id, so that a repeat of it is answered with the first message. */
+async function rpcOnce(
+  sb: SupabaseClient,
+  fn: string,
+  args: Row,
+  clientId: string | undefined
+): Promise<string> {
+  if (!clientId) return rpc(sb, fn, args);
   try {
-    return await rpc(sb, 'chat_post_message', {
-      ...args,
-      p_client_id: i.clientId,
-    });
+    return await rpc(sb, fn, { ...args, p_client_id: clientId });
   } catch (err) {
-    // No function with that argument (a database before 276): nothing ran.
+    // No function with that argument (a database before 276, or 307 for a
+    // forward and a shared call): nothing ran.
     if ((err as ChatError).sqlState !== 'PGRST202') throw err;
-    return rpc(sb, 'chat_post_message', args);
+    return rpc(sb, fn, args);
   }
 }
 
@@ -165,6 +173,8 @@ export async function forwardMessage(
     messageId: string;
     targetChannelId: string;
     attachments: ChatAttachment[];
+    /** 307: names this forward; a repeat of it is answered with the first copy. */
+    clientId?: string;
   }
 ): Promise<string> {
   const copies = await Promise.all(
@@ -186,11 +196,16 @@ export async function forwardMessage(
       };
     })
   );
-  return rpc(sb, 'chat_forward_message', {
-    p_message: i.messageId,
-    p_channel: i.targetChannelId,
-    p_attachments: copies,
-  });
+  return rpcOnce(
+    sb,
+    'chat_forward_message',
+    {
+      p_message: i.messageId,
+      p_channel: i.targetChannelId,
+      p_attachments: copies,
+    },
+    i.clientId
+  );
 }
 
 /** Tells the channel (or one thread) the caller is typing, or has stopped (156). */
@@ -290,13 +305,20 @@ export async function channelFiles(
  */
 export const shareCall = (
   sb: SupabaseClient,
-  i: { channelId: string; callId: string; body: string }
+  i: {
+    channelId: string;
+    callId: string;
+    body: string;
+    /** 307: names this share; a repeat of it is answered with the first card. */
+    clientId?: string;
+  }
 ): Promise<string> =>
-  rpc(sb, 'chat_share_call', {
-    p_channel: i.channelId,
-    p_call: i.callId,
-    p_body: i.body,
-  });
+  rpcOnce(
+    sb,
+    'chat_share_call',
+    { p_channel: i.channelId, p_call: i.callId, p_body: i.body },
+    i.clientId
+  );
 
 export const editMessage = (
   sb: SupabaseClient,

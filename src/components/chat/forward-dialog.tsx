@@ -30,9 +30,11 @@ import {
   type ChatMessage,
 } from '@/lib/chat';
 import {
+  createForwardIds,
   FORWARD_MAX_TARGETS,
   forwardPreview,
   forwardTargets,
+  forwardToAll,
   toggleForwardTarget,
 } from '@/lib/chat/forward';
 import { plainText } from '@/lib/chat/message-actions';
@@ -62,6 +64,7 @@ export function ForwardDialog({
   const { accountRole } = useAuth();
   const [query, setQuery] = useState('');
   const [picked, setPicked] = useState<string[]>([]);
+  const [ids] = useState(() => createForwardIds());
   const [sending, setSending] = useState(false);
   const [withGuests, setWithGuests] = useState<ReadonlySet<string>>(
     () => new Set()
@@ -127,34 +130,34 @@ export function ForwardDialog({
         ? preview.files - 1
         : 0;
 
-  const full = picked.length >= FORWARD_MAX_TARGETS;
+  // A target that went away meanwhile (archived, left) could not be unticked.
+  const chosen = picked.filter((id) => all.some((c) => c.id === id));
+  const full = chosen.length >= FORWARD_MAX_TARGETS;
 
   const submit = async () => {
-    if (!accountId || !picked.length || sending) return;
+    if (!accountId || !chosen.length || sending) return;
     setSending(true);
-    let done = 0;
-    // One at a time: each copies the files into its own channel's prefix.
-    for (const id of picked) {
-      try {
-        await forwardMessage(sb, {
-          accountId,
-          messageId: m.id,
-          targetChannelId: id,
-          attachments: m.attachments,
-        });
-        done++;
-      } catch (err) {
-        const name = all.find((c) => c.id === id)?.name ?? '';
-        toast.error(
-          t('forward.failed', {
-            name,
-            reason: t(`errors.${chatErrorKey(err)}`),
-          })
-        );
-      }
-    }
+    const { done, failed } = await forwardToAll(chosen, ids, (id, clientId) =>
+      forwardMessage(sb, {
+        accountId,
+        messageId: m.id,
+        targetChannelId: id,
+        attachments: m.attachments,
+        clientId,
+      })
+    );
+    for (const f of failed)
+      toast.error(
+        t('forward.failed', {
+          name: all.find((c) => c.id === f.id)?.name ?? '',
+          reason: t(`errors.${chatErrorKey(f.error)}`),
+        })
+      );
     if (done) toast.success(t('forward.done', { count: done }));
-    onClose();
+    if (!failed.length) return onClose();
+    // Kept selected, under the same ids, to try again.
+    setPicked(failed.map((f) => f.id));
+    setSending(false);
   };
 
   return (
@@ -209,7 +212,7 @@ export function ForwardDialog({
             </p>
           ) : (
             shown.map((c) => {
-              const on = picked.includes(c.id);
+              const on = chosen.includes(c.id);
               const Icon =
                 c.kind === 'dm'
                   ? MessageCircle
@@ -223,7 +226,7 @@ export function ForwardDialog({
                   role="option"
                   aria-selected={on}
                   disabled={sending || (!on && full)}
-                  onClick={() => setPicked((p) => toggleForwardTarget(p, c.id))}
+                  onClick={() => setPicked(toggleForwardTarget(chosen, c.id))}
                   className={cn(
                     'flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-sm disabled:opacity-50',
                     on
@@ -261,14 +264,14 @@ export function ForwardDialog({
         <DialogFooter className="items-center">
           <span className="text-muted-foreground me-auto text-xs">
             {t('forward.selected', {
-              count: picked.length,
+              count: chosen.length,
               max: FORWARD_MAX_TARGETS,
             })}
           </span>
           <Button variant="outline" onClick={onClose} disabled={sending}>
             {t('forward.cancel')}
           </Button>
-          <Button onClick={submit} disabled={!picked.length || sending}>
+          <Button onClick={submit} disabled={!chosen.length || sending}>
             {sending && <Loader2 className="size-4 animate-spin" />}
             {t('forward.submit')}
           </Button>

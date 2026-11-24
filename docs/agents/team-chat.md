@@ -106,6 +106,9 @@ only). `docs/internal-chat.md` is the contract.
   - *Sensitive guard (158).* A trigger, not app code. `chat_sensitive_kinds`
     mirrors `lib/kb/sensitive.ts` + `redact.ts`: change both; the corpus in
     `verify-chat-sensitive-guard.sql` and `sensitive-corpus.test.ts` pins them.
+    Since 307 `chat_insert_attachments` scans each file name too, by the same
+    `chat_assert_not_sensitive`; the composer warns through
+    `messageSensitiveKinds`.
   - *Audience (159).* One clause in `chat_user_can_read_channel` covers every
     read; BEFORE triggers guard writes. Membership is no override.
   - *Moderation (160).* Deleting another's message needs a 5–500 character
@@ -125,7 +128,8 @@ only). `docs/internal-chat.md` is the contract.
   - *Restricted channels (159).* Managing a team channel needs the
     audience unless owner/admin; `audience_team_restricted` keeps a
     channel closed when its teams are all deleted.
-  - *Forwarding.* Copies must match the source's files exactly and a
+  - *Forwarding.* Copies must be all the source's files and no others
+    (307; before it a missing one passed), and a
     storage path belongs to one message (`already belongs to a message`).
     The RPC needs no upload right, but the client-side copy is a storage
     upload (`chat_storage_can_write`: upload_files or send_voice), so
@@ -145,3 +149,8 @@ only). `docs/internal-chat.md` is the contract.
   `chat_insert_attachments` takes only the poster's own object
   (`owner_id`, else `owner`; a forward's storage copy carries the
   forwarder). An object with no owner is one the server wrote.
+- **307.** `chat_forward_message` and `chat_share_call` take 276's client id
+  as a REQUIRED last argument of a second function; the old signature beside
+  it calls it with none, so no call has two candidates. An edit rewrites only
+  the bells of people who may read the channel; leaving a private channel or
+  group DM deletes the leaver's unread ones. `verify-chat-forward-once.sql`.
