@@ -21,6 +21,7 @@ import { useTranslations } from "next-intl";
 
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { dateFnsLocale } from "@/i18n/ui-locale";
 
 /**
  * Run history viewer.
@@ -229,6 +230,7 @@ function RunCard({
   const duration = run.ended_at
     ? formatDistanceToNow(new Date(run.ended_at), {
         addSuffix: false,
+        locale: dateFnsLocale(),
       })
     : null;
   return (

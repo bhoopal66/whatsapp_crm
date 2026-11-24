@@ -1,4 +1,7 @@
 {
+  "Common": {
+    "toasts": "الإشعارات"
+  },
   "LoginPage": {
     "titleAccept": "سجّل الدخول للقبول",
     "titleWelcome": "مرحباً بعودتك",
@@ -68,6 +71,7 @@
     "retry": "حاول مرة أخرى"
   },
   "Sidebar": {
+    "primaryNav": "القائمة الرئيسية",
     "navLabel": "التنقل في الشريط الجانبي",
     "title": "Taamul Connect",
     "dashboard": "لوحة المعلومات",
@@ -1239,6 +1243,8 @@
   },
   "Pipelines": {
     "page": {
+      "selectAllOnPage": "تحديد كل جهات الاتصال في هذه الصفحة",
+      "selectOne": "تحديد {name}",
       "dealsLoadFailed": "تعذّر تحميل الصفقات.",
       "retry": "إعادة المحاولة",
       "unknownStage": "مرحلة جديدة",
@@ -6940,6 +6946,10 @@
     }
   },
   "Presence": {
+    "onlineNow": "متصل الآن",
+    "awayIdle": "بعيد — خامل",
+    "offlineSince": "غير متصل — آخر ظهور {when}",
+    "offlineUnknown": "غير متصل",
     "available": "متاح",
     "onCall": "في مكالمة",
     "dnd": "عدم الإزعاج",

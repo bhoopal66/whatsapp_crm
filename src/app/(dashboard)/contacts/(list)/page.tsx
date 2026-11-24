@@ -1334,7 +1334,7 @@ export function ContactsPageInner({
                   indeterminate={!allOnPageSelected && someOnPageSelected}
                   onCheckedChange={toggleSelectAll}
                   disabled={contacts.length === 0}
-                  aria-label="Select all contacts on this page"
+                  aria-label={t('selectAllOnPage')}
                 />
               </TableHead>
               <SortHeader
@@ -1493,7 +1493,9 @@ export function ContactsPageInner({
                       <Checkbox
                         checked={selected.has(contact.id)}
                         onCheckedChange={() => toggleSelect(contact.id)}
-                        aria-label={`Select ${contact.name || contact.phone}`}
+                        aria-label={t('selectOne', {
+                          name: contact.name || contact.phone,
+                        })}
                       />
                     </TableCell>
                     <TableCell

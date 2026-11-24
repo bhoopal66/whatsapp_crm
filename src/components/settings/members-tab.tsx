@@ -110,7 +110,8 @@ import {
   type AccountRole,
   type AssignableRole,
 } from '@/lib/auth/roles';
-import { presenceLabel, summarize } from '@/lib/presence';
+import { presenceText } from '@/components/chat/presence-text';
+import { presenceTooltip, summarize } from '@/lib/presence';
 import {
   PRESENCE_DOT_CLASS,
   PresenceDot,
@@ -133,6 +134,7 @@ import { MemberPasswordDialog } from './member-password-dialog';
 import { SettingsPanelHead } from './settings-panel-head';
 import { filterMembers, inactiveLast } from './member-search';
 import { ROLE_META } from './role-meta';
+import { uiLocale } from '@/i18n/ui-locale';
 
 /** What a person holds: work counts and the live API keys they made. */
 interface Held {
@@ -176,7 +178,7 @@ interface Invitation {
 function fmtDate(iso: string): string {
   // Match the rest of the dashboard's locale-light formatting.
   const d = new Date(iso);
-  return d.toLocaleDateString(undefined, {
+  return d.toLocaleDateString(uiLocale(), {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
@@ -202,6 +204,7 @@ export function MembersTab() {
   const tDept = useTranslations('Settings.departments');
   const tPeople = useTranslations('Groups.create');
   const tHandover = useTranslations('Settings.members.handover');
+  const tPresence = useTranslations('Presence');
   const workText = useWorkText();
   const { user, accountRole } = useAuth();
   const { getPresence, getRow, now } = usePresence();
@@ -757,9 +760,13 @@ export function MembersTab() {
               const isInactive = !!member.deactivated_at;
               const presence = getPresence(member.user_id);
               const presenceRow = getRow(member.user_id);
-              const presenceText = presenceLabel(
-                presence,
-                presenceRow?.last_seen_at ?? null,
+              const presenceLabel = presenceText(
+                tPresence,
+                presenceTooltip(
+                  presence,
+                  presenceRow?.last_seen_at ?? null,
+                  now
+                ),
                 now
               );
 
@@ -797,13 +804,13 @@ export function MembersTab() {
                                 avatar. */}
                             <AvatarBadge
                               role="img"
-                              aria-label={presenceText}
+                              aria-label={presenceLabel}
                               className={PRESENCE_DOT_CLASS[presence]}
                             />
                           </Avatar>
                         }
                       />
-                      <TooltipContent>{presenceText}</TooltipContent>
+                      <TooltipContent>{presenceLabel}</TooltipContent>
                     </Tooltip>
 
                     <div className="min-w-0 flex-1">

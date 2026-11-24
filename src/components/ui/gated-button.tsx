@@ -48,6 +48,8 @@
 import type { ComponentProps, ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
+import type { Locale } from "@/i18n/locales";
+import { uiLocale } from "@/i18n/ui-locale";
 import { cn } from "@/lib/utils";
 
 interface GatedButtonProps extends Omit<ComponentProps<typeof Button>, "title"> {
@@ -65,6 +67,22 @@ interface GatedButtonProps extends Omit<ComponentProps<typeof Button>, "title"> 
   children?: ReactNode;
 }
 
+// The reason is an English verb phrase each caller writes, so another
+// language says it without one. No next-intl here: the button is rendered
+// without a provider too.
+const READ_ONLY: Partial<Record<Locale, string>> = {
+  ar: "للقراءة فقط: دورك لا يسمح بهذا الإجراء",
+  ko: "읽기 전용: 현재 역할로는 할 수 없는 작업입니다",
+};
+
+function readOnlyTitle(gateReason: string): string {
+  const locale = uiLocale();
+  return (
+    (locale && READ_ONLY[locale]) ||
+    `Read-only — your role can't ${gateReason}`
+  );
+}
+
 export function GatedButton({
   canAct = true,
   gateReason,
@@ -75,9 +93,7 @@ export function GatedButton({
   ...rest
 }: GatedButtonProps) {
   const effectivelyDisabled = disabled || !canAct;
-  const tooltip = !canAct && gateReason
-    ? `Read-only — your role can't ${gateReason}`
-    : title;
+  const tooltip = !canAct && gateReason ? readOnlyTitle(gateReason) : title;
 
   return (
     <span

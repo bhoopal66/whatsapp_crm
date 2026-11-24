@@ -39,6 +39,7 @@ import {
 } from '@/lib/api-keys/scopes';
 import { useTranslations } from 'next-intl';
 import { SettingsPanelHead } from './settings-panel-head';
+import { uiLocale } from '@/i18n/ui-locale';
 
 interface ApiKey {
   id: string;
@@ -52,7 +53,7 @@ interface ApiKey {
 }
 
 function fmtDate(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, {
+  return new Date(iso).toLocaleDateString(uiLocale(), {
     year: 'numeric',
     month: 'short',
     day: 'numeric',

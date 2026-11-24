@@ -5,6 +5,7 @@ import { Toaster } from "sonner";
 
 import { useTheme } from "@/hooks/use-theme";
 import { DEFAULT_MODE } from "@/lib/themes";
+import { useTranslations } from "next-intl";
 
 // Returns false during SSR and the first hydration render, true after —
 // the sanctioned (warning-free, no setState-in-effect) way to diverge
@@ -35,10 +36,12 @@ function useIsClient() {
 export function ThemedToaster() {
   const { mode } = useTheme();
   const isClient = useIsClient();
+  const t = useTranslations("Common");
   return (
     <Toaster
       theme={isClient ? mode : DEFAULT_MODE}
       position="top-right"
+      containerAriaLabel={t("toasts")}
       toastOptions={{
         style: {
           background: "var(--popover)",

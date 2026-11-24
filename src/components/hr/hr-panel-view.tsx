@@ -35,6 +35,7 @@ import {
 } from '@/lib/hr/types';
 import type { Task } from '@/lib/tasks/types';
 import { cn } from '@/lib/utils';
+import { dateFnsLocale } from '@/i18n/ui-locale';
 
 const NATIVE_FIELD =
   'border-input bg-card dark:bg-input/30 h-7 min-w-0 flex-1 rounded-md border px-2 text-xs';
@@ -429,6 +430,7 @@ export function HrPanelView(props: HrPanelViewProps) {
                       ? t('panel.due', {
                           when: formatDistanceToNow(new Date(task.due_at), {
                             addSuffix: true,
+                            locale: dateFnsLocale(),
                           }),
                         })
                       : t('panel.noDue')}

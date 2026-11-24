@@ -31,6 +31,7 @@ import {
   orderedCategories,
   type CostReport,
 } from '@/lib/whatsapp/message-costs';
+import { uiLocale } from '@/i18n/ui-locale';
 
 /**
  * Meta Cloud API message spend, from the ledger migration 051 keeps.
@@ -75,7 +76,7 @@ function usd(n: number, digits = 2): string {
 
 function monthLabel(key: string): string {
   const [y, m] = key.split('-').map(Number);
-  return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString(undefined, {
+  return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString(uiLocale(), {
     month: 'short',
     year: 'numeric',
     timeZone: 'UTC',

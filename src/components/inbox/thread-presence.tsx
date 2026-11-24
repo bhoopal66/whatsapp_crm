@@ -9,7 +9,8 @@ import {
 } from '@/hooks/use-phone-presence';
 import { PresenceDot } from '@/components/presence/presence-dot';
 import { PERSON_PRESENCE_KEY, presenceOf } from '@/lib/person-presence';
-import { presenceLabel } from '@/lib/presence';
+import { presenceText } from '@/components/chat/presence-text';
+import { presenceTooltip } from '@/lib/presence';
 
 type PresenceValue = ReturnType<typeof usePresence> & {
   phone: PhonePresence;
@@ -69,9 +70,13 @@ export function MemberPresenceDot({
       status={state}
       label={
         state === app
-          ? presenceLabel(
-              app,
-              presence.getRow(userId)?.last_seen_at ?? null,
+          ? presenceText(
+              tp,
+              presenceTooltip(
+                app,
+                presence.getRow(userId)?.last_seen_at ?? null,
+                presence.now
+              ),
               presence.now
             )
           : tp(PERSON_PRESENCE_KEY[state])
