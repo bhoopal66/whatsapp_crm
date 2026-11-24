@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { SalesChatCheck } from '@/lib/ai/not-sales-chat';
 import type { NormalizedInboundMessage } from '@/lib/whatsapp/inbound';
 import type { HandleResult } from '../runner';
 import type { Action } from '../types';
@@ -53,7 +54,8 @@ const settings = (over: Record<string, unknown> = {}): Reply => ({
 function run(
   message: NormalizedInboundMessage,
   replies: Reply[],
-  results: HandleResult[]
+  results: HandleResult[],
+  salesChat?: SalesChatCheck
 ) {
   const { db, queries } = fakeDb(...replies);
   const handle = vi.fn<(event: unknown, now: string) => Promise<HandleResult>>(
@@ -66,6 +68,7 @@ function run(
       contactId: 'contact-1',
       conversationId: 'conv-1',
       message,
+      salesChat,
     },
     { now: () => NOW, runnerFor: () => ({ handle }) }
   );
@@ -151,6 +154,20 @@ describe('dispatchInboundToJourney', () => {
       ['is', 'closed_at', null],
       ['maybeSingle'],
     ]);
+  });
+
+  it.each([
+    ['an HR chat', { notSales: 'This is an HR chat.', error: null }],
+    ['an unreadable check', { notSales: null, error: 'boom' }],
+  ])('takes nothing from %s', async (_name, decision) => {
+    const { out, handle } = run(
+      msg({ text: 'hi' }),
+      [settings(), { data: { id: 'file-1', state: 'S_MENU' } }],
+      [ok('S_DOCS')],
+      async () => ({ personal: false, ...decision })
+    );
+    expect(await out).toEqual({ consumed: false });
+    expect(handle).not.toHaveBeenCalled();
   });
 
   it('an event the file ignores (same state, no actions) is not consumed', async () => {

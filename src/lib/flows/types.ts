@@ -1,4 +1,5 @@
 import type { WhatsAppProvider } from "@/lib/whatsapp/channels";
+import type { SalesChatCheck } from "@/lib/ai/not-sales-chat";
 import type { IntentTriggerConfig } from "@/lib/insights/meaning-config";
 
 export type { IntentTriggerConfig };
@@ -391,6 +392,9 @@ export interface DispatchInboundInput {
   inboundProvider?: WhatsAppProvider;
   /** The exact number the inbound arrived on (migration 060). */
   inboundChannelId?: string | null;
+  /** Whether the chat is a sales chat: no flow answers in one that is
+   *  not (HR, another department, or a check that could not be read). */
+  salesChat?: SalesChatCheck | null;
 }
 
 export interface DispatchInboundResult {

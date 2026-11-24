@@ -59,6 +59,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { runAutomationsForTrigger } from '@/lib/automations/engine';
 import { dispatchInboundToFlows } from '@/lib/flows/engine';
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply';
+import { salesChatOnce } from '@/lib/ai/not-sales-chat';
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver';
 import { watchInboundMessage } from '@/lib/ai/typesafe-watch';
 import { autoTagFromInsights } from '@/lib/insights/auto-tag';
@@ -1305,7 +1306,15 @@ export async function processMessage(
   // no active flows take the runner's early-exit "no_match" path
   // basically for free (one indexed SELECT for the active run).
   // ============================================================
+  // One decision for this message, read when the first of them needs it:
+  // no sales answer (flow, journey, automation message step, AI reply) in
+  // an HR chat or another department's. Internal automation steps run.
+  const salesChat = salesChatOnce(supabaseAdmin, {
+    conversationId: conversation.id,
+    inboundChannelId: channel.id,
+  });
   const flowResult = await dispatchInboundToFlows({
+    salesChat,
     accountId,
     userId: configOwnerUserId,
     contactId: contactRecord.id,
@@ -1368,6 +1377,7 @@ export async function processMessage(
             contactId: contactRecord.id,
             conversationId: conversation.id,
             message,
+            salesChat,
           }).catch(() => ({ consumed: false }))
         ).consumed;
   const botConsumed = flowConsumed || journeyConsumed || csatConsumed;
@@ -1448,6 +1458,7 @@ export async function processMessage(
       contactId: contactRecord.id,
       // A message step may answer even an opted-out contact here.
       customerJustWrote: true,
+      salesChat,
       context: {
         message_text: inboundText,
         conversation_id: conversation.id,
@@ -1493,6 +1504,7 @@ export async function processMessage(
   ) {
     await dispatchInboundToAiReply({
       accountId,
+      salesChat,
       conversationId: conversation.id,
       contactId: contactRecord.id,
       configOwnerUserId,

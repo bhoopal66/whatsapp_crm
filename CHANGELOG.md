@@ -22,6 +22,11 @@ and polish.
 
 ### Fixed
 
+- Flows, campaign journeys and automations' message steps no longer answer
+  in a chat that is not a sales chat (an HR chat, another department's
+  inbox, a message on an HR line), as the AI agent already did not. The
+  internal steps of an automation (assign, tag, deal, webhook, team chat)
+  still run. If the check cannot be read, nothing automatic is sent.
 - **Home screen figures that looked exact but were not.** A task list cut at
   200 now shows "200+" and no "due today" figure; the Hot, Upset and Pinned
   tiles count the chats the list they open shows (other people's personal

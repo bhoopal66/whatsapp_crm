@@ -21,6 +21,7 @@ import type {
   AssignConversationStepConfig,
 } from '@/types'
 import { supabaseAdmin } from './admin-client'
+import { salesAnswersOff, type SalesChatCheck } from '@/lib/ai/not-sales-chat'
 import { judgeMeanings, loadMeaningTurns, meaningCandidate } from '@/lib/insights/meaning'
 import { writeConversationChatTags } from '@/lib/chat-tags/server'
 import { chatTagTriggerMatches } from '@/lib/chat-tags/trigger-match'
@@ -63,6 +64,9 @@ export interface AutomationContext {
   previous_chat_tag_id?: string | null
   /** The chat's sub-tag before the change, for chat_tag_set. */
   previous_chat_sub_tag_id?: string | null
+  /** Why this run's message steps stay off after a wait: its message came
+   *  in on a chat that is not a sales chat. It can only withhold a send. */
+  sales_answers_off?: string
 }
 
 export interface DispatchInput {
@@ -82,6 +86,10 @@ export interface DispatchInput {
    *  nothing. Not part of `context`, which is caller-supplied and is
    *  stored with a parked wait. */
   customerJustWrote?: boolean
+  /** The inbound pipeline's one decision whether the message's chat is a
+   *  sales chat. In any other (HR, another department, or a check that
+   *  could not be read) message steps are skipped; the rest still runs. */
+  salesChat?: SalesChatCheck | null
 }
 
 /**
@@ -343,6 +351,7 @@ async function executeAutomation(
         logId: log.id,
         triggerEvent: input.triggerType,
         customerJustWrote: input.customerJustWrote === true,
+        salesChat: input.salesChat ?? null,
         steps,
         alreadyRun: new Set(),
         results,
@@ -381,6 +390,9 @@ interface ExecuteArgs {
   triggerEvent: string
   /** See DispatchInput.customerJustWrote. */
   customerJustWrote: boolean
+  /** See DispatchInput.salesChat; null in a resumed run, whose answer is
+   *  `context.sales_answers_off`. */
+  salesChat?: SalesChatCheck | null
 }
 
 /** One run of an automation: its steps as they were when it (re)started. */
@@ -489,6 +501,8 @@ async function runStepList(args: Run, frame: Frame): Promise<RunOutcome> {
     if (step.step_type === 'wait') {
       const cfg = step.step_config as WaitStepConfig
       const ms = waitMs(cfg)
+      // Kept for the resumed run, which has no inbound message to ask about.
+      const salesOff = await notSalesReason(args)
       const { error: waitErr } = await db.from('automation_pending_executions').insert({
         automation_id: args.automation.id,
         // Tenancy: account_id required NOT NULL post-017.
@@ -500,7 +514,7 @@ async function runStepList(args: Run, frame: Frame): Promise<RunOutcome> {
         branch: frame.branch,
         next_step_position: step.position + 1,
         wait_step_id: step.id,
-        context: args.context,
+        context: salesOff ? { ...args.context, sales_answers_off: salesOff } : args.context,
         run_at: new Date(Date.now() + ms).toISOString(),
         status: 'pending',
       })
@@ -547,7 +561,8 @@ async function runStepList(args: Run, frame: Frame): Promise<RunOutcome> {
         continue
       }
 
-      const skipReason = await optOutSkipReason(step, args)
+      const skipReason =
+        (await notSalesSkipReason(step, args)) ?? (await optOutSkipReason(step, args))
       if (skipReason) {
         results.push({
           step_id: step.id,
@@ -719,7 +734,13 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
         accountId: args.automation.account_id,
         triggerType: 'chat_tag_set',
         contactId: args.contactId,
+        // A tag automation that answers the customer is still an answer to
+        // the message this run reacted to.
+        salesChat: args.salesChat,
         context: {
+          ...(args.context.sales_answers_off
+            ? { sales_answers_off: args.context.sales_answers_off }
+            : {}),
           conversation_id: written.conversationId,
           chat_tag_id: saved.chat_tag_id,
           chat_sub_tag_id: saved.chat_sub_tag_id,
@@ -1003,6 +1024,21 @@ const STOPPED_CHANGED = 'stopped: automation changed while waiting'
 
 /** The log detail of a message step not sent to an opted-out contact. */
 const SKIPPED_OPTED_OUT = 'skipped: the customer opted out'
+
+/** Why this run's chat is not a sales chat, or null. */
+async function notSalesReason(args: ExecuteArgs): Promise<string | null> {
+  return args.context.sales_answers_off || (await salesAnswersOff(args.salesChat))
+}
+
+/** Why a message step stays off in a chat that is not a sales chat, or null. */
+async function notSalesSkipReason(
+  step: AutomationStep,
+  args: ExecuteArgs,
+): Promise<string | null> {
+  if (!MESSAGE_STEP_TYPES.has(step.step_type)) return null
+  const reason = await notSalesReason(args)
+  return reason ? `skipped: ${reason}` : null
+}
 
 /**
  * Why a message step must not run, or null to run it. A contact with

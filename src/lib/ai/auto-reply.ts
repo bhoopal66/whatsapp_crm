@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { notSalesChat } from './not-sales-chat';
+import { salesChatOnce, type SalesChatCheck } from './not-sales-chat';
 import { supabaseAdmin } from './admin-client';
 import { loadAiConfig } from './config';
 import { buildConversationContext } from './context';
@@ -243,6 +243,9 @@ export interface DispatchArgs {
    *  just before the dispatch: it has answered, so the bot must not. The
    *  pipeline says so because only Jev can tell that one matches. */
   meaningTriggerActed?: boolean;
+  /** The pipeline's one sales-chat decision for this message; without it
+   *  the dispatch reads its own. */
+  salesChat?: SalesChatCheck | null;
   /** Clock for the dispatch budget (`aiDispatchBudgetMs`). Tests only. */
   now?: () => number;
 }
@@ -469,12 +472,14 @@ export async function dispatchInboundToAiReply(
     // `personal_chat`, and before any token is spent. Recorded as
     // `skipped_number` - the message is on a number the bot does not
     // answer. A read error stands the bot down (below).
-    const { data: personalRow, error: personalErr } = await dbc
-      .from('conversations')
-      .select('personal_owner_id, inbox_department')
-      .eq('id', conversationId)
-      .maybeSingle();
-    if (personalRow?.personal_owner_id) {
+    const chat = await (
+      args.salesChat ??
+      salesChatOnce(() => dbc, {
+        conversationId,
+        inboundChannelId: inboundChannelId ?? null,
+      })
+    )();
+    if (chat.personal) {
       return skip(
         'skipped_number',
         'Personal chat: the bot never answers on a personal number.'
@@ -484,15 +489,8 @@ export async function dispatchInboundToAiReply(
     // HR, IT and accounts chats are not the sales bot's either. Before
     // any spend, for a Flow's fallback too. A check that cannot be read
     // throws: recorded as `error`, and nothing is sent.
-    if (personalErr) {
-      throw new Error(`department lookup: ${personalErr.message}`);
-    }
-    const notSales = await notSalesChat(dbc, {
-      conversationId,
-      inboxDepartment: personalRow?.inbox_department ?? null,
-      inboundChannelId: inboundChannelId ?? null,
-    });
-    if (notSales) return skip('skipped_number', notSales);
+    if (chat.error) throw new Error(chat.error);
+    if (chat.notSales) return skip('skipped_number', chat.notSales);
 
     // Which number the bot answers on (migration 079). Every send below
     // goes out on `replyChannelId` when it is set; unset, the send

@@ -21,6 +21,7 @@
  *   event on the new file as `wa:<message id>:new`.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { salesAnswersOff, type SalesChatCheck } from '@/lib/ai/not-sales-chat';
 import type { NormalizedInboundMessage } from '@/lib/whatsapp/inbound';
 import { createRunner, type HandleResult } from '../runner';
 import type { WorkflowDef } from '../schema';
@@ -79,6 +80,9 @@ export interface JourneyInboundArgs {
   contactId: string;
   conversationId: string;
   message: NormalizedInboundMessage;
+  /** Whether the chat is a sales chat: the journey takes no message from
+   *  one that is not (HR, another department, or an unreadable check). */
+  salesChat?: SalesChatCheck | null;
 }
 
 export interface JourneyInboundDeps {
@@ -138,7 +142,14 @@ const handled = (r: HandleResult, before: string): boolean =>
   (r.result.file.state !== before || r.result.actions.length > 0);
 
 export async function dispatchInboundToJourney(
-  { db, accountId, contactId, conversationId, message }: JourneyInboundArgs,
+  {
+    db,
+    accountId,
+    contactId,
+    conversationId,
+    message,
+    salesChat,
+  }: JourneyInboundArgs,
   deps: JourneyInboundDeps = {}
 ): Promise<{ consumed: boolean }> {
   try {
@@ -174,6 +185,7 @@ export async function dispatchInboundToJourney(
         : now;
     const event = journeyEventFor(message, mergeCopy(settings.copy), at);
     if (!event) return { consumed: false };
+    if (await salesAnswersOff(salesChat)) return { consumed: false };
 
     let file = await openFile(db, accountId, contactId);
     if (!file) {

@@ -1672,3 +1672,17 @@ describe('processMessage — an open case without a group hears the customer', (
     error.mockRestore();
   });
 });
+
+describe('the sales-chat decision', () => {
+  it('flows, the journey, every automation and the bot share the same sales-chat check', async () => {
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+    const check = h.flows.mock.calls[0][0].salesChat;
+    expect(check).toBeTypeOf('function');
+    expect(h.journey.mock.calls[0][0].salesChat).toBe(check);
+    expect(h.automations.mock.calls.length).toBeGreaterThan(0);
+    for (const [args] of h.automations.mock.calls) {
+      expect(args.salesChat).toBe(check);
+    }
+    expect(h.ai.mock.calls[0][0].salesChat).toBe(check);
+  });
+});

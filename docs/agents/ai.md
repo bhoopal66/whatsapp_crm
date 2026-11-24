@@ -118,3 +118,7 @@ model's question and both answers are screened with the same
 re-run of 202 drops it, so apply in order, once. A failed call that was
 billed is logged too (`AiError.usage`).
 The bot's reply path and `kb_shortlist` are unchanged.
+
+- The bot's sales-chat check is the pipeline's `salesChat` decision
+  (`salesChatOnce`), shared with Flows, journeys and automations; a caller
+  without one (an older caller, a test) has the dispatch read its own.

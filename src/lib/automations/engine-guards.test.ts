@@ -413,3 +413,78 @@ describe('a write the database refuses fails its step', () => {
     expect(sends()).toBe(0);
   });
 });
+
+describe('a chat that is not a sales chat', () => {
+  const chat = (notSales: string | null, error: string | null = null) =>
+    vi.fn(async () => ({ personal: false, notSales, error }));
+
+  it.each([
+    ['send_message', TEXT],
+    ['send_buttons', BUTTONS],
+    ['send_list', LIST],
+    ['send_template', TEMPLATE],
+  ])('%s is skipped and the rest runs', async (type, step) => {
+    steps(step, CLOSE);
+    await trigger('new_message_received', {
+      customerJustWrote: true,
+      salesChat: chat('This is an HR chat.'),
+    });
+    expect(sends()).toBe(0);
+    expect(log().steps_executed.map((s) => [s.step_type, s.status])).toEqual([
+      [type, 'skipped'],
+      ['close_conversation', 'success'],
+    ]);
+    expect(log().steps_executed[0].detail).toBe('skipped: This is an HR chat.');
+    expect(h.db.conversations[0].status).toBe('closed');
+  });
+
+  it('a check that could not be read skips the message step', async () => {
+    steps(TEXT);
+    await trigger('first_inbound_message', {
+      customerJustWrote: true,
+      salesChat: chat(null, 'boom'),
+    });
+    expect(sends()).toBe(0);
+  });
+
+  it('a sales chat is answered, and internal steps ask nothing', async () => {
+    const salesChat = chat(null);
+    steps(CLOSE);
+    await trigger('new_message_received', { salesChat });
+    expect(salesChat).not.toHaveBeenCalled();
+    steps(TEXT);
+    await trigger('new_message_received', {
+      customerJustWrote: true,
+      salesChat,
+    });
+    expect(sends()).toBe(1);
+  });
+
+  it('a wait keeps the answer for the resumed run', async () => {
+    steps(['wait', { amount: 1, unit: 'hours' }], TEXT);
+    await trigger('new_message_received', {
+      customerJustWrote: true,
+      salesChat: chat('This is an HR chat.'),
+    });
+    const parked = h.db.automation_pending_executions.at(-1) as {
+      context: Record<string, unknown>;
+    };
+    expect(parked.context.sales_answers_off).toBe('This is an HR chat.');
+
+    steps(TEXT);
+    park();
+    await resumePendingExecution({
+      id: 'p1',
+      automation_id: 'a1',
+      user_id: 'u1',
+      account_id: ACCOUNT,
+      contact_id: 'c1',
+      log_id: 'log-1',
+      parent_step_id: null,
+      branch: null,
+      next_step_position: 0,
+      context: parked.context,
+    });
+    expect(sends()).toBe(0);
+  });
+});
