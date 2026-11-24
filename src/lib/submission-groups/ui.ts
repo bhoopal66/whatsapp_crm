@@ -10,6 +10,7 @@ import { caseStatusView, contactPersonLine } from '@/lib/cases/ui';
 import {
   prefixMessage,
   ROLE_LABELS,
+  SEND_NOT_STORED,
   STAFF_LABELS,
   isStaffLabel,
   type StaffLabel,
@@ -282,6 +283,7 @@ export type SendErrorKey =
   | 'notFound'
   | 'rateLimited'
   | 'gateway'
+  | 'notStored'
   | 'maybeSent'
   | 'tooLong'
   | 'unknown';
@@ -300,10 +302,44 @@ export function sendErrorKey(
   if (status === 429) return 'rateLimited';
   if (status === 502)
     return code === SEND_UNCONFIRMED ? 'maybeSent' : 'gateway';
+  if (code === SEND_NOT_STORED) return 'notStored';
   if (status === 403) return 'notAllowed';
   if (status === 404) return 'notFound';
   if (status === 400 || status === 413) return 'tooLong';
   return 'unknown';
+}
+
+/**
+ * A refused POST /messages: whether the composer keeps it as sent (false
+ * gives the words back and deletes an upload), and the toast. A stored row
+ * points at an attachment's file, so a file is only deleted when the log
+ * says there is none. `body` is null when a proxy answered for the app
+ * (nginx's own 502 while the app restarts), and then only the log (`stored`;
+ * null when it cannot be read) says whether WhatsApp was asked.
+ */
+export async function refusedSendOutcome(
+  answer: {
+    status: number;
+    body: { error?: unknown; reason?: string; code?: string } | null;
+    media: boolean;
+  },
+  stored: () => Promise<boolean | null>
+): Promise<{ kept: boolean; toast: SendErrorKey }> {
+  const { status, body, media } = answer;
+  const toast = sendErrorKey(status, body?.reason, body?.code);
+  // The consent block's row is stored; every other 4xx stores nothing.
+  if (status === 409 && body?.reason !== undefined)
+    return { kept: true, toast };
+  if (status < 502) return { kept: false, toast };
+  // WhatsApp may hold it, and its row is stored: never given back.
+  if (body?.code === SEND_UNCONFIRMED) return { kept: true, toast };
+  // Nothing went out; the row can still exist if only its answer was lost.
+  if (body?.code === SEND_NOT_STORED)
+    return { kept: media && (await stored()) !== false, toast };
+  const row = await stored();
+  const kept = row ?? media;
+  if (typeof body?.error === 'string') return { kept, toast };
+  return { kept, toast: row === false ? 'unknown' : 'maybeSent' };
 }
 
 /**

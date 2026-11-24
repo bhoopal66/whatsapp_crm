@@ -138,8 +138,8 @@ beforeEach(() => {
     processed: [{ waId: '971501111111' }],
     failed: [],
   });
-  mocks.promoteAdmins.mockResolvedValue(undefined);
-  mocks.demoteAdmins.mockResolvedValue(undefined);
+  mocks.promoteAdmins.mockResolvedValue({ processed: [], failed: [] });
+  mocks.demoteAdmins.mockResolvedValue({ processed: [], failed: [] });
   mocks.getGroup.mockResolvedValue({ id: '120363000000000001@g.us' });
   mocks.persistGroupSnapshot.mockResolvedValue({});
 });
@@ -430,6 +430,18 @@ describe('PATCH participants', () => {
     expect(mocks.promoteAdmins).toHaveBeenCalledTimes(1);
     await call(PATCH, { waIds: ['971504444444'], role: 'member' });
     expect(mocks.demoteAdmins).toHaveBeenCalledTimes(1);
+  });
+
+  it('answers who WhatsApp refused', async () => {
+    const refused = { jid: '971504444444@c.us', waId: '971504444444' };
+    mocks.promoteAdmins.mockResolvedValue({ processed: [], failed: [refused] });
+    const res = await call(PATCH, { waIds: ['971504444444'], role: 'admin' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      ok: false,
+      changed: [],
+      failed: [refused],
+    });
   });
 
   it('refuses to demote our own number', async () => {

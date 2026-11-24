@@ -32,6 +32,7 @@ import { useAccountNumbers } from '@/hooks/use-whatsapp-numbers';
 import {
   reasonKey,
   removalFailed,
+  roleChangeToast,
   summarizeAddMembers,
   type AddMembersSummary,
 } from '@/lib/groups/group-page';
@@ -105,11 +106,12 @@ export function MembersTab({
         body: JSON.stringify({ waIds: [p.wa_id], role }),
       });
       if (!res.ok) return await failed(res);
-      toast.success(
-        m(role === 'admin' ? 'toastMadeAdmin' : 'toastRemovedAdmin', {
-          name: nameOf(p),
-        })
-      );
+      // 200 even when WhatsApp refused: `failed` names who did not change.
+      const json = (await res.json().catch(() => null)) as unknown;
+      const key = roleChangeToast(json, role);
+      const text = m(key, { name: nameOf(p) });
+      if (removalFailed(json)) toast.error(text);
+      else toast.success(text);
       await reload();
     } catch {
       toast.error(t('reasons.unknown'));

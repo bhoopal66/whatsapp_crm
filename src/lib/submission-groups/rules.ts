@@ -42,6 +42,9 @@ export const ROLE_LABELS: Record<StaffLabel, string> = {
   team_lead: 'Team Lead',
 };
 
+/** POST messages' code when it broke before its row was stored: nothing went out. */
+export const SEND_NOT_STORED = 'not_stored';
+
 /** Days after ended_at during which the group's coordinator / team_lead may still read it. */
 export const DEFAULT_ARCHIVE_SUPERVISOR_WINDOW_DAYS = 60;
 

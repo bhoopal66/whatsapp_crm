@@ -72,7 +72,7 @@ import {
   initialsOf,
   ownSendStored,
   retryToastKey,
-  sendErrorKey,
+  refusedSendOutcome,
   sentAsPreview,
   settleRead,
   shortRef,
@@ -329,8 +329,7 @@ export function SubmissionGroupPage({
 
   /**
    * One send into the group (text or an uploaded attachment). False when
-   * the composer should give the text back or delete the upload; a 502
-   * counts as sent, because WhatsApp may already hold it.
+   * the composer should give the text back or delete the upload.
    */
   const postMessage = async (
     payload: { text: string } | { media: GroupMediaSendPayload }
@@ -359,22 +358,15 @@ export function SubmissionGroupPage({
         body: JSON.stringify(payload),
       });
       if (!res.ok) {
-        const json = (await res.json().catch(() => null)) as {
-          reason?: string;
-          code?: string;
-        } | null;
-        toast.error(
-          t(`sendErrors.${sendErrorKey(res.status, json?.reason, json?.code)}`)
+        const json = (await res.json().catch(() => null)) as Parameters<
+          typeof refusedSendOutcome
+        >[0]['body'];
+        const outcome = await refusedSendOutcome(
+          { status: res.status, body: json, media: 'media' in payload },
+          stored
         );
-        // A 502 (failed) or 409 consent block is kept as a stored row,
-        // which points at an attachment's file: treat it as sent so the
-        // composer neither gives it back nor deletes the file. Other
-        // refusals store nothing, unless a proxy answered for the app.
-        return (
-          res.status === 502 ||
-          (res.status === 409 && json?.reason !== undefined) ||
-          (res.status > 502 && (await stored()) === true)
-        );
+        toast.error(t(`sendErrors.${outcome.toast}`));
+        return outcome.kept;
       }
       if (res.status === 202) {
         // WhatsApp has it; only the CRM copy is unrecorded (it may later

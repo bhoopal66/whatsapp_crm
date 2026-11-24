@@ -6,6 +6,7 @@ import type { StaffLabel } from './rules';
 import {
   SubmissionGroupChannelError,
   SubmissionGroupSendBlockedError,
+  SubmissionGroupSendNotStoredError,
   SubmissionGroupSendUnconfirmedError,
   SubmissionGroupNotAttemptedError,
   SubmissionGroupSystemNotSentError,
@@ -1248,6 +1249,23 @@ describe('SubmissionGroupService.sendFromCrm', () => {
       ['blocked', null],
     ]);
   });
+
+  it.each(['get', 'openAccessLabel', 'beginSend'] as const)(
+    '%s breaking before the row is stored: NotStored, nothing sent',
+    async (method) => {
+      const s = setup();
+      const g = await opened(s);
+      s.store[method] = async () => {
+        throw new Error('db: connection reset');
+      };
+      const err = await s.svc
+        .sendFromCrm({ groupId: g.id, userId: 'ali', text: 'x' })
+        .catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(SubmissionGroupSendNotStoredError);
+      expect(s.store.messages).toEqual([]);
+      expect(s.api.of('sendGroupText')).toEqual([]);
+    }
+  );
 
   it('gateway error: the row is settled failed and the error reaches the caller', async () => {
     const s = setup();

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { caseStatusView } from '@/lib/cases/ui';
 
@@ -11,6 +11,7 @@ import {
   initialsOf,
   onlyMine,
   ownSendStored,
+  refusedSendOutcome,
   shortRef,
   trackerStatusChip,
   waIdPhone,
@@ -275,6 +276,69 @@ describe('the end and retry toasts', () => {
     expect(
       groupBanners(group({ ...ended, wa_closed_at: '2026-11-01T00:00:00Z' }))
     ).not.toContain('stillOpen');
+  });
+});
+
+describe('refusedSendOutcome', () => {
+  const outcome = async (
+    status: number,
+    body: Parameters<typeof refusedSendOutcome>[0]['body'],
+    row: boolean | null,
+    media = false
+  ) => {
+    const stored = vi.fn(async () => row);
+    const out = await refusedSendOutcome({ status, body, media }, stored);
+    return { ...out, asked: stored.mock.calls.length };
+  };
+  const gateway = { error: 'The message could not be sent' };
+
+  it("gives the words back after nginx's own 502 that stored nothing", async () => {
+    expect(await outcome(502, null, false)).toEqual({
+      kept: false,
+      toast: 'unknown',
+      asked: 1,
+    });
+    expect((await outcome(502, null, false, true)).kept).toBe(false);
+  });
+  it('keeps what a proxy cut off after the row was stored', async () => {
+    for (const status of [502, 504])
+      expect(await outcome(status, null, true)).toMatchObject({
+        kept: true,
+        toast: 'maybeSent',
+      });
+  });
+  it("an unreadable log: the words come back, a file's is kept", async () => {
+    expect(await outcome(502, null, null)).toMatchObject({
+      kept: false,
+      toast: 'maybeSent',
+    });
+    expect((await outcome(502, null, null, true)).kept).toBe(true);
+  });
+  it("keeps the app's stored failure, and never gives an unconfirmed one back", async () => {
+    expect(await outcome(502, gateway, true)).toMatchObject({
+      kept: true,
+      toast: 'gateway',
+    });
+    expect(
+      await outcome(502, { ...gateway, code: 'send_unconfirmed' }, false)
+    ).toEqual({ kept: true, toast: 'maybeSent', asked: 0 });
+  });
+  it('gives back what the app says was never stored, but not a stored file', async () => {
+    const body = { error: 'x', code: 'not_stored' };
+    expect(await outcome(503, body, true)).toEqual({
+      kept: false,
+      toast: 'notStored',
+      asked: 0,
+    });
+    expect((await outcome(503, body, false, true)).kept).toBe(false);
+    expect((await outcome(503, body, true, true)).kept).toBe(true);
+  });
+  it('keeps a consent block and gives every other refusal back', async () => {
+    expect(
+      await outcome(409, { error: 'x', reason: 'opted_out' }, false)
+    ).toEqual({ kept: true, toast: 'optedOut', asked: 0 });
+    for (const status of [400, 403, 404, 409, 429, 500])
+      expect((await outcome(status, gateway, true)).kept).toBe(false);
   });
 });
 

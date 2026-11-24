@@ -8,6 +8,7 @@ import {
   parseBlocks,
   reasonKey,
   removalFailed,
+  roleChangeToast,
   resolveTab,
   shouldSendOnKey,
   statusTick,
@@ -279,6 +280,16 @@ describe('resolveTab', () => {
   it('reads a tab the person does not see as chat', () => {
     expect(resolveTab('requests', visible)).toBe('chat');
     expect(resolveTab('requests', [...visible, 'requests'])).toBe('requests');
+  });
+});
+
+describe('roleChangeToast', () => {
+  it('never says changed when WhatsApp refused', () => {
+    const failed = { ok: false, failed: [{ waId: '9715' }] };
+    expect(roleChangeToast(failed, 'admin')).toBe('toastMakeAdminFailed');
+    expect(roleChangeToast(failed, 'member')).toBe('toastRemoveAdminFailed');
+    expect(roleChangeToast({ failed: [] }, 'admin')).toBe('toastMadeAdmin');
+    expect(roleChangeToast({ failed: [] }, 'member')).toBe('toastRemovedAdmin');
   });
 });
 

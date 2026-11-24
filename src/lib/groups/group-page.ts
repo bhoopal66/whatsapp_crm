@@ -199,6 +199,22 @@ export function removalFailed(json: unknown): boolean {
   return identityIds(failed).length > 0;
 }
 
+/** The toast of a 200 role change, which also names whom WhatsApp refused. */
+export function roleChangeToast(
+  json: unknown,
+  role: 'admin' | 'member'
+):
+  | 'toastMadeAdmin'
+  | 'toastRemovedAdmin'
+  | 'toastMakeAdminFailed'
+  | 'toastRemoveAdminFailed' {
+  // Same answer shape as a removal.
+  const refused = removalFailed(json);
+  if (role === 'admin')
+    return refused ? 'toastMakeAdminFailed' : 'toastMadeAdmin';
+  return refused ? 'toastRemoveAdminFailed' : 'toastRemovedAdmin';
+}
+
 // ------------------------------------------------------------
 // Chat
 // ------------------------------------------------------------

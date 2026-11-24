@@ -7,10 +7,11 @@
 import { GROUP_SEND_LIMIT } from '@/lib/groups/member-requests';
 import { SEND_UNCONFIRMED } from '@/lib/groups/unconfirmed-sends';
 
-import { isStaffLabel, type StaffLabel } from './rules';
+import { isStaffLabel, SEND_NOT_STORED, type StaffLabel } from './rules';
 import {
   type SgAttachmentKind,
   SubmissionGroupSendBlockedError,
+  SubmissionGroupSendNotStoredError,
   SubmissionGroupSendRefusedError,
   SubmissionGroupSendUnconfirmedError,
   SubmissionGroupSentNotRecordedError,
@@ -176,7 +177,8 @@ const REFUSAL: Record<
 /**
  * What a failed `sendFromCrm` answers. Anything unclassified is a gateway
  * failure (502): the message row is already settled failed, so the wording
- * stays generic and never echoes the gateway's.
+ * stays generic and never echoes the gateway's. What broke before that row
+ * was stored is a 503 `not_stored`: nothing went out, so the words go back.
  */
 export function sendErrorFor(err: unknown): SgHttpError {
   if (err instanceof SgHttpError) return err;
@@ -193,8 +195,14 @@ export function sendErrorFor(err: unknown): SgHttpError {
       reason: err.reason,
     });
   // 210: sg_send_begin_media refused the type or the media object.
-  if (err instanceof SubmissionGroupDbError && err.code === '22023')
+  const unstored = err instanceof SubmissionGroupSendNotStoredError;
+  const db = unstored ? err.cause : err;
+  if (db instanceof SubmissionGroupDbError && db.code === '22023')
     return new SgHttpError(400, 'Invalid attachment');
+  if (unstored)
+    return new SgHttpError(503, 'The message was not sent; try again', {
+      code: SEND_NOT_STORED,
+    });
   // Nobody knows whether WhatsApp took it: never worded as a refusal.
   if (err instanceof SubmissionGroupSendUnconfirmedError)
     return new SgHttpError(502, 'The message may have been sent', {

@@ -48,6 +48,12 @@ and polish.
   removed: the messages, the room, its chat channel and the people in it. It
   is back when somebody of the bank joins again, and a login is no longer
   added to a room its bank has left. **Migration required: 312.**
+- **"Is now an admin" only when WhatsApp agreed.** A refused promotion or
+  demotion in a WhatsApp group (OpenWA numbers) is said to be refused.
+- **A submission group message that went nowhere comes back to the box.**
+  While the app restarted, or when the CRM broke before the message was
+  stored, the words were lost; now only a message that is in the log
+  counts as sent.
 - **Forward a WhatsApp message to any chat.** The dialog's search reaches
   every chat you may open, not only the 200 latest.
 - **A failed search or list no longer looks empty.** The inbox search and
