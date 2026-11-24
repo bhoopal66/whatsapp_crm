@@ -22,6 +22,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { hasMinRole } from '@/lib/auth/roles';
 import { channelMembers } from '@/lib/chat/api';
 import { offersParticipantCall } from '@/lib/deal-rooms/call';
+import { failedJoinBlock } from '@/lib/deal-rooms/join-blocks';
 import type { ChannelMember } from '@/lib/chat/types';
 import {
   listedPeople,
@@ -155,6 +156,16 @@ export function DealRoomMembersPanel({ detail, reload }: RoomContext) {
   };
   const decideFailed = (error: string) =>
     toast.error(t('members.decideFailed', { error }));
+
+  // Answered 200 and still not done: WhatsApp or the admit rule refused.
+  const decided = (b: Record<string, unknown>) => {
+    const first = Array.isArray(b.failed) ? b.failed[0] : undefined;
+    if (!first) return;
+    const block = failedJoinBlock(b.failed);
+    decideFailed(
+      block ? t(`members.joinBlocks.${block}`) : String(first.error ?? '')
+    );
+  };
 
   const fetchLink = async () => {
     try {
@@ -333,7 +344,7 @@ export function DealRoomMembersPanel({ detail, reload }: RoomContext) {
                       d === 'approve'
                         ? { approve: [q.joinRequestId], reject: [] }
                         : { approve: [], reject: [q.joinRequestId] },
-                      () => undefined,
+                      decided,
                       decideFailed
                     )
                   }

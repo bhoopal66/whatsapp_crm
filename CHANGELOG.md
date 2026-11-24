@@ -39,6 +39,22 @@ and polish.
 
 ### Fixed
 
+- Deal rooms: a manager can no longer let in somebody the room's own rule
+  refuses (opted out, no consent, an officer still waiting for a team
+  leader); the Members panel says why.
+- Deal rooms: a second customer is refused when the room is created. The
+  consent covers only the first, so the second was listed as invited and
+  never was.
+- Deal rooms: a join request approved automatically but not accepted by
+  WhatsApp goes back to the managers instead of waiting for ever.
+- Deal rooms: a manager can no longer let in somebody the room's own rule
+  refuses (opted out, no consent, an officer still waiting for a team
+  leader); the Members panel says why.
+- Deal rooms: a second customer is refused when the room is created. The
+  consent covers only the first, so the second was listed as invited and
+  never was.
+- Deal rooms: a join request approved automatically but not accepted by
+  WhatsApp goes back to the managers instead of waiting for ever.
 - **API, smaller points.** A repeated submission call that names another
   number links only the group's own customer to Compass;
   `message.status_updated` no longer fires for chats on staff members' own

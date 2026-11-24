@@ -69,6 +69,13 @@ export function parseCreateBody(
       bank_code: text(q.bankCode),
     });
   }
+  if (participants.filter((p) => p.role === 'customer').length > 1) {
+    // The second one would be listed as invited and never be.
+    return {
+      ok: false,
+      error: 'A deal room takes one customer: the consent covers only them',
+    };
+  }
   const c = b.consent;
   if (!c || typeof c !== 'object' || Array.isArray(c)) {
     return { ok: false, error: "the customer's consent is required" };

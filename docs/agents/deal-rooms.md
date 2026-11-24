@@ -36,7 +36,14 @@ it.
   fails.
 - `deal_room_admit_block` is the one rule for join-request auto-approval and
   every invite send (`room_not_open`, `opted_out`, `no_consent`,
-  `bank_guests_off`, …).
+  `bank_guests_off`, …). A manager's own approval passes it too
+  (`joinBlocks` in `operations.ts`, reasons in `join-blocks.ts`): blocked,
+  waiting for or refused by a leader, or unreadable = not sent to Meta and
+  returned in `failed`; a number nobody listed stays the manager's decision.
+- One customer per room (`inviteeIssues`, the create parser): the consent is
+  the picked contact's alone, so another customer could never be invited.
+- An auto-approval Meta did not take goes back to `pending` (compare-and-set
+  on `auto_approved`) and the managers are told.
 - **Webhook.** The Meta route picks group traffic out (`isGroupMessage`,
   `isGroupStatus`, `isGroupChange`; the normaliser skips the same items, so
   change both) and hands it to `handleGroupWebhook` after `processMetaEvent`.

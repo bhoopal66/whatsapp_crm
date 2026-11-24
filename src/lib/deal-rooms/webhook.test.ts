@@ -66,6 +66,7 @@ import {
   parseGroupSettings,
   pickContactByPhone,
 } from './webhook';
+import { memoryDb } from './test-db';
 
 const GROUP = 'HBgLMTY1MDM4Nzk0MzkVAgASGBQzQTRB';
 const ROOM = {
@@ -469,6 +470,81 @@ describe('participants and join requests', () => {
       joinRequestIds: ['jr-1'],
     });
     expect(inserts('notifications')).toEqual([]);
+  });
+
+  describe('an auto-approved join request WhatsApp did not take', () => {
+    const joinRequest = async (decision = 'auto_approved') => {
+      const mem = memoryDb(
+        {
+          deal_rooms: [
+            {
+              id: 'room-1',
+              account_id: 'acct-1',
+              wa_group_id: GROUP,
+              channel_id: 'ch-1',
+              created_by: 'user-1',
+              subject: 'Villa',
+            },
+          ],
+          chat_channel_members: [],
+          notifications: [],
+          deal_room_join_requests: [
+            {
+              id: 'r-1',
+              room_id: 'room-1',
+              join_request_id: 'jr-1',
+              decision,
+              decided_at: '2026-11-24T00:00:00Z',
+            },
+          ],
+        },
+        { rpc: () => 'auto_approved' }
+      );
+      await run(mem.db, {
+        groups: [
+          {
+            type: 'group_join_request_created',
+            group_id: GROUP,
+            join_request_id: 'jr-1',
+            wa_id: '971501234567',
+          },
+        ],
+      });
+      return mem.tables;
+    };
+
+    it.each([
+      ['the call failed', () => Promise.reject(new Error('timeout'))],
+      [
+        'it is listed among the failures',
+        () =>
+          Promise.resolve({
+            done: [],
+            failed: [{ joinRequestId: 'jr-1', code: 1, message: 'no' }],
+          }),
+      ],
+    ])('is pending again and the managers are asked: %s', async (_w, answer) => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      approveJoinRequests.mockImplementationOnce(answer as never);
+      const tables = await joinRequest();
+      expect(tables.deal_room_join_requests[0]).toMatchObject({
+        decision: 'pending',
+        decided_at: null,
+      });
+      expect(tables.notifications).toEqual([
+        expect.objectContaining({ type: 'deal_room_join_request' }),
+      ]);
+    });
+
+    it('leaves a decision a person made meanwhile', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      approveJoinRequests.mockImplementationOnce(() =>
+        Promise.reject(new Error('timeout'))
+      );
+      const tables = await joinRequest('rejected');
+      expect(tables.deal_room_join_requests[0].decision).toBe('rejected');
+      expect(tables.notifications).toEqual([]);
+    });
   });
 
   it('asks the managers about a pending join request', async () => {
