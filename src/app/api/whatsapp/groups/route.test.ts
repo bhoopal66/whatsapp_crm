@@ -72,6 +72,8 @@ vi.mock('@/lib/groups/server', async (importOriginal) => ({
   persistGroupSnapshot: mocks.persist,
 }));
 
+import { __resetRateLimitForTests } from '@/lib/rate-limit';
+import { addBudget } from '@/lib/groups/add-budget';
 import { GET, POST } from './route';
 
 const G = '22222222-2222-4222-8222-222222222222';
@@ -110,6 +112,7 @@ const row = (over: Record<string, unknown> = {}) => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  __resetRateLimitForTests();
   // server.ts's own service-role client (for loadChannels, mocked) only
   // has to construct.
   vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'http://supabase.test');
@@ -350,6 +353,41 @@ describe('POST /api/whatsapp/groups', () => {
     });
     expect(mocks.loadChannels).not.toHaveBeenCalled();
     expect(mocks.createGroup).not.toHaveBeenCalled();
+  });
+
+  it('spends the add budget, and refuses when it is used up', async () => {
+    addBudget('agent-1', 'other').spend(59);
+    expect((await post(base)).status).toBe(201);
+    expect(addBudget('agent-1', CH).remaining()).toBe(0);
+    const res = await post(base);
+    expect(res.status).toBe(429);
+    expect(await res.json()).toMatchObject({
+      code: 'too_many_adds',
+      error: expect.stringContaining('try again in 60 min'),
+    });
+    expect(mocks.createGroup).toHaveBeenCalledTimes(1);
+  });
+
+  it('asks WhatsApp only for the people the budget has room for', async () => {
+    addBudget('agent-1', 'other').spend(59);
+    const res = await post({
+      ...base,
+      participants: ['971500000001', '971500000002'],
+    });
+    expect(mocks.createGroup.mock.calls[0][0].participants).toEqual([
+      '971500000001',
+    ]);
+    expect((await res.json()).notAttempted).toContain('971500000002');
+  });
+
+  it('caps the groups created on one number in a day', async () => {
+    for (let i = 0; i < 10; i++) {
+      expect((await post(base)).status).toBe(201);
+    }
+    const res = await post(base);
+    expect(res.status).toBe(429);
+    expect(await res.json()).toMatchObject({ code: 'too_many_creates' });
+    expect(mocks.createGroup).toHaveBeenCalledTimes(10);
   });
 
   it('refuses a manager who is not live staff', async () => {

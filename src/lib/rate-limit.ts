@@ -109,6 +109,12 @@ export function rateLimitRemaining(
   return Math.max(0, limit - entry.count);
 }
 
+/** Gives back requests that turned out to have done nothing. */
+export function refundRateLimit(key: string, count: number): void {
+  const entry = buckets.get(key);
+  if (entry) entry.count = Math.max(0, entry.count - count);
+}
+
 /**
  * Standard 429 response with the headers clients expect (RFC 6585 +
  * draft-ietf-httpapi-ratelimit-headers). Callers just `return` this.
@@ -158,6 +164,8 @@ export const RATE_LIMITS = {
    *  WhatsApp restricts numbers that mass-add. */
   groupAddPerson: { limit: 60, windowMs: 3_600_000 },
   groupAddNumber: { limit: 120, windowMs: 3_600_000 },
+  /** WhatsApp groups created on one number, per day. */
+  groupCreateNumber: { limit: 10, windowMs: 86_400_000 },
   /** Case desk uploads, per person: each one stores a file. */
   deskUpload: { limit: 60, windowMs: 60_000 },
   /** Invitation peek (public, per-IP). 30/min lets a forwarded link

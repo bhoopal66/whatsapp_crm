@@ -20,6 +20,11 @@ import {
 } from '@/lib/auth/account';
 import { canSendMessages } from '@/lib/auth/roles';
 import {
+  addBudget,
+  refundGroupCreate,
+  spendGroupCreate,
+} from '@/lib/groups/add-budget';
+import {
   mergeGroupList,
   SUBMISSION_ROW_COLUMNS,
   type SubmissionListRow,
@@ -47,6 +52,8 @@ import {
   createGroup,
   type CreateGroupOutcome,
   getGroup,
+  GROUP_ADD_POLICY,
+  GroupCreateUnsupportedError,
   groupDeadline,
   updateGroupInfo,
   updateGroupSetting,
@@ -301,12 +308,31 @@ export async function POST(request: Request) {
     }
 
     const channel = await loadGroupChannel(ctx.accountId, body.channelId);
-    const outcome = await createGroup({
-      channel,
-      name: body.name,
-      participants: waIds,
-      deadline,
-    });
+    // Creating adds people just as surely (add-budget.ts). With room for
+    // only some, the rest are reported as not attempted.
+    const budget = addBudget(ctx.userId, channel.id);
+    if (budget.remaining() === 0) throw budget.refusal();
+    spendGroupCreate(channel.id);
+    const most = Math.min(waIds.length, GROUP_ADD_POLICY.maxPerOperation);
+    const room = budget.spend(most);
+    const asked = room < most ? waIds.slice(0, room) : waIds;
+    const overLimit = waIds.slice(asked.length);
+    let outcome: CreateGroupOutcome;
+    try {
+      outcome = await createGroup({
+        channel,
+        name: body.name,
+        participants: asked,
+        deadline,
+      });
+    } catch (err) {
+      // This gateway cannot create: the next try is on another number.
+      if (err instanceof GroupCreateUnsupportedError) {
+        budget.refund(room);
+        refundGroupCreate(channel.id);
+      }
+      throw err;
+    }
 
     const admin = supabaseAdmin();
     let group: WhatsappGroupRow;
@@ -397,7 +423,7 @@ export async function POST(request: Request) {
         group,
         added: outcome.added,
         refused: outcome.refused,
-        notAttempted: outcome.notAttempted,
+        notAttempted: [...outcome.notAttempted, ...overLimit],
         invalid: [...invalid, ...outcome.invalid],
         skipped: screened.skipped,
         warnings,

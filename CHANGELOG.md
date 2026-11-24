@@ -22,6 +22,10 @@ and polish.
 
 ### Fixed
 
+- **Groups: every way of adding or messaging people has the hourly limit.**
+  Creating a group, sending the invite link and a manager's saved number
+  now spend the same limits as adding members (60 people an hour per person,
+  120 per number), and one number creates at most 10 groups a day.
 - **Groups: Sync no longer believes an empty or damaged list.** A gateway
   that has just re-paired answers with no groups, and every group on the
   number was marked "left" and refused sends. An empty list, a row that

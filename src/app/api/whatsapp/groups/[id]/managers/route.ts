@@ -26,6 +26,7 @@ import { NextResponse } from 'next/server';
 
 import { assertSalesAccess, getCurrentAccount } from '@/lib/auth/account';
 import { canViewAllGroups } from '@/lib/auth/roles';
+import { addBudget } from '@/lib/groups/add-budget';
 import {
   diffManagers,
   planManagerNumbers,
@@ -135,7 +136,8 @@ async function syncManagerNumbers(
   group: WhatsappGroupRow,
   added: string[],
   removed: string[],
-  deadline: number
+  deadline: number,
+  callerId: string
 ): Promise<ManagerNumbersReport> {
   const report: ManagerNumbersReport = { added: [], removed: [], failed: [] };
   const people = [...added, ...removed];
@@ -225,6 +227,10 @@ async function syncManagerNumbers(
     });
 
     let changed = false;
+    const spent = addBudget(callerId, channel.id).spend(plan.add.length);
+    for (const c of plan.add.splice(spent)) {
+      report.failed.push({ name: c.name, reason: 'too_many_adds' });
+    }
     if (plan.add.length > 0) {
       try {
         const outcome = await addParticipants({
@@ -394,7 +400,8 @@ export async function PUT(request: Request, { params }: Params) {
       group,
       added,
       removed,
-      deadline
+      deadline,
+      ctx.userId
     );
     const managers = await readManagers(
       admin,

@@ -40,6 +40,8 @@ vi.mock('@/lib/groups/server', async (importOriginal) => ({
   persistGroupSnapshot: mocks.persistGroupSnapshot,
 }));
 
+import { __resetRateLimitForTests } from '@/lib/rate-limit';
+import { addBudget } from '@/lib/groups/add-budget';
 import { GET, PUT } from './route';
 
 const G = '22222222-2222-4222-8222-222222222222';
@@ -65,6 +67,7 @@ const managerIds = () =>
 
 beforeEach(() => {
   vi.clearAllMocks();
+  __resetRateLimitForTests();
   vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'http://supabase.test');
   vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'service-key');
   vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -377,6 +380,15 @@ describe('PUT: manager numbers follow the managers', () => {
       removed: [],
       failed: [{ name: 'Ugo', reason: 'unavailable' }],
     });
+  });
+
+  it('adds no number past the hourly add limit', async () => {
+    addBudget('admin-1', CH).spend(60);
+    const res = await put({ userIds: [U1, U2] });
+    expect((await res.json()).numbers.failed).toEqual([
+      { name: 'Ugo', reason: 'too_many_adds' },
+    ]);
+    expect(mocks.addParticipants).not.toHaveBeenCalled();
   });
 
   it('reports a refused add so the invite link can be shared', async () => {

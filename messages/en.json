@@ -8645,6 +8645,8 @@
         "rate_limited": "too many requests, wait a moment and try again",
         "channel_disconnected": "the number is disconnected",
         "billing": "the WhatsApp number's subscription needs attention",
+        "too_many_adds": "Too many people were added in the last hour. Try again within the hour.",
+        "too_many_creates": "Too many groups were created on this number in the last 24 hours. Try again tomorrow or use another number.",
         "gateway_unavailable": "WhatsApp didn't respond, try again",
         "unknown": "something went wrong"
       },
