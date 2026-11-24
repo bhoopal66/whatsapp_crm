@@ -18,6 +18,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { Copy, KeyRound, Loader2, Plus, Trash2 } from 'lucide-react';
 
+import { ConfirmDialog } from '@/components/ui-ext/confirm-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -37,8 +38,10 @@ import {
   SCOPE_DESCRIPTIONS,
   type ApiScope,
 } from '@/lib/api-keys/scopes';
+import { apiKeyStatus } from '@/lib/api-keys/status';
 import { useTranslations } from 'next-intl';
 import { SettingsPanelHead } from './settings-panel-head';
+import { useWebhooks, WebhooksCard } from './webhooks-card';
 import { uiLocale } from '@/i18n/ui-locale';
 
 interface ApiKey {
@@ -60,13 +63,6 @@ function fmtDate(iso: string): string {
   });
 }
 
-function keyStatus(k: ApiKey): 'active' | 'revoked' | 'expired' {
-  if (k.revoked_at) return 'revoked';
-  if (k.expires_at && new Date(k.expires_at).getTime() <= Date.now())
-    return 'expired';
-  return 'active';
-}
-
 export function ApiKeysSettings() {
   const t = useTranslations('Settings.apiKeys');
 
@@ -74,6 +70,8 @@ export function ApiKeysSettings() {
   const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
   const [revoking, setRevoking] = useState<string | null>(null);
+  const [askRevoke, setAskRevoke] = useState<ApiKey | null>(null);
+  const webhooks = useWebhooks();
 
   const load = useCallback(async () => {
     try {
@@ -115,6 +113,8 @@ export function ApiKeysSettings() {
           k.id === key.id ? { ...k, revoked_at: new Date().toISOString() } : k
         )
       );
+      // The database switched the key's webhooks off with it (315).
+      void webhooks.reload();
     } catch (err) {
       console.error('[ApiKeysSettings] revoke error:', err);
       toast.error(t('networkError'));
@@ -122,6 +122,14 @@ export function ApiKeysSettings() {
       setRevoking(null);
     }
   }
+
+  // How many webhooks stop with the key; null = the list is not known.
+  const stopping =
+    askRevoke && webhooks.state.status === 'ready'
+      ? webhooks.state.webhooks.filter(
+          (w) => w.is_active && w.key?.id === askRevoke.id
+        ).length
+      : null;
 
   if (loading) {
     return (
@@ -172,7 +180,7 @@ export function ApiKeysSettings() {
           <CardContent className="p-0">
             <ul className="divide-border divide-y">
               {keys.map((k) => {
-                const status = keyStatus(k);
+                const status = apiKeyStatus(k);
                 const inactive = status !== 'active';
                 return (
                   <li
@@ -236,7 +244,7 @@ export function ApiKeysSettings() {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => handleRevoke(k)}
+                        onClick={() => setAskRevoke(k)}
                         disabled={revoking === k.id}
                         className="border-destructive/30 bg-destructive-soft text-destructive hover:border-destructive/50 hover:bg-destructive/15 hover:text-destructive self-start sm:self-auto"
                       >
@@ -255,6 +263,28 @@ export function ApiKeysSettings() {
           </CardContent>
         </Card>
       )}
+
+      <WebhooksCard {...webhooks} />
+
+      <ConfirmDialog
+        open={askRevoke !== null}
+        onOpenChange={(open) => !open && setAskRevoke(null)}
+        title={t('revokeTitle')}
+        description={[
+          t('revokeBody', { name: askRevoke?.name ?? '' }),
+          ...(stopping === null
+            ? []
+            : [t('revokeStopsWebhooks', { count: stopping })]),
+        ].join(' ')}
+        cancelLabel={t('cancel')}
+        confirmLabel={t('revoke')}
+        destructive
+        onConfirm={() => {
+          if (!askRevoke) return;
+          setAskRevoke(null);
+          void handleRevoke(askRevoke);
+        }}
+      />
 
       <CreateKeyDialog
         open={createOpen}

@@ -43,7 +43,9 @@ and polish.
   key that set it up (or last changed it): revoking or deleting the key
   switches its endpoints off and tells the owners and admins. Subscribing to
   message events also needs the `messages:read` scope. Endpoints made before
-  this keep working as they are. **Migration required: 315.**
+  this keep working as they are. Settings → API keys lists the webhooks, where
+  an owner or admin can switch one off or delete it, and revoking a key asks
+  first and says how many webhooks stop. **Migration required: 315.**
 - **An erased customer leaves the webhook queue.** Erasing a customer deletes
   the queued and recently delivered webhook events that name them.
 - **The web form loses no text and makes no twin.** A second text sent after

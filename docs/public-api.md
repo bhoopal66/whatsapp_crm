@@ -864,6 +864,9 @@ endpoints are switched off (`is_active: false`) and the workspace's owners and
 admins are told. To use one again, switch it on with a live key. Endpoints made
 before keys were recorded belong to none until a key changes them.
 
+Owners and admins see every endpoint under Settings → API keys, and can switch
+one off or delete it there.
+
 ```bash
 curl -X POST https://your-crm.example.com/api/v1/webhooks \
   -H "Authorization: Bearer taamul_live_xxx" \
