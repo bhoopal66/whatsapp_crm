@@ -19,7 +19,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
+import { useManagerNumbersToast } from '@/components/groups/manager-numbers-toast';
 import { ManagersPicker } from '@/components/groups/managers-picker';
+import { CreateOutcomePanel } from '@/components/groups/create-outcome-panel';
 import { ConsentOverride } from '@/components/groups/consent-override';
 import { MemberPicker } from '@/components/groups/member-picker';
 import { useWorkspaceMembers } from '@/components/meetings/use-workspace-members';
@@ -33,10 +35,12 @@ import {
 import { canEditSettings } from '@/lib/auth/roles';
 import { canSyncGroups, isGroupCapableNumber } from '@/lib/groups/access';
 import type { AddMembersSummary } from '@/lib/groups/group-page';
+import type { ManagerNumbersReport } from '@/lib/groups/manager-numbers';
 import { GROUP_SETTINGS } from '@/lib/groups/types';
 import {
   buildCreateBody,
   createErrorKey,
+  createFailureKind,
   DEFAULT_TOGGLES,
   firstInvalidStep,
   formatWaId,
@@ -64,6 +68,10 @@ type Phase =
   | { kind: 'creating' }
   // On WhatsApp but not saved here: terminal, a retry would make a second group.
   | { kind: 'unsaved'; syncing: boolean }
+  // May exist already: the entries are kept, the way on is Check Groups.
+  | { kind: 'unconfirmed' }
+  // The server asks before a second group of the same name.
+  | { kind: 'repeat' }
   | { kind: 'done'; groupId: string | null; summary: ResultSummary };
 
 /**
@@ -81,6 +89,7 @@ export function CreateGroupDialog({
   onCreated: (groupId: string | null) => void;
 }) {
   const t = useTranslations('Groups.create');
+  const toastNumbers = useManagerNumbersToast();
   const router = useRouter();
   const { user, accountRole, accountId } = useAuth();
   const numbers = useAccountNumbers(open);
@@ -149,7 +158,7 @@ export function CreateGroupDialog({
     setStep((s) => s + 1);
   };
 
-  const submit = async () => {
+  const submit = async (createAnother = false) => {
     const bad = firstInvalidStep(current);
     if (bad) {
       setStep(WIZARD_STEPS.indexOf(bad.step));
@@ -160,12 +169,17 @@ export function CreateGroupDialog({
       const res = await fetch('/api/whatsapp/groups', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(buildCreateBody(current)),
+        body: JSON.stringify(buildCreateBody(current, createAnother)),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
         if (isCreatedButUnsaved(json?.code)) {
           setPhase({ kind: 'unsaved', syncing: false });
+          return;
+        }
+        const kind = createFailureKind(res.status, json?.code);
+        if (kind !== 'refused') {
+          setPhase({ kind });
           return;
         }
         toast.error(
@@ -175,6 +189,7 @@ export function CreateGroupDialog({
         return;
       }
       const result = parseCreateResult(json);
+      toastNumbers((json as { numbers?: ManagerNumbersReport | null }).numbers);
       onCreated(result.groupId);
       setPhase({
         kind: 'done',
@@ -182,8 +197,8 @@ export function CreateGroupDialog({
         summary: summarizeResult(result, merged.members),
       });
     } catch {
-      toast.error(t('failed', { reason: 'network' }));
-      setPhase({ kind: 'form' });
+      // The request may have arrived: never an invitation to try again.
+      setPhase({ kind: 'unconfirmed' });
     }
   };
 
@@ -219,7 +234,9 @@ export function CreateGroupDialog({
               ? t('resultTitle')
               : phase.kind === 'unsaved'
                 ? t('unsavedTitle')
-                : t('title')}
+                : phase.kind === 'unconfirmed'
+                  ? t('unconfirmedTitle')
+                  : t('title')}
           </DialogTitle>
           {phase.kind === 'form' && (
             <DialogDescription>
@@ -269,6 +286,16 @@ export function CreateGroupDialog({
               )}
             </DialogFooter>
           </div>
+        ) : phase.kind === 'unconfirmed' || phase.kind === 'repeat' ? (
+          <CreateOutcomePanel
+            kind={phase.kind}
+            onBack={() => setPhase({ kind: 'form' })}
+            onCheck={() => {
+              onCreated(null);
+              onOpenChange(false);
+            }}
+            onCreateAnother={() => void submit(true)}
+          />
         ) : phase.kind === 'done' ? (
           <ResultView
             summary={phase.summary}

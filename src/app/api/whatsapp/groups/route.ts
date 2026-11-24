@@ -8,10 +8,12 @@
 // POST: create a group on a Whapi number the caller may use
 // (`whatsapp_group_can_create`). WhatsApp first; the service role then
 // persists what WhatsApp made, and description, settings and managers
-// follow best-effort, reported as `warnings`.
+// follow best-effort, reported as `warnings`. A create whose answer was
+// lost is `create_unconfirmed`, and the same name again within minutes
+// is `create_repeat` unless `createAnother` (`create-outcome.ts`).
 // ============================================================
 
-import { NextResponse } from 'next/server';
+import { after, NextResponse } from 'next/server';
 
 import {
   getCurrentAccount,
@@ -25,10 +27,20 @@ import {
   spendGroupCreate,
 } from '@/lib/groups/add-budget';
 import {
+  claimUnconfirmedGroup,
+  CREATE_REPEAT_RULE,
+  createRepeat,
+  createRepeatKey,
+  createUnconfirmed,
+  isDefiniteCreateRefusal,
+  saveGroupManagers,
+} from '@/lib/groups/create-outcome';
+import {
   mergeGroupList,
   SUBMISSION_ROW_COLUMNS,
   type SubmissionListRow,
 } from '@/lib/groups/merge-list';
+import { syncManagerNumbers } from '@/lib/groups/manager-sync';
 import { screenRecipients } from '@/lib/groups/recipients';
 import { nameSearchPattern, parseCreate } from '@/lib/groups/requests';
 import {
@@ -45,6 +57,11 @@ import type {
   GroupSettings,
   WhatsappGroupRow,
 } from '@/lib/groups/types';
+import {
+  checkRateLimit,
+  rateLimitRemaining,
+  refundRateLimit,
+} from '@/lib/rate-limit';
 import { loadUnread } from '@/lib/submission-groups/view-refs';
 import { searchTerm, sortColumn } from '@/lib/submission-groups/views';
 import type { WhatsAppChannel } from '@/lib/whatsapp/channels';
@@ -312,11 +329,22 @@ export async function POST(request: Request) {
     // only some, the rest are reported as not attempted.
     const budget = addBudget(ctx.userId, channel.id);
     if (budget.remaining() === 0) throw budget.refusal();
+    // Peeked before the caps are spent and taken right after (no await in
+    // between), so a repeat costs nothing and a refused cap takes no name.
+    const sameName = createRepeatKey(ctx.userId, channel.id, body.name);
+    if (
+      !body.createAnother &&
+      rateLimitRemaining(sameName, CREATE_REPEAT_RULE) === 0
+    ) {
+      throw createRepeat();
+    }
     spendGroupCreate(channel.id);
+    const tookName = checkRateLimit(sameName, CREATE_REPEAT_RULE).success;
     const most = Math.min(waIds.length, GROUP_ADD_POLICY.maxPerOperation);
     const room = budget.spend(most);
     const asked = room < most ? waIds.slice(0, room) : waIds;
     const overLimit = waIds.slice(asked.length);
+    const startedAt = Date.now();
     let outcome: CreateGroupOutcome;
     try {
       outcome = await createGroup({
@@ -331,7 +359,21 @@ export async function POST(request: Request) {
         budget.refund(room);
         refundGroupCreate(channel.id);
       }
-      throw err;
+      if (isDefiniteCreateRefusal(err)) {
+        if (tookName) refundRateLimit(sameName, 1);
+        throw err;
+      }
+      console.error('[groups] create outcome unknown', err);
+      after(() =>
+        claimUnconfirmedGroup(supabaseAdmin(), {
+          channel,
+          name: body.name,
+          startedAt,
+          createdBy: ctx.userId,
+          managerIds,
+        })
+      );
+      throw createUnconfirmed();
     }
 
     const admin = supabaseAdmin();
@@ -360,16 +402,14 @@ export async function POST(request: Request) {
     const warnings: string[] = [];
     if (outcome.error) warnings.push('adds_stopped');
 
-    const mgr = await admin.from('whatsapp_group_managers').upsert(
-      managerIds.map((user_id) => ({
-        group_id: group.id,
-        account_id: ctx.accountId,
-        user_id,
-      })),
-      { onConflict: 'group_id,user_id', ignoreDuplicates: true }
+    const mgrError = await saveGroupManagers(
+      admin,
+      ctx.accountId,
+      group.id,
+      managerIds
     );
-    if (mgr.error) {
-      console.error('[groups] managers not saved', mgr.error);
+    if (mgrError) {
+      console.error('[groups] managers not saved', mgrError);
       warnings.push('managers_not_saved');
     }
 
@@ -418,9 +458,23 @@ export async function POST(request: Request) {
       else group = data as unknown as WhatsappGroupRow;
     }
 
+    // The chosen managers' saved numbers, as the managers PUT does it. Last:
+    // on little time left this is what may be cut short, and it says so.
+    const numbers = mgrError
+      ? null
+      : await syncManagerNumbers(
+          admin,
+          group,
+          managerIds.filter((id) => id !== ctx.userId),
+          [],
+          deadline,
+          ctx.userId
+        );
+
     return NextResponse.json(
       {
         group,
+        numbers,
         added: outcome.added,
         refused: outcome.refused,
         notAttempted: [...outcome.notAttempted, ...overLimit],

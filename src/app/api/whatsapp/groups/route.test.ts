@@ -33,6 +33,7 @@ function fakeDb(resolve: Resolver, log: Op[]) {
         q[m] = (...args: unknown[]) => (op.calls.push([m, args]), q);
       }
       q.single = async () => resolve(op);
+      q.maybeSingle = async () => resolve(op);
       q.then = (ok: (v: unknown) => unknown, ko: (e: unknown) => unknown) =>
         Promise.resolve(resolve(op)).then(ok, ko);
       return q;
@@ -48,9 +49,17 @@ const mocks = vi.hoisted(() => ({
   updateGroupInfo: vi.fn(),
   updateGroupSetting: vi.fn(),
   persist: vi.fn(),
+  findGroupsNamed: vi.fn(),
+  addParticipants: vi.fn(),
+  adminRpc: vi.fn(),
+  later: [] as Array<() => Promise<void>>,
   admin: null as unknown,
 }));
 
+vi.mock('next/server', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('next/server')>()),
+  after: (fn: () => Promise<void>) => void mocks.later.push(fn),
+}));
 vi.mock('@/lib/auth/account', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/auth/account')>()),
   getCurrentAccount: mocks.getCurrentAccount,
@@ -63,6 +72,8 @@ vi.mock('@/lib/whatsapp/groups', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/whatsapp/groups')>()),
   createGroup: mocks.createGroup,
   getGroup: mocks.getGroup,
+  findGroupsNamed: mocks.findGroupsNamed,
+  addParticipants: mocks.addParticipants,
   updateGroupInfo: mocks.updateGroupInfo,
   updateGroupSetting: mocks.updateGroupSetting,
 }));
@@ -73,7 +84,9 @@ vi.mock('@/lib/groups/server', async (importOriginal) => ({
 }));
 
 import { __resetRateLimitForTests } from '@/lib/rate-limit';
+import { WhapiError } from '@/lib/whatsapp/whapi-api';
 import { addBudget } from '@/lib/groups/add-budget';
+import { GroupCreateUnsupportedError } from '@/lib/whatsapp/groups';
 import { GET, POST } from './route';
 
 const G = '22222222-2222-4222-8222-222222222222';
@@ -92,6 +105,8 @@ let sgRows: Array<Record<string, unknown>>;
 let sgError: unknown;
 let sgWaIds: unknown;
 let sgWaIdsError: unknown;
+let stored: unknown;
+let mgrError: unknown;
 const rpc = vi.fn();
 
 const row = (over: Record<string, unknown> = {}) => ({
@@ -127,6 +142,9 @@ beforeEach(() => {
   sgError = null;
   sgWaIds = [];
   sgWaIdsError = null;
+  stored = null;
+  mgrError = null;
+  mocks.later.length = 0;
   rpc.mockImplementation(async (fn: string) =>
     fn === 'whatsapp_group_can_create'
       ? { data: canCreate, error: null }
@@ -161,10 +179,18 @@ beforeEach(() => {
     }
     if (op.table === 'contacts') return { data: registry, error: null };
     if (op.table === 'whatsapp_groups') {
+      if (!op.calls.some(([m]) => m === 'update')) {
+        return { data: stored, error: null };
+      }
       return { data: row({ description: 'Hi' }), error: null };
+    }
+    if (op.table === 'whatsapp_group_managers') {
+      return { data: null, error: mgrError };
     }
     return { data: null, error: null };
   }, adminLog);
+  Object.assign(mocks.admin as object, { rpc: mocks.adminRpc });
+  mocks.adminRpc.mockResolvedValue({ data: null, error: null });
   mocks.getCurrentAccount.mockResolvedValue({
     supabase: { ...rls, rpc },
     userId: 'agent-1',
@@ -382,9 +408,9 @@ describe('POST /api/whatsapp/groups', () => {
 
   it('caps the groups created on one number in a day', async () => {
     for (let i = 0; i < 10; i++) {
-      expect((await post(base)).status).toBe(201);
+      expect((await post({ ...base, name: `T${i}` })).status).toBe(201);
     }
-    const res = await post(base);
+    const res = await post({ ...base, name: 'T10' });
     expect(res.status).toBe(429);
     expect(await res.json()).toMatchObject({ code: 'too_many_creates' });
     expect(mocks.createGroup).toHaveBeenCalledTimes(10);
@@ -537,5 +563,161 @@ describe('POST /api/whatsapp/groups: consent and later batches', () => {
     expect((await res.json()).skipped).toEqual([
       { waId: '971501234567', contactId: null, reason: 'opted_out' },
     ]);
+  });
+});
+
+describe('POST /api/whatsapp/groups: a create that may have happened', () => {
+  const lost = () => new WhapiError('timed out', 503);
+  const code = async (res: Response) => (await res.json()).code;
+
+  it.each([
+    ['a timeout', lost()],
+    ['a gateway 5xx', new WhapiError('bad gateway', 502)],
+    ['a 408', new WhapiError('timeout', 408)],
+    ['an unknown error', new Error('socket hang up')],
+  ])('answers create_unconfirmed to %s', async (_what, err) => {
+    mocks.createGroup.mockRejectedValueOnce(err);
+    const res = await post(base);
+    expect(res.status).toBe(502);
+    expect(await code(res)).toBe('create_unconfirmed');
+  });
+
+  it('asks before the same name again, whatever its spacing and case', async () => {
+    mocks.createGroup.mockRejectedValueOnce(lost());
+    await post(base);
+    const res = await post({ ...base, name: ' tEAM ' });
+    expect(res.status).toBe(409);
+    expect(await code(res)).toBe('create_repeat');
+    expect(mocks.createGroup).toHaveBeenCalledTimes(1);
+  });
+
+  it('creates another only for a literal true, and spends no cap on a repeat', async () => {
+    expect((await post(base)).status).toBe(201);
+    const left = addBudget('agent-1', CH).remaining();
+    expect((await post({ ...base, createAnother: 'true' })).status).toBe(409);
+    expect(addBudget('agent-1', CH).remaining()).toBe(left);
+    expect((await post({ ...base, createAnother: true })).status).toBe(201);
+    expect(mocks.createGroup).toHaveBeenCalledTimes(2);
+  });
+
+  it('a definite refusal keeps its answer and gives the name back', async () => {
+    mocks.createGroup.mockRejectedValueOnce(new WhapiError('no', 403));
+    expect(await code(await post(base))).toBe('not_admin');
+    mocks.createGroup.mockRejectedValueOnce(
+      new GroupCreateUnsupportedError('501')
+    );
+    expect(await code(await post(base))).toBe('create_unsupported');
+    expect((await post(base)).status).toBe(201);
+    expect(mocks.later).toHaveLength(0);
+  });
+
+  describe('ownership of the group that was made', () => {
+    const found = (over: Record<string, unknown> = {}) => ({
+      id: WA,
+      name: 'Team',
+      createdAt: Math.floor(Date.now() / 1000) + 5,
+      createdBy: null,
+      participants: [],
+      ...over,
+    });
+    const run = async (groups: unknown[], patch: object = {}) => {
+      mocks.createGroup.mockRejectedValueOnce(lost());
+      mocks.findGroupsNamed.mockResolvedValue(groups);
+      mocks.getGroup.mockResolvedValue(found({ participantsCount: 3 }));
+      await post({ ...base, managerIds: [M1], ...patch });
+      for (const fn of mocks.later) await fn();
+    };
+    const managers = () =>
+      adminLog.find((o) => o.table === 'whatsapp_group_managers')?.calls[0][1];
+
+    it('gives the one new group to its creator and the chosen managers', async () => {
+      await run([found(), found({ id: 'old@g.us', createdAt: 1 })]);
+      expect(mocks.findGroupsNamed).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'Team' })
+      );
+      expect(mocks.persist).toHaveBeenCalledWith(
+        mocks.admin,
+        expect.objectContaining({ id: CH }),
+        expect.objectContaining({ id: WA, participantsCount: 3 }),
+        { createdBy: 'agent-1' }
+      );
+      expect(managers()?.[0]).toEqual([
+        { group_id: G, account_id: 'acct-1', user_id: 'agent-1' },
+        { group_id: G, account_id: 'acct-1', user_id: M1 },
+      ]);
+    });
+
+    it.each([
+      ['none', () => []],
+      ['two', () => [found(), found({ id: '2@g.us' })]],
+      ['an older one', () => [found({ createdAt: 1 })]],
+      ['one with no date', () => [found({ createdAt: null })]],
+      ["someone else's", () => [found({ createdBy: { waId: '97150111' } })]],
+    ])('leaves %s alone', async (_what, groups) => {
+      await run(groups());
+      expect(mocks.findGroupsNamed).toHaveBeenCalled();
+      expect(mocks.persist).not.toHaveBeenCalled();
+    });
+
+    it('leaves an owned group and a submission group alone', async () => {
+      stored = { created_by: 'agent-2' };
+      await run([found()]);
+      stored = { created_by: null };
+      sgWaIds = [{ wa_group_id: WA }];
+      await run([found()], { createAnother: true });
+      expect(mocks.persist).not.toHaveBeenCalled();
+      expect(mocks.findGroupsNamed).toHaveBeenCalledTimes(3);
+    });
+
+    it('only logs when the look-up fails', async () => {
+      mocks.createGroup.mockRejectedValueOnce(lost());
+      mocks.findGroupsNamed.mockRejectedValue(new Error('boom'));
+      await post(base);
+      await expect(mocks.later[0]()).resolves.toBeUndefined();
+      expect(mocks.persist).not.toHaveBeenCalled();
+    });
+  });
+});
+
+describe("POST /api/whatsapp/groups: the chosen managers' numbers", () => {
+  const PHONE = '971507771111';
+  beforeEach(() => {
+    mocks.adminRpc.mockResolvedValue({ data: PHONE, error: null });
+    mocks.addParticipants.mockResolvedValue({
+      added: [{ jid: `${PHONE}@s.whatsapp.net`, waId: PHONE }],
+      refused: [],
+      notAttempted: [],
+      invalid: [],
+      error: null,
+    });
+  });
+
+  it('adds the saved number of each chosen manager, not of the creator', async () => {
+    const res = await post({ ...base, managerIds: [M1] });
+    expect(res.status).toBe(201);
+    expect(mocks.adminRpc.mock.calls).toEqual([
+      ['staff_saved_phone', { p_account: 'acct-1', p_user: M1 }],
+    ]);
+    expect(mocks.addParticipants).toHaveBeenCalledWith(
+      expect.objectContaining({ groupId: WA, participants: [PHONE] })
+    );
+    expect((await res.json()).numbers.added).toHaveLength(1);
+  });
+
+  it('spends the add budget on it, and reports what it has no room for', async () => {
+    addBudget('agent-1', 'other').spend(59);
+    const res = await post({ ...base, managerIds: [M1] });
+    expect(mocks.addParticipants).not.toHaveBeenCalled();
+    expect((await res.json()).numbers.failed).toEqual([
+      expect.objectContaining({ reason: 'too_many_adds' }),
+    ]);
+  });
+
+  it('adds nobody when the managers could not be saved', async () => {
+    mgrError = { message: 'boom' };
+    const body = await (await post({ ...base, managerIds: [M1] })).json();
+    expect(body.warnings).toContain('managers_not_saved');
+    expect(body.numbers).toBeNull();
+    expect(mocks.adminRpc).not.toHaveBeenCalled();
   });
 });

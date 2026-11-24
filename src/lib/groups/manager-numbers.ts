@@ -3,8 +3,8 @@
 // `coordinator_phones`) added to the WhatsApp group, and a manager who
 // is dropped has it removed (`staff_removal_phone`, 299). The reverse
 // direction (a saved number that joins the group becomes a manager) is a
-// trigger in migration 219. This module is the pure decision; the
-// managers route does the I/O. Nothing here may fail the manager write
+// trigger in migration 219. This module is the pure decision;
+// `manager-sync.ts` does the I/O. Nothing here may fail the manager write
 // itself.
 
 import type { GroupActionBlock } from './access';

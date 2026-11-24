@@ -349,10 +349,14 @@ export interface CreateGroupBody {
   contactIds?: string[];
   settings: Record<GroupSetting, GroupPolicy>;
   managerIds?: string[];
+  createAnother?: true;
 }
 
 /** `POST /api/whatsapp/groups` body. Call only once every step is valid. */
-export function buildCreateBody(values: WizardValues): CreateGroupBody {
+export function buildCreateBody(
+  values: WizardValues,
+  createAnother = false
+): CreateGroupBody {
   const merged = mergeMembers(
     values.contacts,
     parsePhoneList(values.typedText)
@@ -365,6 +369,7 @@ export function buildCreateBody(values: WizardValues): CreateGroupBody {
   return {
     channelId: values.channelId ?? '',
     name: values.name.trim(),
+    ...(createAnother ? { createAnother: true as const } : {}),
     ...(description ? { description } : {}),
     participants: merged.members.map((m) => m.waId),
     ...(contactIds.length ? { contactIds } : {}),
@@ -513,6 +518,24 @@ export function createErrorKey(code: unknown): CreateErrorKey {
  */
 export function isCreatedButUnsaved(code: unknown): boolean {
   return code === 'saved_failed_run_sync';
+}
+
+/**
+ * What a failed create leaves open. `unconfirmed`: the group may exist
+ * (our `create_unconfirmed`, or a code-less 5xx/408 such as a proxy's
+ * timeout page). `repeat`: the server asks before a second group of the
+ * same name. Anything else is a refusal.
+ */
+export function createFailureKind(
+  status: number,
+  code: unknown
+): 'unconfirmed' | 'repeat' | 'refused' {
+  if (code === 'create_unconfirmed') return 'unconfirmed';
+  if (code === 'create_repeat') return 'repeat';
+  const coded = typeof code === 'string' && code !== '';
+  return !coded && (status >= 500 || status === 408)
+    ? 'unconfirmed'
+    : 'refused';
 }
 
 /**
