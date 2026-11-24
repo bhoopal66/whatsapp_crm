@@ -60,6 +60,9 @@ export async function POST(request: Request) {
       filename,
       template_name,
       template_language,
+      // The row the person picked. Two teammates can each hold a template
+      // of one name and language; an older client sends none.
+      template_id,
       template_params,
       template_message_params,
       interactive_payload,
@@ -239,6 +242,7 @@ export async function POST(request: Request) {
         filename,
         templateName: template_name,
         templateLanguage: template_language,
+        templateId: typeof template_id === 'string' ? template_id : null,
         templateParams: template_params,
         templateMessageParams: template_message_params,
         interactivePayload: interactive_payload,

@@ -19,6 +19,7 @@ function row(over: Partial<MessageTemplate>): MessageTemplate {
     language: 'en_US',
     body_text: 'Your order {{1}} ships on {{2}}',
     created_at: '2026-01-01T00:00:00Z',
+    status: 'APPROVED',
     ...over,
   } as MessageTemplate;
 }
@@ -200,6 +201,66 @@ describe('resolveTemplateRow', () => {
     );
     expect(resolved.row).toBeNull();
     expect(resolved.language).toBe('de');
+  });
+});
+
+describe('resolveTemplateRow: two teammates hold the same one', () => {
+  const at = (day: number) => `2026-11-0${day}T00:00:00Z`;
+  const pick = async (rows: unknown[], id?: string | null, name = 'en_US') =>
+    resolveTemplateRow(
+      dbReturning(rows as never),
+      'acct-1',
+      'order_update',
+      name,
+      id
+    );
+  const metas = row({ id: 'meta', meta_template_id: 'M1', created_at: at(1) });
+  const local = row({ id: 'local', created_at: at(5) });
+
+  it('prefers the one Meta approved, in either order', async () => {
+    for (const rows of [
+      [local, metas],
+      [metas, local],
+    ]) {
+      expect((await pick(rows)).row?.id).toBe('meta');
+    }
+  });
+
+  it('then an approved one, refused ones last', async () => {
+    const paused = row({
+      id: 'paused',
+      meta_template_id: 'M1',
+      status: 'PAUSED',
+      created_at: at(9),
+    });
+    const refused = row({
+      id: 'refused',
+      submission_error: 'Bad header',
+      created_at: at(8),
+    });
+    expect((await pick([paused, refused, local])).row?.id).toBe('local');
+    expect((await pick([paused, refused])).row?.id).toBe('refused');
+  });
+
+  it('then the newest', async () => {
+    const older = row({ id: 'older', created_at: at(2) });
+    expect((await pick([older, local])).row?.id).toBe('local');
+    expect((await pick([local, older])).row?.id).toBe('local');
+  });
+
+  it('sends exactly the row that was chosen, in its own language', async () => {
+    const other = row({ id: 'other', language: 'en', created_at: at(1) });
+    const chosen = await pick([metas, local, other], 'local');
+    expect(chosen.row?.id).toBe('local');
+    expect(await pick([metas, other], 'other', 'en_US')).toMatchObject({
+      row: { id: 'other' },
+      language: 'en',
+    });
+  });
+
+  it('falls back when the id is not among them', async () => {
+    expect((await pick([local, metas], 'elsewhere')).row?.id).toBe('meta');
+    expect((await pick([local, metas], null)).row?.id).toBe('meta');
   });
 });
 

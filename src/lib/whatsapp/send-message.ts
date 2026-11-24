@@ -190,6 +190,8 @@ export interface SendMessageParams {
   filename?: string | null;
   templateName?: string | null;
   templateLanguage?: string | null;
+  /** The row a person picked; without it the name and language decide. */
+  templateId?: string | null;
   /** Legacy positional body params (only used if messageParams.body unset). */
   templateParams?: string[];
   /** Structured template params (header/body/buttons). */
@@ -572,6 +574,7 @@ export async function sendMessageToConversation(
     filename,
     templateName,
     templateLanguage,
+    templateId,
     templateParams,
     templateMessageParams,
     interactivePayload,
@@ -766,7 +769,8 @@ export async function sendMessageToConversation(
       db,
       accountId,
       templateName,
-      templateLanguage
+      templateLanguage,
+      templateId
     );
     if (resolved.malformed) {
       throw new SendMessageError(

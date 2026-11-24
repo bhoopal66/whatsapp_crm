@@ -104,6 +104,35 @@ function baseLanguage(language: string): string {
   return language.toLowerCase().split(/[_-]/)[0];
 }
 
+interface TemplateCandidate {
+  id?: string;
+  language?: string;
+  status?: string | null;
+  meta_template_id?: string | null;
+  submission_error?: string | null;
+  created_at?: string | null;
+}
+
+/**
+ * Which of two rows with the same name and language is the template: the
+ * unique key is per user, so two teammates can each hold one. Meta's own
+ * approved one first, then one marked approved (a refusal of Meta's last,
+ * a save marks those approved too), then the newest.
+ */
+function templateRank(row: TemplateCandidate): number {
+  if (row.status !== 'APPROVED') return 3;
+  if (row.meta_template_id) return 0;
+  return row.submission_error ? 2 : 1;
+}
+
+function byPreference(a: TemplateCandidate, b: TemplateCandidate): number {
+  return (
+    templateRank(a) - templateRank(b) ||
+    Date.parse(b.created_at ?? '') - Date.parse(a.created_at ?? '') ||
+    0
+  );
+}
+
 export interface ResolvedTemplate {
   /** Best-matching local row, or null when the account has none. */
   row: MessageTemplate | null;
@@ -130,13 +159,17 @@ export interface ResolvedTemplate {
  * synced from Meta commonly carry the bare `en`, so a caller that
  * omitted the language matched no row: no header components, and no
  * body to persist. Matching falls back through
- * exact → same base language → a sensible default.
+ * exact → same base language → a sensible default. Among rows of one
+ * language, `byPreference`. `templateId` is the row a person chose: when
+ * it is this account's and has this name, it is the one, in its own
+ * language.
  */
 export async function resolveTemplateRow(
   db: SupabaseClient,
   accountId: string,
   templateName: string,
-  requestedLanguage?: string | null
+  requestedLanguage?: string | null,
+  templateId?: string | null
 ): Promise<ResolvedTemplate> {
   const { data } = await db
     .from('message_templates')
@@ -147,16 +180,19 @@ export async function resolveTemplateRow(
   // Sorted here rather than with `.order()` so the only query-builder
   // surface this helper depends on is select + eq — the same shape the
   // callers' existing fakes implement.
-  const rows = ((Array.isArray(data) ? data : []) as { language?: string }[])
+  const rows = ((Array.isArray(data) ? data : []) as TemplateCandidate[])
     .slice()
-    .sort((a, b) => (a.language ?? '').localeCompare(b.language ?? ''));
+    .sort(
+      (a, b) =>
+        (a.language ?? '').localeCompare(b.language ?? '') || byPreference(a, b)
+    );
   const fallbackLanguage = requestedLanguage || 'en_US';
 
   if (rows.length === 0) {
     return { row: null, malformed: false, language: fallbackLanguage };
   }
 
-  const pick = (): { language?: string } | undefined => {
+  const pick = (): TemplateCandidate | undefined => {
     if (requestedLanguage) {
       const wanted = requestedLanguage.toLowerCase();
       const exact = rows.find((r) => r.language?.toLowerCase() === wanted);
@@ -175,7 +211,8 @@ export async function resolveTemplateRow(
     );
   };
 
-  const chosen = pick();
+  const byId = templateId ? rows.find((r) => r.id === templateId) : undefined;
+  const chosen = byId ?? pick();
   if (!chosen) {
     // Rows exist but none in the requested language — the caller pinned
     // a translation this account doesn't have. Report no row; under
@@ -190,7 +227,11 @@ export async function resolveTemplateRow(
   return {
     row: chosen,
     malformed: false,
-    language: requestedLanguage || chosen.language || 'en_US',
+    language:
+      (byId ? chosen.language : null) ||
+      requestedLanguage ||
+      chosen.language ||
+      'en_US',
   };
 }
 

@@ -22,6 +22,10 @@ and polish.
 
 ### Fixed
 
+- **The template that was picked is the one that is sent.** Two teammates
+  can each have a template of the same name and language, and the server
+  sent whichever came first. It sends the picked one, and where nothing
+  picks a row (campaigns, automations) the one Meta approved. No migration.
 - **A new template cannot take the name of one Meta already has.** Saving
   one under an existing name and language dropped the first one's link to
   Meta and showed it as approved, and no Meta chat could send it until the
