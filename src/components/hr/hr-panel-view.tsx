@@ -68,6 +68,9 @@ export interface HrPanelViewProps {
   /** Tracked: the four stage steps (`stepperSteps`). */
   steps: StepState[];
   tasks: Task[];
+  /** The tasks read failed (a list shown with it may be old). */
+  tasksFailed?: boolean;
+  onRetryTasks?: () => void;
   doneBusy: ReadonlySet<string>;
   /** The close waiting for confirmation, if any. */
   pendingClose: CloseChoice | null;
@@ -414,8 +417,23 @@ export function HrPanelView(props: HrPanelViewProps) {
         <h5 className="text-muted-foreground text-xs font-medium">
           {t('panel.tasks')}
         </h5>
+        {props.tasksFailed && (
+          <div
+            role="alert"
+            className="text-destructive flex items-center gap-2 text-xs"
+          >
+            <span>{t('panel.tasksLoadFailed')}</span>
+            <Button variant="outline" size="sm" onClick={props.onRetryTasks}>
+              {t('panel.retry')}
+            </Button>
+          </div>
+        )}
         {props.tasks.length === 0 ? (
-          <p className="text-muted-foreground text-xs">{t('panel.noTasks')}</p>
+          props.tasksFailed ? null : (
+            <p className="text-muted-foreground text-xs">
+              {t('panel.noTasks')}
+            </p>
+          )
         ) : (
           <ul className="space-y-1">
             {props.tasks.map((task) => (

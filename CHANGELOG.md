@@ -34,6 +34,12 @@ and polish.
 
 ### Fixed
 
+- **The HR panel no longer reads a failed load as "not tracked".** A first
+  read that failed made a tracked candidate look unsorted (and offered to
+  open it again); it is now retried after 1, 4 and 15 seconds, then shows
+  "Couldn't load" with a Retry button. A failed HR-task read likewise no
+  longer reads as "No open HR tasks". No migration.
+
 - **Erasing one customer no longer erases another's calls.** A call whose
   number fitted two customers stayed with both even after staff linked it
   to one: erasing the other deleted its recording and notes for good, and

@@ -12646,7 +12646,10 @@
       "taskDone": "تمت",
       "markDone": "تحديد “{title}” كمنجزة",
       "taskFailed": "تعذر تحديث المهمة.",
-      "staffConversation": "محادثة الموظف"
+      "staffConversation": "محادثة الموظف",
+      "loadFailed": "تعذر تحميل بيانات الموارد البشرية لهذه المحادثة.",
+      "tasksLoadFailed": "تعذر تحميل مهام الموارد البشرية.",
+      "retry": "إعادة المحاولة"
     },
     "pane": {
       "conversation": "المحادثة",
