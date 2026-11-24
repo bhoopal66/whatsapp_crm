@@ -122,7 +122,9 @@ confirm its replay claim only when it settled `done`, else release it (a
 confirmed key swallows redeliveries for 24 h). 1:1 events run before group
 messages, which file documents inside their event. What is left is drained
 by the automations cron (`inbound-drain.ts`), one row claimed at a time,
-8 attempts, then a `inbound_message_failed` bell. A new kind of event goes
+8 attempts, then a `inbound_message_failed` bell. A STOP on an HR chat or
+HR line whose stamp failed (`owed.stop`, `recordHrStop`) is retried here too.
+A new kind of event goes
 through the queue, with its payload built in `inbound-events.ts`. **Not
 queued**: Whapi `groups` / OpenWA `group.*` events and submission-group
 membership, Meta deal rooms, message costs, template and health events.

@@ -26,6 +26,12 @@ and polish.
   is recorded on the contact whatever the HR switches say, even before the
   chat is in Recruitment; a database error at that moment makes the
   delivery be retried for that record alone.
+- **HR automated messages and HR lines (Migration required: 302).** After a
+  stage correction only the newest interview message goes out; a "no
+  activity" rule above 168 hours nudges; more than 100 held messages no
+  longer keep newer ones waiting; one chat's error no longer stops the HR
+  sweep for every chat. A number connected by somebody outside the HR
+  department cannot be added as an HR line, and one already there is marked.
 - **HR automated messages: a brief database error is tried again.** A chat
   or contact that could not be read was taken for a missing one and the
   message failed for good.

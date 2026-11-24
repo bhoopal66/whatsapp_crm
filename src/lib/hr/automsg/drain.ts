@@ -8,6 +8,7 @@
 import { supabaseAdmin } from '@/lib/automations/admin-client';
 import { createDinstarSmsSendPort } from './dinstar';
 import { processDue } from './engine';
+import type { EngineDeps } from './ports';
 import { createRcsSendPort } from './rcs';
 import { rcsSendConfig } from './rcs-config';
 import { createHrSendPort } from './send';
@@ -21,6 +22,8 @@ export interface HrAutomsgDrainSummary {
 }
 
 const DEFAULT_LIMIT = 100;
+/** No further page starts after this; the next tick starts over. */
+const PAGES_BUDGET_MS = 20_000;
 
 export async function runHrAutomsgDrain(
   opts: { now?: Date; accountId?: string; limit?: number } = {}
@@ -31,12 +34,11 @@ export async function runHrAutomsgDrain(
     const now = opts.now ?? new Date();
     const reviewed = await store.reviewStuck(now);
     const expired = await store.expire(now);
-    const rows = await store.due(opts.limit ?? DEFAULT_LIMIT, opts.accountId);
     // Read at drain time: no RCS or SMS settings = those rows held, never
     // rerouted to another channel.
     const rcsCfg = rcsSendConfig();
     const smsCfg = smsSendConfig();
-    const counts = await processDue(rows, {
+    const deps: EngineDeps = {
       store,
       sender: createHrSendPort(db),
       senders: {
@@ -44,9 +46,24 @@ export async function runHrAutomsgDrain(
         sms: smsCfg ? createDinstarSmsSendPort(db, smsCfg) : null,
       },
       clock: { now: () => opts.now ?? new Date() },
-    });
+    };
     const outcomes: Record<string, number> = {};
-    for (const [k, v] of Object.entries(counts)) outcomes[k] = v ?? 0;
+    // Page by page: rows still held stay due, so the first page alone
+    // would starve whatever is behind a full page of them. A row is
+    // processed once per drain (a failed one waits for the next).
+    const limit = opts.limit ?? DEFAULT_LIMIT;
+    const started = Date.now();
+    const seen = new Set<string>();
+    for (;;) {
+      const rows = await store.due(limit, opts.accountId, [...seen]);
+      const fresh = rows.filter((r) => !seen.has(r.id));
+      for (const r of fresh) seen.add(r.id);
+      const counts = await processDue(fresh, deps);
+      for (const [k, v] of Object.entries(counts))
+        outcomes[k] = (outcomes[k] ?? 0) + (v ?? 0);
+      if (fresh.length === 0 || rows.length < limit) break;
+      if (Date.now() - started >= PAGES_BUDGET_MS) break;
+    }
     return { reviewed, expired, outcomes };
   } catch (err) {
     console.error(

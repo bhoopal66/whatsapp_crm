@@ -1560,3 +1560,10 @@ jobs:
       # and never over somebody else's save; a counted run is no edit.
       - name: Verify flow save
         run: supabase db query --local --file supabase/ci/verify-flow-save.sql
+
+      # Migration 302: only a chat's newest stage message goes out; a
+      # no-activity rule above 168 hours nudges; due messages page by
+      # page; one chat's error is its own in hr_sweep; a new HR line is
+      # connected by somebody in HR.
+      - name: Verify HR fixes
+        run: supabase db query --local --file supabase/ci/verify-hr-fixes.sql

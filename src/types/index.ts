@@ -52,6 +52,8 @@ export interface Profile {
    * `@/lib/auth/roles` rather than comparing this string directly.
    */
   account_role?: AccountRole;
+  /** The part of the company they work in (migration 192). */
+  department?: string;
   created_at: string;
 }
 

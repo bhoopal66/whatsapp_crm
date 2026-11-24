@@ -29,6 +29,12 @@ export interface HrLineRow {
   title: string;
   subtitle: string;
   checked: boolean;
+  /**
+   * A ticked number connected by somebody outside the HR department
+   * (302): its chats are theirs, so HR may not see the candidates.
+   * `owner` null = their name is unknown. Null = no warning.
+   */
+  notHr: { owner: string | null } | null;
 }
 
 /**
@@ -46,13 +52,15 @@ function lineTitle(c: HrLineChannel): string {
 /**
  * One row per number: company numbers first, then personal numbers by
  * owner name; within each, by title. `personalOf` words the owner part
- * of the subtitle ("Personal, Sara") in the page's language.
+ * of the subtitle ("Personal, Sara") in the page's language. `inHr`
+ * answers null while the members are not loaded: no warning then.
  */
 export function hrLineRows(
   channels: readonly HrLineChannel[],
   selectedIds: readonly string[],
   nameOf: (userId: string) => string | null,
-  personalOf: (owner: string) => string = (o) => `Personal, ${o}`
+  personalOf: (owner: string) => string = (o) => `Personal, ${o}`,
+  inHr: (userId: string) => boolean | null = () => null
 ): HrLineRow[] {
   const selected = new Set(selectedIds);
   const prepared = channels.map((c) => {
@@ -70,6 +78,10 @@ export function hrLineRows(
         title,
         subtitle: personal ? `${provider} · ${personalOf(owner)}` : provider,
         checked: selected.has(c.id),
+        notHr:
+          selected.has(c.id) && c.user_id && inHr(c.user_id) === false
+            ? { owner: nameOf(c.user_id) }
+            : null,
       },
     };
   });
@@ -131,6 +143,8 @@ export function hrLinesPayload(draft: HrLines): {
  * this page loaded. INVALID: a ticked number is no longer a number of
  * the workspace (deleted after the page loaded). Both are fixed only by
  * reloading, so the person checks the fresh list and saves again.
+ * LINE_OWNER_NOT_HR (302): a number just ticked was connected by somebody
+ * outside the HR department.
  */
 export function linesSaveError(code: HrErrorCode): {
   key: string;
@@ -139,6 +153,10 @@ export function linesSaveError(code: HrErrorCode): {
   if (code === 'STALE') return { key: 'setup.lines.stale', reload: true };
   if (code === 'INVALID') {
     return { key: 'setup.lines.numberRemoved', reload: true };
+  }
+  // Not reloaded: the draft stays, with the number marked in the list.
+  if (code === 'LINE_OWNER_NOT_HR') {
+    return { key: 'setup.lines.ownerNotHrRefused', reload: false };
   }
   return { key: decideErrorKey(code), reload: false };
 }
