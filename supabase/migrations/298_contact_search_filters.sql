@@ -358,3 +358,51 @@ COMMENT ON FUNCTION public.search_contacts(text, int, uuid, text[], uuid[]) IS
 
 REVOKE ALL ON FUNCTION public.search_contacts(text, int, uuid, text[], uuid[]) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.search_contacts(text, int, uuid, text[], uuid[]) TO authenticated, service_role;
+
+-- 266's body (the member-handover, pbx and own-task checks unchanged);
+-- the due time is the account's, as calendar_reminder_sweep gives it.
+CREATE OR REPLACE FUNCTION public.tasks_notify_assigned()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+BEGIN
+  IF current_setting('app.member_handover', true) = 'on' THEN
+    RETURN NEW;
+  END IF;
+  IF NEW.assigned_to IS NULL OR NEW.status <> 'open' THEN
+    RETURN NEW;
+  END IF;
+  IF TG_OP = 'UPDATE' AND NEW.assigned_to IS NOT DISTINCT FROM OLD.assigned_to THEN
+    RETURN NEW;
+  END IF;
+  IF TG_OP = 'INSERT' AND NEW.source = 'pbx' THEN
+    RETURN NEW;
+  END IF;
+  IF auth.uid() IS NOT NULL AND auth.uid() = NEW.assigned_to THEN
+    RETURN NEW;
+  END IF;
+  INSERT INTO notifications (
+    account_id, user_id, type, conversation_id, contact_id,
+    actor_user_id, title, body
+  ) VALUES (
+    NEW.account_id,
+    NEW.assigned_to,
+    'task_assigned',
+    NEW.conversation_id,
+    NEW.contact_id,
+    auth.uid(),
+    NEW.title,
+    CASE WHEN NEW.due_at IS NOT NULL THEN
+      'Due ' || calendar_time_label(NEW.account_id, NEW.due_at)
+    END
+  );
+  RETURN NEW;
+EXCEPTION WHEN OTHERS THEN
+  RAISE WARNING 'Failed to create the assignment notification for task %: %', NEW.id, SQLERRM;
+  RETURN NEW;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.tasks_notify_assigned() FROM PUBLIC, anon, authenticated;

@@ -7,7 +7,8 @@
 -- company chats only, and only on chats the caller can see; no filter
 -- shows a contact the caller cannot see or one of another account; the
 -- limit is 500; the 193 signatures still answer (and are not ambiguous);
--- privileges.
+-- privileges. And the task-assigned bell: the due time in the account's
+-- time zone, the pbx and member-handover checks kept.
 --
 -- ONE statement, rolled back by a sentinel, as verify-contact-search.sql
 -- explains.
@@ -282,6 +283,26 @@ BEGIN
               WHERE proname IN ('search_contacts', 'search_contact_candidates')
                 AND pronargs = 5 AND pronargdefaults <> 0) THEN
     failed := array_append(failed, 'a filter parameter has a default'::text);
+  END IF;
+
+  -- ---- The task-assigned bell -----------------------------------------
+  INSERT INTO team_activity_settings (account_id, timezone) VALUES (a_acct, 'Asia/Dubai')
+    ON CONFLICT (account_id) DO UPDATE SET timezone = EXCLUDED.timezone;
+  INSERT INTO tasks (account_id, kind, title, assigned_to, due_at, source)
+    VALUES (a_acct, 'manual', 'csf bell', u_ag, '2030-11-24 10:00+00', 'manual');
+  INSERT INTO tasks (account_id, kind, title, assigned_to, source)
+    VALUES (a_acct, 'manual', 'csf undated', u_ag, 'manual');
+  INSERT INTO tasks (account_id, kind, title, assigned_to, due_at, source, created_by)
+    VALUES (a_acct, 'manual', 'csf pbx', u_ag, '2030-11-24 10:00+00', 'pbx', NULL);
+  PERFORM set_config('app.member_handover', 'on', true);
+  INSERT INTO tasks (account_id, kind, title, assigned_to, due_at, source)
+    VALUES (a_acct, 'manual', 'csf handover', u_ag, '2030-11-24 10:00+00', 'manual');
+  PERFORM set_config('app.member_handover', '', true);
+  n := n + 1;
+  SELECT string_agg(title || '=' || coalesce(body, '-'), '; ' ORDER BY title) INTO r
+    FROM notifications WHERE user_id = u_ag AND type = 'task_assigned';
+  IF r IS DISTINCT FROM 'csf bell=Due 24 Nov 2030 14:00 Asia/Dubai; csf undated=-' THEN
+    failed := array_append(failed, 'task bells: ' || coalesce(r, 'none'));
   END IF;
 
   RAISE EXCEPTION USING ERRCODE = 'ZT298', MESSAGE = 'verify-contact-search-filters rollback';
