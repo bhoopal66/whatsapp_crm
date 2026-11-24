@@ -1615,3 +1615,7 @@ jobs:
       # end.
       - name: Verify bells at the end of a submission group
         run: supabase db query --local --file supabase/ci/verify-sg-end-bells.sql
+
+      # Migration 316: the rest of the case desk findings.
+      - name: Verify the rest of the case desk
+        run: supabase db query --local --file supabase/ci/verify-desk-rest.sql

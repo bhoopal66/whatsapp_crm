@@ -34,6 +34,15 @@ and polish.
 
 ### Fixed
 
+- **Case desk.** A document expiry task goes to a live coordinator or agent,
+  else the duty owner, instead of failing every hour once the agent has left.
+  The company checklist and the customer reminder no longer call a document
+  passed when a newer version failed. Documents sharing a position can be
+  built again. A reminder that failed on a read of ours does not use up the
+  gap. Unlinking a contact asks for the same access as linking it. A NAS copy
+  that stops without an answer ten times is marked failed.
+  **Migration required: 316** (`316_desk_rest.sql`).
+
 - **When a submission group ends, its bells follow.** The unread bell of an
   agent who loses the group opens the customer's page instead of "does not
   exist". **Migration required: 313**.
