@@ -9982,6 +9982,7 @@
         "group_open": "WhatsApp group opened",
         "group_end": "WhatsApp group ended",
         "conversation_archived": "Conversation archived",
+        "messages_cut": "Older group messages are not shown here",
         "group_message": "WhatsApp message",
         "message": "WhatsApp message",
         "call": "Call"

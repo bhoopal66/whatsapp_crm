@@ -31,7 +31,8 @@
 --
 -- And: staff_removal_phone. staff_saved_phone (219) answers NULL for a
 -- person deactivated or demoted since, so taking such a person off a
--- group left their phone in it. Removals use this one.
+-- group left their phone in it. Removals use this one; it never names a
+-- number somebody else in the team uses too, nor an owner's or admin's.
 --
 -- Both id functions are restated: 114's visible ids with 286's
 -- team_members pairing, 218's manageable ids. Apply in order: re-running
@@ -206,9 +207,10 @@ DELETE FROM public.whatsapp_group_managers m
 
 -- ---------- 4. Whose phone leaves a group ----------
 
--- staff_saved_phone without its live filter. A number another live
--- member saved since (a company SIM handed on) is theirs now, so a
--- person who is no longer live staff does not take it out.
+-- staff_saved_phone without its live filter. Nothing is taken out for an
+-- owner or admin (they keep every group, as before), nor a number another
+-- live member saved too: a company SIM handed on is theirs now, and which
+-- of the two is in the group cannot be told.
 CREATE OR REPLACE FUNCTION public.staff_removal_phone(p_account uuid, p_user uuid)
 RETURNS text
 LANGUAGE sql
@@ -220,18 +222,23 @@ AS $$
     FROM coordinator_phones cp
    WHERE cp.account_id = p_account
      AND cp.user_id = p_user
-     AND (staff_saved_phone(p_account, p_user) IS NOT NULL
-          OR NOT EXISTS (
-            SELECT 1 FROM coordinator_phones o
-              JOIN profiles p ON p.user_id = o.user_id AND p.account_id = o.account_id
-             WHERE o.account_id = cp.account_id
-               AND o.phone = cp.phone
-               AND o.user_id <> cp.user_id
-               AND p.deactivated_at IS NULL
-               AND p.account_role::text <> 'bank_guest'));
+     AND NOT EXISTS (
+       SELECT 1 FROM profiles me
+        WHERE me.user_id = cp.user_id
+          AND me.account_id = cp.account_id
+          AND me.deactivated_at IS NULL
+          AND me.account_role::text IN ('owner', 'admin'))
+     AND NOT EXISTS (
+       SELECT 1 FROM coordinator_phones o
+         JOIN profiles p ON p.user_id = o.user_id AND p.account_id = o.account_id
+        WHERE o.account_id = cp.account_id
+          AND o.phone = cp.phone
+          AND o.user_id <> cp.user_id
+          AND p.deactivated_at IS NULL
+          AND p.account_role::text <> 'bank_guest');
 $$;
 COMMENT ON FUNCTION public.staff_removal_phone(uuid, uuid) IS
-  'The saved WhatsApp number (digits) to take out of a group when this person is taken off it, whatever their role or state now; NULL when nothing is saved or, for a person who is no longer a live agent / team leader, when another live member saved it. For removals only: additions use staff_saved_phone. Service role only. Migration 299.';
+  'The saved WhatsApp number (digits) to take out of a group when this person is taken off it, also after they were deactivated or demoted; NULL when nothing is saved, for a live owner or admin, and when another live member saved the same number. For removals only: additions use staff_saved_phone. Service role only. Migration 299.';
 REVOKE ALL ON FUNCTION public.staff_removal_phone(uuid, uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.staff_removal_phone(uuid, uuid) TO service_role;
 

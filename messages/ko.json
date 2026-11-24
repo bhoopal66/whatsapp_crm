@@ -9982,6 +9982,7 @@
         "group_open": "WhatsApp 그룹 개설",
         "group_end": "WhatsApp 그룹 종료",
         "conversation_archived": "대화 보관됨",
+        "messages_cut": "이전 그룹 메시지는 여기에 표시되지 않습니다",
         "group_message": "WhatsApp 메시지",
         "message": "WhatsApp 메시지",
         "call": "통화"

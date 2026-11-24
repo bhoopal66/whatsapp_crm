@@ -11,6 +11,9 @@ import { conversationView, type CaseConversation } from './case-tabs';
 
 export const CONVERSATION_PROBE_MS = 30_000;
 
+/** After a background read that failed: it may have been audited already. */
+export const CONVERSATION_RETRY_MS = 5 * 60_000;
+
 /** Only an ACTIVE group with a WhatsApp chat gets new messages. */
 export function canRefresh(c: CaseConversation | null): boolean {
   return c !== null && !c.archived && conversationView(c) === 'group';
@@ -64,6 +67,7 @@ export class ConversationRefresh {
   private applied = 0;
   private stopped = false;
   private ticking = false;
+  private retryAt = 0;
 
   /** A read is starting (the person's own too): its number. */
   start(): number {
@@ -79,12 +83,14 @@ export class ConversationRefresh {
     if (read < this.applied) return false;
     this.applied = read;
     this.stopped = !readable;
+    this.retryAt = 0;
     return true;
   }
 
   /** One probe and, only when something changed, one background read. */
   async tick(io: RefreshIo): Promise<void> {
     if (this.stopped || this.ticking || !canRefresh(io.shown)) return;
+    if (Date.now() < this.retryAt) return;
     this.ticking = true;
     const before = this.started;
     try {
@@ -93,7 +99,10 @@ export class ConversationRefresh {
       if (this.started !== before || !io.active()) return;
       const mine = this.start();
       const answer = await io.read();
-      if (answer.kind === 'failed') return;
+      if (answer.kind === 'failed') {
+        this.retryAt = Date.now() + CONVERSATION_RETRY_MS;
+        return;
+      }
       // A group deleted meanwhile has no composer to show: leave the tab.
       const readable =
         answer.kind === 'ok' && conversationView(answer.convo) === 'group';

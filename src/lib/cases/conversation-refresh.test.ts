@@ -5,6 +5,7 @@ import type { SgMessage } from '@/lib/submission-groups/ui';
 import type { CaseConversation } from './case-tabs';
 import {
   canRefresh,
+  CONVERSATION_RETRY_MS,
   ConversationRefresh,
   mergeConversation,
   probeSince,
@@ -118,18 +119,50 @@ describe('ConversationRefresh.tick', () => {
     expect(back.show).toHaveBeenCalledTimes(1);
   });
 
-  it('a failed probe or read changes nothing, and the next tick tries again', async () => {
+  it('a failed probe changes nothing, and the next tick tries again', async () => {
     const r = new ConversationRefresh();
-    const failed = io({
-      read: vi.fn(async (): Promise<ConversationAnswer> => ({
-        kind: 'failed',
-      })),
-    });
-    await r.tick(failed);
-    expect(failed.show).not.toHaveBeenCalled();
     const down = io({ probe: vi.fn(() => Promise.reject(new Error('x'))) });
     await r.tick(down);
     expect(down.read).not.toHaveBeenCalled();
+    const ok = io();
+    await r.tick(ok);
+    expect(ok.show).toHaveBeenCalledTimes(1);
+  });
+
+  it('a failed read changes nothing and waits: it may have been audited', async () => {
+    vi.useFakeTimers();
+    try {
+      const r = new ConversationRefresh();
+      const failed = io({
+        read: vi.fn(async (): Promise<ConversationAnswer> => ({
+          kind: 'failed',
+        })),
+      });
+      await r.tick(failed);
+      expect(failed.show).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(CONVERSATION_RETRY_MS - 1);
+      const early = io();
+      await r.tick(early);
+      expect(early.probe).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1);
+      const late = io();
+      await r.tick(late);
+      expect(late.show).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("the person's own read that works ends the wait", async () => {
+    const r = new ConversationRefresh();
+    await r.tick(
+      io({
+        read: vi.fn(async (): Promise<ConversationAnswer> => ({
+          kind: 'failed',
+        })),
+      })
+    );
+    r.settle(r.start(), true);
     const ok = io();
     await r.tick(ok);
     expect(ok.show).toHaveBeenCalledTimes(1);

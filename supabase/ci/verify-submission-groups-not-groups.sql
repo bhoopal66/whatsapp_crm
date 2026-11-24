@@ -244,6 +244,18 @@ BEGIN
        OR staff_removal_phone(a_acct, u_sim) IS DISTINCT FROM '971500299002' THEN
       failed := failed || 'staff_removal_phone: a handed-on number still belongs to the person who left'::text;
     END IF;
+    -- Two live people with one number: which of them is in the group
+    -- cannot be told, so neither takes it out. An admin's stays.
+    UPDATE coordinator_phones SET phone = '971500299001' WHERE account_id = a_acct AND user_id = u_sim;
+    n := n + 1;
+    IF staff_removal_phone(a_acct, u_coord) IS NOT NULL OR staff_removal_phone(a_acct, u_sim) IS NOT NULL THEN
+      failed := failed || 'staff_removal_phone: a number two live people saved leaves with one of them'::text;
+    END IF;
+    INSERT INTO coordinator_phones (account_id, user_id, phone) VALUES (a_acct, u_admin, '971500299009');
+    n := n + 1;
+    IF staff_removal_phone(a_acct, u_admin) IS NOT NULL THEN
+      failed := failed || 'staff_removal_phone: an admin, who keeps every group, loses their number'::text;
+    END IF;
     n := n + 1;
     IF has_function_privilege('anon', 'public.staff_removal_phone(uuid, uuid)', 'EXECUTE')
        OR has_function_privilege('authenticated', 'public.staff_removal_phone(uuid, uuid)', 'EXECUTE')

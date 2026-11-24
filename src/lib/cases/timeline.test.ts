@@ -46,6 +46,7 @@ function setup(
     readable?: boolean;
     timeline?: Result;
     groupCreated?: string;
+    messages?: Record<string, unknown>[];
   } = {}
 ) {
   const log: string[] = [];
@@ -60,7 +61,7 @@ function setup(
         }),
       }),
       submission_group_messages: () => ({
-        data: [messageRow('m1', T)],
+        data: opts.messages ?? [messageRow('m1', T)],
       }),
       calls: () => {
         throw new Error('calls must be read through the RLS client');
@@ -136,6 +137,22 @@ describe('caseTimeline', () => {
     expect(db.queriesOf('submission_group_messages')[0].filters).toContainEqual(
       ['eq', 'post_end', false]
     );
+  });
+
+  it('says where a long chat was cut, before its oldest message', async () => {
+    // Newest first, as the read orders them: one page and one more.
+    const messages = Array.from({ length: 201 }, (_, i) =>
+      messageRow(
+        `m${i}`,
+        new Date(Date.UTC(2026, 9, 3) - i * 60_000).toISOString()
+      )
+    );
+    const t = await setup({ messages }).run(true);
+    const at = t.findIndex((e) => e.kind === 'messages_cut');
+    expect(t[at + 1]).toMatchObject({ kind: 'group_message', refId: 'm199' });
+    expect(t.filter((e) => e.kind === 'messages_cut')).toHaveLength(1);
+    const short = await setup().run(true);
+    expect(short.some((e) => e.kind === 'messages_cut')).toBe(false);
   });
 
   it('an ENDED group’s messages never enter the timeline: one archived entry instead', async () => {

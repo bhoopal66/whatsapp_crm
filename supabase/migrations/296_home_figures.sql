@@ -142,11 +142,13 @@ $function$;
 
 REVOKE ALL ON FUNCTION public.deals_default_currency() FROM PUBLIC, anon, authenticated;
 
-ALTER TABLE public.deals ALTER COLUMN currency DROP DEFAULT;
-
+-- The trigger first: it does nothing while the default exists, and a lock
+-- timeout between the two must not leave neither.
 CREATE OR REPLACE TRIGGER deals_default_currency
   BEFORE INSERT ON public.deals
   FOR EACH ROW WHEN (NEW.currency IS NULL)
   EXECUTE FUNCTION public.deals_default_currency();
+
+ALTER TABLE public.deals ALTER COLUMN currency DROP DEFAULT;
 
 NOTIFY pgrst, 'reload schema';

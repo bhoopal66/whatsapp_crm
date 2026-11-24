@@ -112,6 +112,7 @@ const TIMELINE_ICONS: Record<string, TimelineIconName> = {
   group_open: 'Users',
   group_end: 'UserX',
   conversation_archived: 'Archive',
+  messages_cut: 'Archive',
   group_message: 'MessageSquare',
   message: 'MessageSquare',
   call: 'Phone',

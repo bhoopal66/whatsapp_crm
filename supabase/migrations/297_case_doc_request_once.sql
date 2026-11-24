@@ -54,6 +54,10 @@ GRANT SELECT ON public.case_doc_requests TO authenticated, service_role;
 
 -- ---------- 2. Begin: what to ask for, and the claim ----------
 
+-- One block, so one transaction: created by itself, a function is
+-- EXECUTE for anon and authenticated until its REVOKE, and a call of the
+-- old build between the DROP and the CREATE would find nothing.
+DO $do$ BEGIN
 DROP FUNCTION IF EXISTS public.case_doc_request_begin(uuid, uuid);
 
 -- As 123's, plus request_id: the claim, NULL without p_claim and when
@@ -66,7 +70,7 @@ LANGUAGE plpgsql
 VOLATILE
 SECURITY DEFINER
 SET search_path = ''
-AS $$
+AS $fn$
 DECLARE
   c      public.cases%ROWTYPE;
   v_last public.case_doc_requests%ROWTYPE;
@@ -104,7 +108,12 @@ BEGIN
   END IF;
   RETURN NEXT;
 END;
-$$;
+$fn$;
+
+REVOKE ALL ON FUNCTION public.case_doc_request_begin(uuid, uuid, boolean, boolean)
+  FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.case_doc_request_begin(uuid, uuid, boolean, boolean) TO service_role;
+END $do$;
 
 -- ---------- 3. Mark: as 123, and the request of a build without a claim ----------
 
@@ -145,31 +154,31 @@ $$;
 -- Deletes the actor's own claim on that case; true when it was there.
 -- Asks no write right: someone taken off the case during their own send
 -- must still be able to take the claim back.
+DO $do$ BEGIN
 CREATE OR REPLACE FUNCTION public.case_doc_request_release(p_case uuid, p_actor uuid, p_request uuid)
 RETURNS boolean
 LANGUAGE plpgsql
 VOLATILE
 SECURITY DEFINER
 SET search_path = ''
-AS $$
+AS $fn$
 BEGIN
   DELETE FROM public.case_doc_requests q
    WHERE q.id = p_request AND q.case_id = p_case AND q.requested_by = p_actor;
   RETURN FOUND;
 END;
-$$;
+$fn$;
+
+REVOKE ALL ON FUNCTION public.case_doc_request_release(uuid, uuid, uuid)
+  FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.case_doc_request_release(uuid, uuid, uuid) TO service_role;
+END $do$;
 
 -- ---------- 5. Privileges ----------
 
-REVOKE ALL ON FUNCTION
-  public.case_doc_request_begin(uuid, uuid, boolean, boolean),
-  public.case_doc_mark_requested(uuid, uuid, text[], timestamptz),
-  public.case_doc_request_release(uuid, uuid, uuid)
+-- Replaced in place, so it kept 123's; said again for a re-run.
+REVOKE ALL ON FUNCTION public.case_doc_mark_requested(uuid, uuid, text[], timestamptz)
   FROM PUBLIC, anon, authenticated, service_role;
-GRANT EXECUTE ON FUNCTION
-  public.case_doc_request_begin(uuid, uuid, boolean, boolean),
-  public.case_doc_mark_requested(uuid, uuid, text[], timestamptz),
-  public.case_doc_request_release(uuid, uuid, uuid)
-  TO service_role;
+GRANT EXECUTE ON FUNCTION public.case_doc_mark_requested(uuid, uuid, text[], timestamptz) TO service_role;
 
 NOTIFY pgrst, 'reload schema';

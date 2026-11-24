@@ -29,7 +29,7 @@ export type TimelineSource = 'case' | 'group' | 'message' | 'call';
 
 export interface CaseTimelineEntry {
   at: Date;
-  /** SQL kinds, group_open, group_end, conversation_archived, group_message, call. */
+  /** SQL kinds, group_open, group_end, conversation_archived, messages_cut, group_message, call. */
   kind: string;
   refId: string;
   /** A user id; null when no staff user acted (customer messages, group events). */
@@ -125,6 +125,15 @@ export async function caseTimeline(
       const readable = await store.viewCases(actor, [caseId]);
       if (readable.includes(caseId)) {
         const live = await liveGroupMessages(db, group.id);
+        if (live.truncated && live.messages[0])
+          entries.push({
+            at: live.messages[0].createdAt,
+            kind: 'messages_cut',
+            refId: group.id,
+            actor: null,
+            summary: '',
+            source: 'group',
+          });
         for (const m of live.messages)
           entries.push({
             at: m.createdAt,
