@@ -9,7 +9,6 @@ import {
   AlertCircle,
   X,
   Pencil,
-  RotateCcw,
   Upload,
   RefreshCw,
 } from 'lucide-react';
@@ -51,6 +50,7 @@ import type {
   TemplateSampleValues,
 } from '@/types';
 import { templateStatusConfig } from '@/lib/template-status';
+import { templateSaveOutcome } from '@/lib/whatsapp/template-save-outcome';
 import { useAccountNumbers } from '@/hooks/use-whatsapp-numbers';
 import {
   extractVariableIndices,
@@ -338,9 +338,29 @@ export function TemplateManager() {
       // Refresh first, then close — re-opening the dialog
       // immediately should not show a stale list.
       if (user) await fetchTemplates();
-      toast.success(
-        isEdit ? t('toastSubmitEditSuccess') : t('toastSubmitNewSuccess')
-      );
+      // Saved either way; what Meta did with it is in the answer.
+      const outcome = templateSaveOutcome(data?.meta);
+      switch (outcome.kind) {
+        case 'submitted':
+          toast.success(t('toastSubmitNewSuccess'));
+          break;
+        case 'edited':
+          toast.success(t('toastEditSaved'));
+          break;
+        case 'no_meta_number':
+          toast.success(t('toastSavedLinkedOnly'));
+          break;
+        case 'meta_unavailable':
+          toast.warning(t('toastSavedMetaUnavailable'));
+          break;
+        case 'refused':
+          toast.error(t('toastMetaRefused', { reason: outcome.reason }), {
+            duration: 15_000,
+          });
+          break;
+        default:
+          outcome satisfies never;
+      }
       setDialogOpen(false);
       setForm(emptyForm);
       setEditingId(null);
@@ -596,8 +616,15 @@ export function TemplateManager() {
                       <div className="border-destructive/30 bg-destructive-soft text-destructive flex items-start gap-1.5 rounded border px-2 py-1.5 text-xs">
                         <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
                         <span>
-                          {template.rejection_reason ||
-                            template.submission_error}
+                          {/* Its badge may say Approved (for linked
+                              numbers), so the row says who refused. */}
+                          {template.submission_error &&
+                          !template.meta_template_id
+                            ? t('metaRefusedIt', {
+                                reason: template.submission_error,
+                              })
+                            : template.rejection_reason ||
+                              template.submission_error}
                         </span>
                       </div>
                     )}
@@ -620,31 +647,20 @@ export function TemplateManager() {
                         </Button>
                       </span>
                     )}
-                    {statusKey === 'APPROVED' && !template.meta_template_id && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => openEdit(template)}
-                        title={t('editTitle')}
-                        aria-label={t('editLabel')}
-                        className="text-muted-foreground hover:text-primary hover:bg-primary/10 h-8 px-2"
-                      >
-                        <Pencil className="size-3.5" />
-                        {t('edit')}
-                      </Button>
-                    )}
                     {!template.meta_template_id &&
-                      (statusKey === 'REJECTED' || statusKey === 'PAUSED') && (
+                      (statusKey === 'APPROVED' ||
+                        statusKey === 'REJECTED' ||
+                        statusKey === 'PAUSED') && (
                         <Button
                           variant="ghost"
                           size="sm"
                           onClick={() => openEdit(template)}
-                          title={t('resubmitTitle')}
-                          aria-label={t('resubmitLabel')}
+                          title={t('editTitle')}
+                          aria-label={t('editLabel')}
                           className="text-muted-foreground hover:text-primary hover:bg-primary/10 h-8 px-2"
                         >
-                          <RotateCcw className="size-3.5" />
-                          {t('resubmit')}
+                          <Pencil className="size-3.5" />
+                          {t('edit')}
                         </Button>
                       )}
                     <Button
@@ -1139,7 +1155,7 @@ export function TemplateManager() {
                   {editingId ? t('saving') : t('submitting')}
                 </>
               ) : editingId ? (
-                t('saveResubmit')
+                t('saveEdit')
               ) : (
                 t('submitApproval')
               )}
