@@ -5,6 +5,7 @@ import en from '../../../../messages/en.json';
 import {
   aiDraftBox,
   callHeading,
+  callTone,
   callsSidebar,
   editBox,
   EMPTY_COMPOSER_BOX,
@@ -157,6 +158,16 @@ describe('groupByDay', () => {
 });
 
 describe('headings', () => {
+  it('reads a call missed by its final status, as the reports do', () => {
+    expect(callTone(missed)).toBe('missed');
+    // Answered in a live frame, then sent on to a leg nobody took (098).
+    expect(callTone({ ...missed, answeredAt: missed.startedAt })).toBe(
+      'missed'
+    );
+    expect(callTone(call())).toBe('ok');
+    expect(callTone({ ...missed, direction: 'outbound' })).toBe('ok');
+  });
+
   it('words a missed call with who it rang and for how long', () => {
     const h = callHeading(missed, {
       timeZone: TZ,

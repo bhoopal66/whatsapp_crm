@@ -304,7 +304,8 @@ describe('GET /api/pbx/calls', () => {
       call({ direction: 'outbound', status: 'no_answer', contact_id: C2 })
     );
     expect(await ids('scope=mine')).toEqual(['call-4', 'call-1']);
-    expect(await ids('scope=missed')).toEqual(['call-2']);
+    // call-3: a live frame said answered, its final status says missed (098).
+    expect(await ids('scope=missed')).toEqual(['call-2', 'call-3']);
     expect(await ids(`contactId=${C2}`)).toEqual(['call-4']);
     expect(await ids('to=2026-10-02T00:00:00Z')).toEqual(['call-1']);
     expect(await ids('from=2026-10-02T00:00:00Z&limit=1')).toHaveLength(1);
@@ -364,6 +365,18 @@ describe('GET /api/pbx/calls', () => {
     ).toBe(400);
   });
 
+  it('counts a call I answered a leg of as mine, after a transfer too', async () => {
+    rls.tables.calls.push(
+      call({
+        user_id: 'other',
+        direction: 'outbound',
+        meta: { answered_user_ids: ['other', 'me'] },
+      }),
+      call({ user_id: 'other', meta: { answered_user_ids: ['other'] } })
+    );
+    expect(await ids('scope=mine')).toEqual(['call-1']);
+  });
+
   it('counts a call that rang me as mine, by a jsonb containment PostgREST accepts', async () => {
     rls.tables.calls.push(
       call({ user_id: 'other', meta: { rang_user_ids: ['x', 'me'] } }),
@@ -390,7 +403,7 @@ describe('GET /api/pbx/calls', () => {
     }) as typeof rls.db.from);
     expect(await ids('scope=mine')).toEqual(['call-1', 'call-2']);
     expect(ors).toEqual([
-      'user_id.eq.me,peer_user_id.eq.me,meta->rang_user_ids.cs.["me"]',
+      'user_id.eq.me,peer_user_id.eq.me,meta->rang_user_ids.cs.["me"],meta->answered_user_ids.cs.["me"]',
     ]);
     expect(await ids('scope=my_missed')).toEqual(['call-2']);
     // Below admin the wider lists are people's calls too: here only mine.

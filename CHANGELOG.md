@@ -22,6 +22,22 @@ and polish.
 
 ### Fixed
 
+- **The call reports start the day at midnight in Dubai**, also for
+  someone whose computer is set to another time zone: their report days
+  held other calls than everyone else's. No migration.
+- **The call card and window say when some details could not be loaded**,
+  with Retry, instead of showing "None" for a deal or last message that
+  failed to load. And they stop asking for a call's customer after it has
+  ended, so what was shown during the call stays. No migration.
+- **A call that was picked up, then sent on to someone who did not take
+  it, is on the Missed list.** Both call reports counted it as missed while
+  the list, the customer page and its month figures did not. No migration.
+- **After a transfer, the other person can name the customer too.** The
+  contact picked on the incoming-call card (or just created) was refused
+  for everyone but the call's one person; anyone who answered may now fill
+  a call's empty customer. Changing the customer of a call that has one
+  stays with its person and team leaders. "My calls" also lists the calls
+  you answered after a transfer. **Migration required: 294** (extended).
 - **Speaking to a customer closes their missed-call task.** When a later
   call with them is answered (they ring again, or a call back they pick
   up), the open missed-call tasks of that contact or number close with a

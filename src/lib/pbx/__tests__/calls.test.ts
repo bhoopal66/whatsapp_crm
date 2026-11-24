@@ -150,9 +150,11 @@ describe('pbx call helpers', () => {
           talk_seconds: null,
         },
         { direction: 'inbound', status: 'no_answer' },
+        // Answered in a live frame, then sent on to a leg nobody took (098).
+        { direction: 'inbound', status: 'no_answer', answered_at: 'x' },
         { direction: 'outbound', status: 'busy' },
       ])
-    ).toEqual({ total: 4, answered: 2, missed: 1, talkSeconds: 60 });
+    ).toEqual({ total: 5, answered: 2, missed: 2, talkSeconds: 60 });
   });
 
   it('refuses a do-not-contact call unless an admin gives a reason', () => {
@@ -219,7 +221,7 @@ describe('pbx call helpers', () => {
   it('counts a call that rang me as mine, in the or-filter', () => {
     const me = '00000000-0000-4000-8000-0000000000aa';
     expect(myCallsFilter(me)).toBe(
-      `user_id.eq.${me},peer_user_id.eq.${me},meta->rang_user_ids.cs.["${me}"]`
+      `user_id.eq.${me},peer_user_id.eq.${me},meta->rang_user_ids.cs.["${me}"],meta->answered_user_ids.cs.["${me}"]`
     );
   });
 

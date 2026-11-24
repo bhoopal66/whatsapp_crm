@@ -5,6 +5,7 @@ import { PbxConnectionError } from './connection';
 import { normalizeRemoteNumber, storedPhoneCandidates } from './phone';
 import { YeastarError, type CallInfo, type CallMember } from './yeastar';
 import {
+  DEFAULT_TIME_ZONE,
   isMissedCall,
   type CallDirection,
   type CallStatus,
@@ -17,6 +18,7 @@ import {
 // can import; this file pulls in next/server.
 export {
   CALL_STATUSES,
+  DEFAULT_TIME_ZONE,
   MISSED_STATUSES,
   isMissedCall,
   type CallDirection,
@@ -76,9 +78,6 @@ export {
 } from './presence';
 
 // ---------- "Calls this month" ----------
-
-/** The workspace's zone when the client names none (the UAE's). */
-export const DEFAULT_TIME_ZONE = 'Asia/Dubai';
 
 export function isTimeZone(tz: string): boolean {
   try {
@@ -152,8 +151,8 @@ export function summarizeMonth(
   };
   for (const r of rows) {
     out.total += 1;
-    if (r.status === 'answered' || r.answered_at) out.answered += 1;
-    else if (isMissedCall(r)) out.missed += 1;
+    if (isMissedCall(r)) out.missed += 1;
+    else if (r.status === 'answered' || r.answered_at) out.answered += 1;
     out.talkSeconds += r.talk_seconds ?? 0;
   }
   return out;
@@ -405,15 +404,17 @@ export const CALL_LIST_MAX = 200;
  */
 /**
  * PostgREST `or` terms for "my calls": calls `userId` took or placed
- * (user_id), was the other party to (peer_user_id), or that rang their
+ * (user_id), was the other party to (peer_user_id), that rang their
  * phone (calls.meta.rang_user_ids, a jsonb array the PBX processor
- * keeps). The last is a jsonb containment, so its value is JSON text,
- * not the `{…}` array literal postgrest-js's contains() writes for a
- * Postgres array. `userId` is the session's auth uid, never request
- * input.
+ * keeps), or that they answered a leg of (meta.answered_user_ids, 294:
+ * user_id names one person of a transferred call). The last two are
+ * jsonb containments, so the value is JSON text, not the `{…}` array
+ * literal postgrest-js's contains() writes for a Postgres array.
+ * `userId` is the session's auth uid, never request input.
  */
 export function myCallsFilter(userId: string): string {
-  return `user_id.eq.${userId},peer_user_id.eq.${userId},meta->rang_user_ids.cs.${JSON.stringify([userId])}`;
+  const listed = JSON.stringify([userId]);
+  return `user_id.eq.${userId},peer_user_id.eq.${userId},meta->rang_user_ids.cs.${listed},meta->answered_user_ids.cs.${listed}`;
 }
 
 /**

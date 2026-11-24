@@ -18,8 +18,14 @@
 -- and a note only over the text its writer last saw. pbx_set_disposition
 -- writes both fields blind; it stays for a build still running.
 --
--- Restates pbx_set_disposition (089) and pbx_can_view_call and
--- calls_select (198). Re-running 089 or 198 undoes it: apply in order.
+-- And each of them may say who the customer was: pbx_link_call_contact
+-- lets someone else who answered FILL a call's contact (the pick on the
+-- incoming-call card, the new-caller form). Moving a call off the contact
+-- it has stays with the call's person and a team leader.
+--
+-- Restates pbx_set_disposition and pbx_link_call_contact (089) and
+-- pbx_can_view_call and calls_select (198). Re-running 089 or 198 undoes
+-- it: apply in order.
 -- Re-runnable.
 -- ============================================================
 
@@ -120,6 +126,56 @@ BEGIN
          notes = v_notes,
          notes_updated_by = auth.uid(),
          notes_updated_at = now()
+   WHERE id = p_call_id;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.pbx_link_call_contact(p_call_id uuid, p_contact_id uuid)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_call    calls;
+  v_contact contacts;
+BEGIN
+  IF auth.uid() IS NULL OR current_role_rank() < 2 THEN
+    RAISE EXCEPTION 'Unauthorized' USING ERRCODE = '42501';
+  END IF;
+  SELECT * INTO v_call FROM calls WHERE id = p_call_id FOR UPDATE;
+  IF NOT FOUND OR NOT pbx_can_view_call(v_call) THEN
+    RAISE EXCEPTION 'Call not found' USING ERRCODE = 'P0002';
+  END IF;
+  -- The disposition's rule: seeing a call through its customer is not
+  -- enough to move another person's call. Someone else who answered a leg
+  -- of it only fills an empty contact (the same one again: a retry).
+  IF current_role_rank() < 3
+     AND NOT COALESCE(v_call.user_id = auth.uid(), false)
+     AND NOT (pbx_answered_call(v_call)
+              AND COALESCE(v_call.contact_id = p_contact_id, true)) THEN
+    RAISE EXCEPTION 'Only the person on the call or a team leader can re-link it'
+      USING ERRCODE = '42501';
+  END IF;
+  IF v_call.direction = 'internal' THEN
+    RAISE EXCEPTION 'An internal call has no customer' USING ERRCODE = '22023';
+  END IF;
+  IF v_call.erased_at IS NOT NULL THEN
+    RAISE EXCEPTION 'This call was erased' USING ERRCODE = '55000';
+  END IF;
+  SELECT * INTO v_contact FROM contacts WHERE id = p_contact_id;
+  IF NOT FOUND OR v_contact.account_id IS DISTINCT FROM v_call.account_id
+     OR NOT can_view_contact(v_contact.account_id, v_contact.id, v_contact.user_id) THEN
+    RAISE EXCEPTION 'Contact not found' USING ERRCODE = 'P0002';
+  END IF;
+  UPDATE calls
+     SET contact_id = p_contact_id,
+         conversation_id = (SELECT cv.id FROM conversations cv
+                             WHERE cv.contact_id = p_contact_id AND cv.account_id = v_call.account_id
+                             ORDER BY cv.created_at DESC, cv.id LIMIT 1),
+         deal_id = CASE WHEN EXISTS (SELECT 1 FROM deals d
+                                      WHERE d.id = v_call.deal_id AND d.contact_id = p_contact_id)
+                        THEN v_call.deal_id END
    WHERE id = p_call_id;
 END;
 $$;

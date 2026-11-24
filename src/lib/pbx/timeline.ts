@@ -311,7 +311,7 @@ export interface Heading {
 export type CallTone = 'missed' | 'ok';
 
 export function callTone(call: TimelineCall): CallTone {
-  return isMissedCall(call) && !call.answeredAt ? 'missed' : 'ok';
+  return isMissedCall(call) ? 'missed' : 'ok';
 }
 
 /** 'rang Sara and Faisal for 24 s' (whoever is known of it). */
