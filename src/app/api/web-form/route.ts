@@ -4,7 +4,10 @@
 // session to web_form_get / web_form_set, which check the role in the
 // caller's ACTIVE workspace again; the token is generated there.
 //
-// PUT body: { enabled: boolean, allowedOrigins: string[], rotate?: boolean }
+// PUT body: { enabled?: boolean, allowedOrigins?: string[], rotate?: boolean }
+// A field left out keeps what is stored (read through web_form_get), so
+// "Rotate key" from a stale tab sends only { rotate: true } and cannot write
+// that tab's old switch and origins back. An empty body is a 400.
 // -> 200 { enabled, token, allowed_origins, updated_at }; 400 for a bad
 // body or an origin that is not https://host[:port] (the same rule as
 // the SQL), 403 below admin.
@@ -57,14 +60,36 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: 'bad_body' }, { status: 400 });
     }
     const b = (body ?? {}) as Record<string, unknown>;
-    if (typeof b.enabled !== 'boolean' || !Array.isArray(b.allowedOrigins)) {
+    const hasEnabled = b.enabled !== undefined;
+    const hasOrigins = b.allowedOrigins !== undefined;
+    if (
+      (hasEnabled && typeof b.enabled !== 'boolean') ||
+      (hasOrigins && !Array.isArray(b.allowedOrigins)) ||
+      (b.rotate !== undefined && typeof b.rotate !== 'boolean') ||
+      (!hasEnabled && !hasOrigins && b.rotate !== true)
+    ) {
       return NextResponse.json({ error: 'bad_body' }, { status: 400 });
     }
-    if (b.allowedOrigins.length > MAX_ALLOWED_ORIGINS) {
+    let enabled = b.enabled as boolean | undefined;
+    let rawOrigins = b.allowedOrigins as unknown[] | undefined;
+    if (enabled === undefined || rawOrigins === undefined) {
+      const { data: current, error: getError } =
+        await ctx.supabase.rpc('web_form_get');
+      if (getError) return rpcFailure(getError);
+      const cur = (current ?? {}) as {
+        enabled?: unknown;
+        allowed_origins?: unknown;
+      };
+      enabled ??= cur.enabled === true;
+      rawOrigins ??= Array.isArray(cur.allowed_origins)
+        ? cur.allowed_origins
+        : [];
+    }
+    if (rawOrigins.length > MAX_ALLOWED_ORIGINS) {
       return NextResponse.json({ error: 'too_many_origins' }, { status: 400 });
     }
     const origins: string[] = [];
-    for (const raw of b.allowedOrigins) {
+    for (const raw of rawOrigins) {
       const origin =
         typeof raw === 'string' ? normalizeAllowedOrigin(raw) : null;
       if (!origin) {
@@ -73,7 +98,7 @@ export async function PUT(request: Request) {
       if (!origins.includes(origin)) origins.push(origin);
     }
     const { data, error } = await ctx.supabase.rpc('web_form_set', {
-      p_enabled: b.enabled,
+      p_enabled: enabled,
       p_allowed_origins: origins,
       p_rotate: b.rotate === true,
     });

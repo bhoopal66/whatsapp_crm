@@ -53,6 +53,19 @@ and polish.
   guard reads file names also when a message has text, without taking the
   date and time in a photo's name for a card. A read mark never moves back.
   **Migration required: 307** (before the build).
+- **Seven small admin-screen fixes.** Hire fast shows the newest
+  conversations first and says "First 500 shown" when the list was cut
+  (overdue tasks are read oldest first). The media-keeping switch of a
+  WhatsApp number says so when it was not saved (number removed or right
+  withdrawn) instead of staying on. "Rotate key" on the web form changes
+  only the key (a stale tab no longer writes its old switch and origins
+  back), Save sends only what changed, and a failed load has Retry.
+  Removing a bank's guest policy asks first and says what is lost. A failed
+  load of the WhatsApp routing shows an error with Retry, not "no numbers".
+  The customer page asks again for team member names after a failed read
+  (at most once per 30 seconds). The contact form's sign-in, profile, close
+  and phone-number messages are translated (en, ar, ko).
+
 - **Privacy and recycling settings are never saved over blindly.** A failed
   load in Settings → Privacy or on Recycle shows Retry instead of a form
   that could wipe what is stored; a save over something a colleague changed
