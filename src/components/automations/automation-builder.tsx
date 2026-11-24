@@ -10,6 +10,7 @@ import {
 } from "react"
 import { useRouter } from "next/navigation"
 import { useTranslations } from "next-intl"
+import { triggerRuns } from "@/lib/automations/trigger-meta"
 import {
   CONDITION_CONTACT_FIELDS,
   isConditionContactField,
@@ -1188,11 +1189,25 @@ function TriggerCard({
                 className="w-full rounded-md border border-border bg-card dark:bg-muted px-2 py-1.5 text-sm text-foreground focus:border-primary focus:outline-none"
               >
                 {TRIGGER_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {label(o.value)}
+                  <option
+                    key={o.value}
+                    value={o.value}
+                    disabled={!triggerRuns(o.value)}
+                  >
+                    {triggerRuns(o.value)
+                      ? label(o.value)
+                      : t("triggerNotAvailable", { trigger: label(o.value) })}
                   </option>
                 ))}
               </select>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {t("triggerNotAvailableWhy")}
+              </p>
+              {!triggerRuns(type) && (
+                <p className="mt-1 text-xs font-medium text-warning">
+                  {t("triggerNotRunning")}
+                </p>
+              )}
               <p className="mt-1 text-xs text-muted-foreground">
                 {type === "intent_match"
                   ? tm("triggerHint")

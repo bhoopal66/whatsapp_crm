@@ -56,6 +56,17 @@ export const TRIGGER_META: Record<AutomationTriggerType, TriggerMeta> = {
   },
 }
 
+/** Triggers nothing dispatches: an automation with one never runs. Take
+ *  one out when something calls `runAutomationsForTrigger` with it. */
+const NOT_RUNNING_TRIGGERS: ReadonlySet<string> = new Set<AutomationTriggerType>([
+  'time_based',
+  'conversation_assigned',
+])
+
+export function triggerRuns(t: AutomationTriggerType | string): boolean {
+  return !NOT_RUNNING_TRIGGERS.has(t)
+}
+
 export function triggerMeta(t: AutomationTriggerType | string): TriggerMeta {
   return (
     TRIGGER_META[t as AutomationTriggerType] ?? {

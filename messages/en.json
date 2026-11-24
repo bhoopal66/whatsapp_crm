@@ -1760,7 +1760,8 @@
         "updateError": "Failed to update",
         "duplicateError": "Failed to duplicate",
         "deleteError": "Failed to delete"
-      }
+      },
+      "neverRuns": "On, but never runs"
     },
     "edit": {
       "loading": "Loading...",
@@ -1977,7 +1978,10 @@
           "placeholderText": "Triage marked this lead as ready to apply.",
           "textHint": "Posts as “wacrm · automation” and notifies nobody. **Double asterisks** make your text bold; {{ message.text }} and {{ vars.x }} are filled in, without bold or mentions. Everyone who can read the channel sees the post, even people who cannot see the conversation: in a team channel that is every staff member, viewers included. A channel with a bank guest is never posted to."
         }
-      }
+      },
+      "triggerNotAvailable": "{trigger} (not available yet)",
+      "triggerNotAvailableWhy": "Triggers marked \"not available yet\" cannot be used: nothing starts them so far.",
+      "triggerNotRunning": "This trigger does not run yet, so the automation cannot be activated."
     }
   },
   "Flows": {

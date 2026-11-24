@@ -22,6 +22,9 @@ and polish.
 
 ### Fixed
 
+- **"Time-Based" and "Conversation Assigned" automations say they do not run
+  yet.** Nothing ever started them: they are disabled in the builder, cannot
+  be activated, and one that is on shows "On, but never runs". No migration.
 - **An automation's "Send template" never sends a literal `{{1}}`.** A step
   whose template has a placeholder (body or text header) without a value
   fails with the reason in the run log, and an automation with one cannot
