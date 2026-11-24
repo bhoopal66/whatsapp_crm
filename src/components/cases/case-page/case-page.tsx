@@ -236,6 +236,7 @@ export function CasePage({ caseId }: { caseId: string }) {
     const res = r.json as { code?: unknown; refusal?: unknown } | null;
     const key = docRequestKey(r.status, res?.code, res?.refusal);
     if (key === 'nothingMissing') toast.info(t(`docs.${key}`));
+    else if (key === 'unconfirmed') toast.warning(t(`docs.${key}`));
     else toast.error(t(`docs.${key}`));
   };
 

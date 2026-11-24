@@ -46,6 +46,8 @@
  *   viewArchive — sg_read_archive: the role is decided in SQL from the user id;
  *     audit row and read in one statement.
  */
+import { isDefiniteSendRefusal } from '@/lib/whatsapp/provider';
+
 import { noteCreatedMembership } from './membership';
 import {
   assertWindowDays,
@@ -357,6 +359,22 @@ export class SubmissionGroupSentNotRecordedError extends Error {
       `submission group message ${messageId} (${waMessageId}) was sent but could not be recorded`,
       { cause }
     );
+  }
+}
+
+/**
+ * A person's send whose outcome nobody knows: the gateway timed out,
+ * answered 5xx or lost its answer, so WhatsApp may hold the message. The
+ * row is settled 'failed' (an echo can still correct it, inbound.ts).
+ * `message` is the gateway error's own, which is the `cause`.
+ */
+export class SubmissionGroupSendUnconfirmedError extends Error {
+  override readonly name = 'SubmissionGroupSendUnconfirmedError';
+  constructor(
+    readonly messageId: string,
+    cause: unknown
+  ) {
+    super(cause instanceof Error ? cause.message : String(cause), { cause });
   }
 }
 
@@ -1286,7 +1304,14 @@ export class SubmissionGroupService {
         if (late !== null)
           throw new SubmissionGroupSentNotRecordedError(messageId, late, err);
       }
-      throw err;
+      // A refusal (the number is gone, a gateway 4xx) sent nothing; anything
+      // else may have gone out.
+      if (
+        isDefiniteSendRefusal(err) ||
+        err instanceof SubmissionGroupChannelError
+      )
+        throw err;
+      throw new SubmissionGroupSendUnconfirmedError(messageId, err);
     }
     // Not pending any more (swept, or settled elsewhere) but WhatsApp has
     // it: report it as sent-not-recorded, never as a failure to resend.

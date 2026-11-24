@@ -15,7 +15,10 @@
 //                         caller is not on the group's open access list
 //                         (SEND_NOT_ALLOWED / UNKNOWN_USER), the group is
 //                         not ready, or its number or contact was removed.
-//       SEND_FAILED     — the gateway failed; the message row is failed.
+//       SEND_FAILED     — nothing went out (the gateway refused it, or it
+//                         never got that far).
+//   502 `{ error, code: 'UNCONFIRMED' }`: the gateway timed out or answered
+//       5xx, so the customer may have it. Nothing is marked.
 // ============================================================
 
 import { NextResponse } from 'next/server';
@@ -49,6 +52,7 @@ const NOT_SENT: Record<
   BLOCKED: 'Messaging this customer is blocked',
   REFUSED: 'The request could not be sent in this group',
   SEND_FAILED: 'The request could not be sent',
+  UNCONFIRMED: 'The request may have been sent',
 };
 
 export async function POST(_request: Request, { params }: Params) {
@@ -88,11 +92,11 @@ export async function POST(_request: Request, { params }: Params) {
         : result.reason === 'REFUSED'
           ? { refusal: result.refusal }
           : {};
-    if (result.reason === 'SEND_FAILED')
-      console.error('[cases] documents request: send failed');
+    if (result.reason === 'SEND_FAILED' || result.reason === 'UNCONFIRMED')
+      console.error('[cases] documents request:', result.reason);
     return NextResponse.json(
       { error: NOT_SENT[result.reason], code: result.reason, ...extra },
-      { status: 409 }
+      { status: result.reason === 'UNCONFIRMED' ? 502 : 409 }
     );
   } catch (err) {
     return caseErrorResponse(err, 'documents request');

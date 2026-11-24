@@ -1,9 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { WhapiError } from '@/lib/whatsapp/whapi-api';
+
 import type { StaffLabel } from './rules';
 import {
   SubmissionGroupChannelError,
   SubmissionGroupSendBlockedError,
+  SubmissionGroupSendUnconfirmedError,
   SubmissionGroupSendRefusedError,
   SubmissionGroupSentNotRecordedError,
   SubmissionGroupService,
@@ -1144,6 +1147,27 @@ describe('SubmissionGroupService.sendMediaFromCrm', () => {
     );
     expect(s.api.of('sendGroupMedia')).toEqual([]);
     expect(s.store.messages.map((m) => m.sendStatus)).toEqual(['blocked']);
+  });
+
+  it('a lost gateway answer is unconfirmed, a refusal keeps its own error', async () => {
+    const send = async (err: Error) => {
+      const s = setup();
+      const g = await opened(s);
+      s.api.sendGroupMedia = async () => {
+        throw err;
+      };
+      const thrown = await s.svc.sendMediaFromCrm(doc(g.id)).catch((e) => e);
+      expect(s.store.messages.map((m) => m.sendStatus)).toEqual(['failed']);
+      return thrown;
+    };
+    const lost = new WhapiError('timed out', 503);
+    expect(await send(lost)).toBeInstanceOf(
+      SubmissionGroupSendUnconfirmedError
+    );
+    const refused = new WhapiError('not allowed', 403);
+    expect(await send(refused)).toBe(refused);
+    const gone = new SubmissionGroupChannelError('ch-1');
+    expect(await send(gone)).toBe(gone);
   });
 
   it('gateway error: the row is settled failed and the error reaches the caller', async () => {

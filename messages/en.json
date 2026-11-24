@@ -9873,6 +9873,7 @@
       "done": "Reassigned to {name}"
     },
     "docs": {
+      "unconfirmed": "It may have been sent. Check the Conversation tab before sending again.",
       "title": "Request missing documents",
       "body": "The customer gets one message in the case's WhatsApp group listing every required document not yet received.",
       "confirm": "Send request",

@@ -434,6 +434,7 @@ const DOC_RESULTS: Record<string, string> = {
   BLOCKED: 'blocked',
   REFUSED: 'refused',
   SEND_FAILED: 'sendFailed',
+  UNCONFIRMED: 'unconfirmed',
   SEND_RATE_LIMITED: 'rateLimited',
 };
 
@@ -451,7 +452,12 @@ export const detailsErrorKey = pick(DETAIL_ERRORS);
 export const reasonErrorKey = pick(REASON_ERRORS);
 export const reassignErrorKey = pick(REASSIGN_ERRORS);
 
-/** CasePage.docs.* for a document request that was not sent. */
+/**
+ * CasePage.docs.* for a document request that was not sent, or whose
+ * outcome is unknown: the browser's own network error (status 0), a
+ * timeout and any 5xx (a proxy's 524 included) may have come after the
+ * message went out.
+ */
 export function docRequestKey(
   status: number,
   code: unknown,
@@ -462,6 +468,7 @@ export function docRequestKey(
     return 'noWhatsappGroup';
   if (typeof code === 'string' && DOC_RESULTS[code]) return DOC_RESULTS[code];
   if (status === 429) return 'rateLimited';
+  if (status === 0 || status === 408 || status >= 500) return 'unconfirmed';
   return 'sendFailed';
 }
 

@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import {
   SubmissionGroupSendBlockedError,
   SubmissionGroupSendRefusedError,
+  SubmissionGroupSendUnconfirmedError,
   SubmissionGroupSentNotRecordedError,
 } from '@/lib/submission-groups/service';
 
@@ -677,6 +678,10 @@ describe('requestMissingDocuments', () => {
     ['BLOCKED', new SubmissionGroupSendBlockedError('opted_out')],
     ['REFUSED', new SubmissionGroupSendRefusedError('SEND_NOT_ALLOWED')],
     ['SEND_FAILED', new Error('gateway down')],
+    [
+      'UNCONFIRMED',
+      new SubmissionGroupSendUnconfirmedError('m1', new Error('timed out')),
+    ],
   ])('%s: marks nothing', async (reason, err) => {
     const s = setup(async () => {
       throw err;

@@ -26,6 +26,11 @@ and polish.
   more than 1,000 messages it stopped at the first thousand, so a new
   message or the agent's own reply never appeared. It now shows the newest
   200 and links to the group for the rest; the case timeline does the same.
+- **"Request documents" no longer says a request was not sent when nobody
+  knows.** When WhatsApp's answer is lost (a timeout, a server error, the
+  browser's own connection) it says "It may have been sent. Check the
+  Conversation tab before sending again." The documents stay listed as
+  missing.
 - **A failed filter change no longer leaves the old figures under the new
   filter.** The funnel report and Team activity now show figures only under
   the filter they were fetched for; after a failed load the error with Retry
