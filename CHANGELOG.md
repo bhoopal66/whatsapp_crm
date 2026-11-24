@@ -39,6 +39,14 @@ and polish.
 
 ### Fixed
 
+- **Erasing or exporting a candidate also reaches their tasks.** A task an HR
+  rule opens carries the chat and not the contact, and a missed call from a
+  number nobody had yet carries only the call, so an erasure left both behind
+  (a "Call back" task kept the number). A call linked to somebody else keeps
+  its task.
+- **An HR message template is saved only over the text the page showed.** Two
+  admins editing the same template overwrote each other. A refused save keeps
+  what was typed until Reload. **Migration required: 317** (before the build).
 - **API, smaller points.** A repeated submission call that names another
   number links only the group's own customer to Compass;
   `message.status_updated` no longer fires for chats on staff members' own

@@ -21,9 +21,12 @@ import {
   editorPayload,
   editorSlots,
   editorView,
+  followSlot,
   SMS_NAME_ALLOWANCE,
+  storedMoved,
   type EditorForm,
   type EditorSlot,
+  type EditorState,
 } from '@/lib/hr/automsg/editor-view';
 import { MAX_SMS_SEGMENTS } from '@/lib/hr/automsg/sms-text';
 import { APPROVAL_STATUSES, type ApprovalStatus } from '@/lib/hr/automsg/types';
@@ -33,10 +36,9 @@ import { createClient } from '@/lib/supabase/client';
 /**
  * The template editors of the HR Automated messages screen: a WhatsApp /
  * RCS / SMS tab switch, then one card per kind x language of that channel.
- * Each card is keyed by its stored row (`slot.key`), so a save
- * re-initialises it from the reloaded config while typing never does.
- * Admins edit on every channel; leads read. The database re-checks every
- * save.
+ * An untouched card shows what is stored now; a touched one keeps its text,
+ * and is saved only over the row it was filled from (317). Admins edit on
+ * every channel; leads read. The database re-checks every save.
  */
 export function AutomsgTemplates({
   templates,
@@ -139,7 +141,7 @@ export function TemplatesPanel({
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         {editorSlots(templates, channel).map((slot) => (
           <TemplateCard
-            key={slot.key}
+            key={`${slot.channel}|${slot.kind}|${slot.language}`}
             slot={slot}
             role={role}
             onSaved={onSaved}
@@ -160,8 +162,15 @@ export function TemplateCard({
   onSaved: () => Promise<void> | void;
 }) {
   const t = useTranslations('Hr.automsg');
-  const [form, setForm] = useState<EditorForm>(slot.initial);
+  const [editor, setEditor] = useState<EditorState>({
+    base: slot,
+    form: slot.initial,
+  });
+  const [refused, setRefused] = useState(false);
   const [saving, setSaving] = useState(false);
+  const { base, form } = followSlot(editor, slot);
+  const setForm = (next: EditorForm) => setEditor({ base, form: next });
+  const changed = refused || storedMoved(base, slot);
   const rcs = slot.channel === 'rcs';
   const sms = slot.channel === 'sms';
   const view = editorView(slot.kind, form, role, saving, slot.channel);
@@ -173,20 +182,37 @@ export function TemplateCard({
 
   const save = async () => {
     setSaving(true);
+    setEditor({ base, form });
     try {
-      const res = await automsgSaveTemplate(
-        createClient(),
-        editorPayload(slot.kind, slot.language, form, slot.channel)
-      );
+      const res = await automsgSaveTemplate(createClient(), {
+        ...editorPayload(slot.kind, slot.language, form, slot.channel),
+        expectedUpdatedAt: base.stored?.updatedAt ?? null,
+      });
       if ('error' in res) {
+        if (res.error === 'STALE') setRefused(true);
         toast.error(t(`error.${automsgErrorKey(res.error)}`));
         return;
       }
       toast.success(t('templates.saved'));
+      // The row just stored is this editor's own; typing meanwhile stays.
+      const saved = editorSlots(res.data.templates, slot.channel).find(
+        (s) => s.kind === slot.kind && s.language === slot.language
+      );
+      if (saved)
+        setEditor((cur) => ({
+          base: saved,
+          form: cur.form === form ? saved.initial : cur.form,
+        }));
       await onSaved();
     } finally {
       setSaving(false);
     }
+  };
+
+  const reload = () => {
+    setRefused(false);
+    setEditor({ base: slot, form: slot.initial });
+    void onSaved();
   };
 
   return (
@@ -287,6 +313,18 @@ export function TemplateCard({
         />
       </div>
 
+      {changed && (
+        <div
+          role="alert"
+          className="bg-warning-soft text-warning flex flex-wrap items-center justify-between gap-2 rounded px-2 py-1 text-xs"
+        >
+          <span>{t('templates.changed')}</span>
+          <Button size="sm" variant="outline" onClick={reload}>
+            {t('templates.reload')}
+          </Button>
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center gap-2">
         <label htmlFor={`${id}-approval`} className="text-sm">
           {t('templates.approval')}
@@ -312,7 +350,7 @@ export function TemplateCard({
         {!view.readOnly && (
           <Button
             size="sm"
-            disabled={!view.canSave}
+            disabled={!view.canSave || changed}
             onClick={() => void save()}
           >
             {rcs

@@ -13023,6 +13023,7 @@
         "NOT_ALLOWED": "You don't have permission to change this.",
         "INVALID": "That value isn't allowed here.",
         "LIMIT": "The daily cap must be between 1 and 20.",
+        "STALE": "Somebody else saved this template meanwhile, so nothing was saved. Your text is kept.",
         "UNKNOWN": "Something went wrong. Try again."
       },
       "templates": {
@@ -13045,6 +13046,8 @@
         },
         "save": "Save template",
         "saved": "Template saved",
+        "changed": "Somebody else saved this template meanwhile. Reload shows theirs and drops your text.",
+        "reload": "Reload",
         "channelTabs": "Template channel",
         "rcsReadOnly": "RCS templates are read only for your role.",
         "rcsNotConnected": "No RCS provider is connected yet. RCS templates can be prepared now; nothing is sent over RCS until a provider is connected.",

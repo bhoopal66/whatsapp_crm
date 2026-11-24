@@ -46,11 +46,35 @@ export interface EditorSlot {
   /** The stored row, or null when the seed text stands in for it. */
   stored: AutoMsgTemplateView | null;
   /**
-   * React key: changes only when the stored row changes, so an editor is
-   * re-initialised after a save but never while someone is typing.
+   * Changes only when the stored row changes: what `followSlot` compares
+   * to tell whether an editor still shows what is stored.
    */
   key: string;
   initial: EditorForm;
+}
+
+/** One editor: the slot it was filled from, and the form as typed. */
+export interface EditorState {
+  base: EditorSlot;
+  form: EditorForm;
+}
+
+/**
+ * The editor after a reload: an untouched one shows what is stored now, a
+ * touched one keeps its text and the version it was read with.
+ */
+export function followSlot(state: EditorState, slot: EditorSlot): EditorState {
+  if (slot.key === state.base.key) return state;
+  const { form, base } = state;
+  const touched = (Object.keys(form) as (keyof EditorForm)[]).some(
+    (k) => form[k] !== base.initial[k]
+  );
+  return touched ? state : { base: slot, form: slot.initial };
+}
+
+/** Somebody saved the stored row after the editor was filled. */
+export function storedMoved(base: EditorSlot, slot: EditorSlot): boolean {
+  return (base.stored?.updatedAt ?? null) !== (slot.stored?.updatedAt ?? null);
 }
 
 /**
