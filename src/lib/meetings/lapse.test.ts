@@ -1,5 +1,9 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
+
+const cutSeats = vi.hoisted(() => vi.fn());
+vi.mock('./cut', () => ({ cutSeats }));
+
 import {
   INSTANT_LAPSE_MS,
   lapsedInstantMeetings,
@@ -122,10 +126,15 @@ function fakeAdmin(opts: {
       ub.eq = (col: string, val: unknown) => (u.filters.push([col, val]), ub);
       ub.is = (col: string, val: unknown) => {
         u.filters.push([col, val]);
+        return ub;
+      };
+      ub.select = () => {
         const id = u.filters.find(([c]) => c === 'id')?.[1] as string;
-        return Promise.resolve({
-          error: opts.failUpdateFor?.includes(id) ? { message: 'boom' } : null,
-        });
+        return Promise.resolve(
+          opts.failUpdateFor?.includes(id)
+            ? { data: null, error: { message: 'boom' } }
+            : { data: [{ id }], error: null }
+        );
       };
       return ub;
     };
@@ -139,6 +148,9 @@ function fakeAdmin(opts: {
 }
 
 describe('runMeetingLapseSweep', () => {
+  beforeEach(() => void cutSeats.mockReset());
+  /** Every meeting here was already empty in the pass before. */
+  const seen = () => new Set(['a', 'b', 'c']);
   const old = () => new Date(Date.now() - 30 * MIN).toISOString();
   const live = (id: string) => ({
     meeting_id: id,
@@ -151,7 +163,7 @@ describe('runMeetingLapseSweep', () => {
     const { admin, updates } = fakeAdmin({
       meetings: { data: [], error: null },
     });
-    expect(await runMeetingLapseSweep(admin)).toEqual({
+    expect(await runMeetingLapseSweep(admin, seen())).toEqual({
       checked: 0,
       ended: 0,
     });
@@ -166,7 +178,7 @@ describe('runMeetingLapseSweep', () => {
       },
       seats: { b: { data: [live('b')], error: null } },
     });
-    expect(await runMeetingLapseSweep(admin)).toEqual({
+    expect(await runMeetingLapseSweep(admin, seen())).toEqual({
       checked: 2,
       ended: 1,
     });
@@ -189,7 +201,7 @@ describe('runMeetingLapseSweep', () => {
         error: null,
       },
     });
-    await runMeetingLapseSweep(admin);
+    await runMeetingLapseSweep(admin, seen());
     expect(seatReads).toEqual(['a', 'b', 'c']);
   });
 
@@ -202,7 +214,7 @@ describe('runMeetingLapseSweep', () => {
       seats: { a: { data: null, error: { message: 'down' } } },
     });
     const log = vi.spyOn(console, 'error').mockImplementation(() => {});
-    expect(await runMeetingLapseSweep(admin)).toEqual({
+    expect(await runMeetingLapseSweep(admin, seen())).toEqual({
       checked: 2,
       ended: 1,
     });
@@ -219,7 +231,7 @@ describe('runMeetingLapseSweep', () => {
       failUpdateFor: ['a'],
     });
     const log = vi.spyOn(console, 'error').mockImplementation(() => {});
-    expect(await runMeetingLapseSweep(admin)).toEqual({
+    expect(await runMeetingLapseSweep(admin, seen())).toEqual({
       checked: 3,
       ended: 2,
     });
@@ -232,6 +244,69 @@ describe('runMeetingLapseSweep', () => {
     const { admin } = fakeAdmin({
       meetings: { data: null, error: { message: 'down' } },
     });
-    await expect(runMeetingLapseSweep(admin)).rejects.toThrow('down');
+    await expect(runMeetingLapseSweep(admin, seen())).rejects.toThrow('down');
+  });
+
+  describe('two passes in a row', () => {
+    const empty = {
+      data: [meeting({ id: 'a', created_at: old() })],
+      error: null,
+    };
+    const down = { data: null, error: { message: 'down' } };
+    const run = (memory: Set<string>, meetings: Result, seats?: Result) => {
+      const f = fakeAdmin({ meetings, seats: seats && { a: seats } });
+      return runMeetingLapseSweep(f.admin, memory).then((r) => r.ended);
+    };
+
+    it('only notes an empty meeting on the first pass of a process', async () => {
+      const memory = new Set<string>();
+      expect(await run(memory, empty)).toBe(0);
+      expect(await run(memory, empty)).toBe(1);
+    });
+
+    it('keeps a live meeting whose heartbeats come back after an outage', async () => {
+      const memory = new Set<string>();
+      const back = { data: [live('a')], error: null };
+      expect(await run(memory, empty)).toBe(0);
+      expect(await run(memory, empty, back)).toBe(0);
+      // Empty again later: counted from the start.
+      expect(await run(memory, empty)).toBe(0);
+    });
+
+    it('starts over after a pass that failed, whole or for that meeting', async () => {
+      const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const memory = new Set<string>(['a']);
+      await expect(run(memory, down)).rejects.toThrow('down');
+      expect(await run(memory, empty)).toBe(0);
+      expect(await run(memory, empty, down)).toBe(0);
+      expect(await run(memory, empty)).toBe(0);
+      log.mockRestore();
+    });
+  });
+
+  it('cuts the seats it closes, not those that had left', async () => {
+    const dead = {
+      ...live('a'),
+      last_seen_at: old(),
+      joined_at: old(),
+      cf_session_id: 'cf-open',
+    };
+    const left = { ...dead, left_at: old(), cf_session_id: 'cf-left' };
+    const meetings = {
+      data: ['a', 'b'].map((id) => meeting({ id, created_at: old() })),
+      error: null,
+    };
+    const { admin } = fakeAdmin({
+      meetings,
+      seats: {
+        a: { data: [dead, left], error: null },
+        b: { data: [{ ...dead, meeting_id: 'b' }], error: null },
+      },
+      failUpdateFor: ['b'],
+    });
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await runMeetingLapseSweep(admin, seen());
+    expect(cutSeats.mock.calls).toEqual([[[dead]]]);
+    log.mockRestore();
   });
 });

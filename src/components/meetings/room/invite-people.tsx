@@ -132,13 +132,21 @@ function InviteDialog({
 
   const send = async () => {
     setSending(true);
-    const invited = await call.invite([...picked]);
+    const result = await call.invite([...picked]);
     setSending(false);
-    if (!invited) {
+    if (!result) {
       toast.error(t('failed'));
       return;
     }
-    toast.success(t('sent', { count: invited.length }));
+    for (const userId of result.needsReadmit) {
+      const m = members.find((p) => p.user_id === userId);
+      toast.warning(
+        t('needsReadmit', { name: m?.full_name || m?.email || '' })
+      );
+    }
+    if (result.invited.length > 0 || result.needsReadmit.length === 0) {
+      toast.success(t('sent', { count: result.invited.length }));
+    }
     onInvited();
     onClose();
   };

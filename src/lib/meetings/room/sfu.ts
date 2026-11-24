@@ -17,7 +17,9 @@ export type RoomError =
   /** ICE failed and rejoining did not bring it back. */
   | 'connection_failed'
   /** Our seat was closed under us: joined again from another tab. */
-  | 'seat_closed';
+  | 'seat_closed'
+  /** The server keeps refusing us: deactivated, removed, or a guest now. */
+  | 'access_lost';
 
 export const NOT_CONFIGURED = 'meetings_not_configured';
 export const REMOVED = 'removed_from_meeting';

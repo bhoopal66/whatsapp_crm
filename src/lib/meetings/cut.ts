@@ -15,6 +15,8 @@
 // the database, so a Cloudflare failure is logged and nothing more.
 // ============================================================
 
+import type { SupabaseClient } from '@supabase/supabase-js';
+
 import { closeTracks, getSession, isMeetingsConfigured } from './sfu';
 import type { ParticipantRow } from './types';
 
@@ -52,4 +54,59 @@ export async function cutSeats(seats: readonly SeatToCut[]): Promise<void> {
       })
     )
   );
+}
+
+/** How long an admin's answer may wait for a departed member's cut. */
+export const MEMBER_CUT_WAIT_MS = 5_000;
+
+/**
+ * A person who may no longer be here (deactivated or removed) is taken
+ * out of the meetings of `accountId` they are sitting in: their open
+ * seats are closed as a leave closes them, then cut at Cloudflare, which
+ * would otherwise keep relaying every track already pulled.
+ *
+ * Never throws, and answers within MEMBER_CUT_WAIT_MS; work still under
+ * way then carries on. A seat this misses is the minute sweep's
+ * (`runSeatAccessSweep`). `admin` is the service role; the caller has
+ * authorised the departure.
+ */
+export async function cutMemberSeats(
+  admin: SupabaseClient,
+  accountId: string,
+  userId: string
+): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const bound = new Promise<void>((resolve) => {
+    timer = setTimeout(() => {
+      console.error('[meetings] cutting a departed member is slow');
+      resolve();
+    }, MEMBER_CUT_WAIT_MS);
+  });
+  const work = closeMemberSeats(admin, accountId, userId).catch(
+    (err: unknown) => {
+      const e = err as { code?: unknown; name?: unknown } | null;
+      console.error(
+        '[meetings] a departed member kept their seats',
+        e?.code ?? e?.name
+      );
+    }
+  );
+  await Promise.race([work, bound]);
+  clearTimeout(timer);
+}
+
+async function closeMemberSeats(
+  admin: SupabaseClient,
+  accountId: string,
+  userId: string
+): Promise<void> {
+  const { data, error } = await admin
+    .from('meeting_participants')
+    .update({ left_at: new Date().toISOString() })
+    .eq('account_id', accountId)
+    .eq('user_id', userId)
+    .is('left_at', null)
+    .select('cf_session_id');
+  if (error) throw error;
+  await cutSeats((data ?? []) as SeatToCut[]);
 }

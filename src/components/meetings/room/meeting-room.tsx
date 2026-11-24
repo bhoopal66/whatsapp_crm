@@ -202,6 +202,16 @@ function ClaimedRoom({
       />
     );
   }
+  // Nothing to go back to: the app refuses this person now.
+  if (call.error === 'access_lost') {
+    return (
+      <RoomEndScreen
+        icon={UserMinus}
+        title={t('left.noAccess')}
+        actions={[toMeetings]}
+      />
+    );
+  }
   if (call.phase === 'left') {
     const elsewhere = call.error === 'seat_closed';
     return (

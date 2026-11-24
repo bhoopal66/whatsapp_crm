@@ -7,7 +7,7 @@ import {
   everyInterval,
   runChannelHealthCheck,
 } from '@/lib/whatsapp/channel-health'
-import { runMeetingLapseSweep } from '@/lib/meetings/lapse'
+import { runMeetingLapseSweep, runSeatAccessSweep } from '@/lib/meetings/lapse'
 import { runHrSweep } from '@/lib/hr/sweep'
 import { runDeskDigests } from '@/lib/desk/digest'
 import { sendDeskDigest } from '@/lib/desk/digest-send'
@@ -108,6 +108,37 @@ function scheduleMeetingLapseSweep() {
   } catch (err) {
     console.error(
       '[automations-cron] could not schedule the meeting lapse sweep:',
+      err instanceof Error ? err.message : err,
+    )
+  }
+}
+
+/**
+ * Every minute: the seat of someone who is no longer live staff of the
+ * meeting's workspace is closed and cut. Under a minute, so a tick a
+ * little early is not skipped.
+ */
+const seatAccessDue = everyInterval(45_000)
+
+function scheduleSeatAccessSweep() {
+  try {
+    if (!seatAccessDue()) return
+    after(async () => {
+      try {
+        const summary = await runSeatAccessSweep(supabaseAdmin())
+        if (summary.cut > 0) {
+          console.log('[automations-cron] meeting access:', summary)
+        }
+      } catch (err) {
+        console.error(
+          '[automations-cron] meeting access sweep failed:',
+          err instanceof Error ? err.message : err,
+        )
+      }
+    })
+  } catch (err) {
+    console.error(
+      '[automations-cron] could not schedule the meeting access sweep:',
       err instanceof Error ? err.message : err,
     )
   }
@@ -1015,6 +1046,7 @@ export async function GET(request: Request) {
   } finally {
     scheduleChannelHealthCheck()
     scheduleMeetingLapseSweep()
+  scheduleSeatAccessSweep()
     scheduleTeamActivitySweep()
     scheduleResponseEscalation()
     scheduleEdgePurge()
