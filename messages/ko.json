@@ -12646,7 +12646,10 @@
       "taskDone": "완료",
       "markDone": "“{title}” 완료로 표시",
       "taskFailed": "할 일을 업데이트하지 못했습니다.",
-      "staffConversation": "직원 대화"
+      "staffConversation": "직원 대화",
+      "loadFailed": "이 대화의 HR 정보를 불러오지 못했습니다.",
+      "tasksLoadFailed": "HR 작업을 불러오지 못했습니다.",
+      "retry": "다시 시도"
     },
     "pane": {
       "conversation": "대화",

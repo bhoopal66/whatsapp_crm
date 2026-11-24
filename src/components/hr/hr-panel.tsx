@@ -47,6 +47,7 @@ import {
 import { hasHrAccess } from '@/lib/hr/access';
 import { loadHrRoles } from '@/lib/hr/roles-cache';
 import { isHrTask } from '@/lib/hr/tasks-view';
+import { startFirstLoad, type FirstLoad } from '@/lib/hr/panel-load';
 import { mayActOnDrafts } from '@/lib/hr/agents/panel';
 import { HrAgentDrafts } from './hr-agent-drafts';
 import { HrAutomsgConsent } from './hr-automsg-consent';
@@ -138,6 +139,11 @@ export function HrPanel({
   const [loaded, setLoaded] = useState(false);
   const [furthest, setFurthest] = useState<HrStage | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
+  // The list's last read failed; an old list is kept, flagged.
+  const [tasksFailed, setTasksFailed] = useState(false);
+  // The first read of the row failed for good: not "not tracked".
+  const [loadFailed, setLoadFailed] = useState(false);
+  const firstLoadRef = useRef<FirstLoad | null>(null);
   const [busy, setBusy] = useState(false);
   const [doneBusy, setDoneBusy] = useState<Set<string>>(new Set());
   const [pendingClose, setPendingClose] = useState<CloseChoice | null>(null);
@@ -247,11 +253,14 @@ export function HrPanel({
           hr: '1',
         });
         const res = await fetch(`/api/tasks?${params}`);
-        if (!res.ok) return;
+        if (!res.ok) throw new Error(String(res.status));
         const body = (await res.json()) as { tasks?: Task[] };
-        if (isCurrent(id)) setTasks((body.tasks ?? []).filter(isHrTask));
+        if (isCurrent(id)) {
+          setTasks((body.tasks ?? []).filter(isHrTask));
+          setTasksFailed(false);
+        }
       } catch {
-        // The list is a convenience; the tasks screens hold the truth.
+        if (isCurrent(id)) setTasksFailed(true);
       }
     },
     [isCurrent]
@@ -279,8 +288,34 @@ export function HrPanel({
   useEffect(() => {
     if (!hasAccess) return;
     const id = conversationId;
-    void readHr(id).then((read) => show(id, read));
-  }, [conversationId, hasAccess, show]);
+    setLoadFailed(false);
+    const first = startFirstLoad(
+      async () => {
+        const read = await readHr(id);
+        const error = read.rowRes.error ?? read.historyRes.error;
+        if (error) throw error;
+        return read;
+      },
+      {
+        onData: (read) => show(id, read),
+        onState: (state) => {
+          if (isCurrent(id)) setLoadFailed(state === 'failed');
+        },
+      }
+    );
+    firstLoadRef.current = first;
+    return () => {
+      first.stop();
+      if (firstLoadRef.current === first) firstLoadRef.current = null;
+    };
+  }, [conversationId, hasAccess, show, isCurrent]);
+
+  // A live event, a write or the catch-up read is newer than the first
+  // read: drop it (and its retries) rather than paint over them.
+  const dropFirstLoad = useCallback(() => {
+    firstLoadRef.current?.stop();
+    setLoadFailed(false);
+  }, []);
 
   // The inbox's HR team, which narrows a lead's Owner choices. Only a
   // lead or an admin picks others, so nobody else pays for the read. The
@@ -368,6 +403,7 @@ export function HrPanel({
     onChangeRef.current = (next) => {
       if (!isCurrent(conversationId)) return;
       liveRef.current?.changed();
+      dropFirstLoad();
       const prev = rowRef.current;
       setRow(next);
       if (next) {
@@ -395,7 +431,10 @@ export function HrPanel({
         if (error) throw error;
         return read;
       },
-      (read) => show(conversationId, read)
+      (read) => {
+        dropFirstLoad();
+        show(conversationId, read);
+      }
     );
     liveRef.current = live;
     const sb = createClient();
@@ -423,7 +462,7 @@ export function HrPanel({
       liveRef.current = null;
       void sb.removeChannel(channel);
     };
-  }, [conversationId, hasAccess, show]);
+  }, [conversationId, hasAccess, show, dropFirstLoad]);
 
   const run = useCallback(
     async (write: () => Promise<HrResult<HrConversation>>) => {
@@ -444,13 +483,14 @@ export function HrPanel({
         return false;
       }
       liveRef.current?.changed();
+      dropFirstLoad();
       setRow(res.data);
       setFurthest((f) => laterStage(f, res.data.stage_key));
       // Rules open tasks on stage and topic changes.
       void loadTasks(id);
       return true;
     },
-    [conversationId, isCurrent, loadTasks, t]
+    [conversationId, isCurrent, loadTasks, dropFirstLoad, t]
   );
 
   const sb = () => createClient();
@@ -505,6 +545,27 @@ export function HrPanel({
     }
   };
 
+  if (
+    !loaded &&
+    loadFailed &&
+    roles &&
+    showHrPanel(roles, inboxDepartment, false)
+  )
+    return (
+      <div className="flex items-center gap-2 text-xs">
+        <span className="text-muted-foreground">{t('panel.loadFailed')}</span>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            setLoadFailed(false);
+            firstLoadRef.current?.retry();
+          }}
+        >
+          {t('panel.retry')}
+        </Button>
+      </div>
+    );
   if (!roles || !showHrPanel(roles, inboxDepartment, row !== null) || !loaded)
     return null;
 
@@ -549,6 +610,8 @@ export function HrPanel({
       actions={actions}
       steps={steps}
       tasks={tasks}
+      tasksFailed={tasksFailed}
+      onRetryTasks={() => void loadTasks(conversationId)}
       doneBusy={doneBusy}
       pendingClose={pendingClose}
       onOpen={(kind) => void open(kind)}

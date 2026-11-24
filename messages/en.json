@@ -12646,7 +12646,10 @@
       "taskDone": "Done",
       "markDone": "Mark “{title}” done",
       "taskFailed": "Couldn't update the task.",
-      "staffConversation": "Staff conversation"
+      "staffConversation": "Staff conversation",
+      "loadFailed": "Couldn't load this chat's HR details.",
+      "tasksLoadFailed": "Couldn't load the HR tasks.",
+      "retry": "Retry"
     },
     "pane": {
       "conversation": "Conversation",

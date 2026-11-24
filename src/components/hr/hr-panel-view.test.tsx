@@ -224,3 +224,31 @@ describe('HrPanelView: Owner', () => {
     expect(html).not.toContain('Unassigned');
   });
 });
+
+describe('HrPanelView: tasks read failed', () => {
+  const task = {
+    id: 't1',
+    title: 'Call the candidate',
+    due_at: null,
+  } as unknown as HrPanelViewProps['tasks'][number];
+
+  it('an empty list that failed is not "No open HR tasks"', () => {
+    const html = render(row(), { tasksFailed: true });
+    expect(html).toContain('load the HR tasks.');
+    expect(html).toContain('Retry');
+    expect(html).not.toContain('No open HR tasks');
+  });
+
+  it('a held list stays below the failure line', () => {
+    const html = render(row(), { tasksFailed: true, tasks: [task] });
+    expect(at(html, 'load the HR tasks')).toBeLessThan(
+      at(html, 'Call the candidate')
+    );
+  });
+
+  it('a good read still says there are no tasks', () => {
+    const html = render(row());
+    expect(html).toContain('No open HR tasks');
+    expect(html).not.toContain('load the HR tasks');
+  });
+});
