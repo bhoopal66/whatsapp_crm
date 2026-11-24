@@ -21,6 +21,12 @@ and polish.
   limit refuses now waits a second and asks again (at most three times),
   for status checks, sends and attachment downloads alike; its daily
   pacing limit is never retried. No migration.
+- **A message reported failed and then delivered shows as delivered.**
+  When WhatsApp reports an error, retries and delivers, the later
+  delivered or read receipt now replaces "failed" in chats, WhatsApp
+  groups, campaigns and HR automated messages; the error text goes, the
+  campaign's failed count falls, and "Retry failed" does not send it
+  again. **Migration required: 291**, after 289.
 
 ### Security
 

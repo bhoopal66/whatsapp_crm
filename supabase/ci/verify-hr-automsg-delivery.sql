@@ -6,7 +6,8 @@
 -- provider may already hold unless its delivery failed.
 -- hr_automsg_delivery_record applies one WhatsApp status to the newest
 -- row of the account carrying that provider id: forward-only (sent <
--- delivered < read), nothing overwrites 'failed', 'failed' only from
+-- delivered < read), only a delivery overwrites 'failed' (291: the row is
+-- sent again, its reason gone), 'failed' only from
 -- NULL or 'sent', and an applied 'failed' fails the row terminally.
 -- Both are service-role only. This asserts each of those through the
 -- real functions.
@@ -217,12 +218,13 @@ BEGIN
          WHERE a.action = 'outbox_failed_terminal' AND a.detail->>'id' = o5::text
            AND a.detail->>'reason' = 'delivery_failed:131026');
   c := c || pg_temp.hr_chk('failed-after-sent audit row', r, '1');
-  r := pg_temp.dr(a_acct, 'wamid.F5', 'delivered');
+  r := pg_temp.dr(a_acct, 'wamid.F5', 'sent');
+  r := r || '/' || pg_temp.dr(a_acct, 'wamid.F5', 'delivered');
   r := r || '/' || pg_temp.dr(a_acct, 'wamid.F5', 'read');
   r := r || '/' || pg_temp.dr(a_acct, 'wamid.F5', 'failed', '1');
-  c := c || pg_temp.hr_chk('a status overwrote failed', r, 'unchanged/unchanged/unchanged');
-  r := (SELECT concat_ws('/', o.delivery_state, o.last_error) FROM hr_automsg_outbox o WHERE o.id = o5);
-  c := c || pg_temp.hr_chk('failed row after later statuses', r, 'failed/delivery_failed:131026');
+  c := c || pg_temp.hr_chk('only a delivery corrects failed', r, 'unchanged/recorded/recorded/unchanged');
+  r := (SELECT concat_ws('/', o.delivery_state, o.status, coalesce(o.last_error, 'null')) FROM hr_automsg_outbox o WHERE o.id = o5);
+  c := c || pg_temp.hr_chk('failed row after later statuses', r, 'read/sent/null');
 
   -- ---------- failed after delivered: ignored ----------
   r := pg_temp.dr(a_acct, 'wamid.D6', 'delivered');

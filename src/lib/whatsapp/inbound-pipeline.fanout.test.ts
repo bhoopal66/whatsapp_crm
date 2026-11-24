@@ -228,6 +228,7 @@ vi.mock('@/lib/whatsapp/mirror-inbound-media', () => ({
 }));
 vi.mock('@/lib/whatsapp/broadcast-core', () => ({
   settleBroadcastAfterLateFailure: vi.fn(),
+  settleBroadcastAfterCorrection: vi.fn(),
 }));
 
 import { mirrorInboundMedia } from '@/lib/whatsapp/mirror-inbound-media';

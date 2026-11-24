@@ -215,11 +215,16 @@ describe('GROUP_STATUS_PREDECESSORS', () => {
   it('is forward-only, and failed only from pending/sent', () => {
     expect(GROUP_STATUS_PREDECESSORS.pending).toEqual([]);
     expect(GROUP_STATUS_PREDECESSORS.sent).toEqual(['pending']);
-    expect(GROUP_STATUS_PREDECESSORS.delivered).toEqual(['pending', 'sent']);
+    expect(GROUP_STATUS_PREDECESSORS.delivered).toEqual([
+      'pending',
+      'sent',
+      'failed',
+    ]);
     expect(GROUP_STATUS_PREDECESSORS.read).toEqual([
       'pending',
       'sent',
       'delivered',
+      'failed',
     ]);
     expect(GROUP_STATUS_PREDECESSORS.failed).toEqual(['pending', 'sent']);
   });

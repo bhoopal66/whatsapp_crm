@@ -173,7 +173,10 @@ Each of these is a fixed bug, not a preference:
   #478, and it is invisible until someone taps a template button.
 - Recipient status is a forward-only ladder (`pending → sent → delivered →
   read → replied`); `failed` is a side branch accepted only from `pending`/
-  `sent`.
+  `sent`, and corrected only by `delivered`/`read` (never `sent`): the
+  failure text goes and the campaign is re-settled. Same rule for
+  `messages`, WhatsApp groups (`GROUP_STATUS_PREDECESSORS`), 291's
+  `reconcile_broadcast_recipient_statuses` and `hr_automsg_delivery_apply`.
 - A Flow that consumes the message suppresses the content-level automation
   triggers (`new_message_received`, `keyword_match`, `interactive_reply`) and
   AI auto-reply; relationship triggers (`new_contact_created`,

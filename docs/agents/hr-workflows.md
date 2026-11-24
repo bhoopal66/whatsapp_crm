@@ -75,7 +75,7 @@ contract.
   and OpenWA errors for a fetch that threw carry it as `cause`. `handleStatusUpdate` mirrors a
   receipt for a bot message onto the outbox (`hr_automsg_delivery_record`,
   forward-only `delivery_state`, `failed` → terminal
-  `delivery_failed:<code>`); a receipt that beats the provider-id stamp
+  `delivery_failed:<code>`, corrected only by a delivery, 291); a receipt that beats the provider-id stamp
   is caught up from `messages.status` by a trigger when the row turns
   `sent`. 212 restates 203's `hr_automsg_expire` (a terminal failure is
   never relabelled cancelled): apply in order, once.

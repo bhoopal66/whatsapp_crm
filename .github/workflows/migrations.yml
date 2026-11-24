@@ -1498,3 +1498,7 @@ jobs:
       # caller may see, by role.
       - name: Verify the access points
         run: supabase db query --local --file supabase/ci/verify-access-points.sql
+
+      # Migration 291: a delivery corrects a failed campaign recipient.
+      - name: Verify a delivery corrects a failure
+        run: supabase db query --local --file supabase/ci/verify-delivery-corrects-failed.sql
