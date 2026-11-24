@@ -308,10 +308,14 @@ export function createThreadStore(
     }, CATCH_UP_RETRY_MS);
   }
 
-  /** The whole thread, again. Once it shows, a failure is quiet and tried once more. */
-  async function load(retry = false) {
+  /**
+   * The whole thread, again. Once it shows, a failure is quiet and tried
+   * once more. False when it is still to be read: the read failed, and
+   * none begun after it has landed.
+   */
+  async function load(retry = false): Promise<boolean> {
     const me = shown;
-    if (!me) return;
+    if (!me) return true;
     const marks = openMarks();
     patchBoth((e) => begin(e, marks));
     me.pending += 1;
@@ -327,7 +331,7 @@ export function createThreadStore(
       // Left meanwhile, or a read begun after this one has landed.
       if (me !== shown || marks.rows < me.landed) {
         patchBoth((e) => end(e, marks));
-        return;
+        return true;
       }
       me.landed = marks.rows;
       set(mergeThread(view, root, page, details, marks));
@@ -335,16 +339,18 @@ export function createThreadStore(
       const known = new Set([...read, ...held.map((m) => m.id)]);
       const { messages } = view.replies.timeline;
       void fillIn(messages.map((m) => m.id).filter((id) => !known.has(id)));
+      return true;
     } catch (err) {
       patchBoth((e) => end(e, marks));
-      if (me !== shown) return;
+      if (me !== shown || marks.rows < me.landed) return true;
       // Another read under way may still show it.
       if (view.phase !== 'loading' || me.pending > 1) {
         if (!retry) readAgain(me, marks.rows);
-        return;
+        return false;
       }
       set({ ...view, phase: 'failed' });
       me.fail(err);
+      return false;
     } finally {
       me.pending -= 1;
     }
@@ -373,8 +379,8 @@ export function createThreadStore(
         clearTimeout(me.again);
       };
     },
-    /** Events were missed. */
-    resync: () => void load(),
+    /** Events were missed. False when the read failed. */
+    resync: () => load(),
     /** Try again, after a failed first read. */
     retry() {
       set({ ...view, phase: 'loading' });

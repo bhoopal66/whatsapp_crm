@@ -32,6 +32,8 @@ vi.mock('@/hooks/use-chat-tags', () => ({ useChatTags: () => ({}) }));
 vi.mock('@/lib/supabase/client', () => ({ createClient: () => ({}) }));
 
 const refreshed: string[] = [];
+// The questions whose next re-read fails, once each.
+const failing = new Set<string>();
 let channels: { data?: unknown[]; error: unknown } = { error: null };
 // What the state setters were called with: no state is kept here.
 const setStates: unknown[] = [];
@@ -39,7 +41,12 @@ vi.mock('@/hooks/use-session-query', () => ({
   useSessionQuery: (key: string) => ({
     data: undefined,
     ...channels,
-    refresh: async () => void refreshed.push(key.split(':').pop()!),
+    refresh: async () => {},
+    reread: async () => {
+      const question = key.split(':').slice(3).join(':');
+      refreshed.push(question);
+      if (failing.delete(question)) throw new Error('503');
+    },
   }),
 }));
 
@@ -59,6 +66,11 @@ vi.mock('@/lib/session-cache', async (importOriginal) => ({
     fetcher(),
 }));
 
+import {
+  CHAT_CHANNELS_QUESTION,
+  CHAT_UNREAD_QUESTION,
+} from '@/lib/chat/channel-list-cache';
+import { CATCH_UP_GAP_MS, RETRY_DELAYS_MS } from '@/lib/realtime/catch-up';
 import { useChannelTimeline } from './use-channel-timeline';
 import { useChatWorkspace, type ChatEvent } from './use-chat-workspace';
 
@@ -67,6 +79,7 @@ const CHANNEL = 'c0000000-0000-4000-8000-000000000001';
 beforeEach(() => {
   vi.useFakeTimers();
   refreshed.length = 0;
+  failing.clear();
   listMessages.mockClear();
   channels = { error: null };
   setStates.length = 0;
@@ -90,6 +103,53 @@ describe('team chat after a gap', () => {
     await vi.advanceTimersByTimeAsync(10_000);
     expect(heard).toEqual(['resync']);
     expect(refreshed).toHaveLength(2);
+  });
+
+  it.each([CHAT_CHANNELS_QUESTION, CHAT_UNREAD_QUESTION])(
+    'tries the whole catch-up again when %s was not read',
+    async (question) => {
+      const ws = useChatWorkspace();
+      const heard: ChatEvent['kind'][] = [];
+      ws.listen((e) => heard.push(e.kind));
+      failing.add(question);
+      status?.('CLOSED');
+      status?.('SUBSCRIBED');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(refreshed).toHaveLength(0);
+      // The catch-up's own gap since the workspace opened, then one retry.
+      await vi.advanceTimersByTimeAsync(CATCH_UP_GAP_MS);
+      expect(refreshed).toHaveLength(2);
+      await vi.advanceTimersByTimeAsync(RETRY_DELAYS_MS[0]);
+      expect(refreshed.filter((q) => q === question)).toHaveLength(2);
+      expect(heard).toEqual(['resync', 'resync']);
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(refreshed).toHaveLength(4);
+    }
+  );
+
+  it('tries again when a listener could not read', async () => {
+    const ws = useChatWorkspace();
+    const answers = [Promise.reject(new Error('503')), Promise.resolve()];
+    answers[0].catch(() => {});
+    const resync = vi.fn(() => answers.shift());
+    ws.listen(resync);
+    status?.('CLOSED');
+    status?.('SUBSCRIBED');
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(resync).toHaveBeenCalledTimes(2);
+  });
+
+  it('tries the open channel again when its page was not read', async () => {
+    const ws = useChatWorkspace();
+    useChannelTimeline(ws, CHANNEL);
+    await vi.advanceTimersByTimeAsync(10_000);
+    listMessages.mockRejectedValueOnce(new Error('503'));
+    status?.('CLOSED');
+    status?.('SUBSCRIBED');
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(listMessages).toHaveBeenCalledTimes(3);
+    // Silently: no failed state was set.
+    expect(setStates).toEqual([]);
   });
 
   it('stops with the screen', async () => {

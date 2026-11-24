@@ -237,17 +237,16 @@ export function useChannelTimeline(ws: ChatWorkspace, channelId: string) {
         }
         if (e.kind === 'resync') {
           // Events were missed: the newest page again, without dropping
-          // the older pages someone may be reading. A failure is silent;
-          // what is on screen stays.
+          // the older pages someone may be reading. A failure is silent
+          // and what is on screen stays; the catch-up tries again.
           if (!key) return;
-          fetchTimelineFirstPage(sb, key, channelId, { keepOlder: true })
-            .then((fresh) =>
-              loadDetails(
-                fresh.timeline.messages.slice(-PAGE_SIZE).map((m) => m.id)
-              )
-            )
-            .catch(() => {});
-          return;
+          return fetchTimelineFirstPage(sb, key, channelId, {
+            keepOlder: true,
+          }).then((fresh) => {
+            loadDetails(
+              fresh.timeline.messages.slice(-PAGE_SIZE).map((m) => m.id)
+            ).catch(() => {});
+          });
         }
         if (e.kind !== 'message') return;
         const ev = e.event;

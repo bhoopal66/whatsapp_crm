@@ -83,7 +83,7 @@ export function useChatWorkspace() {
   const { user, accountId } = useAuth();
   const userId = user?.id ?? null;
   const sb = useMemo<SupabaseClient>(() => createClient(), []);
-  const listeners = useRef(new Set<(e: ChatEvent) => void>());
+  const listeners = useRef(new Set<(e: ChatEvent) => unknown>());
   const phonePresence = usePhonePresence();
 
   const fail = useCallback(
@@ -135,6 +135,8 @@ export function useChatWorkspace() {
   }, [channelList, channelsKey, accountId, userId]);
   // Counts catch up on the next event when a refresh fails.
   const refreshUnread = unreadQuery.refresh;
+  const rereadChannels = channelsQuery.reread;
+  const rereadUnread = unreadQuery.reread;
   // Every name on the screen comes from this list, so it is kept in the
   // session cache too: entering /chat again shows names at once, and a
   // failed refresh leaves the last good list in place.
@@ -155,9 +157,16 @@ export function useChatWorkspace() {
   }, [peopleKey, refreshPeople]);
 
   // Handlers through a ref: the subscription is made once per account.
-  const handlers = useRef({ loadChannels, refreshUnread, channelsKey });
+  const latest = {
+    loadChannels,
+    refreshUnread,
+    rereadChannels,
+    rereadUnread,
+    channelsKey,
+  };
+  const handlers = useRef(latest);
   useEffect(() => {
-    handlers.current = { loadChannels, refreshUnread, channelsKey };
+    handlers.current = latest;
   });
   useEffect(() => {
     if (!accountId || !userId) return;
@@ -166,13 +175,16 @@ export function useChatWorkspace() {
       clearTimeout(timers[key]);
       timers[key] = setTimeout(() => void handlers.current[key](), DEBOUNCE_MS);
     };
-    const emit = (e: ChatEvent) => listeners.current.forEach((fn) => fn(e));
-    // Nothing sent while the channel was down is replayed.
-    const live = startCatchUp(() => {
-      emit({ kind: 'resync' });
-      void handlers.current.loadChannels();
-      void handlers.current.refreshUnread();
-    });
+    const emit = (e: ChatEvent) => [...listeners.current].map((fn) => fn(e));
+    // Nothing sent while the channel was down is replayed. A read that
+    // failed rejects, so that the whole catch-up is tried again.
+    const live = startCatchUp(() =>
+      Promise.all([
+        ...emit({ kind: 'resync' }),
+        handlers.current.rereadChannels(),
+        handlers.current.rereadUnread(),
+      ])
+    );
     const off = subscribeChat(sb, {
       accountId,
       userId,
@@ -213,7 +225,8 @@ export function useChatWorkspace() {
     };
   }, [sb, accountId, userId]);
 
-  const listen = useCallback((fn: (e: ChatEvent) => void) => {
+  /** A `resync` listener returns its read: a rejection is retried. */
+  const listen = useCallback((fn: (e: ChatEvent) => unknown) => {
     listeners.current.add(fn);
     return () => {
       listeners.current.delete(fn);

@@ -34,6 +34,11 @@ and polish.
 
 ### Fixed
 
+- **Team chat tries again when it could not catch up.** After sleep or a
+  lost connection, the channel list, the unread counts, the open channel and
+  the open thread were read once, and a read that failed was not tried again:
+  what had been posted meanwhile stayed missing until the next gap. They are
+  now read again after 2, 5, 15 and 30 seconds, without an error message.
 - **A submission group whose case cannot be opened no longer holds up the
   others.** The cron took the newest 20 each run; it now tries the ones
   that have not failed first, and starts from another failed one each run.
