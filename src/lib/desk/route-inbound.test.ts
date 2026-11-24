@@ -48,6 +48,7 @@ function fakeStore(decision: Record<string, unknown>) {
       ...decision,
     }),
     bankByShortCode: vi.fn().mockResolvedValue('RAK'),
+    trayCopyFailed: vi.fn().mockResolvedValue(true),
     whatsappIntake: vi.fn().mockResolvedValue({ itemId: 'x', state: 'filed' }),
   };
 }
@@ -125,6 +126,11 @@ describe('routeDeskDocument', () => {
         routeDeskDocument(admin, input, store as unknown as DeskStore)
       ).resolves.toBeNull();
       expect(store.routeDocument).not.toHaveBeenCalled();
+      expect(store.trayCopyFailed).toHaveBeenCalledWith(
+        'acct-1',
+        'msg-row-1',
+        'ch-1'
+      );
     }
   });
 
@@ -141,5 +147,26 @@ describe('routeDeskDocument', () => {
       routeDeskDocument(admin, input, store as unknown as DeskStore)
     ).resolves.toMatchObject({ action: 'staff' });
     expect(store.whatsappIntake).not.toHaveBeenCalled();
+    // Neither is lost to the desk (303): each leaves a tray row.
+    expect(broken.trayCopyFailed).toHaveBeenCalledTimes(1);
+    expect(store.trayCopyFailed).toHaveBeenCalledWith(
+      'acct-1',
+      'msg-row-1',
+      'ch-1'
+    );
+  });
+
+  it('tries the tray row twice, and writes none for a copied document', async () => {
+    const copied = fakeStore({});
+    await routeDeskDocument(admin, input, copied as unknown as DeskStore);
+    expect(copied.trayCopyFailed).not.toHaveBeenCalled();
+
+    const store = fakeStore({});
+    store.whatsappIntake.mockRejectedValue(new Error('db down'));
+    store.trayCopyFailed.mockRejectedValue(new Error('db down'));
+    await expect(
+      routeDeskDocument(admin, input, store as unknown as DeskStore)
+    ).resolves.toMatchObject({ action: 'staff' });
+    expect(store.trayCopyFailed).toHaveBeenCalledTimes(2);
   });
 });

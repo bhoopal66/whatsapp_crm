@@ -19,7 +19,12 @@ import type {
   ApplicationChecklist,
   CompanyOverview,
 } from '@/lib/desk/shared-docs';
-import type { DeskSettings, TrayItem, TrayState } from '@/lib/desk/tray';
+import {
+  TRAY_PAGE,
+  type DeskSettings,
+  type TrayPage,
+  type TrayState,
+} from '@/lib/desk/tray';
 import type { TraySuggestion } from '@/lib/desk/suggest';
 import type {
   DeskCompany,
@@ -222,17 +227,20 @@ export const deskApi = {
       created: b.created === true,
     })),
   // WhatsApp routing and the tray (migration 230)
-  tray: (state: TrayState = 'open') =>
+  tray: (state: TrayState = 'open', limit: number = TRAY_PAGE) =>
     call(
-      `/api/desk/tray?state=${state}`,
+      `/api/desk/tray?state=${state}&limit=${limit}`,
       undefined,
-      (b) => b.items as TrayItem[]
+      (b) => b as unknown as TrayPage
     ),
   trayFile: (trayId: string, caseId: string, confirmCompany: string | null) =>
     call(
       `/api/desk/tray/${trayId}/file`,
       json('POST', { caseId, confirmCompany }),
-      (b) => ({ caseNumber: (b.caseNumber as string | null) ?? null })
+      (b) => ({
+        waiting: b.outcome === 'waiting',
+        caseNumber: (b.caseNumber as string | null) ?? null,
+      })
     ),
   trayDismiss: (trayId: string, reason: string) =>
     call(
