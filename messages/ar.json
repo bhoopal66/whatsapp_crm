@@ -1121,7 +1121,6 @@
       "toastCustomFieldsSaved": "تم حفظ الحقول المخصصة",
       "toastCustomFieldsNotSaved": "لم يُحفظ: {names}. حاول مرة أخرى.",
       "toastCustomFieldsGone": "لم يُحفظ: {names}. ربما لم يعد لديك صلاحية الوصول، أو تم حذف القيمة بالفعل.",
-      "toastTemplateSent": "أُرسل القالب «{name}»",
       "toastTemplateFailed": "تعذّر إرسال القالب: {reason}",
       "sendPersonalBtn": "مراسلة من WhatsApp الخاص بي",
       "noPersonalNumber": "ليس لديك رقم WhatsApp شخصي مربوط.",
@@ -1140,7 +1139,9 @@
       "channelHint": {
         "message": "تُرسل الرسائل من {channel}",
         "template": "تُرسل القوالب من {channel}"
-      }
+      },
+      "toastTemplateHandedOver": "سُلّم القالب «{name}» إلى WhatsApp. افتح المحادثة لمعرفة ما إذا تم تسليمه.",
+      "toastOpenChat": "فتح المحادثة"
     },
     "importModal": {
       "planChecking": "جارٍ التحقق من الأرقام الموجودة لديك…",

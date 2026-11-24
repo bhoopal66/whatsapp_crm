@@ -1121,7 +1121,6 @@
       "toastCustomFieldsSaved": "Custom fields saved",
       "toastCustomFieldsNotSaved": "Not saved: {names}. Please try again.",
       "toastCustomFieldsGone": "Not saved: {names}. You may no longer have access, or the value was already removed.",
-      "toastTemplateSent": "Template \"{name}\" sent",
       "toastTemplateFailed": "Failed to send template: {reason}",
       "sendPersonalBtn": "Message from my WhatsApp",
       "noPersonalNumber": "You have no personal WhatsApp number connected.",
@@ -1140,7 +1139,9 @@
       "channelHint": {
         "message": "Messages go out from {channel}",
         "template": "Templates go out from {channel}"
-      }
+      },
+      "toastTemplateHandedOver": "Template \"{name}\" handed to WhatsApp. Open the chat to see if it was delivered.",
+      "toastOpenChat": "Open chat"
     },
     "importModal": {
       "planChecking": "Checking which numbers you already have…",

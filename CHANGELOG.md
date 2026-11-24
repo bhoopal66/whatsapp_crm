@@ -22,6 +22,9 @@ and polish.
 
 ### Fixed
 
+- **A template sent from the customer page no longer says "sent".** It says
+  it was handed to WhatsApp, with a button that opens the chat, where a
+  refusal by Meta shows under the message. No migration.
 - **"Failed to send" and "Failed to send template" are in the app's
   language**, with the reason after them. No migration.
 - **Editing a template no longer shows it as approved again** when Meta

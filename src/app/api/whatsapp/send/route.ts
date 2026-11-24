@@ -276,6 +276,8 @@ export async function POST(request: Request) {
 
       return NextResponse.json({
         success: true,
+        // Found or created here for a send by `contact_id`.
+        conversation_id: conversationId,
         message_id: result.messageId,
         whatsapp_message_id: result.whatsappMessageId,
       });

@@ -1121,7 +1121,6 @@
       "toastCustomFieldsSaved": "커스텀 필드가 저장되었습니다",
       "toastCustomFieldsNotSaved": "저장되지 않음: {names}. 다시 시도해 주세요.",
       "toastCustomFieldsGone": "저장되지 않음: {names}. 더 이상 접근 권한이 없거나 값이 이미 삭제되었을 수 있습니다.",
-      "toastTemplateSent": "\"{name}\" 템플릿을 보냈습니다",
       "toastTemplateFailed": "템플릿을 보내지 못했습니다: {reason}",
       "sendPersonalBtn": "내 WhatsApp으로 메시지 보내기",
       "noPersonalNumber": "연결된 개인 WhatsApp 번호가 없습니다.",
@@ -1140,7 +1139,9 @@
       "channelHint": {
         "message": "메시지는 {channel}에서 발송됩니다",
         "template": "템플릿은 {channel}에서 발송됩니다"
-      }
+      },
+      "toastTemplateHandedOver": "\"{name}\" 템플릿을 WhatsApp에 전달했습니다. 전달 여부는 대화를 열어 확인하세요.",
+      "toastOpenChat": "대화 열기"
     },
     "importModal": {
       "planChecking": "이미 있는 번호를 확인하는 중…",
