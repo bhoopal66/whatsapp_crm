@@ -203,14 +203,15 @@ export async function loadAssignmentSettings(
 
 /**
  * Open company chats and limits per member of the caller's active
- * account (assignment_member_loads). Signed-in client. Empty on error.
+ * account (assignment_member_loads). Signed-in client. Null when they
+ * could not be read: an empty list would say nobody has an open chat.
  */
 export async function loadMemberLoads(
   db: SupabaseClient
-): Promise<MemberLoad[]> {
+): Promise<MemberLoad[] | null> {
   try {
     const { data, error } = await db.rpc('assignment_member_loads');
-    if (error || !Array.isArray(data)) return [];
+    if (error || !Array.isArray(data)) return null;
     return (data as Record<string, unknown>[]).flatMap((r) => {
       const userId = asString(r.user_id);
       if (!userId) return [];
@@ -225,7 +226,7 @@ export async function loadMemberLoads(
       ];
     });
   } catch {
-    return [];
+    return null;
   }
 }
 

@@ -12,8 +12,8 @@ const ME = '11111111-1111-4111-8111-111111111111';
 const SARA = '22222222-2222-4222-8222-222222222222';
 const ALI = '33333333-3333-4333-8333-333333333333';
 const peopleById = new Map([
-  [SARA, { fullName: 'Sara Ahmed' }],
-  [ALI, { fullName: 'Ali Hassan' }],
+  [SARA, { fullName: 'Sara Ahmed', deactivated: false }],
+  [ALI, { fullName: 'Ali Hassan', deactivated: false }],
 ]);
 const member = (channelId: string) => ({
   channelId,

@@ -11,6 +11,7 @@ import {
   caseFileErrorKey,
   checkFailureKey,
   checkFailures,
+  filedElsewhere,
   formatFileSize,
   isAttachableDocument,
   parseCaseBuild,
@@ -19,6 +20,9 @@ import {
   shortHash,
   uploadProblem,
   validExpiry,
+  reuseBody,
+  reuseFailures,
+  type CaseFileView,
 } from './view';
 
 const file = (over: Record<string, unknown> = {}) => ({
@@ -311,6 +315,27 @@ describe('caseFileErrorKey', () => {
   });
 });
 
+describe('filedElsewhere', () => {
+  const body = { error: 'x', code: 'ALREADY_FILED_AS', filedAs: 'passport' };
+  it('is the document named by the ALREADY_FILED_AS refusal', () => {
+    expect(filedElsewhere(409, body)).toBe('passport');
+  });
+  it.each([
+    [200, body],
+    [409, { ...body, code: 'FILE_STATE' }],
+    [409, { ...body, filedAs: undefined }],
+    [409, { ...body, filedAs: 7 }],
+    [0, null],
+  ])('is null for any other answer (%s)', (status, json) => {
+    expect(filedElsewhere(status, json)).toBeNull();
+  });
+  it('a refusal that names none is the generic toast', () => {
+    expect(caseFileErrorKey(409, 'ALREADY_FILED_AS')).toBe(
+      'errors.ALREADY_FILED_AS'
+    );
+  });
+});
+
 describe('case file build', () => {
   const build = (over: Record<string, unknown> = {}) => ({
     buildId: 'b1',
@@ -386,5 +411,57 @@ describe('case file build', () => {
     expect(parseDownloadUrl({ url: 'javascript:alert(1)' })).toBeNull();
     expect(parseDownloadUrl({ url: 'nope' })).toBeNull();
     expect(parseDownloadUrl(null)).toBeNull();
+  });
+});
+
+describe('reuseBody (270)', () => {
+  const file = (over: Partial<CaseFileView> = {}): CaseFileView => ({
+    id: 'f1',
+    customerDocumentId: 'd1',
+    docKey: 'passport',
+    version: 1,
+    status: 'superseded',
+    classifySeq: 1,
+    checks: null,
+    pages: null,
+    expiresOn: null,
+    renamedName: null,
+    registeredAt: '2026-11-10T08:00:00Z',
+    originalName: null,
+    mime: null,
+    sizeBytes: null,
+    ...over,
+  });
+  it('is the file’s own type and expiry, for a replaced version only', () => {
+    expect(reuseBody(file())).toEqual({ docKey: 'passport', reuse: true });
+    expect(reuseBody(file({ expiresOn: '2030-01-01' }))).toEqual({
+      docKey: 'passport',
+      reuse: true,
+      expiresOn: '2030-01-01',
+    });
+    for (const status of ['passed', 'failed', 'pending_checks'] as const)
+      expect(reuseBody(file({ status }))).toBeNull();
+    expect(reuseBody(file({ docKey: null }))).toBeNull();
+  });
+});
+
+describe('reuseFailures', () => {
+  const body = {
+    code: 'REUSE_WOULD_FAIL',
+    failedChecks: [{ name: 'expiry', ok: false, detail: 'expiring' }, 7],
+  };
+  it('is the failed checks in plain words, for that refusal only', () => {
+    expect(reuseFailures(409, body)).toEqual([
+      'checks.detail.expiring',
+      'checks.other',
+    ]);
+    expect(reuseFailures(409, { ...body, code: 'FILE_STATE' })).toEqual([]);
+    expect(reuseFailures(200, body)).toEqual([]);
+    expect(reuseFailures(0, null)).toEqual([]);
+  });
+  it('and a store that did not answer have a message', () => {
+    expect(caseFileErrorKey(503, 'STORAGE_UNAVAILABLE')).toBe(
+      'errors.STORAGE_UNAVAILABLE'
+    );
   });
 });

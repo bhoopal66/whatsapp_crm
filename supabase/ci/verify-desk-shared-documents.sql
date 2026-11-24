@@ -169,9 +169,9 @@ BEGIN
 
   -- ---------- 4. the company across banks (D11) ----------
   j := desk_company_overview(u_cenb, a_acct, cu_kite);
-  n := n + 1; failed := failed || pg_temp.ds_ok(jsonb_array_length(j->'cases') = 2
-    AND (SELECT bool_and(e ? 'stage') FROM jsonb_array_elements(j->'cases') e),
-    'another bank''s coordinator did not see both cases with their stage');
+  n := n + 1; failed := failed || pg_temp.ds_ok(jsonb_array_length(j->'cases') = 1
+    AND (SELECT bool_and(e ? 'stage' AND (e->>'can_read')::boolean) FROM jsonb_array_elements(j->'cases') e),
+    'another bank''s coordinator did not see just their own bank''s case (289), with its stage');
   n := n + 1; failed := failed || pg_temp.ds_ok(
     NOT EXISTS (SELECT 1 FROM jsonb_array_elements(j->'files') e WHERE (e->>'case_id')::uuid = k_r)
     AND EXISTS (SELECT 1 FROM jsonb_array_elements(j->'files') e

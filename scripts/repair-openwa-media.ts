@@ -222,7 +222,11 @@ async function main() {
     try {
       const info = await provider.getMediaUrl({ channel, mediaId });
       const { buffer, contentType } = await paced(() =>
-        provider.downloadMedia({ channel, downloadUrl: info.url })
+        provider.downloadMedia({
+          channel,
+          downloadUrl: info.url,
+          maxBytes: 100 * 1024 * 1024,
+        })
       );
       let newUrl: string | null = null;
       if (apply) {

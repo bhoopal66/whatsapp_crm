@@ -28,7 +28,7 @@ const CONTACT = '22222222-2222-4222-8222-222222222222';
 function query(result: { data: unknown; error: unknown }) {
   const calls: [string, unknown[]][] = [];
   const builder: Record<string, unknown> = {};
-  for (const m of ['select', 'eq', 'like', 'order', 'limit', 'insert']) {
+  for (const m of ['select', 'eq', 'gte', 'like', 'order', 'limit', 'insert']) {
     builder[m] = (...args: unknown[]) => {
       calls.push([m, args]);
       return builder;
@@ -70,7 +70,10 @@ describe('GET /api/tasks', () => {
     signIn({ tasks });
     const res = await GET(new Request('http://x/api/tasks'));
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ tasks: [{ id: ID }] });
+    expect(await res.json()).toEqual({
+      tasks: [{ id: ID }],
+      truncated: false,
+    });
     expect(mocks.requireRole).toHaveBeenCalledWith('viewer');
     expect(tasks.calls).toEqual([
       ['select', [TASK_COLUMNS]],
@@ -78,7 +81,7 @@ describe('GET /api/tasks', () => {
       ['eq', ['assigned_to', USER]],
       ['eq', ['status', 'open']],
       ...ORDER,
-      ['limit', [100]],
+      ['limit', [101]],
     ]);
   });
 
@@ -95,7 +98,7 @@ describe('GET /api/tasks', () => {
       ['eq', ['account_id', ACCOUNT]],
       ['eq', ['contact_id', CONTACT]],
       ...ORDER,
-      ['limit', [20]],
+      ['limit', [21]],
     ]);
   });
 
@@ -133,8 +136,36 @@ describe('GET /api/tasks', () => {
       ['eq', ['source', 'automation']],
       ['like', ['source_ref', 'hr:%']],
       ...ORDER,
-      ['limit', [200]],
+      ['limit', [201]],
     ]);
+  });
+
+  it('narrows to a kind and to tasks touched since an instant', async () => {
+    const tasks = query({ data: [], error: null });
+    signIn({ tasks });
+    await GET(
+      new Request(
+        'http://x/api/tasks?scope=all&status=all&kind=missed_call&updatedSince=2026-11-16T10:00:00.000Z'
+      )
+    );
+    expect(tasks.calls).toContainEqual(['eq', ['kind', 'missed_call']]);
+    expect(tasks.calls).toContainEqual([
+      'gte',
+      ['updated_at', '2026-11-16T10:00:00.000Z'],
+    ]);
+  });
+
+  it('says when more tasks match than it answers', async () => {
+    const rows = [{ id: '1' }, { id: '2' }, { id: '3' }];
+    signIn({ tasks: query({ data: rows, error: null }) });
+    const cut = await GET(new Request('http://x/api/tasks?limit=2'));
+    expect(await cut.json()).toEqual({
+      tasks: rows.slice(0, 2),
+      truncated: true,
+    });
+    signIn({ tasks: query({ data: rows, error: null }) });
+    const whole = await GET(new Request('http://x/api/tasks?limit=3'));
+    expect(await whole.json()).toEqual({ tasks: rows, truncated: false });
   });
 
   it('without hr the query has no source filter, and hr only takes 1', async () => {

@@ -18,7 +18,7 @@
 - `lib/auth/conversation-visibility.ts` — client-side mirror of the
   `can_view_conversation` / `can_view_contact` SQL functions (migrations 042 and
   043). It informs UI decisions only; the DB decides. Change one, change both.
-  Since 217, `conversations_select`, `messages_select` and `messages_modify`
+  Since 217, `conversations_select`, `messages_select` and `messages_insert`
   restate `can_view_conversation` / `can_view_personal_chat` as set
   membership over `contact_visibility_people()` and
   `personal_number_visible_ids()`, because the per-row calls timed out for
@@ -65,6 +65,18 @@
   personal-number and department grants when a profile row moves to
   another workspace: a new per-workspace grant on `profiles` joins it.
   `verify-guards.sql`.
+- **Admin rules (migration 287).** `remove_account_member` refuses an admin
+  (or someone lowered from admin in the last 7 days) to anyone but the owner;
+  `canRemoveMember` mirrors the first half. `member_lately_admin_in(person)`
+  lists the workspaces where someone else lowered *or removed* them as admin;
+  `member_login_held(person, caller)` is what both login checks ask, and only
+  the owner of each such workspace is exempt. Never ask it of one workspace.
+  A session inserts an `account_invitations` / `api_keys` row only with itself
+  as the creator; no UPDATE on the first, only `revoked_at` on the second (a
+  column grant: a new session-writable column joins it). The app calls
+  `redeem_invitation_token` / `peek_invitation_token`; the hash-taking pair is
+  for the previous build and loses its grants once that is gone.
+  `verify-admin-rules.sql`.
 - **Handing over a leaver's work (migration 266)** is
   `/api/account/members/[id]/handover` (GET counts, POST `{ to, what }`) and
   `/api/account/members/left-work`, on `member_work_counts`,
@@ -78,5 +90,20 @@
   silent under `app.member_handover`: a new bell on an assignment checks it
   too. One `work_handed_over` bell (not to oneself) and one audit row, only
   when something moved. `verify-member-handover.sql`.
+  The same two routes also list the live API keys (`lib/api-keys/made-by.ts`:
+  not revoked, not expired) a person made, or those whose maker is deactivated,
+  no longer admin or owner, no longer a member, or NULL. The hand-over dialog
+  and a roster card show them with Revoke (`DELETE /api/account/api-keys/[id]`);
+  nothing revokes a key by itself, an integration may run on one. `keys: null`
+  is an unreadable list, not an empty one.
 - Client side: `hooks/use-auth.tsx` (profile/account context),
   `hooks/use-can.ts` and `components/auth/require-role.tsx` for gating.
+- **What a session writes to chats (284).** `messages_insert` (217's
+  `messages_modify`, now INSERT only) takes the caller's own `agent` /
+  `sent` row; no session updates or deletes a message or deletes a chat,
+  changes a chat's `contact_id` / `account_id`, or opens a personal chat
+  off its own number. The guards are SECURITY INVOKER triggers that read
+  `current_user`, so FK actions and definer functions pass: never make
+  them DEFINER. A new column the send core writes, or a new client write,
+  needs `messages_session_guard` changed too; other writes go through the
+  service role after the route's own check. Re-apply 284 after 062.

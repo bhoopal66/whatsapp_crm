@@ -144,10 +144,14 @@ export function isForwardable(message: ForwardSource): boolean {
   return planForward(message).ok;
 }
 
+/** Our public buckets a message's attachment is stored in. */
+const OWN_BUCKETS = ['chat-media', 'flow-media'] as const;
+
 /**
- * True when `mediaUrl` is an object in our own PUBLIC storage — the one
- * kind of URL a gateway can fetch unaided. Everything else must be
- * re-hosted before it can be forwarded:
+ * The URL of an object in our own PUBLIC storage, in this account's
+ * folder: the one kind of URL a gateway can fetch unaided. Null for
+ * everything else, which is re-hosted before it can be forwarded or
+ * refused (`forward-media.ts`):
  *
  *   - `/api/whatsapp/media/<id>` — our auth-gated proxy; relative, and
  *     behind a session cookie.
@@ -155,14 +159,34 @@ export function isForwardable(message: ForwardSource): boolean {
  *     receiving channel's bearer token, which the *sending* gateway
  *     does not have (and on a cross-provider forward, never could).
  *
- * `publicStorageBase` is `publicSupabaseUrl()`; passed in so this stays
- * pure.
+ * Matched on the path and rebuilt on `publicStorageBase`
+ * (`publicSupabaseUrl()`; passed in so this stays pure): the public
+ * origin of older rows changes with the tunnel, and whatever host the
+ * row names is never contacted.
  */
-export function isGatewayFetchable(
+export function ownPublicMediaUrl(
   mediaUrl: string,
-  publicStorageBase: string
-): boolean {
+  publicStorageBase: string,
+  accountId: string
+): string | null {
   const base = publicStorageBase.replace(/\/+$/, '');
-  if (!base) return false;
-  return mediaUrl.startsWith(`${base}/storage/v1/object/public/`);
+  if (!base || !accountId) return null;
+  let path: string;
+  try {
+    const url = new URL(mediaUrl);
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
+    // `..` segments are collapsed by the parser; an encoded slash is not.
+    if (/%2f|%5c/i.test(url.pathname)) return null;
+    path = url.pathname;
+  } catch {
+    return null;
+  }
+  for (const bucket of OWN_BUCKETS) {
+    const prefix = `/storage/v1/object/public/${bucket}/account-${accountId}/`;
+    const at = path.indexOf(prefix);
+    if (at !== -1 && path.length > at + prefix.length) {
+      return `${base}${path.slice(at)}`;
+    }
+  }
+  return null;
 }

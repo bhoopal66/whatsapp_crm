@@ -445,11 +445,18 @@ export type NotificationType =
   // meta = {room_id, ...}.
   | 'deal_room_join_request'
   | 'deal_room_update'
+  // ... a customer or bank wrote in it (274's trigger).
+  | 'deal_room_message'
   // Video meetings (106): you were invited to a meeting (the invitees
   // trigger). meta = {meeting_id}.
   | 'meeting_invite'
+  // ... a scheduled one was moved, or cancelled (278's meetings trigger,
+  // to its invitees). meta = {meeting_id}.
+  | 'meeting_update'
+  | 'meeting_cancelled'
   // Calendar (108): invited to / changed / cancelled event (to the
-  // attendees), an attendee answered (to the creator, meta adds
+  // attendees; a person taken off one is rung cancelled, 278), an
+  // attendee answered (to the creator, meta adds
   // {user_id, response}), and the reminder sweep's event reminder
   // (meta adds {occurrence_start, offset}). meta = {event_id}.
   | 'calendar_invite'
@@ -492,6 +499,8 @@ export type NotificationType =
   // got worse (ringMetaNumberAlert). Sent to live owners and admins.
   // meta = {config_id, previous, next, reasons}.
   | 'meta_number_alert'
+  // The daily retention sweep failed (282): the owners, once a day.
+  | 'retention_failed'
   // In-chat notes (241): someone mentioned you in a team note inside a
   // customer chat you can see. The row carries conversation_id and
   // contact_id; meta = {note_id, author}.
@@ -609,8 +618,6 @@ export interface WhatsAppConfig {
   user_id: string;
   phone_number_id: string;
   waba_id?: string;
-  access_token: string;
-  verify_token?: string;
   status: 'connected' | 'disconnected';
   connected_at?: string;
   /**

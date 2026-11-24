@@ -366,7 +366,9 @@ same object without the last three fields. Use it after a timeout to
 find out what happened before deciding anything.
 
 - `status` is **our** processing state: `sending`, `sent`, or
-  `failed` (with `error.code` / `error.message`).
+  `failed` (with `error.code` / `error.message`). A notification that
+  was handed to WhatsApp and got no answer within two minutes (a restart
+  mid-send) shows `failed` with `error.code` `delivery_unconfirmed`.
 - `delivery_status` is **WhatsApp's** progress once sent: `sent`, then
   `delivered`, then `read`, or `failed` if WhatsApp could not deliver
   it. It updates over time, so poll it later if you need read receipts.
@@ -374,7 +376,7 @@ find out what happened before deciding anything.
 ### `GET /compass/notifications` — list
 
 Scope: `compass_notifications:send`. Filters: `status`
-(`sending`/`sent`/`failed`), `compass_id`. Pagination: `limit`,
+(`sending`/`sent`/`failed`, as shown in the answer), `compass_id`. Pagination: `limit`,
 `cursor`, same as the contacts list. Newest first.
 
 ### Error codes
@@ -387,20 +389,25 @@ Scope: `compass_notifications:send`. Filters: `status`
 | 404  | `compass_contact_not_found` | Unknown `compass_id`                                                                                                                  | Sync the customer first, or send `to`                                                                      |
 | 409  | `in_progress`               | The same key is being sent right now                                                                                                  | Wait a few seconds, then `GET` the key                                                                     |
 | 409  | `meta_not_connected`        | The Meta WhatsApp number isn't connected (or is marked disconnected). Nothing was sent                                                | Alert an admin; retry later with the **same** key                                                          |
+| 409  | `delivery_unconfirmed`      | The message was handed to WhatsApp and no clear answer came back (a timeout, a gateway 5xx, a restart mid-send). The customer may have it | **Don't retry**, with this key or a new one: it is not sent again. Check the chat; a person decides         |
 | 409  | `no_template_for_message`   | The customer hasn't written in the last 24 hours, so a template is needed, and the text matches neither template word for word. Nothing was sent | Send the standard wording, or retry after the customer writes                                              |
 | 409  | `meta_template_unusable`    | The matching template is missing, not approved by Meta yet, or was edited. Nothing was sent                                           | Alert an admin; retry later with the **same** key                                                          |
 | 409  | `outside_service_window`    | An image or document to a customer who hasn't written in the last 24 hours; WhatsApp allows only a template. Nothing was sent         | Send the update as text, or retry after the customer writes                                                |
-| 422  | `customer_opted_out`        | The customer opted out of WhatsApp messages; nothing was sent, in the group or 1:1                                                    | Do not retry; contact the customer another way                                                             |
+| 422  | `customer_opted_out`        | The customer opted out of WhatsApp messages; nothing was sent, in the group or 1:1                                                    | Do not retry; contact the customer another way. After they opt in again, the same key can be sent one-to-one; a post a group refused needs a new key          |
 | 422  | `no_phone`                  | The synced customer has no phone                                                                                                      | Sync a phone for them, or send `to`                                                                        |
 | 422  | `invalid_phone`             | The synced customer's phone is not a valid international number (it was stored before the sync enforced the rule). Nothing was sent   | Re-sync the customer with the full number and country code, or send `to`; then retry with the **same** key |
 | 429  | `rate_limited`              | Over 120 requests/min on this key                                                                                                     | Wait `Retry-After` seconds, retry the same key                                                             |
 | 502  | `group_send_failed`         | The post into the customer's submission group failed. After 3 failed attempts, or when the group closed after a failed attempt, nothing more is sent for this key | Retry later with the **same** key; after 3 failures, check the group in the CRM                            |
 | 503  | `group_lookup_failed`       | The customer's submission group could not be looked up. Nothing was sent                                                              | Retry later with the **same** key                                                                          |
-| 502  | `whatsapp_error`            | WhatsApp refused or failed the send (e.g. the number isn't on WhatsApp, or Meta refused the message)                                   | Retry later with the same key. If it keeps failing, check the number.                                      |
+| 503  | `contact_lookup_failed`     | The customer's contact could not be read, so their opt-out is unknown. Nothing was sent                                               | Retry later with the **same** key                                                                          |
+| 502  | `whatsapp_error`            | WhatsApp refused the send; nothing reached the customer (e.g. the number isn't on WhatsApp, or Meta refused the message)                                   | Retry later with the same key. If it keeps failing, check the number.                                      |
 | 500  | `internal` / `db_error`     | Unexpected server error                                                                                                               | Retry later with the same key                                                                              |
 
 A **failed** notification can be retried with the **same key**; it is
-not treated as a duplicate. A **sent** one never sends again.
+not treated as a duplicate. A **sent** one never sends again, and neither
+does one whose `error.code` is `delivery_unconfirmed`: a retry answers
+409 with that code. While the send is still running a `GET` shows plain
+`sending`, with no error.
 
 ### Retry recipe
 
@@ -409,6 +416,7 @@ send(key):
     response = POST /compass/notifications { idempotency_key: key, ... }
     if 201 or (200 and duplicate):          done ✔
     if 400 / 401 / 403 / 404 / 422:         don't retry — log & fix data/config
+    if 409 delivery_unconfirmed:            don't retry — check the chat
     if 409 in_progress:                     wait 5 s, GET /compass/notifications/{key}
     if 409 meta_not_connected, meta_template_unusable,
        429, 5xx,
@@ -516,6 +524,11 @@ section).
 - From `Closed` nothing moves (`case_closed`). From `Approved`,
   `Declined` or `Withdrawn` only `Closed` is allowed (`final_stage`).
 - The same stage is a no-op.
+- A `status` for a case that is already closed is recorded on the
+  submission but does not move the case. The answer is still `200`, with
+  `case_status_applied: false` and `case_status_reason: "case_closed"`.
+  Neither key is there otherwise, nor on a repeat of the status the case
+  was closed with.
 - A move to `Approved`, `Declined`, `Withdrawn` or `Closed` is **final**:
   it closes the case, sets the outcome, and **ends the WhatsApp group**
   exactly as a final `status` does.

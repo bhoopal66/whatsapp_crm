@@ -11,6 +11,7 @@ import { NextResponse } from 'next/server';
 
 import { charLength } from './text';
 import {
+  TASK_KINDS,
   TASK_LIST_SCOPES,
   TASK_NOTE_MAX,
   TASK_STATUSES,
@@ -109,15 +110,21 @@ function readId(raw: unknown, key: string): string | null {
   return raw;
 }
 
+/** An ISO date-time with its offset as `toISOString()`, else null. */
+function isoInstant(raw: unknown): string | null {
+  if (typeof raw !== 'string' || !ISO_DATE_TIME_RE.test(raw)) return null;
+  const time = Date.parse(raw);
+  return Number.isFinite(time) ? new Date(time).toISOString() : null;
+}
+
 /** An ISO date-time with its offset, as `toISOString()`; or null. */
 function readDueAt(raw: unknown): string | null {
   if (raw === null || raw === undefined) return null;
-  if (typeof raw === 'string' && ISO_DATE_TIME_RE.test(raw)) {
-    const time = Date.parse(raw);
-    if (Number.isFinite(time)) return new Date(time).toISOString();
-  }
-  return fail(
-    'dueAt must be an ISO 8601 date-time with a time zone, such as 2026-10-12T09:00:00Z, or null'
+  return (
+    isoInstant(raw) ??
+    fail(
+      'dueAt must be an ISO 8601 date-time with a time zone, such as 2026-10-12T09:00:00Z, or null'
+    )
   );
 }
 
@@ -180,7 +187,8 @@ export function parseTaskPatch(body: unknown): Parsed<TaskPatchValues> {
  * assigned to the caller), all (whatever RLS shows the caller),
  * contact (needs `contactId`) or conversation (needs
  * `conversationId`); `status` is open (default), done, cancelled or
- * all; `limit` is 1–200, default 100.
+ * all; `limit` is 1–200, default 100. `kind` and `updatedSince` (an
+ * ISO date-time with its offset) narrow further; left out, they don't.
  */
 export function parseTaskListQuery(
   params: URLSearchParams
@@ -206,19 +214,23 @@ export function parseTaskListQuery(
       }
     }
 
+    const rawKind = params.get('kind');
+    const kind = rawKind ? oneOf(rawKind, TASK_KINDS, 'kind') : undefined;
+    const rawSince = params.get('updatedSince');
+    const updatedSince = rawSince
+      ? (isoInstant(rawSince) ??
+        fail('updatedSince must be an ISO 8601 date-time with a time zone'))
+      : undefined;
+    const common = { status, limit, kind, updatedSince };
+
     if (scope === 'contact') {
-      return {
-        scope,
-        contactId: requiredId(params, 'contactId'),
-        status,
-        limit,
-      };
+      return { scope, contactId: requiredId(params, 'contactId'), ...common };
     }
     if (scope === 'conversation') {
       const conversationId = requiredId(params, 'conversationId');
-      return { scope, conversationId, status, limit };
+      return { scope, conversationId, ...common };
     }
-    return { scope, status, limit };
+    return { scope, ...common };
   });
   return parsed.ok ? { ok: true, query: parsed.values } : parsed;
 }

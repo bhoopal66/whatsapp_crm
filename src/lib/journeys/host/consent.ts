@@ -38,6 +38,7 @@ export class SupabaseConsentPort implements ConsentPort {
     return (await this.stamps(contactId)).opted_out_at != null;
   }
 
+  /** Any do-not-contact on the register, whatever its reason; a failed read throws. */
   async doNotContact(contactId: string): Promise<boolean> {
     return (await this.stamps(contactId)).do_not_contact_at != null;
   }

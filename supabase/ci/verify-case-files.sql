@@ -407,7 +407,7 @@ BEGIN
   FOREACH fn IN ARRAY ARRAY['case_files_settings(uuid)', 'case_settings_set_files_switch(uuid, uuid, text, boolean)',
     'case_settings_set_files_ready_stages(uuid, uuid, text, text)', 'case_file_render_name(text, text, text, text, date, text)',
     'case_file_spec_rows(uuid)', 'case_file_spec_set(uuid, text, text, jsonb)', 'case_document_file_can_register(uuid, uuid)',
-    'case_document_file_register(uuid, uuid, uuid)', 'case_document_file_classify(uuid, uuid, text)', 'case_file_ready(uuid)',
+    'case_document_file_register(uuid, uuid, uuid)', 'case_document_file_classify(uuid, uuid, text, integer, text)', 'case_file_ready(uuid)',
     'case_document_file_check_result(uuid, text, integer, jsonb, integer, date)', 'case_files_ready_move(uuid)'] LOOP
     SELECT string_agg(rl2, ',' ORDER BY rl2) INTO r
       FROM unnest(CASE WHEN fn = 'case_files_ready_move(uuid)' THEN ARRAY['anon', 'authenticated', 'service_role']

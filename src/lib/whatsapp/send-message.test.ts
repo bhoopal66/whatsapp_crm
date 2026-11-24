@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import {
@@ -765,6 +765,92 @@ describe('sendMessageToConversation — whether a failure is definite', () => {
     } finally {
       log.mockRestore();
     }
+  });
+});
+
+describe('sendMessageToConversation — beforeGateway', () => {
+  const params = { conversationId: 'cv-1', messageType: 'text' };
+  const order: string[] = [];
+  const hook = vi.fn(async () => void order.push('hook'));
+  // Records each table read, in order with the hook and the gateway.
+  const db = () => {
+    const inner = sendPathDb([], {});
+    return {
+      from(table: string) {
+        order.push(table);
+        return inner.from(table);
+      },
+    } as unknown as SupabaseClient;
+  };
+  beforeEach(() => {
+    order.length = 0;
+    hook.mockClear();
+    sendTextMessage.mockClear();
+    sendTextMessage.mockImplementationOnce(async () => {
+      order.push('gateway');
+      return { messageId: 'wamid.text' };
+    });
+  });
+  afterEach(() => {
+    sendTextMessage.mockReset();
+    sendTextMessage.mockResolvedValue({ messageId: 'wamid.text' });
+  });
+
+  it('runs once, after loading and right before the gateway', async () => {
+    await sendMessageToConversation(db(), 'acct-1', {
+      ...params,
+      contentText: 'hi',
+      beforeGateway: hook,
+    });
+    expect(hook).toHaveBeenCalledTimes(1);
+    const at = order.indexOf('hook');
+    expect(order.slice(0, at)).toContain('whatsapp_config');
+    expect(order[at + 1]).toBe('gateway');
+  });
+
+  it('does not run when loading fails', async () => {
+    const noConversation = {
+      from: () => {
+        const b: Record<string, unknown> = {
+          select: () => b,
+          eq: () => b,
+          single: async () => ({ data: null, error: { message: 'down' } }),
+        };
+        return b;
+      },
+    } as unknown as SupabaseClient;
+    await expect(
+      sendMessageToConversation(noConversation, 'acct-1', {
+        ...params,
+        contentText: 'hi',
+        beforeGateway: hook,
+      })
+    ).rejects.toMatchObject({ code: 'not_found' });
+    // Nor when the pinned number is missing, found several reads later.
+    await expect(
+      sendMessageToConversation(db(), 'acct-1', {
+        ...params,
+        contentText: 'hi',
+        provider: 'meta',
+        requireProvider: true,
+        beforeGateway: hook,
+      })
+    ).rejects.toMatchObject({ code: 'meta_not_connected' });
+    expect(hook).not.toHaveBeenCalled();
+  });
+
+  it('a throw sends nothing and is not rewrapped as whatsapp_error', async () => {
+    const refused = new Error('claim lost');
+    await expect(
+      sendMessageToConversation(db(), 'acct-1', {
+        ...params,
+        contentText: 'hi',
+        beforeGateway: async () => {
+          throw refused;
+        },
+      })
+    ).rejects.toBe(refused);
+    expect(sendTextMessage).not.toHaveBeenCalled();
   });
 });
 

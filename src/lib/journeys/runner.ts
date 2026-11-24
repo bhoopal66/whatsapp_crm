@@ -8,7 +8,7 @@ import type {
   RunnerEvent,
 } from './ports';
 import type { WorkflowDef } from './schema';
-import type { JourneyEvent, StepResult } from './types';
+import type { JourneyEvent, JourneyFile, StepResult } from './types';
 import { toMs } from './time';
 
 /** Conflict retries after the first attempt before `handle` gives up. */
@@ -42,22 +42,55 @@ export interface DrainResult {
 
 const OPTIN_WELCOME = 'taamul_optin_welcome';
 
-/** Delivery-time consent re-check (§5/§7): why this SEND must not go out now, or null. */
+/** A SEND this long overdue is not sent any more: the bot was switched off, or could not deliver. */
+export const STALE_AFTER_MS = 24 * 60 * 60_000;
+
+function staleSend(item: OutboxItem, now: string): boolean {
+  const a = item.action;
+  if (a.type !== 'SEND') return false;
+  const due = a.notBefore ?? item.committedAt;
+  return !!due && toMs(now) - toMs(due) > STALE_AFTER_MS;
+}
+
+/**
+ * Why a SEND held for quiet hours has lost its reason, or null. Only a held send (`notBefore`) is judged: the engine holds
+ * what nobody asked for (quietHours.appliesTo: timers and cold starts), so a reply to the customer's own tap or message,
+ * or to an advisor's decision, is never dropped here however late it goes out. An item without `state` (committed before
+ * the engine wrote it) is judged on the customer's last message alone.
+ */
+function heldSendOver(file: JourneyFile, item: OutboxItem): string | null {
+  const a = item.action;
+  if (a.type !== 'SEND' || !a.notBefore) return null;
+  const last = file.window.lastInboundAt;
+  if (last && item.committedAt && toMs(last) > toMs(item.committedAt))
+    return 'CUSTOMER_WROTE';
+  if (a.state !== undefined && a.state !== file.state) return 'STATE_CHANGED';
+  return null;
+}
+
+/** Delivery-time re-check (§5/§7): why this SEND must not go out now, or null. A register read that fails throws. */
 async function blockedSend(
   ports: { store: JourneyStore; consent: ConsentPort },
-  contactId: string,
-  item: OutboxItem
+  file: JourneyFile,
+  item: OutboxItem,
+  now: string
 ): Promise<string | null> {
   const a = item.action;
   if (a.type !== 'SEND') return null;
+  if (staleSend(item, now)) return 'STALE';
+  const contactId = file.contactId;
   if (a.category === 'MARKETING') {
     const optedOut =
       (await ports.store.pendingOptOut(contactId)) ??
       (await ports.consent.isOptedOut(contactId));
     if (optedOut) return 'OPTED_OUT';
+    if (await ports.consent.doNotContact?.(contactId)) return 'DO_NOT_CONTACT';
     if (!(await ports.consent.hasMarketingOptIn(contactId)))
       return 'NO_CONSENT';
   }
+  // Before the welcome's claim: a dropped welcome must not use it up.
+  const over = heldSendOver(file, item);
+  if (over) return over;
   if (
     a.template === OPTIN_WELCOME &&
     !(await ports.consent.claimOptinWelcome(contactId, item.id))
@@ -71,8 +104,9 @@ async function blockedSend(
  * (that item and every later one stay pending, so actions never overtake each other). A SEND whose `notBefore` is
  * after `now` (and its LOG_COST) is skipped and stays pending — later items still go, so a night-time STOP is
  * confirmed and recorded at once; `deferredUntil` is the earliest such notBefore. Every SEND is re-checked against consent first: a MARKETING send to a contact now opted out
- * (register or a still-pending SET_OPT_OUT on any file) or without marketing opt-in, or an opt-in welcome whose
- * per-contact claim fails, is marked `dropped` (with its LOG_COST) and never delivered. Safe to call from a host retry
+ * (register or a still-pending SET_OPT_OUT on any file), marked do-not-contact or without marketing opt-in, a held send
+ * whose reason is gone (`heldSendOver`), one more than STALE_AFTER_MS overdue, or an opt-in welcome whose per-contact claim
+ * fails, is marked `dropped` (with its LOG_COST) and never delivered. A re-check that cannot be made stops the drain with the item still pending. Safe to call from a host retry
  * loop; concurrent drains may redeliver an item, which the sink dedupes on `item.id`.
  */
 export async function drain(
@@ -85,7 +119,7 @@ export async function drain(
   );
   let delivered = 0,
     dropped = 0,
-    contactId: string | undefined,
+    file: JourneyFile | null = null,
     droppedSend: string | null = null;
   let deferredUntil: string | undefined,
     deferredSend: string | null = null;
@@ -116,8 +150,8 @@ export async function drain(
     let why: string | null = null;
     try {
       if (a.type === 'SEND') {
-        contactId ??= (await ports.store.load(fileId))?.contactId;
-        why = contactId ? await blockedSend(ports, contactId, item) : 'NO_FILE';
+        file ??= await ports.store.load(fileId);
+        why = file ? await blockedSend(ports, file, item, now) : 'NO_FILE';
       } else if (a.type === 'LOG_COST' && a.template === droppedSend)
         why = 'SEND_DROPPED';
       droppedSend = why && a.type === 'SEND' ? a.template : null;

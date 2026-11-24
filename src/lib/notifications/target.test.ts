@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
+import type { AccountRole } from '@/lib/auth/roles';
+
 import {
   notificationRow,
   notificationTarget,
@@ -140,7 +142,7 @@ describe('notificationTarget', () => {
     }
   );
 
-  it.each(['deal_room_join_request', 'deal_room_update'])(
+  it.each(['deal_room_join_request', 'deal_room_update', 'deal_room_message'])(
     '%s opens the deal room',
     (type) => {
       expect(
@@ -160,25 +162,37 @@ describe('notificationTarget', () => {
     }
   );
 
+  it.each(['channel_disconnected', 'channel_reconnected'])(
+    '%s of a personal number opens the profile tab, for any role',
+    (type) => {
+      const row = { type, meta: { personal: true } };
+      for (const role of ['owner', 'admin', 'team_leader', 'agent', 'viewer']) {
+        expect(notificationTarget(row, role as AccountRole)).toBe(
+          '/settings?tab=profile'
+        );
+      }
+      expect(
+        notificationTarget({ type, meta: { personal: false } }, 'agent')
+      ).toBeNull();
+    }
+  );
+
   it.each([
     'channel_disconnected',
     'channel_reconnected',
     'inbound_message_failed',
     'meta_number_alert',
-  ])(
-    '%s opens WhatsApp settings for those who can edit settings',
-    (type) => {
-      expect(notificationTarget({ type }, 'owner')).toBe(
-        '/settings?tab=whatsapp'
-      );
-      expect(notificationTarget({ type }, 'admin')).toBe(
-        '/settings?tab=whatsapp'
-      );
-      expect(notificationTarget({ type }, 'team_leader')).toBeNull();
-      expect(notificationTarget({ type }, 'agent')).toBeNull();
-      expect(notificationTarget({ type }, null)).toBeNull();
-    }
-  );
+  ])('%s opens WhatsApp settings for those who can edit settings', (type) => {
+    expect(notificationTarget({ type }, 'owner')).toBe(
+      '/settings?tab=whatsapp'
+    );
+    expect(notificationTarget({ type }, 'admin')).toBe(
+      '/settings?tab=whatsapp'
+    );
+    expect(notificationTarget({ type }, 'team_leader')).toBeNull();
+    expect(notificationTarget({ type }, 'agent')).toBeNull();
+    expect(notificationTarget({ type }, null)).toBeNull();
+  });
 
   it('work_handed_over opens the inbox', () => {
     expect(
@@ -247,25 +261,20 @@ describe('notificationTarget', () => {
     }
   );
 
-  it('meeting_invite opens the meeting', () => {
-    expect(
-      notificationTarget(
-        { type: 'meeting_invite', meta: { meeting_id: ROOM } },
-        'agent'
-      )
-    ).toBe(`/meetings/${ROOM}`);
-    for (const meta of [null, 'x', [], { meeting_id: 'nope' }, {}]) {
+  it.each(['meeting_invite', 'meeting_update', 'meeting_cancelled'])(
+    '%s opens the meeting',
+    (type) => {
       expect(
-        notificationTarget({ type: 'meeting_invite', meta }, 'agent')
+        notificationTarget({ type, meta: { meeting_id: ROOM } }, 'agent')
+      ).toBe(`/meetings/${ROOM}`);
+      for (const meta of [null, 'x', [], { meeting_id: 'nope' }, {}]) {
+        expect(notificationTarget({ type, meta }, 'agent')).toBeNull();
+      }
+      expect(
+        notificationTarget({ type, meta: { meeting_id: ROOM } }, 'bank_guest')
       ).toBeNull();
     }
-    expect(
-      notificationTarget(
-        { type: 'meeting_invite', meta: { meeting_id: ROOM } },
-        'bank_guest'
-      )
-    ).toBeNull();
-  });
+  );
 
   it('group_join_request opens the group requests tab', () => {
     expect(
@@ -443,5 +452,11 @@ describe('notificationRow', () => {
       href: null,
       otherWorkspace: null,
     });
+  });
+
+  it('retention_failed opens Privacy for owners and admins (282)', () => {
+    const n = { type: 'retention_failed' } as never;
+    expect(notificationTarget(n, 'owner')).toBe('/settings?tab=privacy');
+    expect(notificationTarget(n, 'agent')).toBeNull();
   });
 });

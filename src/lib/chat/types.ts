@@ -252,6 +252,12 @@ export interface ChatPerson {
   bankCode: string | null;
   presenceStatus: string | null;
   lastSeenAt: string | null;
+  /**
+   * Deactivated here (277): listed so that what they wrote keeps its
+   * name, never offered in a picker. Someone removed from the workspace
+   * is not listed at all.
+   */
+  deactivated: boolean;
 }
 
 export interface UnreadCount {
@@ -509,6 +515,8 @@ export function toChatPerson(r: Row): ChatPerson {
     bankCode: opt(r.bank_code),
     presenceStatus: opt(r.presence_status),
     lastSeenAt: opt(r.last_seen_at),
+    // Absent from a database without 277, which lists nobody deactivated.
+    deactivated: r.deactivated === true,
   };
 }
 

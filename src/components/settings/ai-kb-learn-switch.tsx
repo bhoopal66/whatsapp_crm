@@ -7,12 +7,12 @@ import { GraduationCap } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import {
   KB_LEARN_SETTINGS_OFF,
-  kbLearnSettingsFrom,
+  parseKbLearnResponse,
   type KbLearnSettings,
 } from '@/lib/kb/learn-settings';
 
 /**
- * "Learn from team answers" (migration 270), beside the knowledge-gap
+ * "Learn from team answers" (migration 290), beside the knowledge-gap
  * topics: once a week, draft an approved-answer entry from how people on
  * the team answered an open gap. Drafts only; an admin approves them.
  * Admin-only, like the gaps card: for anyone else it is not rendered.
@@ -39,13 +39,7 @@ export function AiKbLearnSwitch({
       const res = await fetch('/api/ai/kb/learn', { cache: 'no-store' });
       const data = await res.json().catch(() => null);
       if (res.ok && data && typeof data === 'object') {
-        setSettings({
-          ...kbLearnSettingsFrom({
-            enabled: data.enabled,
-            last_run_at: data.lastRunAt,
-          }),
-          available: data.available !== false,
-        });
+        setSettings(parseKbLearnResponse(data));
       } else toast.error(data?.error ?? t('loadFailed'));
     } catch {
       toast.error(t('loadFailed'));
@@ -77,13 +71,7 @@ export function AiKbLearnSwitch({
         toast.error(data?.error ?? t('saveFailed'));
         return;
       }
-      setSettings({
-        ...kbLearnSettingsFrom({
-          enabled: data?.enabled,
-          last_run_at: data?.lastRunAt,
-        }),
-        available: true,
-      });
+      setSettings(parseKbLearnResponse(data));
       toast.success(enabled ? t('switchedOn') : t('switchedOff'));
     } catch {
       setSettings(before);
@@ -110,11 +98,18 @@ export function AiKbLearnSwitch({
           ) : settings.enabled ? (
             <p className="text-muted-foreground mt-1 text-xs">
               {settings.lastRunAt
-                ? t('lastRun', {
-                    when: format.dateTime(new Date(settings.lastRunAt), {
-                      dateStyle: 'medium',
-                    }),
-                  })
+                ? settings.lastRunDrafted === null
+                  ? t('lastRun', {
+                      when: format.dateTime(new Date(settings.lastRunAt), {
+                        dateStyle: 'medium',
+                      }),
+                    })
+                  : t('lastRunDrafts', {
+                      when: format.dateTime(new Date(settings.lastRunAt), {
+                        dateStyle: 'medium',
+                      }),
+                      count: settings.lastRunDrafted,
+                    })
                 : t('notRunYet')}
             </p>
           ) : null}

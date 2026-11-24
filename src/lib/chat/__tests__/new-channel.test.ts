@@ -20,6 +20,7 @@ const person = (userId: string, role: string): ChatPerson => ({
   bankCode: null,
   presenceStatus: null,
   lastSeenAt: null,
+  deactivated: false,
 });
 
 const PEOPLE = [

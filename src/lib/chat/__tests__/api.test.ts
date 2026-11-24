@@ -452,6 +452,12 @@ describe('toChatError', () => {
     ],
     [
       '22023',
+      'chat_leave_channel: a DM between two people cannot be left',
+      'INVALID',
+      'dmPair',
+    ],
+    [
+      '22023',
       'chat_leave_channel: the last admin of a private channel cannot leave',
       'INVALID',
       'lastAdmin',

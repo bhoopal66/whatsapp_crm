@@ -1,160 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { deflateRawSync } from 'node:zlib';
 
-import { readXlsxSheets, readXlsxTable, XlsxLimitError } from './read-xlsx';
-
-// Minimal CRC-32 for the zip writer below. The reader does not check
-// it, but a real archive tool would, and the fixtures should be honest
-// zips.
-const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
-  let c = n;
-  for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-  return c >>> 0;
-});
-function crc32(data: Uint8Array): number {
-  let crc = 0xffffffff;
-  for (const b of data) crc = CRC_TABLE[(crc ^ b) & 0xff] ^ (crc >>> 8);
-  return (crc ^ 0xffffffff) >>> 0;
-}
-
-interface FixtureFile {
-  name: string;
-  content: string;
-  /** 0 = stored, 8 = deflate (default). */
-  method?: 0 | 8;
-  /** The uncompressed size the central directory claims (default: true). */
-  declaredSize?: number;
-}
-
-/**
- * A ZIP with local headers, a central directory and an end record. The
- * local headers carry zero sizes with flag bit 3 set, as a streaming
- * writer leaves them, so the reader has to take sizes from the central
- * directory.
- */
-function zip(files: FixtureFile[]): Uint8Array {
-  const enc = new TextEncoder();
-  const locals: Buffer[] = [];
-  const centrals: Buffer[] = [];
-  let offset = 0;
-  for (const file of files) {
-    const method = file.method ?? 8;
-    const name = enc.encode(file.name);
-    const raw = enc.encode(file.content);
-    const data = method === 8 ? deflateRawSync(raw) : Buffer.from(raw);
-    const crc = crc32(raw);
-
-    const local = Buffer.alloc(30);
-    local.writeUInt32LE(0x04034b50, 0);
-    local.writeUInt16LE(20, 4);
-    local.writeUInt16LE(0x0008, 6);
-    local.writeUInt16LE(method, 8);
-    const descriptor = Buffer.alloc(16);
-    descriptor.writeUInt32LE(0x08074b50, 0);
-    descriptor.writeUInt32LE(crc, 4);
-    descriptor.writeUInt32LE(data.length, 8);
-    descriptor.writeUInt32LE(raw.length, 12);
-    local.writeUInt16LE(name.length, 26);
-    locals.push(local, Buffer.from(name), data, descriptor);
-
-    const central = Buffer.alloc(46);
-    central.writeUInt32LE(0x02014b50, 0);
-    central.writeUInt16LE(20, 4);
-    central.writeUInt16LE(20, 6);
-    central.writeUInt16LE(0x0008, 8);
-    central.writeUInt16LE(method, 10);
-    central.writeUInt32LE(crc, 16);
-    central.writeUInt32LE(data.length, 20);
-    central.writeUInt32LE(file.declaredSize ?? raw.length, 24);
-    central.writeUInt16LE(name.length, 28);
-    central.writeUInt32LE(offset, 42);
-    centrals.push(central, Buffer.from(name));
-
-    offset += 30 + name.length + data.length + descriptor.length;
-  }
-  const cd = Buffer.concat(centrals);
-  const end = Buffer.alloc(22);
-  end.writeUInt32LE(0x06054b50, 0);
-  end.writeUInt16LE(files.length, 8);
-  end.writeUInt16LE(files.length, 10);
-  end.writeUInt32LE(cd.length, 12);
-  end.writeUInt32LE(offset, 16);
-  return new Uint8Array(Buffer.concat([...locals, cd, end]));
-}
-
-const NS =
-  'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" ' +
-  'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"';
-const REL =
-  'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
-
-function workbook(
-  sheets: { name: string; rid: string; state?: string }[],
-  rels: { id: string; type: string; target: string }[]
-): FixtureFile[] {
-  return [
-    {
-      name: 'xl/workbook.xml',
-      content:
-        `<?xml version="1.0" encoding="UTF-8"?><workbook ${NS}><sheets>` +
-        sheets
-          .map(
-            (s, i) =>
-              `<sheet name="${s.name}" sheetId="${i + 1}"` +
-              (s.state ? ` state="${s.state}"` : '') +
-              ` r:id="${s.rid}"/>`
-          )
-          .join('') +
-        '</sheets></workbook>',
-    },
-    {
-      name: 'xl/_rels/workbook.xml.rels',
-      content:
-        '<?xml version="1.0" encoding="UTF-8"?><Relationships>' +
-        rels
-          .map(
-            (r) =>
-              `<Relationship Id="${r.id}" Type="${REL}/${r.type}" Target="${r.target}"/>`
-          )
-          .join('') +
-        '</Relationships>',
-    },
-  ];
-}
-
-function sheet(rows: string): string {
-  return (
-    `<?xml version="1.0" encoding="UTF-8"?><worksheet ${NS}>` +
-    '<cols><col min="1" max="1" width="20"/></cols>' +
-    `<sheetData>${rows}</sheetData></worksheet>`
-  );
-}
-
-/** One workbook, one sheet at the usual path, optional shared strings. */
-function simpleBook(rows: string, shared?: string): Uint8Array {
-  const rels = [
-    { id: 'rId1', type: 'worksheet', target: 'worksheets/sheet1.xml' },
-  ];
-  if (shared) {
-    rels.push({
-      id: 'rId2',
-      type: 'sharedStrings',
-      target: 'sharedStrings.xml',
-    });
-  }
-  return zip([
-    ...workbook([{ name: 'Sheet1', rid: 'rId1' }], rels),
-    { name: 'xl/worksheets/sheet1.xml', content: sheet(rows) },
-    ...(shared
-      ? [
-          {
-            name: 'xl/sharedStrings.xml',
-            content: `<?xml version="1.0" encoding="UTF-8"?><sst ${NS}>${shared}</sst>`,
-          },
-        ]
-      : []),
-  ]);
-}
+import {
+  readXlsxFirstSheet,
+  readXlsxSheets,
+  readXlsxTable,
+  XlsxLimitError,
+} from './read-xlsx';
+import { sheet, simpleBook, workbook, zip, NS } from './xlsx.fixture';
 
 describe('readXlsxTable', () => {
   it('reads shared strings, joining rich-text runs and dropping phonetic guides', async () => {
@@ -421,6 +273,104 @@ describe('readXlsxSheets', () => {
   });
 });
 
+describe('number formats', () => {
+  // Style 0 General, 1 built-in date, 2 custom date and time, 3 custom
+  // percentage, 4 currency, 5 time. A dxf's format is not a cell's, and
+  // neither is a cellStyleXfs one.
+  const STYLES =
+    '<numFmts count="4">' +
+    '<numFmt numFmtId="164" formatCode="dd\\-mmm\\-yyyy\\ hh:mm"/>' +
+    '<numFmt numFmtId="165" formatCode="0.00%"/>' +
+    '<numFmt numFmtId="166" formatCode="[$AED]\\ #,##0.00"/>' +
+    '<numFmt numFmtId="167" formatCode="[&gt;1]0;hh:mm"/>' +
+    '</numFmts>' +
+    '<cellStyleXfs count="1"><xf numFmtId="14"/></cellStyleXfs>' +
+    '<cellXfs count="6"><xf numFmtId="0" xfId="0"/>' +
+    '<xf numFmtId="14" applyNumberFormat="1"><alignment/></xf>' +
+    '<xf numFmtId="164"/><xf numFmtId="165"/><xf numFmtId="166"/>' +
+    '<xf numFmtId="20"/></cellXfs>' +
+    '<dxfs count="1"><dxf><numFmt numFmtId="166" formatCode="dd/mm/yyyy"/></dxf></dxfs>';
+  const ROW =
+    '<row r="1"><c r="A1" s="0"><v>46371</v></c>' +
+    '<c r="B1" s="1"><v>46371</v></c>' +
+    '<c r="C1" s="2" t="n"><v>46371.4375</v></c>' +
+    '<c r="D1" s="3"><v>7.2499999999999995E-2</v></c>' +
+    '<c r="E1" s="4"><v>4350.0999999999995</v></c>' +
+    '<c r="F1" s="5"><v>0.5</v></c>' +
+    '<c r="G1" s="1" t="str"><v>46371</v></c>' +
+    '<c r="H1" s="99"><v>46371</v></c>' +
+    '<c r="I1" s="1"><v>971501234567</v></c></row>';
+  const SHOWN = [
+    '46371',
+    '15/12/2026',
+    '15/12/2026 10:30',
+    '7.25%',
+    '4350.1',
+    '12:00',
+    '46371',
+    '46371',
+    '971501234567',
+  ];
+
+  it('reads dates, times and percentages as the sheet shows them', async () => {
+    const bytes = simpleBook(ROW, undefined, STYLES);
+    expect(await readXlsxTable(bytes)).toEqual([SHOWN]);
+    expect(await readXlsxSheets(bytes)).toEqual([
+      { name: 'Sheet1', rows: [SHOWN] },
+    ]);
+  });
+
+  it('counts from 1904 when the workbook says so', async () => {
+    const bytes = simpleBook(
+      '<row r="1"><c r="A1" s="1"><v>44909</v></c></row>',
+      undefined,
+      STYLES,
+      true
+    );
+    expect(await readXlsxTable(bytes)).toEqual([['15/12/2026']]);
+  });
+
+  const asStored = [
+    ...['46371', '46371', '46371.4375', '0.0725', '4350.1', '0.5'],
+    ...['46371', '46371', '971501234567'],
+  ];
+  it.each([
+    ['missing', undefined],
+    ['not a style sheet', '<nonsense'],
+    ['never closed', `${STYLES.slice(0, STYLES.indexOf('</cellXfs>'))}`],
+    ['empty', '<numFmts count="0"/><cellXfs count="0"/>'],
+  ])('writes numbers as stored when styles.xml is %s', async (_, styles) => {
+    expect(await readXlsxTable(simpleBook(ROW, undefined, styles))).toEqual([
+      asStored,
+    ]);
+  });
+
+  it('writes numbers as stored when styles.xml is over a limit', async () => {
+    const bytes = simpleBook(ROW, undefined, STYLES + ' '.repeat(20_000));
+    expect(await readXlsxTable(bytes, { maxEntryBytes: 10_000 })).toEqual([
+      asStored,
+    ]);
+  });
+
+  it('keeps the plain column as digits, whatever its format', async () => {
+    const bytes = simpleBook(
+      '<row r="2"><c r="A2" t="str"><v>phone</v></c><c r="B2" t="str"><v>due</v></c></row>' +
+        '<row r="3"><c r="A3" s="1"><v>46371</v></c><c r="B3" s="1"><v>46371</v></c></row>',
+      undefined,
+      STYLES
+    );
+    expect(
+      await readXlsxFirstSheet(bytes, undefined, (h) => h.indexOf('phone'))
+    ).toEqual({
+      rows: [
+        ['phone', 'due'],
+        ['46371', '15/12/2026'],
+      ],
+      firstRow: 2,
+    });
+  });
+});
+
 describe('limits', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -671,6 +621,19 @@ describe('malformed XML in linear time', () => {
     [
       '<t> with no </t>',
       () => simpleBook('<row/>', `<si>${'<t>'.repeat(40_000)}</si>`),
+    ],
+    [
+      '<xf with no >',
+      () => simpleBook('<row/>', undefined, `<cellXfs>${'<xf'.repeat(40_000)}`),
+    ],
+    [
+      '<numFmt> with no quote',
+      () =>
+        simpleBook(
+          '<row/>',
+          undefined,
+          `<numFmts>${'<numFmt formatCode="'.repeat(20_000)}</numFmts>`
+        ),
     ],
     [
       '<sheet with no >',

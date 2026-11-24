@@ -64,11 +64,12 @@ export function addRules(c: ChannelCtx): AddRules {
   if (c.kind === 'team') return { staff: true, guests: false, block: null };
   if (!c.myRole) return nobody('notMember');
   const staff = c.myRole === 'admin';
-  const guests = GUEST_ADDERS.has(c.accountRole);
-  return staff || guests ? { staff, guests, block: null } : nobody('notAdmin');
+  // 289: guests too are added by channel admins only.
+  const guests = staff && GUEST_ADDERS.has(c.accountRole);
+  return staff ? { staff, guests, block: null } : nobody('notAdmin');
 }
 
-/** The people the viewer may add: not yet members, and of a kind the rules allow. */
+/** The people the viewer may add: active, not yet members, and of a kind the rules allow. */
 export function addCandidates(
   people: readonly ChatPerson[],
   members: readonly Pick<ChannelMember, 'userId'>[],
@@ -77,6 +78,7 @@ export function addCandidates(
   const inside = new Set(members.map((m) => m.userId.toLowerCase()));
   return people.filter(
     (p) =>
+      !p.deactivated &&
       !inside.has(p.userId.toLowerCase()) &&
       (isGuestPerson(p) ? rules.guests : rules.staff)
   );
@@ -95,13 +97,13 @@ interface Roster {
   peopleById: ReadonlyMap<string, ChatPerson>;
 }
 
-/** Admins other than `userId` who still count: in the workspace and not a guest (as in SQL). */
+/** Admins other than `userId` who still count: active in the workspace and not a guest (as in SQL). */
 function otherAdmins(r: Roster, userId: string): number {
   const me = userId.toLowerCase();
   return r.members.filter((m) => {
     if (m.role !== 'admin' || m.userId.toLowerCase() === me) return false;
     const p = r.peopleById.get(m.userId.toLowerCase());
-    return !!p && !isGuestPerson(p);
+    return !!p && !p.deactivated && !isGuestPerson(p);
   }).length;
 }
 
@@ -157,19 +159,22 @@ export function canRemoveMember(
   );
 }
 
-export type LeaveBlock = 'notMember' | 'lastMember' | 'lastAdmin';
+export type LeaveBlock = 'notMember' | 'dmPair' | 'lastMember' | 'lastAdmin';
 
 /**
  * Why the viewer cannot leave; null when they can. Archiving blocks
  * nothing here: chat_leave_channel (087) has no archived check, unlike
  * adds and role changes, so leaving is the one membership change an
  * archived channel takes (a private one cannot then be rejoined until
- * it is unarchived).
+ * it is unarchived). `dmPair` (273): a DM opened by two people stays with
+ * both, so the panel shows no Leave there.
  */
 export function leaveBlock(
-  c: Pick<ChannelCtx, 'kind' | 'myRole'> & Roster & { userId: string }
+  c: Pick<ChannelCtx, 'kind' | 'myRole'> &
+    Roster & { userId: string; dmMemberIds: readonly string[] }
 ): LeaveBlock | null {
   if (!c.myRole) return 'notMember';
+  if (c.kind === 'dm' && c.dmMemberIds.length === 2) return 'dmPair';
   const me = c.userId.toLowerCase();
   if (c.kind === 'dm' && !c.members.some((m) => m.userId.toLowerCase() !== me))
     return 'lastMember';

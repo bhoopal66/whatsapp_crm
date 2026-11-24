@@ -18,6 +18,7 @@ const META_API_VERSION = process.env.META_API_VERSION || 'v23.0'
 export const META_API_BASE = `https://graph.facebook.com/${META_API_VERSION}`
 
 import { fetchPublicUrl, UnsafeUrlError } from '@/lib/webhooks/ssrf'
+import { readCapped } from '@/lib/media/capped-body'
 
 /**
  * Per-request ceiling, mirroring `WHAPI_TIMEOUT_MS` in the Whapi client.
@@ -819,15 +820,20 @@ export interface MetaTemplateComponent {
  * pagination to the end. This is the registry a template built in Meta
  * Business Manager lives in; without reading it, the CRM only ever
  * knew about templates it had submitted itself.
+ *
+ * `complete` is false when the list may be short: the page bound was
+ * reached, or an answer had no `data`. A template missing from such a
+ * list is not evidence that Meta no longer has it.
  */
 export async function listMessageTemplates(
   args: ListMessageTemplatesArgs
-): Promise<MetaTemplateRecord[]> {
+): Promise<{ templates: MetaTemplateRecord[]; complete: boolean }> {
   const { wabaId, accessToken } = args
   const fields = 'id,name,language,status,category,components,quality_score'
   let url: string | null =
     `${META_API_BASE}/${wabaId}/message_templates?fields=${fields}&limit=100`
-  const out: MetaTemplateRecord[] = []
+  const templates: MetaTemplateRecord[] = []
+  let complete = true
   // Bounded so a pathological `next` loop can't spin forever.
   for (let page = 0; url && page < 50; page++) {
     const response = await metaFetch(url, {
@@ -840,10 +846,11 @@ export async function listMessageTemplates(
       data?: MetaTemplateRecord[]
       paging?: { next?: string }
     }
-    out.push(...(data.data ?? []))
+    if (Array.isArray(data.data)) templates.push(...data.data)
+    else complete = false
     url = data.paging?.next ?? null
   }
-  return out
+  return { templates, complete: complete && url === null }
 }
 
 export interface EditMessageTemplateArgs {
@@ -1302,6 +1309,10 @@ export async function getMediaUrl(
 export interface DownloadMediaArgs {
   downloadUrl: string
   accessToken: string
+  /** Past this many bytes the body is left unread (`BodyTooLargeError`). */
+  maxBytes: number
+  /** Replaces the default timeout, for a body that is streamed on. */
+  signal?: AbortSignal
 }
 
 /**
@@ -1321,24 +1332,23 @@ export function isMetaMediaHost(url: URL): boolean {
 }
 
 /**
- * Fetch the binary bytes for a media URL obtained from getMediaUrl.
- * Step two of the media-proxy flow.
+ * Ask for the bytes behind a media URL obtained from getMediaUrl; the
+ * body is unread and must be read through a cap. Step two of the media-proxy flow.
  *
  * `downloadUrl` is not always Meta-issued — forwarding re-hosts a
  * message's stored `media_url`, which a sender controls — so the token
  * goes only to a Meta host (`isMetaMediaHost`). Anything else is fetched
  * without credentials, behind the SSRF guard, redirects re-checked.
  */
-export async function downloadMedia(
-  args: DownloadMediaArgs
-): Promise<{ buffer: Buffer; contentType: string }> {
-  const { downloadUrl, accessToken } = args
+export async function openMedia(args: DownloadMediaArgs): Promise<Response> {
+  const { downloadUrl, accessToken, maxBytes } = args
   let response: Response
   try {
     response = await fetchPublicUrl(
       downloadUrl,
-      { signal: AbortSignal.timeout(META_TIMEOUT_MS) },
+      { signal: args.signal ?? AbortSignal.timeout(META_TIMEOUT_MS) },
       {
+        maxDecodedBytes: maxBytes,
         isTrusted: isMetaMediaHost,
         trustedHeaders: { Authorization: `Bearer ${accessToken}` },
       },
@@ -1359,8 +1369,15 @@ export async function downloadMedia(
     await response.body?.cancel().catch(() => {})
     throw new Error(`Media download failed: ${response.status}`)
   }
+  return response
+}
+
+/** The bytes behind a media URL, at most `maxBytes` of them. */
+export async function downloadMedia(
+  args: DownloadMediaArgs
+): Promise<{ buffer: Buffer; contentType: string }> {
+  const response = await openMedia(args)
   const contentType =
     response.headers.get('content-type') || 'application/octet-stream'
-  const buffer = Buffer.from(await response.arrayBuffer())
-  return { buffer, contentType }
+  return { buffer: await readCapped(response, args.maxBytes), contentType }
 }

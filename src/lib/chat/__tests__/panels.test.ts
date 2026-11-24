@@ -83,6 +83,7 @@ describe('addPickerRows', () => {
     bankCode: null,
     presenceStatus: null,
     lastSeenAt: null,
+    deactivated: false,
   });
   const member = (userId: string): ChannelMember => ({
     channelId: 'c1',
@@ -117,11 +118,10 @@ describe('addPickerRows', () => {
     ]);
   });
 
-  it('private: a workspace admin who is not a channel admin adds guests only', () => {
-    expect(rows('private', 'member', 'admin')).toEqual([
-      ['gus', null],
-      ['ann', 'staffRole'],
-    ]);
+  it('private: a workspace admin who is not a channel admin is offered nobody (289)', () => {
+    expect(
+      rows('private', 'member', 'admin').filter(([, block]) => block === null)
+    ).toEqual([]);
   });
 
   it('private: a channel admin agent adds staff; guests need a leading role', () => {

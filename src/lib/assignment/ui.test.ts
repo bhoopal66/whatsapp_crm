@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  applyPoolChange,
+  assignmentSettingsDiff,
+  poolChange,
   assignmentErrorOf,
   formatMemberLoad,
   isAtLimit,
@@ -153,5 +156,88 @@ describe('knownAssignmentError', () => {
     expect(knownAssignmentError('bad_limit')).toBe('bad_limit');
     expect(knownAssignmentError('nope')).toBeNull();
     expect(knownAssignmentError(3)).toBeNull();
+  });
+});
+
+describe('poolChange / applyPoolChange', () => {
+  it.each([
+    ['adding', ['a', 'b'], ['a', 'b', 'c'], ['c'], []],
+    ['removing', ['a', 'b', 'c'], ['a', 'c'], [], ['b']],
+    ['both', ['a', 'b'], ['b', 'c'], ['c'], ['a']],
+    ['moving to the end', ['a', 'b'], ['b', 'a'], ['a'], ['a']],
+    ['naming people', [], ['a'], ['a'], []],
+    ['replacing everyone', ['a'], ['b'], ['b'], ['a']],
+  ])('%s', (_n, loaded, next, add, remove) => {
+    const change = poolChange(loaded, next);
+    expect(change).toEqual({
+      add,
+      remove,
+      fromEveryone: loaded.length === 0,
+    });
+    // Nobody else touched it: exactly what the screen showed.
+    expect(applyPoolChange(loaded, change)).toEqual(next);
+  });
+
+  it('keeps the people another admin added and leaves out the removed', () => {
+    const change = poolChange(['a', 'b'], ['b', 'c']);
+    expect(applyPoolChange(['a', 'b', 'x'], change)).toEqual(['b', 'x', 'c']);
+    expect(applyPoolChange(['a', 'x'], change)).toEqual(['x', 'c']);
+  });
+
+  it('adds someone the other admin already added once', () => {
+    expect(
+      applyPoolChange(['a', 'c', 'x'], poolChange(['a'], ['a', 'c']))
+    ).toEqual(['a', 'x', 'c']);
+  });
+
+  it('never turns a list into everyone, or everyone into a list, by merging', () => {
+    // Each admin removed a different half: nobody chose everyone.
+    expect(applyPoolChange(['a'], poolChange(['a', 'b'], ['b']))).toBeNull();
+    // The other admin chose everyone; adding c must not leave only c.
+    expect(applyPoolChange([], poolChange(['a'], ['a', 'c']))).toBeNull();
+  });
+});
+
+describe('assignmentSettingsDiff', () => {
+  const saved = {
+    broadcastRotationEnabled: true,
+    broadcastPool: ['a', 'b'],
+    compassAssignEnabled: false,
+    limitsEnabled: true,
+    defaultChatLimit: 30,
+  };
+
+  it('is empty when nothing changed', () => {
+    expect(
+      assignmentSettingsDiff(saved, { ...saved, broadcastPool: ['a', 'b'] })
+    ).toEqual({});
+  });
+
+  it.each([
+    { broadcastRotationEnabled: false },
+    { compassAssignEnabled: true },
+    { limitsEnabled: false },
+    { defaultChatLimit: 12 },
+  ])('holds only %j', (change) => {
+    expect(assignmentSettingsDiff(saved, { ...saved, ...change })).toEqual(
+      change
+    );
+  });
+
+  it('sends the pool as a change', () => {
+    expect(
+      assignmentSettingsDiff(saved, { ...saved, broadcastPool: ['a', 'c'] })
+    ).toEqual({
+      broadcastPoolChange: { add: ['c'], remove: ['b'], fromEveryone: false },
+    });
+  });
+
+  it('sends everyone with the pool it was loaded with', () => {
+    expect(
+      assignmentSettingsDiff(saved, { ...saved, broadcastPool: [] })
+    ).toEqual({
+      broadcastPool: [],
+      broadcastPoolExpected: saved.broadcastPool,
+    });
   });
 });

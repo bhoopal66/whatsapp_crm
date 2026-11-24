@@ -33,6 +33,7 @@ const person = (userId: string, fullName: string | null): ChatPerson => ({
   bankCode: null,
   presenceStatus: null,
   lastSeenAt: null,
+  deactivated: false,
 });
 
 describe('serializeDraft', () => {
@@ -247,6 +248,14 @@ describe('after a send', () => {
     expect(
       draftAfterSend({ ...sent, text: 'hi @Sara Ahmed \n' }, sent)
     ).toEqual({ text: '', picked: [] });
+  });
+  it('never cuts into a word: what only begins like it was not sent', () => {
+    const no = { text: 'No', picked: [] };
+    const now = { text: 'Not now, call first', picked: [] };
+    expect(draftAfterSend(now, no)).toBe(now);
+    expect(draftAfterSend({ text: 'No, wait', picked: [] }, no).text).toBe(
+      'No, wait'
+    );
   });
   it('leaves a replaced draft untouched', () => {
     const now = { text: 'something else', picked: [] };

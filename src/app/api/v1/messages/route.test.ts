@@ -1,13 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { sendMessageToConversation } = vi.hoisted(() => ({
+const h = vi.hoisted(() => ({
   sendMessageToConversation: vi.fn(),
+  findMatchingContacts: vi.fn(),
 }));
 
 vi.mock('@/lib/auth/api-context', () => ({
   requireApiKey: vi.fn(async () => ({ accountId: 'acct-1', supabase: {} })),
 }));
-vi.mock('@/lib/whatsapp/resolve-conversation', () => ({
+vi.mock('@/lib/contacts/dedupe', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/contacts/dedupe')>()),
+  findMatchingContacts: h.findMatchingContacts,
+}));
+vi.mock('@/lib/whatsapp/resolve-conversation', async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import('@/lib/whatsapp/resolve-conversation')
+  >()),
   resolveConversationByPhone: vi.fn(async () => ({
     conversationId: 'cv-1',
     contactId: 'c-1',
@@ -16,11 +24,15 @@ vi.mock('@/lib/whatsapp/resolve-conversation', () => ({
 }));
 vi.mock('@/lib/whatsapp/send-message', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/whatsapp/send-message')>()),
-  sendMessageToConversation,
+  sendMessageToConversation: h.sendMessageToConversation,
 }));
 
+import { ContactLookupError } from '@/lib/contacts/dedupe';
+import { resolveConversationByPhone } from '@/lib/whatsapp/resolve-conversation';
 import { SendMessageError } from '@/lib/whatsapp/send-message';
 import { POST } from './route';
+
+const { sendMessageToConversation, findMatchingContacts } = h;
 
 const post = (body: unknown) =>
   POST(
@@ -32,6 +44,8 @@ const post = (body: unknown) =>
 
 beforeEach(() => {
   sendMessageToConversation.mockReset();
+  findMatchingContacts.mockReset().mockResolvedValue([]);
+  vi.mocked(resolveConversationByPhone).mockClear();
 });
 
 describe('POST /api/v1/messages and the number daily limit (migration 204)', () => {
@@ -69,5 +83,72 @@ describe('POST /api/v1/messages and the number daily limit (migration 204)', () 
           'This WhatsApp number has started 30 new chats today, its daily limit.',
       },
     });
+  });
+});
+
+describe('POST /api/v1/messages and the consent register', () => {
+  const at = '2026-11-01T00:00:00Z';
+  const refused = {
+    error: {
+      code: 'customer_opted_out',
+      message:
+        'The customer has opted out of WhatsApp messages. Nothing was sent.',
+    },
+  };
+
+  it('has the core ask the contact', async () => {
+    sendMessageToConversation.mockResolvedValue({ messageId: 'm-1' });
+    await post({ to: '+971501234567', text: 'Hi' });
+    expect(sendMessageToConversation).toHaveBeenCalledWith(
+      {},
+      'acct-1',
+      expect.objectContaining({ respectConsent: true })
+    );
+  });
+
+  it.each(['opted_out', 'do_not_contact'])(
+    'answers 422 customer_opted_out for the core refusal %s',
+    async (code) => {
+      sendMessageToConversation.mockRejectedValue(
+        new SendMessageError(code, 'no', 409)
+      );
+      const res = await post({ to: '+971501234567', text: 'Hi' });
+      expect(res.status).toBe(422);
+      expect(await res.json()).toEqual(refused);
+    }
+  );
+
+  it.each([{ opted_out_at: at }, { do_not_contact_at: at }])(
+    'refuses on a twin contact, touching nothing: %j',
+    async (mark) => {
+      findMatchingContacts.mockResolvedValue([
+        { id: 'c-1', phone: '971501234567' },
+        { id: 'c-2', phone: '0501234567', ...mark },
+      ]);
+      const res = await post({ to: '+971 50 123 4567', text: 'Hi' });
+      expect(res.status).toBe(422);
+      expect(await res.json()).toEqual(refused);
+      expect(findMatchingContacts).toHaveBeenCalledWith(
+        {},
+        'acct-1',
+        '971501234567'
+      );
+      expect(resolveConversationByPhone).not.toHaveBeenCalled();
+      expect(sendMessageToConversation).not.toHaveBeenCalled();
+    }
+  );
+
+  it('sends nothing and answers 503 when the contacts cannot be read', async () => {
+    findMatchingContacts.mockRejectedValue(new ContactLookupError('timeout'));
+    const res = await post({ to: '+971501234567', text: 'Hi' });
+    expect(res.status).toBe(503);
+    expect(res.headers.get('Retry-After')).toBe('5');
+    expect(sendMessageToConversation).not.toHaveBeenCalled();
+  });
+
+  it('still answers 400 for a number that is not one', async () => {
+    const res = await post({ to: '9.71505E+11', text: 'Hi' });
+    expect(res.status).toBe(400);
+    expect(findMatchingContacts).not.toHaveBeenCalled();
   });
 });

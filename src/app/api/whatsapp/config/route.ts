@@ -20,6 +20,7 @@ import {
   generateWebhookSecret,
   redactWebhookUrl,
 } from '@/lib/whatsapp/whapi-webhook-auth'
+import { withChannelSecrets } from '@/lib/whatsapp/channel-secrets'
 import { encrypt, decrypt } from '@/lib/whatsapp/encryption'
 import { nextHealth, syncPairedNumber } from '@/lib/whatsapp/channel-health'
 import { serverSupabaseUrl } from '@/lib/supabase/urls'
@@ -87,6 +88,7 @@ async function findWhapiRow<T>(
   accountId: string,
   columns: string,
   configId: string | null,
+  secret?: 'access_token' | 'verify_token',
 ): Promise<{ data: T | null; error: { message: string } | null }> {
   let query = supabase
     .from('whatsapp_config')
@@ -100,7 +102,21 @@ async function findWhapiRow<T>(
         .order('is_primary', { ascending: false })
         .order('created_at', { ascending: true })
   const { data, error } = await query.limit(1).maybeSingle()
-  return { data: (data as T | null) ?? null, error }
+  if (error || !data || !secret) {
+    return { data: (data as T | null) ?? null, error }
+  }
+  try {
+    const [row] = await withChannelSecrets(
+      [data as unknown as { id: string }],
+      [secret],
+    )
+    return { data: row as unknown as T, error: null }
+  } catch (err) {
+    return {
+      data: null,
+      error: { message: err instanceof Error ? err.message : String(err) },
+    }
+  }
 }
 
 /**
@@ -245,8 +261,9 @@ export async function GET(request: Request) {
     }>(
       supabase,
       accountId,
-      'id, phone_number_id, waba_id, label, access_token, status, registered_at',
+      'id, phone_number_id, waba_id, label, status, registered_at',
       configId,
+      'access_token',
     )
 
     if (configError) {
@@ -528,9 +545,17 @@ export async function POST(request: Request) {
       }>(
         supabase,
         accountId,
-        'id, verify_token, waba_id, status',
+        'id, waba_id, status',
         configId,
+        'verify_token',
       )
+      if (found.error) {
+        console.error('Error reading whatsapp_config row:', found.error)
+        return NextResponse.json(
+          { error: 'Failed to validate configuration' },
+          { status: 500 }
+        )
+      }
       existing = found.data
       if (configId && !existing) {
         return NextResponse.json(
@@ -543,12 +568,22 @@ export async function POST(request: Request) {
     // The same channel twice on one account would give two rows the
     // same phone_number_id — the UNIQUE constraint rejects it, and even
     // if it didn't, inbound would match only one. Say which row has it.
-    const { data: duplicate } = await supabase
+    const { data: duplicate, error: duplicateError } = await supabase
       .from('whatsapp_config')
       .select('id, label, waba_id')
       .eq('account_id', accountId)
       .eq('phone_number_id', channelId)
       .maybeSingle()
+    if (duplicateError) {
+      // A failed read must not read as "no clash": the guard would be
+      // skipped and the UNIQUE constraint left to catch it after the
+      // webhook was already moved.
+      console.error('Error checking duplicate channel:', duplicateError)
+      return NextResponse.json(
+        { error: 'Failed to validate configuration' },
+        { status: 500 }
+      )
+    }
     if (duplicate && duplicate.id !== existing?.id) {
       return NextResponse.json(
         {
@@ -567,11 +602,18 @@ export async function POST(request: Request) {
     // the phone comes from Whapi itself, so it is the reliable key.
     // Checked across accounts too, on the service role, like `claimed`.
     if (channel.phone) {
-      const { data: samePhone } = await supabaseAdmin()
+      const { data: samePhone, error: samePhoneError } = await supabaseAdmin()
         .from('whatsapp_config')
         .select('id, account_id, label')
         .eq('provider', 'whapi')
         .eq('waba_id', channel.phone)
+      if (samePhoneError) {
+        console.error('Error checking same phone:', samePhoneError)
+        return NextResponse.json(
+          { error: 'Failed to validate configuration' },
+          { status: 500 }
+        )
+      }
       const clash = (samePhone ?? []).find(
         (r: { id: string }) => r.id !== existing?.id,
       ) as { id: string; account_id: string; label: string | null } | undefined
@@ -595,15 +637,18 @@ export async function POST(request: Request) {
     // secret — it is what tells the webhook which number a callback
     // is for.
 
-    let webhookSecret: string | null = null
-    if (!rotateSecret && existing?.verify_token) {
+    // The secret the channel's webhook points at today, kept before it
+    // can be replaced: a failed save puts that callback back.
+    let previousSecret: string | null = null
+    if (existing?.verify_token) {
       try {
-        webhookSecret = decrypt(existing.verify_token)
+        previousSecret = decrypt(existing.verify_token)
       } catch {
-        // Encrypted under a rotated key — mint a fresh one below.
-        webhookSecret = null
+        // Encrypted under a rotated key — nothing to restore.
+        previousSecret = null
       }
     }
+    let webhookSecret: string | null = rotateSecret ? null : previousSecret
     if (!webhookSecret) webhookSecret = generateWebhookSecret()
 
     // Encrypt before any of it is written.
@@ -673,6 +718,38 @@ export async function POST(request: Request) {
       updated_at: now,
     }
 
+    // The webhook was already moved to the new secret above. When the row
+    // write then fails, the stored secret is still the old one, so every
+    // callback would be rejected: point the channel back at it. Skipped
+    // when the token belongs to another phone than the row (the old
+    // callback is on a different channel), and for a new number (nothing
+    // to restore). A failed restore is logged; the answer stays the
+    // row-write error.
+    const restorePreviousWebhook = async () => {
+      if (
+        !existing ||
+        !previousSecret ||
+        previousSecret === webhookSecret ||
+        registeredAt == null
+      ) {
+        return
+      }
+      if (existing.waba_id && channel.phone && existing.waba_id !== channel.phone) {
+        return
+      }
+      let restoreUrl: string | null = null
+      try {
+        restoreUrl = buildWebhookUrl(resolveOrigin(request), previousSecret)
+        await registerWebhook({ token, webhookUrl: restoreUrl })
+      } catch (err) {
+        console.error(
+          '[whatsapp/config] restoring the previous webhook failed:',
+          restoreUrl ? redactWebhookUrl(restoreUrl) : '(no url)',
+          explainWhapiError(err)
+        )
+      }
+    }
+
     let savedId: string | null = existing?.id ?? null
     if (existing) {
       const { error: updateError } = await supabase
@@ -692,6 +769,7 @@ export async function POST(request: Request) {
 
       if (updateError) {
         console.error('Error updating whatsapp_config:', updateError)
+        await restorePreviousWebhook()
         return NextResponse.json(
           { error: 'Failed to update configuration' },
           { status: 500 }
@@ -705,10 +783,21 @@ export async function POST(request: Request) {
       // most one primary per account with a partial unique index — so a
       // straight insert would fail when a Meta number is already
       // connected and holds the flag. First channel in wins it.
-      const { count: siblingCount } = await supabase
+      // Shared numbers only: a person's own number (is_personal) never
+      // holds the default, so counting it left the first shared number
+      // of an account with only a personal one non-default.
+      const { count: siblingCount, error: siblingError } = await supabase
         .from('whatsapp_config')
         .select('id', { count: 'exact', head: true })
         .eq('account_id', accountId)
+        .eq('is_personal', false)
+      if (siblingError) {
+        console.error('Error counting whatsapp_config rows:', siblingError)
+        return NextResponse.json(
+          { error: 'Failed to validate configuration' },
+          { status: 500 }
+        )
+      }
 
       const newRow = {
         account_id: accountId,
@@ -825,12 +914,18 @@ export async function DELETE(request: Request) {
     // and allocations for THIS number cascade, and its chat history
     // stays (conversations/messages.channel_id go NULL).
     const configId = new URL(request.url).searchParams.get('config_id')
-    const { data: target } = await findWhapiRow<{ id: string }>(
-      supabase,
-      accountId,
-      'id',
-      configId,
-    )
+    const { data: target, error: targetError } = await findWhapiRow<{
+      id: string
+    }>(supabase, accountId, 'id', configId)
+    if (targetError) {
+      // A failed read is not "nothing to remove": answering success
+      // here told the admin the number was gone while it stayed.
+      console.error('Error reading whatsapp_config for delete:', targetError)
+      return NextResponse.json(
+        { error: 'Failed to read configuration' },
+        { status: 500 }
+      )
+    }
     if (!target) {
       return NextResponse.json({ success: true })
     }

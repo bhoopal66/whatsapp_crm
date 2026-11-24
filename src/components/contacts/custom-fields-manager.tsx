@@ -4,6 +4,14 @@ import { useCallback, useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
 import { toast } from 'sonner';
+import { ErrorState } from '@/components/dashboard/error-state';
+import {
+  checkFieldName,
+  deleteField,
+  loadFieldList,
+  renameField,
+  type FieldList,
+} from '@/lib/contacts/custom-fields';
 import type { CustomField } from '@/types';
 import {
   Dialog,
@@ -37,7 +45,9 @@ export function CustomFieldsManager({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="border-border bg-popover text-popover-foreground sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="text-popover-foreground">{t('title')}</DialogTitle>
+          <DialogTitle className="text-popover-foreground">
+            {t('title')}
+          </DialogTitle>
           <DialogDescription className="text-muted-foreground">
             {t('desc')}
           </DialogDescription>
@@ -59,21 +69,15 @@ export function CustomFieldsPanel() {
   const supabase = createClient();
   const { user, accountId } = useAuth();
 
-  const [fields, setFields] = useState<CustomField[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [list, setList] = useState<FieldList>({ status: 'loading' });
   const [newName, setNewName] = useState('');
   const [creating, setCreating] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const fetchFields = useCallback(async () => {
     if (!accountId) return;
-    setLoading(true);
-    const { data } = await supabase
-      .from('custom_fields')
-      .select('*')
-      .order('field_name');
-    setFields((data as CustomField[] | null) ?? []);
-    setLoading(false);
+    setList({ status: 'loading' });
+    setList(await loadFieldList(supabase));
   }, [supabase, accountId]);
 
   // Load the field list on mount once the account is known. The setters
@@ -86,14 +90,6 @@ export function CustomFieldsPanel() {
     }
   }, [accountId, fetchFields]);
 
-  /** Case-insensitive name clash within the loaded list. */
-  function isDuplicate(name: string, exceptId?: string): boolean {
-    const lower = name.toLowerCase();
-    return fields.some(
-      (f) => f.id !== exceptId && f.field_name.toLowerCase() === lower
-    );
-  }
-
   async function handleCreate() {
     const name = newName.trim();
     if (!name) return;
@@ -101,7 +97,9 @@ export function CustomFieldsPanel() {
       toast.error(t('toastNoAccount'));
       return;
     }
-    if (isDuplicate(name)) {
+    const check = checkFieldName(list, name);
+    if (check === 'unknown') return; // Not read: the panel says so.
+    if (check === 'taken') {
       toast.error(t('toastDuplicate', { name }));
       return;
     }
@@ -132,44 +130,32 @@ export function CustomFieldsPanel() {
   ): Promise<boolean> {
     const name = nextName.trim();
     if (!name || name === field.field_name) return true;
-    if (isDuplicate(name, field.id)) {
+    const check = checkFieldName(list, name, field.id);
+    if (check === 'unknown') return false;
+    if (check === 'taken') {
       toast.error(t('toastDuplicate', { name }));
       return false;
     }
     setBusyId(field.id);
-    const { error } = await supabase
-      .from('custom_fields')
-      .update({ field_name: name })
-      .eq('id', field.id);
+    const error = await renameField(supabase, field.id, name);
     setBusyId(null);
-    if (error) {
-      toast.error(t('toastRenameFailed'));
-      return false;
-    }
+    if (error) toast.error(t(error));
+    if (error === 'toastRenameFailed') return false;
+    // Also after a rename that found no row: it may be gone.
     await fetchFields();
-    return true;
+    return error === null;
   }
 
   async function handleDelete(field: CustomField) {
-    if (
-      !window.confirm(
-        t('deleteConfirm', { name: field.field_name })
-      )
-    ) {
+    if (!window.confirm(t('deleteConfirm', { name: field.field_name }))) {
       return;
     }
     setBusyId(field.id);
-    const { error } = await supabase
-      .from('custom_fields')
-      .delete()
-      .eq('id', field.id);
+    const error = await deleteField(supabase, field.id);
     setBusyId(null);
-    if (error) {
-      toast.error(t('toastDeleteFailed'));
-      return;
-    }
-    toast.success(t('toastDeleted', { name: field.field_name }));
-    await fetchFields();
+    if (error) toast.error(t(error));
+    else toast.success(t('toastDeleted', { name: field.field_name }));
+    if (error !== 'toastDeleteFailed') await fetchFields();
   }
 
   return (
@@ -190,7 +176,7 @@ export function CustomFieldsPanel() {
         />
         <Button
           onClick={handleCreate}
-          disabled={creating || !newName.trim()}
+          disabled={creating || !newName.trim() || list.status !== 'ready'}
           className="bg-primary hover:bg-primary/90 text-primary-foreground shrink-0"
         >
           {creating ? (
@@ -203,19 +189,25 @@ export function CustomFieldsPanel() {
       </div>
 
       {/* List */}
-      <div className="max-h-72 overflow-y-auto rounded-md border border-border">
-        {loading ? (
-          <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
+      <div className="border-border max-h-72 overflow-y-auto rounded-md border">
+        {list.status === 'loading' ? (
+          <div className="text-muted-foreground flex items-center justify-center gap-2 py-8 text-sm">
             <Loader2 className="size-4 animate-spin" />
             {t('loading')}
           </div>
-        ) : fields.length === 0 ? (
-          <p className="py-8 text-center text-sm text-muted-foreground">
+        ) : list.status === 'failed' ? (
+          <ErrorState
+            message={t('loadFailed')}
+            onRetry={() => void fetchFields()}
+            className="m-2"
+          />
+        ) : list.fields.length === 0 ? (
+          <p className="text-muted-foreground py-8 text-center text-sm">
             {t('empty')}
           </p>
         ) : (
-          <ul className="divide-y divide-border">
-            {fields.map((field) => (
+          <ul className="divide-border divide-y">
+            {list.fields.map((field) => (
               <FieldRow
                 key={field.id}
                 field={field}
@@ -267,7 +259,7 @@ function FieldRow({
           if (e.key === 'Enter') e.currentTarget.blur();
         }}
         aria-label={t('renameAria', { name: field.field_name })}
-        className="focus:border-primary h-8 border-transparent bg-transparent text-foreground hover:border-border"
+        className="focus:border-primary text-foreground hover:border-border h-8 border-transparent bg-transparent"
       />
       <Button
         variant="ghost"
@@ -275,7 +267,7 @@ function FieldRow({
         disabled={busy}
         onClick={() => onDelete(field)}
         title={t('deleteTitle')}
-        className="shrink-0 text-muted-foreground hover:text-destructive"
+        className="text-muted-foreground hover:text-destructive shrink-0"
       >
         {busy ? (
           <Loader2 className="size-4 animate-spin" />

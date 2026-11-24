@@ -73,7 +73,8 @@ Any live staff member (agent and up) uploads. An upload says what it is:
 An upload that cannot file waits, oldest first, in the queue of its bank
 (the bank given, or the case's bank), or in the **no-bank queue**, with a
 reason: `NO_KIND`, `NO_CASE`, `NO_CONTACT`, `NO_FILE`, `CASE_NOT_FOUND`,
-`BANK_MISMATCH`, `CASE_EXISTS_NAME_MISMATCH`, or the refusal that
+`BANK_MISMATCH`, `CASE_EXISTS_NAME_MISMATCH`, `COMPANY_RESTRICTED` (the company, or the
+open case's customer, is not the uploader's to see), or the refusal that
 stopped it.
 
 - **Who sorts.** Owners, admins and team leaders sort every queue,

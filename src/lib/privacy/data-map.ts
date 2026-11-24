@@ -90,6 +90,14 @@ export const PERSONAL: Readonly<Record<string, PersonalTable>> = {
     reason: CONSENT,
     exported: true,
   },
+  contact_suppressions: {
+    link: 'phone',
+    class: 'identifier',
+    erase: 'anonymise',
+    reason:
+      'opt-outs of numbers whose contact is gone, by keyed hash, and of numbers a contact left (contact_id): the erase drops who deleted it and whose it was, and keeps the hash and dates',
+    exported: true,
+  },
   conversations: {
     link: 'contact',
     class: 'content',
@@ -880,7 +888,7 @@ export const NOT_PERSONAL: Readonly<Record<string, string>> =
             'account_departments',
             'ai_configs',
             'ai_insight_settings',
-            // 270: the learn-from-team-answers switch and its last run.
+            // 290: the learn-from-team-answers switch and its last run.
             'kb_learn_settings',
             'assignment_settings',
             'automations',
@@ -909,6 +917,7 @@ export const NOT_PERSONAL: Readonly<Record<string, string>> =
             'desk_digest_settings',
             'desk_number_seq',
             'desk_settings',
+            'contact_suppression_keys',
             'privacy_extensions',
             'flow_nodes',
             'flows',
@@ -945,7 +954,7 @@ export const NOT_PERSONAL: Readonly<Record<string, string>> =
             'kb_imports',
             'kb_gap_topics',
             'kb_gap_topic_members',
-            // 270: gap ids and a topic label per learned draft; no message text.
+            // 290: gap ids and a topic label per learned draft; no message text.
             'kb_learned_drafts',
             'ai_knowledge_chunks',
             'ai_knowledge_documents',
@@ -1065,6 +1074,9 @@ export const NOT_PERSONAL: Readonly<Record<string, string>> =
             // CASCADE); the meta row is the day the log began.
             'chat_tag_history',
             'chat_tag_history_meta',
+            // 288: a staff login's new address, good for two minutes and
+            // gone within a day. No customer.
+            'login_email_permits',
           ],
         ],
       ] as const

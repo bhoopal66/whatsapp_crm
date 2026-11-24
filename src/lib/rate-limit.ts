@@ -95,6 +95,21 @@ export function checkRateLimit(
 }
 
 /**
+ * The requests a key still has in its window, without consuming one. For
+ * a caller that spends several at once and must know how many it may
+ * before it spends any: read, decide and `checkRateLimit` with no `await`
+ * in between, or another request can take them first.
+ */
+export function rateLimitRemaining(
+  key: string,
+  { limit }: RateLimitOptions
+): number {
+  const entry = buckets.get(key);
+  if (!entry || entry.resetAt <= Date.now()) return limit;
+  return Math.max(0, limit - entry.count);
+}
+
+/**
  * Standard 429 response with the headers clients expect (RFC 6585 +
  * draft-ietf-httpapi-ratelimit-headers). Callers just `return` this.
  */
@@ -169,6 +184,9 @@ export const RATE_LIMITS = {
   // Changing one's own password. Per-user, ahead of the sign-in lockout
   // that counts the wrong ones.
   passwordChange: { limit: 10, windowMs: 60_000 },
+  /** Click-to-call, per person: each one rings a real phone. 20/min is
+   *  well above someone working a call list. */
+  pbxDial: { limit: 20, windowMs: 60_000 },
   /** Public REST API (`/api/v1/*`), keyed per API key. 120/min ≈ 2
    *  req/s sustained — comfortable for a polling integration or an
    *  automation firing on inbound events, while bounding a runaway

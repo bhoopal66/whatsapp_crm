@@ -1060,12 +1060,18 @@ jobs:
       - name: Verify HR workflows
         run: supabase db query --local --file supabase/ci/verify-hr-workflows.sql
 
+      # Migration 288: a login's email changes only with a fresh permit for
+      # that address, asked for by the app's server.
+      - name: Verify login email guard
+        run: supabase db query --local --file supabase/ci/verify-login-email-guard.sql
+
       # Migration 213: HR lines. Off by default (no settings row); the
       # list and switch are read with an HR role and set by owners/admins
       # only (a number of another workspace is INVALID, nothing written);
       # hr_auto_open_recruiter (service role only) opens a chat on a line
       # as a recruiter row at cv_review by nobody, once, never over an
       # existing row (closed included); deleting a number drops its line.
+      # 279: hr_is_line only looks, for the service role.
       - name: Verify HR lines
         run: supabase db query --local --file supabase/ci/verify-hr-lines.sql
 
@@ -1394,7 +1400,106 @@ jobs:
       - name: Verify submission group fixes
         run: supabase db query --local --file supabase/ci/verify-sg-fixes.sql
 
-      # Migration 270: learn from team answers. Off by default and, while
+      # Migration 270: staff use a superseded case file again as a new
+      # version, the system and a raw update cannot; a file that changed
+      # since the caller read it is not classified.
+      - name: Verify case file fixes
+        run: supabase db query --local --file supabase/ci/verify-case-file-fixes.sql
+
+      # Migration 271: an event ends a case's snooze, the last required
+      # document stops the chase, and a rule that did not match fires later,
+      # once.
+      - name: Verify case timers
+        run: supabase db query --local --file supabase/ci/verify-case-timers.sql
+
+      # Migration 273: a DM between two people cannot be left, and
+      # reopening a DM brings back everyone named, never a deactivated
+      # person or a pair the DM rules block.
+      - name: Verify team chat fixes
+        run: supabase db query --local --file supabase/ci/verify-team-chat-fixes.sql
+
+      # Migration 276: a repeated post (same client id) answers the first
+      # message, with one set of bells and its files kept; a concurrent
+      # repeat too; one chat_post_message, calls without the id as before.
+      - name: Verify chat posts once
+        run: supabase db query --local --file supabase/ci/verify-chat-post-once.sql
+
+      # Migration 272: a waiting customer whose assignee was deactivated or
+      # removed counts as unassigned on the live view; a live person's
+      # does not.
+      - name: Verify live view leavers
+        run: supabase db query --local --file supabase/ci/verify-live-view-leavers.sql
+
+      # Migration 275: a queued HR message is cancelled, with its reason,
+      # once its stage or its silence is over; a chat that moves back
+      # releases nothing.
+      - name: Verify HR automated messages still true
+        run: supabase db query --local --file supabase/ci/verify-hr-automsg-still-true.sql
+
+      # Migration 274: a customer's or bank's message in a deal room rings
+      # its live staff and the owner or admin who opened it, once while unread.
+      - name: Verify deal room bells
+        run: supabase db query --local --file supabase/ci/verify-deal-room-bells.sql
+
+      # Migration 277: chat_people lists deactivated people with a flag
+      # (a guest still only those of shared channels; nobody removed), and
+      # an edit's mentions are those of its new text: one added rings once
+      # and never who was rung, one taken out loses its badge.
+      - name: Verify chat people and mentions
+        run: supabase db query --local --file supabase/ci/verify-chat-people-mentions.sql
+
+      # Migration 278: a moved or cancelled meeting rings its invitees, a
+      # person taken off an event is told, an event that is over rings
+      # nobody, and an owner or admin deletes (never edits) a leaver's event.
+      - name: Verify calendar and meeting bells
+        run: supabase db query --local --file supabase/ci/verify-calendar-meeting-bells.sql
+
+      # Migration 280: an opt-out outlives its contact and comes back with
+      # the number until it is lifted; open work refuses a delete.
+      - name: Verify deleting a contact
+        run: supabase db query --local --file supabase/ci/verify-contact-delete.sql
+
+      # Migration 281: a rating request whose case moved back is not sent, an
+      # ordinary digit is not a rating, and a lost send is unconfirmed only
+      # when it was handed to the gateway.
+      - name: Verify case CSAT fixes
+        run: supabase db query --local --file supabase/ci/verify-csat-fixes.sql
+
+      # Migration 282: retention lists the files nothing else points at,
+      # works in slices, and a failure leaves a row and rings the owners.
+      - name: Verify retention fixes
+        run: supabase db query --local --file supabase/ci/verify-retention-fixes.sql
+
+      # Migration 283: in chat-media and flow-media a person reaches only
+      # what they uploaded, and uploads only into the browser's folders.
+      - name: Verify chat media owner
+        run: supabase db query --local --file supabase/ci/verify-chat-media-owner.sql
+
+      # Migration 285: automation runs, steps and flow nodes are admins'; no
+      # session reads a WhatsApp number's secrets; a note is the writer's own.
+      - name: Verify read rules
+        run: supabase db query --local --file supabase/ci/verify-read-rules.sql
+
+      # Migration 284: a session writes chats and messages only as the app
+      # does (each caller by role, and every other write refused).
+      - name: Verify chat integrity
+        run: supabase db query --local --file supabase/ci/verify-chat-integrity.sql
+
+      # Migration 287: only the owner removes an admin, a removed or lowered
+      # admin's login is out of reach in every workspace, and invitations and
+      # API keys are made only in one's own name.
+      - name: Verify the admin rules
+        run: supabase db query --local --file supabase/ci/verify-admin-rules.sql
+      - name: Verify team and row rules
+        run: supabase db query --local --file supabase/ci/verify-team-and-row-rules.sql
+
+      # Migration 289: desk uploads, chat guests and attachments, webhooks,
+      # quick replies and the definer functions answer only for what the
+      # caller may see, by role.
+      - name: Verify the access points
+        run: supabase db query --local --file supabase/ci/verify-access-points.sql
+
+      # Migration 290: learn from team answers. Off by default and, while
       # off, nothing is drafted; only an admin sets it; one run a week; a
       # learned entry is always a draft; a topic is drafted once (again
       # only after remove or delete); a non-admin cannot read the ledger.

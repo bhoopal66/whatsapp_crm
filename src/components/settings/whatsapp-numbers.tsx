@@ -94,7 +94,8 @@ interface NumberRow {
   team_ids: string[];
   /** People who have the number through one of those teams. */
   team_member_ids: string[];
-  conversation_count: number;
+  /** Null when it could not be counted. */
+  conversation_count: number | null;
 }
 
 /**
@@ -606,7 +607,9 @@ export function WhatsAppNumbers() {
 
                     <div className="text-muted-foreground mt-1 flex flex-wrap items-center gap-1.5 text-xs">
                       {shownPhone ? (
-                        <span className="font-mono" dir="ltr">{shownPhone}</span>
+                        <span className="font-mono" dir="ltr">
+                          {shownPhone}
+                        </span>
                       ) : null}
                       <Badge variant="outline">
                         {row.provider === 'meta'
@@ -649,7 +652,9 @@ export function WhatsAppNumbers() {
                       ) : null}
                       <span className="inline-flex items-center gap-1">
                         <MessagesSquare className="size-3" />
-                        {t('chatCount', { count: row.conversation_count })}
+                        {row.conversation_count === null
+                          ? t('chatCountUnknown')
+                          : t('chatCount', { count: row.conversation_count })}
                       </span>
                     </div>
                   </div>
@@ -1058,6 +1063,13 @@ export function WhatsAppNumbers() {
                   ? t('openwa.removeBody')
                   : t('removeBody')}
             </DialogDescription>
+            {removing ? (
+              <p className="text-muted-foreground text-sm">
+                {removing.conversation_count === null
+                  ? t('removeChatsUnknown')
+                  : t('chatCount', { count: removing.conversation_count })}
+              </p>
+            ) : null}
           </DialogHeader>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setRemoving(null)}>

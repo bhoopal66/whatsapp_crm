@@ -155,6 +155,46 @@ describe('postMessage reply', () => {
   });
 });
 
+describe('postMessage client id (276)', () => {
+  const post = (sb: SupabaseClient) =>
+    api.postMessage(sb, { channelId: SRC, body: 'a', clientId: 'c1' });
+  const refusal = (code: string): Result => ({
+    data: null,
+    error: { code, message: 'x' },
+  });
+
+  it('sends p_client_id only when set', async () => {
+    const { sb, rpcs } = fakeSb([ok('1'), ok('2')]);
+    await api.postMessage(sb, { channelId: SRC, body: 'a' });
+    await post(sb);
+    expect('p_client_id' in (rpcs[0].args as object)).toBe(false);
+    expect(rpcs[1].args).toMatchObject({ p_client_id: 'c1' });
+  });
+
+  it('posts once more without it on a database before 276', async () => {
+    const { sb, rpcs } = fakeSb([refusal('PGRST202'), ok('1')]);
+    expect(await post(sb)).toBe('1');
+    expect(rpcs).toHaveLength(2);
+    expect('p_client_id' in (rpcs[1].args as object)).toBe(false);
+    expect(rpcs[1].args).toMatchObject({ p_channel: SRC, p_body: 'a' });
+  });
+
+  it('never repeats on any other failure, nor twice', async () => {
+    const a = fakeSb([refusal('42501'), ok('1')]);
+    await expect(post(a.sb)).rejects.toBeInstanceOf(ChatError);
+    expect(a.rpcs).toHaveLength(1);
+    const lost = fakeSb([
+      { data: null, error: { code: '', message: 'Failed to fetch' } },
+      ok('1'),
+    ]);
+    await expect(post(lost.sb)).rejects.toBeInstanceOf(ChatError);
+    expect(lost.rpcs).toHaveLength(1);
+    const b = fakeSb([refusal('PGRST202'), refusal('PGRST202'), ok('1')]);
+    await expect(post(b.sb)).rejects.toBeInstanceOf(ChatError);
+    expect(b.rpcs).toHaveLength(2);
+  });
+});
+
 describe('forwardMessage', () => {
   it('copies into the target prefix then makes one rpc with the copies', async () => {
     const { sb, rpcs, copies } = fakeSb([ok('new-id')]);

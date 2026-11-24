@@ -9,13 +9,23 @@
 //   members:  live staff (no bank guests), plus anyone holding a limit
 //             of their own: { userId, name, role, deactivated,
 //             openCount, limit } where `limit` is the person's own
-//             limit (null = the default applies).
+//             limit (null = the default applies) and `openCount` is
+//             null when the open chats could not be read.
 //   available is false before migration 236.
 // PUT { any of the settings fields } -> { settings } as stored, through
 //   assignment_settings_set on the caller's RLS client (it re-checks
 //   owner/admin and the pool). Fields left out keep their value.
-//   Refusals: 422 bad_limit / pool_member_invalid / pool_too_large,
-//   403 not_allowed, 503 not_available, 400 invalid_body.
+//   broadcastPoolChange { add, remove, fromEveryone } instead of
+//   broadcastPool is applied to the pool read just before the save, so
+//   two admins' changes both stay. Refusals: 422 bad_limit /
+//   pool_member_invalid / pool_too_large, 409 pool_changed (the stored
+//   pool can no longer take the change), 403 not_allowed, 503
+//   not_available, 400 invalid_body, 500 load_failed.
+//   `partial: true` is required (409 reload otherwise: a page from before
+//   the partial saves would overwrite another admin's changes).
+//   broadcastPool [] (everyone) also needs broadcastPoolExpected, the
+//   pool the form was loaded with; 409 pool_changed when the stored pool
+//   differs from it as a set.
 // ============================================================
 
 import { NextResponse } from 'next/server';
@@ -29,9 +39,11 @@ import {
 } from '@/lib/assignment/rotation';
 import {
   MAX_POOL_SIZE,
+  applyPoolChange,
   assignmentErrorOf,
   isUuid,
   parseChatLimit,
+  type PoolChange,
 } from '@/lib/assignment/ui';
 
 const SETTINGS_SELECT =
@@ -78,11 +90,9 @@ export async function GET() {
         members: [],
       });
     }
-    if (settingsRes.error || profilesRes.error) {
-      console.error(
-        '[assignment] settings read failed:',
-        (settingsRes.error ?? profilesRes.error)?.message
-      );
+    const failed = settingsRes.error ?? profilesRes.error ?? limitsRes.error;
+    if (failed) {
+      console.error('[assignment] settings read failed:', failed.message);
       return NextResponse.json({ error: 'load_failed' }, { status: 500 });
     }
 
@@ -93,7 +103,7 @@ export async function GET() {
     }[]) {
       own.set(r.user_id, r.max_open);
     }
-    const open = new Map(loads.map((l) => [l.userId, l.openCount]));
+    const open = loads && new Map(loads.map((l) => [l.userId, l.openCount]));
 
     const members = ((profilesRes.data ?? []) as ProfileRow[])
       .filter(
@@ -106,7 +116,7 @@ export async function GET() {
         name: p.full_name?.trim() || p.email || p.user_id,
         role: p.account_role,
         deactivated: !!p.deactivated_at,
-        openCount: open.get(p.user_id) ?? 0,
+        openCount: open ? (open.get(p.user_id) ?? 0) : null,
         limit: own.get(p.user_id) ?? null,
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
@@ -126,6 +136,49 @@ export async function GET() {
 const invalid = () =>
   NextResponse.json({ error: 'invalid_body' }, { status: 400 });
 
+const uuidList = (v: unknown): v is string[] =>
+  Array.isArray(v) && v.every(isUuid);
+
+function isPoolChange(v: unknown): v is PoolChange {
+  if (!v || typeof v !== 'object') return false;
+  const c = v as Record<string, unknown>;
+  return (
+    uuidList(c.add) &&
+    uuidList(c.remove) &&
+    typeof c.fromEveryone === 'boolean' &&
+    c.add.length + c.remove.length > 0
+  );
+}
+
+async function readStoredPool(ctx: {
+  supabase: Awaited<ReturnType<typeof requireRole>>['supabase'];
+  accountId: string;
+}): Promise<{ pool: string[] } | { response: NextResponse }> {
+  const { data, error } = await ctx.supabase
+    .from('assignment_settings')
+    .select(SETTINGS_SELECT)
+    .eq('account_id', ctx.accountId)
+    .maybeSingle();
+  if (error) {
+    if (isMissingObject(error)) {
+      return {
+        response: NextResponse.json(
+          { error: 'not_available' },
+          { status: 503 }
+        ),
+      };
+    }
+    console.error('[assignment] settings read failed:', error.message);
+    return {
+      response: NextResponse.json({ error: 'load_failed' }, { status: 500 }),
+    };
+  }
+  return {
+    pool: parseAssignmentSettings(data as Record<string, unknown> | null)
+      .broadcastPool,
+  };
+}
+
 export async function PUT(request: Request) {
   try {
     const ctx = await requireRole('admin');
@@ -135,6 +188,12 @@ export async function PUT(request: Request) {
     > | null;
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
       return invalid();
+    }
+    // A page loaded before this release sends the whole form, which
+    // would overwrite another admin's changes: only the changed keys
+    // (partial: true) are taken. Nothing is read or written for it.
+    if (body.partial !== true) {
+      return NextResponse.json({ error: 'reload' }, { status: 409 });
     }
 
     const patch: Partial<AssignmentSettings> = {};
@@ -150,9 +209,26 @@ export async function PUT(request: Request) {
     }
     if (body.broadcastPool !== undefined) {
       const pool = body.broadcastPool;
-      if (!Array.isArray(pool) || !pool.every(isUuid)) return invalid();
+      if (!uuidList(pool) || body.broadcastPoolChange !== undefined) {
+        return invalid();
+      }
       if (pool.length > MAX_POOL_SIZE) {
         return NextResponse.json({ error: 'pool_too_large' }, { status: 422 });
+      }
+      if (pool.length === 0) {
+        // "Everyone" replaces whatever is stored, so it is only saved
+        // over the pool this form was loaded with.
+        const expected = body.broadcastPoolExpected;
+        if (!uuidList(expected)) return invalid();
+        const read = await readStoredPool(ctx);
+        if ('response' in read) return read.response;
+        const now = new Set(read.pool);
+        if (
+          now.size !== new Set(expected).size ||
+          !expected.every((u) => now.has(u))
+        ) {
+          return NextResponse.json({ error: 'pool_changed' }, { status: 409 });
+        }
       }
       patch.broadcastPool = pool;
     }
@@ -165,6 +241,20 @@ export async function PUT(request: Request) {
         return NextResponse.json({ error: 'bad_limit' }, { status: 422 });
       }
       patch.defaultChatLimit = limit;
+    }
+    const change = body.broadcastPoolChange;
+    if (change !== undefined) {
+      if (!isPoolChange(change)) return invalid();
+      const read = await readStoredPool(ctx);
+      if ('response' in read) return read.response;
+      const pool = applyPoolChange(read.pool, change);
+      if (!pool) {
+        return NextResponse.json({ error: 'pool_changed' }, { status: 409 });
+      }
+      if (pool.length > MAX_POOL_SIZE) {
+        return NextResponse.json({ error: 'pool_too_large' }, { status: 422 });
+      }
+      patch.broadcastPool = pool;
     }
     if (Object.keys(patch).length === 0) return invalid();
 

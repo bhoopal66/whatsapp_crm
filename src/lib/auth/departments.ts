@@ -65,6 +65,26 @@ export function mergeDepartmentSettings(
   return out;
 }
 
+/**
+ * What one toggle saves. `set_department_settings` takes both flags, so
+ * the one that was not toggled comes from the row read just before the
+ * save (`row`, null when never saved), never from what the screen loaded.
+ */
+export function departmentAfterToggle(
+  department: Department,
+  row: {
+    department?: unknown;
+    own_inbox?: unknown;
+    restricted?: unknown;
+  } | null,
+  patch: Partial<DepartmentSettings>
+): DepartmentSettings {
+  return {
+    ...mergeDepartmentSettings(row ? [row] : null)[department],
+    ...patch,
+  };
+}
+
 export function isDepartment(value: unknown): value is Department {
   return (
     typeof value === 'string' &&

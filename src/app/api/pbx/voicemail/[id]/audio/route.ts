@@ -14,6 +14,9 @@ import { fail, pbxFailure } from '@/lib/pbx/calls';
 import { voicemailAudioType } from '@/lib/pbx/voicemail-server';
 import { ownVoicemail } from '../own';
 
+/** The PBX's time to send headers; a long message may stream longer. */
+const HEADERS_TIMEOUT_MS = 10_000;
+
 const notReturned = () =>
   fail('The phone system did not return the voicemail', 502);
 
@@ -33,15 +36,32 @@ export async function GET(
     // as one, anything else is the whole file as before.
     const range = request.headers.get('range');
     let upstream: Response;
+    // One signal for both: the timer covers only the wait for headers,
+    // the listener's leaving stops the download at any point (an aborted
+    // fetch cancels its body too).
+    const abort = new AbortController();
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      abort.abort();
+    }, HEADERS_TIMEOUT_MS);
+    const leave = () => abort.abort();
+    if (request.signal.aborted) leave();
+    else request.signal.addEventListener('abort', leave, { once: true });
     try {
       upstream = await fetch(url, {
         cache: 'no-store',
         redirect: 'error',
+        signal: abort.signal,
         ...(range ? { headers: { Range: range } } : {}),
       });
     } catch {
       // The error may carry the URL, and with it the token: not logged.
-      return notReturned();
+      return timedOut
+        ? fail('The phone system took too long to send the voicemail', 504)
+        : notReturned();
+    } finally {
+      clearTimeout(timer);
     }
     const sent = upstream.headers.get('content-type');
     // A JSON body where audio should be is the PBX's error envelope.

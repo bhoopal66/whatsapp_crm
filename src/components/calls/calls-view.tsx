@@ -27,7 +27,6 @@ import { PBX_ROUTES_HREF } from '@/lib/pbx/admin-ui';
 import {
   UNROUTED_SUMMARY_DAYS,
   callBackFor,
-  callsListScopes,
   callsReach,
   callsTabLabel,
   messageWhen,
@@ -39,17 +38,19 @@ import {
   type CallSides,
   type InternalSide,
 } from '@/lib/pbx/call-ui';
-import type { UnroutedNumber } from '@/lib/pbx/calls';
+import {
+  CALLS_LIST_LIMIT,
+  loadCallsList,
+  type CallsList,
+} from '@/lib/pbx/calls-list';
 import { listPlayerOffered, nextOpenPlayer } from '@/lib/pbx/list-player';
 import {
   callHeading,
   callTone,
   missedTaskFor,
-  missedWindowStart,
   splitCallLog,
   type Part,
   type TimelineCall,
-  type TimelineTask,
 } from '@/lib/pbx/timeline';
 import { cn } from '@/lib/utils';
 
@@ -64,14 +65,10 @@ type CallRow = TimelineCall & {
   /** Internal calls only: both extensions and their people. */
   party?: CallSides;
 };
-interface Loaded {
+interface Loaded extends CallsList<CallRow> {
   tab: CallsTab;
   /** Missed calls: the Team / All toggle's side when this was asked. */
   wide: boolean;
-  calls: CallRow[];
-  tasks: TimelineTask[];
-  /** Unrouted: the dialled numbers, summed over every such call. */
-  numbers: UnroutedNumber[];
   failed: boolean;
 }
 
@@ -116,31 +113,11 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
   useEffect(() => {
     // The report tab loads its own figures; Unrouted waits for the role.
     if (!listReady) return;
-    const scopes = callsListScopes(tab, wide);
-    if (!scopes) return;
     let cancelled = false;
-    const from =
-      tab === 'missed'
-        ? `&from=${encodeURIComponent(missedWindowStart(Date.now()))}`
-        : '';
-    Promise.all([
-      getJson(`/api/pbx/calls?scope=${scopes.calls}&limit=200${from}`),
-      scopes.tasks
-        ? getJson(
-            `/api/tasks?scope=${scopes.tasks}&status=all&limit=200`
-          ).catch(() => ({ tasks: [] }))
-        : { tasks: [] },
-    ])
-      .then(([c, k]) => {
-        if (!cancelled)
-          setLoaded({
-            tab,
-            wide,
-            calls: c.calls ?? [],
-            tasks: k.tasks ?? [],
-            numbers: c.numbers ?? [],
-            failed: false,
-          });
+    loadCallsList<CallRow>(tab, wide, Date.now(), getJson)
+      .then((list) => {
+        if (!cancelled && list)
+          setLoaded({ tab, wide, ...list, failed: false });
       })
       .catch(() => {
         if (!cancelled)
@@ -149,6 +126,7 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
             wide,
             calls: [],
             tasks: [],
+            tasksTruncated: false,
             numbers: [],
             failed: true,
           });
@@ -429,7 +407,14 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
           {list(split.older, t('older'))}
         </>
       ) : (
-        list(current.calls)
+        <>
+          {current.tasksTruncated && (
+            <p role="status" className="text-warning text-sm">
+              {t('tasksTruncated', { count: CALLS_LIST_LIMIT })}
+            </p>
+          )}
+          {list(current.calls)}
+        </>
       )}
     </div>
   );

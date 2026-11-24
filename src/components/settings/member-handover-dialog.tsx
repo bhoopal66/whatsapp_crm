@@ -40,6 +40,7 @@ import {
   type HandoverPerson,
   type WorkCounts,
 } from '@/lib/auth/member-handover';
+import { parseMadeKeys, type MadeKey } from '@/lib/api-keys/made-by';
 
 /** "12 chats, 3 open tasks": what a person holds, in the reader's language. */
 export function useWorkText(): (counts: WorkCounts) => string {
@@ -51,6 +52,73 @@ export function useWorkText(): (counts: WorkCounts) => string {
         t(`kinds.${k}`, { count: counts[k] })
       )
     );
+}
+
+/**
+ * One live API key with its Revoke button. Nothing revokes a key by
+ * itself (an integration may run on it): this asks first, then calls
+ * DELETE /api/account/api-keys/[id].
+ */
+export function RevokableKey({
+  apiKey,
+  onRevoked,
+}: {
+  apiKey: MadeKey;
+  onRevoked: (id: string) => void;
+}) {
+  const t = useTranslations('Settings.members.handover');
+  const locale = useLocale();
+  const [busy, setBusy] = useState(false);
+
+  const revoke = async () => {
+    if (busy || !window.confirm(t('revokeConfirm', { name: apiKey.name }))) {
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/account/api-keys/${apiKey.id}`, {
+        method: 'DELETE',
+      });
+      // 404: already revoked elsewhere; the list is right to drop it.
+      if (!res.ok && res.status !== 404) {
+        const body = (await res.json().catch(() => ({}))) as {
+          error?: string;
+        };
+        toast.error(body.error ?? t('revokeFailed'));
+        return;
+      }
+      toast.success(t('revoked', { name: apiKey.name }));
+      onRevoked(apiKey.id);
+    } catch {
+      toast.error(t('revokeFailed'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <li className="flex items-center justify-between gap-2 text-sm">
+      <span className="min-w-0">
+        <span className="block truncate font-medium">{apiKey.name}</span>
+        <span className="text-muted-foreground block text-xs">
+          {apiKey.lastUsedAt
+            ? t('keyLastUsed', {
+                date: new Date(apiKey.lastUsedAt).toLocaleDateString(locale),
+              })
+            : t('keyNeverUsed')}
+        </span>
+      </span>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => void revoke()}
+        disabled={busy}
+      >
+        {busy && <Loader2 className="size-4 animate-spin" aria-hidden />}
+        {t('revoke')}
+      </Button>
+    </li>
+  );
 }
 
 export function MemberHandoverDialog({
@@ -95,6 +163,8 @@ function HandoverForm({
   const t = useTranslations('Settings.members.handover');
   const workText = useWorkText();
   const [counts, setCounts] = useState<WorkCounts | null>(null);
+  // The live API keys they made; null: the server could not read them.
+  const [keys, setKeys] = useState<MadeKey[] | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [left, setLeft] = useState<ReadonlySet<HandoverKind>>(new Set());
   const [to, setTo] = useState<string>('');
@@ -106,8 +176,9 @@ function HandoverForm({
     try {
       const res = await fetch(url, { cache: 'no-store' });
       if (!res.ok) throw new Error(String(res.status));
-      const body = (await res.json()) as { counts?: unknown };
+      const body = (await res.json()) as { counts?: unknown; keys?: unknown };
       setCounts(parseWorkCounts(body.counts));
+      setKeys(parseMadeKeys(body.keys));
       setLoadFailed(false);
     } catch {
       setLoadFailed(true);
@@ -189,64 +260,102 @@ function HandoverForm({
           <div className="bg-muted h-4 w-40 animate-pulse rounded" />
           <div className="bg-muted h-4 w-32 animate-pulse rounded" />
         </div>
-      ) : held.length === 0 ? (
+      ) : held.length === 0 && keys !== null && keys.length === 0 ? (
         <p className="text-muted-foreground text-sm">
           {t('nothing', { name: from.name })}
         </p>
       ) : (
         <div className="space-y-4">
-          <ul className="space-y-2">
-            {held.map((kind) => (
-              <li key={kind} className="flex items-center gap-2 text-sm">
-                <Checkbox
-                  id={`handover-${kind}`}
-                  checked={!left.has(kind)}
-                  disabled={busy}
-                  onCheckedChange={(on) =>
-                    setLeft((prev) => {
-                      const next = new Set(prev);
-                      if (on) next.delete(kind);
-                      else next.add(kind);
-                      return next;
-                    })
-                  }
-                />
-                <Label htmlFor={`handover-${kind}`} className="font-normal">
-                  {t(`kinds.${kind}`, { count: counts[kind] })}
-                </Label>
-              </li>
-            ))}
-          </ul>
+          {held.length > 0 && (
+            <>
+              <ul className="space-y-2">
+                {held.map((kind) => (
+                  <li key={kind} className="flex items-center gap-2 text-sm">
+                    <Checkbox
+                      id={`handover-${kind}`}
+                      checked={!left.has(kind)}
+                      disabled={busy}
+                      onCheckedChange={(on) =>
+                        setLeft((prev) => {
+                          const next = new Set(prev);
+                          if (on) next.delete(kind);
+                          else next.add(kind);
+                          return next;
+                        })
+                      }
+                    />
+                    <Label htmlFor={`handover-${kind}`} className="font-normal">
+                      {t(`kinds.${kind}`, { count: counts[kind] })}
+                    </Label>
+                  </li>
+                ))}
+              </ul>
+              <div className="space-y-2">
+                <Label htmlFor="handover-to">{t('to')}</Label>
+                {receivers.length === 0 ? (
+                  <p className="text-muted-foreground text-sm">
+                    {t('noPeople')}
+                  </p>
+                ) : (
+                  <Select
+                    value={to}
+                    onValueChange={(v) => setTo(v ?? '')}
+                    disabled={busy}
+                  >
+                    <SelectTrigger id="handover-to" className="w-full">
+                      <SelectValue>
+                        {receiver?.name ?? t('toPlaceholder')}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {receivers.map((p) => (
+                        <SelectItem key={p.user_id} value={p.user_id}>
+                          {p.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+              {error && (
+                <p role="alert" className="text-destructive text-sm">
+                  {error}
+                </p>
+              )}
+            </>
+          )}
           <div className="space-y-2">
-            <Label htmlFor="handover-to">{t('to')}</Label>
-            {receivers.length === 0 ? (
-              <p className="text-muted-foreground text-sm">{t('noPeople')}</p>
+            {keys === null ? (
+              <p role="alert" className="text-destructive text-sm">
+                {t('keysUnreadable')}
+              </p>
             ) : (
-              <Select
-                value={to}
-                onValueChange={(v) => setTo(v ?? '')}
-                disabled={busy}
-              >
-                <SelectTrigger id="handover-to" className="w-full">
-                  <SelectValue>
-                    {receiver?.name ?? t('toPlaceholder')}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {receivers.map((p) => (
-                    <SelectItem key={p.user_id} value={p.user_id}>
-                      {p.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              keys.length > 0 && (
+                <>
+                  <p className="text-sm font-medium">
+                    {t('keysTitle', { count: keys.length })}
+                  </p>
+                  <p className="text-muted-foreground text-xs">
+                    {t('keysHint')}
+                  </p>
+                  <ul className="space-y-2">
+                    {keys.map((k) => (
+                      <RevokableKey
+                        key={k.id}
+                        apiKey={k}
+                        onRevoked={(id) => {
+                          setKeys((prev) =>
+                            prev ? prev.filter((x) => x.id !== id) : prev
+                          );
+                          onMoved();
+                        }}
+                      />
+                    ))}
+                  </ul>
+                </>
+              )
             )}
           </div>
-          {error && (
-            <p role="alert" className="text-destructive text-sm">
-              {error}
-            </p>
-          )}
         </div>
       )}
 

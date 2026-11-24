@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -24,6 +25,7 @@ import { toast } from 'sonner';
 import { ChannelView } from '@/components/chat/channel-view';
 import { useChatWorkspaceContext } from '@/components/chat/chat-context';
 import { Composer } from '@/components/chat/composer';
+import { LoadFailed } from '@/components/chat/load-failed';
 import { MessageMarksProvider } from '@/components/chat/message-marks';
 import { ThreadPanel } from '@/components/chat/thread-panel';
 import { Button } from '@/components/ui/button';
@@ -37,18 +39,19 @@ import {
 } from '@/components/ui/dialog';
 import { useGuestRefresh, useTableSignal } from '@/hooks/use-deal-rooms';
 import { useAuth } from '@/hooks/use-auth';
-import type {
-  MessagePage,
-  RoomDetail,
-  RoomMessage,
-} from '@/lib/deal-rooms/reads';
+import { markRoomBellsRead } from '@/lib/deal-rooms/bells';
+import type { MessagePage, RoomDetail } from '@/lib/deal-rooms/reads';
+import {
+  ROOM_TIMELINE_EMPTY,
+  createRoomTimeline,
+  timelinePhase,
+} from '@/lib/deal-rooms/room-timeline';
 import {
   ROOM_SIGNAL_TABLES,
   bubbleOf,
   groupAudience,
   groupComposerMode,
   roomBanner,
-  mergeRoomMessages,
   receiptLine,
   roomPhase,
   roomSignalFilter,
@@ -62,13 +65,14 @@ import {
   ROOM_MEDIA_CAPTION_MAX,
   checkRoomMedia,
 } from '@/lib/deal-rooms/room-media';
+import { roomSendOutcome } from '@/lib/deal-rooms/send-outcome';
 import { rightColumn, withRightColumn } from '@/lib/chat/panels';
 import { renderTemplateBody } from '@/lib/whatsapp/template-body';
 import { cn } from '@/lib/utils';
 
 export interface RoomContext {
   detail: RoomDetail;
-  reload: () => Promise<void>;
+  reload: () => Promise<unknown>;
 }
 
 export interface DealRoomViewProps {
@@ -78,20 +82,6 @@ export interface DealRoomViewProps {
   /** Beside the tabs: room actions (invite link, close…; a later job). */
   headerActions?: (ctx: RoomContext) => React.ReactNode;
 }
-
-const SEND_ERRORS = new Set([
-  'window_closed',
-  'room_not_open',
-  'group_not_ready',
-  'group_suspended',
-  'template_rejected',
-  'forbidden',
-  'media_type',
-  'media_size',
-  'media_name',
-  'media_content',
-  'media_upload',
-]);
 
 /** Re-renders every 30 s, for the window countdown and composer mode. */
 function useNow() {
@@ -110,6 +100,7 @@ export function DealRoomView({
 }: DealRoomViewProps) {
   const t = useTranslations('Chat');
   const ws = useChatWorkspaceContext();
+  const { isBankGuest } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -127,13 +118,16 @@ export function DealRoomView({
         // Gone, or no longer ours (a guest whose access was withdrawn):
         // drop what is on screen rather than keep showing it.
         setDetail(null);
-        return setState('gone');
+        setState('gone');
+        return true;
       }
       if (!res.ok) throw new Error(String(res.status));
       setDetail((await res.json()) as RoomDetail);
       setState('ok');
+      return true;
     } catch {
       setState((s) => (s === 'ok' ? s : 'error'));
+      return false;
     }
   }, [roomId]);
   useEffect(() => {
@@ -143,7 +137,8 @@ export function DealRoomView({
     ws.sb,
     ROOM_SIGNAL_TABLES,
     (table) => roomSignalFilter(table, roomId),
-    reload
+    reload,
+    !isBankGuest
   );
   // A guest cannot read `deal_rooms`, so that signal never reaches them.
   useGuestRefresh(detail?.access === 'guest', reload);
@@ -331,12 +326,9 @@ function GroupTimeline({ roomId }: { roomId: string }) {
   const t = useTranslations('Chat.rooms');
   const format = useFormatter();
   const { sb } = useChatWorkspaceContext();
-  const [messages, setMessages] = useState<RoomMessage[] | null>(null);
-  const [older, setOlder] = useState<string | null>(null);
+  const [timeline, setTimeline] = useState(ROOM_TIMELINE_EMPTY);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const box = useRef<HTMLDivElement>(null);
-  // The first page sets where paging older starts; refreshes do not.
-  const first = useRef(false);
   // Where the scroll goes after the next render: the bottom, or kept
   // in place while an older page is put above.
   const anchor = useRef<'bottom' | { height: number; top: number } | null>(
@@ -355,42 +347,48 @@ function GroupTimeline({ roomId }: { roomId: string }) {
     },
     [roomId]
   );
+  const log = useMemo(() => createRoomTimeline(page), [page]);
   const refresh = useCallback(async () => {
-    try {
-      const p = await page(null);
+    const ok = await log.refresh();
+    if (ok) {
       const el = box.current;
       if (!el || el.scrollHeight - el.scrollTop - el.clientHeight < 120) {
         anchor.current = 'bottom';
       }
-      if (!first.current) {
-        first.current = true;
-        setOlder(p.nextBefore);
+      if (document.visibilityState === 'visible') {
+        void markRoomBellsRead(sb, roomId);
       }
-      setMessages((prev) => mergeRoomMessages(prev ?? [], p.messages));
-    } catch {
-      setMessages((prev) => prev ?? []);
     }
-  }, [page]);
+    setTimeline(log.state());
+    return ok;
+  }, [log, sb, roomId]);
   useEffect(() => {
     void Promise.resolve().then(refresh);
   }, [refresh]);
+  // Back on a tab that a message reached while it was hidden.
+  useEffect(() => {
+    const seen = () => {
+      if (document.visibilityState === 'visible') {
+        void markRoomBellsRead(sb, roomId);
+      }
+    };
+    document.addEventListener('visibilitychange', seen);
+    return () => document.removeEventListener('visibilitychange', seen);
+  }, [sb, roomId]);
   useTableSignal(sb, ['group_messages'], () => `room_id=eq.${roomId}`, refresh);
 
   const loadOlder = async () => {
-    if (!older || loadingOlder) return;
+    if (!timeline.older || loadingOlder) return;
     setLoadingOlder(true);
-    try {
-      const p = await page(older);
+    if (await log.loadOlder()) {
       const el = box.current;
       if (el) anchor.current = { height: el.scrollHeight, top: el.scrollTop };
-      setOlder(p.nextBefore);
-      setMessages((prev) => mergeRoomMessages(prev ?? [], p.messages));
-    } catch {
-      // The button stays; the next scroll tries again.
-    } finally {
-      setLoadingOlder(false);
+      setTimeline(log.state());
     }
+    setLoadingOlder(false);
   };
+  const { messages, older } = timeline;
+  const phase = timelinePhase(timeline);
 
   useLayoutEffect(() => {
     const el = box.current;
@@ -401,6 +399,17 @@ function GroupTimeline({ roomId }: { roomId: string }) {
     anchor.current = null;
   }, [messages]);
 
+  if (phase === 'failed') {
+    return (
+      <LoadFailed
+        message={t('timeline.loadFailed')}
+        onRetry={() => {
+          setTimeline(ROOM_TIMELINE_EMPTY);
+          void refresh();
+        }}
+      />
+    );
+  }
   if (messages === null) {
     return (
       <p className="text-muted-foreground flex-1 p-8 text-center text-sm">
@@ -553,6 +562,8 @@ function GroupComposer({
   const { accountId } = useAuth();
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
+  // The last send may be in the group: said until the next one starts.
+  const [unconfirmed, setUnconfirmed] = useState(false);
   const [templates, setTemplates] = useState<TemplateRow[] | null>(null);
   const [picked, setPicked] = useState('');
   const [values, setValues] = useState<string[]>([]);
@@ -586,38 +597,39 @@ function GroupComposer({
   const ready =
     !!template && filled.length === count && filled.every((v) => v.trim());
 
-  // A file goes as multipart form data, its caption the typed text.
+  // A file goes as multipart form data, its caption the typed text. True
+  // when it went out: what was typed is kept otherwise.
   const send = async (body: Record<string, unknown> | FormData) => {
     setBusy(true);
-    try {
-      const res = await fetch(
-        `/api/deal-rooms/${roomId}/messages`,
-        body instanceof FormData
-          ? { method: 'POST', body }
-          : {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(body),
-            }
-      );
-      if (!res.ok) {
-        const { code } = (await res.json().catch(() => ({}))) as {
-          code?: string;
-        };
-        toast.error(
-          t(
-            `composer.errors.${code && SEND_ERRORS.has(code) ? code : 'generic'}`
-          )
-        );
-        return false;
-      }
-      return true;
-    } catch {
-      toast.error(t('composer.errors.generic'));
-      return false;
-    } finally {
-      setBusy(false);
+    setUnconfirmed(false);
+    const answer = await fetch(
+      `/api/deal-rooms/${roomId}/messages`,
+      body instanceof FormData
+        ? { method: 'POST', body }
+        : {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          }
+    ).then(
+      async (res) => ({
+        status: res.status,
+        body: (await res.json().catch(() => null)) as unknown,
+      }),
+      () => null
+    );
+    setBusy(false);
+    const outcome = roomSendOutcome(answer);
+    setUnconfirmed(outcome.kind === 'unconfirmed');
+    // Not left open on a Confirm that would send it twice.
+    if (outcome.kind === 'unconfirmed') setConfirming(false);
+    if (outcome.kind === 'refused') {
+      toast.error(t(`composer.errors.${outcome.error}`));
     }
+    if (outcome.kind === 'notRecorded') {
+      toast.warning(t('composer.notRecorded'), { duration: 15_000 });
+    }
+    return outcome.kind === 'sent' || outcome.kind === 'notRecorded';
   };
 
   const pick = (picked: File | undefined) => {
@@ -650,6 +662,14 @@ function GroupComposer({
       <p className="text-warning text-sm font-bold">
         {t('composer.label', { count: audience })}
       </p>
+      {unconfirmed && (text.trim() || file || template) && (
+        <p
+          role="alert"
+          className="bg-destructive-soft text-destructive mt-2 rounded-md px-2.5 py-1.5 text-sm"
+        >
+          {t('composer.errors.unconfirmed')}
+        </p>
+      )}
       {mode.mode === 'text' ? (
         <form
           className="mt-2 flex items-end gap-2"

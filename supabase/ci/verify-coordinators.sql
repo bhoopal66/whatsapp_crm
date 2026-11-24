@@ -219,7 +219,7 @@ BEGIN
       || ' SELECT count(*)::text FROM u', ca), '0');
   n := n + 1; failed := failed || pg_temp.cs_check('the coordinator could delete the shared chat''s messages',
     'authenticated', u_coord, format('WITH d AS (DELETE FROM messages WHERE conversation_id = %L RETURNING 1)'
-      || ' SELECT count(*)::text FROM d', c1), '0');
+      || ' SELECT count(*)::text FROM d', c1), 'ERROR 42501%');
   n := n + 1; failed := failed || pg_temp.cs_check('the shared conversation or contact changed under the coordinator',
     NULL, NULL, format('SELECT ((SELECT status FROM conversations WHERE id = %L) || ''/'''
       || ' || (SELECT name FROM contacts WHERE id = %L))', c1, ca), 'open/CI shared');

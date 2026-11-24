@@ -267,36 +267,121 @@ describe('POST participants', () => {
     expect(mocks.persistGroupSnapshot).toHaveBeenCalledTimes(1);
   });
 
+  const addMany = (n: number) => {
+    mocks.screenRecipients.mockResolvedValueOnce({
+      recipients: Array.from({ length: n }, (_, i) => ({
+        waId: `9715000${String(i).padStart(5, '0')}`,
+      })),
+      invalid: [],
+      notFound: [],
+      skipped: [],
+      overridden: 0,
+    });
+    return call(POST, { contactIds: [C1] });
+  };
+  const addAs = (userId: string) =>
+    mocks.getCurrentAccount.mockImplementation(async () => ({
+      supabase: fakeSupabase(mocks.rls),
+      userId,
+      accountId: 'acct-1',
+      role: 'agent',
+    }));
+
+  it('logs an override only for people who were added', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect((await addMany(50)).status).toBe(200);
+    // Ten left: of the twenty, all overridden, ten are added.
+    mocks.screenRecipients.mockResolvedValueOnce({
+      recipients: Array.from({ length: 20 }, (_, i) => ({
+        waId: `9715001${String(i).padStart(5, '0')}`,
+        contactId: null,
+        overridden: true,
+      })),
+      invalid: [],
+      notFound: [],
+      skipped: [],
+      overridden: 20,
+    });
+    expect((await call(POST, { contactIds: [C1] })).status).toBe(200);
+    expect(warn).toHaveBeenCalledWith(
+      '[groups] consent override',
+      expect.objectContaining({ count: 10 })
+    );
+    warn.mockRestore();
+  });
+
   it('stops one person at 60 people an hour and a number at 120', async () => {
-    const add = (n: number) => {
-      mocks.screenRecipients.mockResolvedValueOnce({
-        recipients: Array.from({ length: n }, (_, i) => ({
-          waId: `9715000${String(i).padStart(5, '0')}`,
-        })),
-        invalid: [],
-        notFound: [],
-        skipped: [],
-        overridden: [],
-      });
-      return call(POST, { contactIds: [C1] });
-    };
-    const as = (userId: string) =>
-      mocks.getCurrentAccount.mockImplementation(async () => ({
-        supabase: fakeSupabase(mocks.rls),
-        userId,
-        accountId: 'acct-1',
-        role: 'agent',
-      }));
-    expect((await add(50)).status).toBe(200);
-    expect((await add(10)).status).toBe(200);
-    const over = await add(1);
+    expect((await addMany(50)).status).toBe(200);
+    expect((await addMany(10)).status).toBe(200);
+    const over = await addMany(1);
     expect(over.status).toBe(429);
     expect((await over.json()).code).toBe('too_many_adds');
-    as('agent-2');
-    expect((await add(50)).status).toBe(200);
-    as('agent-3');
-    expect((await add(50)).status).toBe(429);
-    expect(mocks.addParticipants).toHaveBeenCalledTimes(3);
+    addAs('agent-2');
+    expect((await addMany(50)).status).toBe(200);
+    // Ten left on the number: ten are added, forty are not attempted.
+    addAs('agent-3');
+    const part = await addMany(50);
+    expect(part.status).toBe(200);
+    expect((await part.json()).added).toHaveLength(10);
+    expect(mocks.addParticipants).toHaveBeenCalledTimes(4);
+    // The number is spent, though agent-3 has fifty left.
+    const last = await addMany(1);
+    expect(last.status).toBe(429);
+    expect(mocks.addParticipants).toHaveBeenCalledTimes(4);
+  });
+
+  it('adds the first who fit and says the rest were not attempted', async () => {
+    await addMany(30);
+    const res = await addMany(40);
+    expect(res.status).toBe(200);
+    const sent = mocks.addParticipants.mock.calls[1][0].participants;
+    expect(sent).toHaveLength(30);
+    const json = await res.json();
+    expect(json.added).toHaveLength(30);
+    expect(json.notAttempted).toEqual(
+      Array.from(
+        { length: 10 },
+        (_, i) => `971500000${String(30 + i).padStart(3, '0')}`
+      )
+    );
+    expect(json.error).toBe('too_many_adds');
+    expect(json.resynced).toBe(true);
+  });
+
+  it('spends units only on the people it adds', async () => {
+    await addMany(60);
+    addAs('agent-2');
+    await addMany(50);
+    // Ten left on this number, so agent-3 spends ten of sixty...
+    addAs('agent-3');
+    await addMany(50);
+    // ...and on another number the other fifty are still theirs.
+    const other = '33333333-3333-4333-8333-333333333334';
+    mocks.rls.tables.whatsapp_groups[0].channel_id = other;
+    mocks.loadChannels.mockResolvedValue([
+      { id: other, accountId: 'acct-1', provider: 'whapi', accessToken: 't' },
+    ]);
+    const res = await addMany(50);
+    expect(res.status).toBe(200);
+    expect((await res.json()).added).toHaveLength(50);
+  });
+
+  it('keeps what WhatsApp said when both stopped the run', async () => {
+    mocks.addParticipants.mockResolvedValueOnce({
+      added: [],
+      refused: [],
+      notAttempted: ['971500000000'],
+      invalid: [],
+      error: 'rate_limited',
+    });
+    const json = await (await addMany(61)).json();
+    expect(json.error).toBe('rate_limited');
+    expect(json.notAttempted).toEqual(['971500000000', '971500000060']);
+  });
+
+  it('answers no error when everyone fits', async () => {
+    const json = await (await addMany(5)).json();
+    expect(json).toMatchObject({ notAttempted: [], error: null });
   });
 
   it('does not call Whapi when everyone is skipped', async () => {

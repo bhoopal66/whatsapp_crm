@@ -179,6 +179,11 @@ describe('sweepAbandonedOpenWASessions', () => {
         ['eq', ['id', 'cfg-2']],
       ])
     );
+    // Never a personal number: 190 refuses one as the default.
+    expect(ofKind('select').flat()).toContainEqual([
+      'eq',
+      ['is_personal', false],
+    ]);
   });
 
   it('stamps a phone that linked after all instead of logging it out', async () => {

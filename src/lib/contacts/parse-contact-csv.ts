@@ -87,6 +87,11 @@ function headerIndex(
   return -1;
 }
 
+/** The column the phone numbers are read from; -1 when none fits. */
+export function contactPhoneColumn(header: string[]): number {
+  return headerIndex(header.map(normalizeHeader), 'phone');
+}
+
 /**
  * Contact rows from a table of cells, row 0 being the header — a CSV
  * split into cells, or an Excel sheet (`read-xlsx.ts`). Cells are

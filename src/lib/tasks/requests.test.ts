@@ -201,7 +201,27 @@ describe('parseTaskListQuery', () => {
     });
   });
 
+  it('reads a kind and an updatedSince, as a UTC instant', () => {
+    expect(
+      parse(
+        'kind=missed_call&updatedSince=2026-11-16T14%3A00%3A00%2B04%3A00&limit=200'
+      )
+    ).toEqual({
+      ok: true,
+      query: {
+        scope: 'mine',
+        status: 'open',
+        limit: 200,
+        kind: 'missed_call',
+        updatedSince: '2026-11-16T10:00:00.000Z',
+      },
+    });
+  });
+
   it.each([
+    ['kind=lunch', 'kind must be one of'],
+    ['updatedSince=yesterday', 'updatedSince must be an ISO 8601'],
+    ['updatedSince=2026-11-16T10:00:00', 'updatedSince must be an ISO 8601'],
     ['scope=team', 'scope must be one of'],
     ['scope=contact', 'contactId must be an id'],
     ['scope=contact&contactId=abc', 'contactId must be an id'],

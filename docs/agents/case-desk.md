@@ -70,8 +70,8 @@ package 035a-c. `docs/case-desk.md` is the contract.
   into another open case of the same company (no copy; per-case status),
   needing `desk_doc_consents` live for the target's bank when it differs
   (CONSENT_MISSING). Consents are append-only (revoked once, with a
-  reason). `desk_company_overview` lists every case with stage only, and
-  files only of cases `case_can_read` allows (D11).
+  reason). `desk_company_overview` lists, below team leader, only
+  cases `case_can_read` allows (289; D11 listed all), and their files.
   `verify-desk-shared-documents.sql`.
 - **Cover and queue alerts (232, design 035 revision A).**
   `desk_bank_roles` (primary | second, FK to the holder's
@@ -127,6 +127,13 @@ package 035a-c. `docs/case-desk.md` is the contract.
   installed 221/222 have them). `data-map.test.ts` reads the registered
   function bodies as well as 221/222. Name a plpgsql record variable in
   221 anything but `r`: its body aliases tables as `r`.
+- **289.** `intake_route` (the uploader's own filing) queues an upload as
+  `COMPANY_RESTRICTED` when the licence is a company the uploader fails
+  `desk_customer_can_read` on, or the open case found is of a contact
+  `memory_can_read` hides. A sorter's filing is unchanged (it passes the
+  uploader to `desk_case_open`, so the check cannot live there).
+  `desk_customer_contacts_list` masks such a contact: first word of the
+  name, no phone. `verify-access-points.sql`.
 - **263.** `case_open` gives a desk lead (`desk_customer_id`) a submission
   only when the names match (`desk_normalise_name`), or, with no customer
   name, when the contact is linked to that one company; else a separate

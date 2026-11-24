@@ -20,3 +20,5 @@ An unlinked tag moves nothing, and it never blocks the tag write
 Automation/flow tagging fires it too. Links are written one stage at a
 time, clears before sets (`stage-tag-links.ts`), because a partial
 unique index allows one stage per tag per pipeline.
+
+- 286: `deals_link_guard` (SECURITY INVOKER) asks RLS whether the caller can read a customer, chat, pipeline or stage a session sets or changes on a deal. Definer functions and the service role pass.

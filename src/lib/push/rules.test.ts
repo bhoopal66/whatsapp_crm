@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { buildPayload, MAX_PAYLOAD_BYTES } from './payload';
 import { decideQuietHours, parseClock } from './quiet-hours';
-import { PUSH_KINDS, ttlFor, urgencyFor } from './kinds';
+import { PUSH_KINDS, QUIET_HOURS_EXEMPT, ttlFor, urgencyFor } from './kinds';
 
 const night = {
   quiet_start: '22:00',
@@ -104,10 +104,20 @@ describe('kinds', () => {
   it('urgency and TTL', () => {
     expect(urgencyFor('whatsapp_message')).toBe('high');
     expect(urgencyFor('event_reminder')).toBe('high');
+    expect(urgencyFor('deal_room_message')).toBe('high');
+    expect(ttlFor('deal_room_message')).toBe(86_400);
+    expect(PUSH_KINDS).toContain('deal_room_message');
     expect(urgencyFor('task_assigned')).toBe('normal');
     expect(urgencyFor('task_due')).toBe('high');
     expect(ttlFor('chat_message')).toBe(86_400);
     expect(ttlFor('meeting_invite')).toBe(259_200);
+    // A moved or cancelled meeting (278) is news, not an alarm.
+    for (const kind of ['meeting_update', 'meeting_cancelled']) {
+      expect(ttlFor(kind)).toBe(259_200);
+      expect(urgencyFor(kind)).toBe('normal');
+      expect(QUIET_HOURS_EXEMPT).not.toContain(kind);
+      expect(PUSH_KINDS).toContain(kind);
+    }
     for (const alarm of ['meeting_reminder', 'event_reminder', 'task_due'])
       expect(ttlFor(alarm)).toBe(1_800);
   });

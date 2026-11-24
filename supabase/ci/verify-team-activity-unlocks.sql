@@ -251,7 +251,10 @@ BEGIN
     failed := array_append(failed, ('old block: ' || coalesce(r, 'null'))::text);
   END IF;
   -- A block in a chat the requester cannot see.
+  -- (289: blocked while they still saw it, then taken away.)
+  UPDATE conversations SET user_id = u_a WHERE id = cv3;
   ul1 := pg_temp.ul_block(u_a, cv3, w);
+  UPDATE conversations SET user_id = u_o WHERE id = cv3;
   r := pg_temp.ul_req(u_a, ul1, v_reason);
   n := n + 1;
   IF ul1 IS NULL OR r IS DISTINCT FROM 'ERR 42501 not_allowed' THEN

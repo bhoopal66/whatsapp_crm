@@ -131,4 +131,64 @@ describe('persistGroupSnapshot participants', () => {
       added_at: '2026-10-01T00:00:00Z',
     });
   });
+
+  it('keeps everyone when a snapshot names nobody', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const d = db();
+    const admin = fakeSupabase(d) as never;
+    const full = ['971501111111', '971502222222'];
+    const saved = await persistGroupSnapshot(admin, channel, group(full));
+    for (const r of d.tables.whatsapp_group_participants) {
+      r.added_at = '2026-10-01T00:00:00Z';
+    }
+    warn.mockClear();
+
+    // OpenWA's answer without a `participants` list.
+    const again = await persistGroupSnapshot(admin, channel, {
+      ...group([]),
+      name: 'Renamed',
+    });
+    // What else the snapshot says is still stored.
+    expect(again).toMatchObject({ id: saved?.id, name: 'Renamed' });
+    const rows = () => d.tables.whatsapp_group_participants;
+    expect(rows().map((r) => r.wa_id)).toEqual(full);
+    expect(d.tables.whatsapp_groups[0].participants_count).toBe(2);
+    expect(warn).toHaveBeenCalledTimes(1);
+
+    // The next good snapshot re-inserts nobody (219's trigger would make
+    // them managers again), and still drops who left.
+    await persistGroupSnapshot(admin, channel, group(['971501111111']));
+    expect(rows()).toHaveLength(1);
+    expect(rows()[0]).toMatchObject({
+      wa_id: '971501111111',
+      added_at: '2026-10-01T00:00:00Z',
+    });
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps everyone when nobody listed has a number', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const d = db();
+    const admin = fakeSupabase(d) as never;
+    await persistGroupSnapshot(admin, channel, group(['971501111111']));
+    await persistGroupSnapshot(admin, channel, {
+      ...group([]),
+      participantsCount: 1,
+      participants: [{ jid: '1@lid', waId: null, role: 'member' }],
+    } as unknown as WhapiGroup);
+    expect(d.tables.whatsapp_group_participants).toHaveLength(1);
+  });
+
+  it('says nothing about a new group that names nobody', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    warn.mockClear();
+    const d = db();
+    const saved = await persistGroupSnapshot(
+      fakeSupabase(d) as never,
+      channel,
+      group([])
+    );
+    expect(saved).not.toBeNull();
+    expect(warn).not.toHaveBeenCalled();
+  });
 });

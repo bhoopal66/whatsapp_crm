@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isLocalPhone, phonesMatch } from './phone-match';
+import { isLocalPhone, phonesMatch, storedForms } from './phone-match';
 
 describe('phonesMatch', () => {
   it('returns true for exact digit matches', () => {
@@ -63,4 +63,29 @@ describe('isLocalPhone', () => {
     '%s has one',
     (phone) => expect(isLocalPhone(phone)).toBe(false)
   );
+});
+
+describe('storedForms', () => {
+  it('gives every way a 971 number may be stored', () => {
+    expect(storedForms('971501230043').sort()).toEqual(
+      [
+        '971501230043',
+        '501230043',
+        '0501230043',
+        '9710501230043',
+        '00971501230043',
+        '009710501230043',
+      ].sort()
+    );
+  });
+
+  it('gives only the exact form for another country', () => {
+    expect(storedForms('966501230043')).toEqual(['966501230043']);
+    expect(storedForms('447700900123')).toEqual(['447700900123']);
+  });
+
+  it('keeps only forms that are the same line', () => {
+    for (const form of storedForms('971501230043'))
+      expect(phonesMatch(form, '971501230043')).toBe(true);
+  });
 });

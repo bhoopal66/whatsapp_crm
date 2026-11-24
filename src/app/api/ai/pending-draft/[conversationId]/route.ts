@@ -4,7 +4,10 @@
 // A person acts on a bot draft the TypeSafe guardrail held
 // (`conversations.ai_pending_draft`, migration 077).
 //
-// Body: { action: 'send' | 'discard', text?: string }
+// Body: { action: 'send' | 'discard', draft_at: string | null, text?: string }
+//   - draft_at → the `ai_pending_draft_at` of the draft on the person's
+//               screen. Another draft stored by now is answered 409
+//               `draft_changed` with that draft, and is left alone.
 //   - discard → clear the draft.
 //   - send    → send `text` (the agent's edit, trimmed) or else the
 //               stored draft, through the inbox composer's send core as
@@ -16,7 +19,10 @@
 // `ai_pending_draft_at`, before anything is sent, so two agents (or a
 // double-click) cannot both send it and the loser gets 409. A newer
 // draft the bot held in the meantime is a different message and is not
-// claimed. A failed send restores the draft (if none replaced it).
+// claimed. A send that certainly did not go out restores the draft (if
+// none replaced it). One that may have reached the customer (a timeout, a
+// gateway 5xx, a message row that did not save) does not: a restored draft
+// is one click from a second copy.
 //
 // Everything runs on the caller's RLS client: a chat they cannot see is
 // a 404, and the send core's own checks (role, number allocation) apply.
@@ -30,10 +36,39 @@ import {
   RATE_LIMITS,
 } from '@/lib/rate-limit';
 import {
+  DRAFT_CHANGED,
+  DRAFT_GONE,
+  DRAFT_SENT_UNSAVED,
+  DRAFT_SEND_UNCONFIRMED,
+  sameDraftTime,
+  type DraftFields,
+} from '@/lib/ai/pending-draft';
+import {
   sendMessageToConversation,
   SendMessageError,
   RestrictedSendError,
 } from '@/lib/whatsapp/send-message';
+
+/** 409: the draft on the person's screen is not the one held now. */
+function draftConflict(held: DraftFields | null): NextResponse {
+  return held?.ai_pending_draft
+    ? NextResponse.json(
+        {
+          error: 'The AI held a newer draft meanwhile. Read it first.',
+          code: DRAFT_CHANGED,
+          ai_pending_draft: held.ai_pending_draft,
+          ai_pending_draft_at: held.ai_pending_draft_at,
+        },
+        { status: 409 }
+      )
+    : NextResponse.json(
+        {
+          error: 'This draft was already sent or discarded.',
+          code: DRAFT_GONE,
+        },
+        { status: 409 }
+      );
+}
 
 type Params = { params: Promise<{ conversationId: string }> };
 
@@ -49,6 +84,7 @@ export async function POST(request: Request, { params }: Params) {
     const body = (await request.json().catch(() => null)) as {
       action?: unknown;
       text?: unknown;
+      draft_at?: unknown;
     } | null;
     const action = body?.action;
     if (action !== 'send' && action !== 'discard') {
@@ -68,9 +104,19 @@ export async function POST(request: Request, { params }: Params) {
       editedText = body.text.trim();
     }
 
+    // Which draft the person read. Required, so a tab loaded before the
+    // banner sent it cannot act on a draft it never showed.
+    const shownAt = body?.draft_at;
+    if (shownAt !== null && typeof shownAt !== 'string') {
+      return NextResponse.json(
+        { error: 'This page is out of date. Reload it and try again.' },
+        { status: 400 }
+      );
+    }
+
     const { data: conv, error: convErr } = await supabase
       .from('conversations')
-      .select('id, ai_pending_draft, ai_pending_draft_at')
+      .select('id, ai_pending_draft, ai_pending_draft_at, ai_attention_at')
       .eq('id', conversationId)
       .eq('account_id', accountId)
       .maybeSingle();
@@ -91,9 +137,18 @@ export async function POST(request: Request, { params }: Params) {
     const draftAt = conv.ai_pending_draft_at as string | null;
     if (!draft) {
       return NextResponse.json(
-        { error: 'This chat has no AI draft waiting for review' },
+        {
+          error: 'This chat has no AI draft waiting for review',
+          code: DRAFT_GONE,
+        },
         { status: 409 }
       );
+    }
+    if (!sameDraftTime(shownAt, draftAt)) {
+      return draftConflict({
+        ai_pending_draft: draft,
+        ai_pending_draft_at: draftAt,
+      });
     }
 
     // Claim the draft before acting on it: a compare-and-set clear on the
@@ -130,10 +185,14 @@ export async function POST(request: Request, { params }: Params) {
       );
     }
     if (!Array.isArray(claimed) || claimed.length === 0) {
-      return NextResponse.json(
-        { error: 'This draft was already sent or discarded.' },
-        { status: 409 }
-      );
+      // Gone, or replaced between the read and the claim.
+      const { data: now } = await supabase
+        .from('conversations')
+        .select('ai_pending_draft, ai_pending_draft_at')
+        .eq('id', conversationId)
+        .eq('account_id', accountId)
+        .maybeSingle();
+      return draftConflict(now as DraftFields | null);
     }
 
     let sent: { messageId: string; whatsappMessageId: string } | null = null;
@@ -146,11 +205,47 @@ export async function POST(request: Request, { params }: Params) {
           senderUserId: userId,
         });
       } catch (err) {
-        // Put the draft back so the agent can retry, but only if the bot
-        // has not held a newer one in the meantime.
+        if (!(err instanceof SendMessageError)) {
+          console.error('[ai/pending-draft] send outcome unknown:', err);
+        }
+        if (!(err instanceof SendMessageError) || !err.definite) {
+          // The claim cleared the Important pin (migration 078), but the
+          // customer may or may not have been answered: pin the chat
+          // again so it stays in Important until a person looks. Only
+          // while no draft is held (a newer one pins itself).
+          const { error: repinErr } = await supabase
+            .from('conversations')
+            .update({ ai_attention_at: new Date().toISOString() })
+            .eq('id', conversationId)
+            .eq('account_id', accountId)
+            .is('ai_pending_draft_at', null)
+            .select('id');
+          if (repinErr) {
+            console.error('[ai/pending-draft] re-pin error:', repinErr);
+          }
+          const unsaved =
+            err instanceof SendMessageError && err.code === DRAFT_SENT_UNSAVED;
+          return NextResponse.json(
+            {
+              error: unsaved
+                ? err.message
+                : 'The draft may have been sent: check the chat before sending it again',
+              code: unsaved ? DRAFT_SENT_UNSAVED : DRAFT_SEND_UNCONFIRMED,
+              retryable: false,
+            },
+            { status: err instanceof SendMessageError ? err.status : 500 }
+          );
+        }
+        // Put the draft back so the agent can retry, with the pin the
+        // claim took, but only if the bot has not held a newer one in
+        // the meantime.
         const { error: restoreErr } = await supabase
           .from('conversations')
-          .update({ ai_pending_draft: draft, ai_pending_draft_at: draftAt })
+          .update({
+            ai_pending_draft: draft,
+            ai_pending_draft_at: draftAt,
+            ai_attention_at: conv.ai_attention_at,
+          })
           .eq('id', conversationId)
           .eq('account_id', accountId)
           .is('ai_pending_draft', null)
@@ -161,13 +256,10 @@ export async function POST(request: Request, { params }: Params) {
         if (err instanceof RestrictedSendError) {
           return NextResponse.json(err.toBody(), { status: err.status });
         }
-        if (err instanceof SendMessageError) {
-          return NextResponse.json(
-            { error: err.message, code: err.code, retryable: err.definite },
-            { status: err.status }
-          );
-        }
-        throw err;
+        return NextResponse.json(
+          { error: err.message, code: err.code, retryable: true },
+          { status: err.status }
+        );
       }
     }
 

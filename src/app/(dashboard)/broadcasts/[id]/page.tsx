@@ -46,7 +46,7 @@ import { toast } from 'sonner';
 import { getBroadcastStatus, getRecipientStatus } from '@/lib/broadcast-status';
 import { useTranslations } from 'next-intl';
 import { ReplyClassesCard } from '@/components/broadcasts/reply-classes-card';
-import { buildCsv } from '@/lib/csv/build';
+import { buildCsv, CSV_TIME_ZONE, csvTime } from '@/lib/csv/build';
 import {
   isUnconfirmedSend,
   RESENDABLE_FILTER,
@@ -366,18 +366,19 @@ export default function BroadcastDetailPage() {
       t('table.contact'),
       t('table.phone'),
       t('table.status'),
-      t('table.sent'),
-      t('table.delivered'),
-      t('table.read'),
+      // Times as they happened here; the stored ones are UTC.
+      `${t('table.sent')} (${CSV_TIME_ZONE})`,
+      `${t('table.delivered')} (${CSV_TIME_ZONE})`,
+      `${t('table.read')} (${CSV_TIME_ZONE})`,
       t('table.error'),
     ];
     const rows = allRecipients.map((r) => [
       r.contact?.name ?? '',
       r.contact?.phone ?? '',
       r.status,
-      r.sent_at ?? '',
-      r.delivered_at ?? '',
-      r.read_at ?? '',
+      csvTime(r.sent_at),
+      csvTime(r.delivered_at),
+      csvTime(r.read_at),
       isUnconfirmedSend(r.error_message)
         ? r.status === 'failed'
           ? t('mayHaveBeenSent')

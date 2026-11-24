@@ -1,14 +1,15 @@
 /**
- * Learn from team answers (migration 270): the switch's shape, shared by
+ * Learn from team answers (migration 290): the switch's shape, shared by
  * the settings route and the switch in Settings → AI. Dependency-free
  * on purpose: a client import graph that reaches a server module breaks
  * the production build.
  */
 
-/** 270's column default: off until an owner or admin switches it on. */
+/** 290's column default: off until an owner or admin switches it on. */
 export const KB_LEARN_SETTINGS_OFF: KbLearnSettings = Object.freeze({
   enabled: false,
   lastRunAt: null,
+  lastRunDrafted: null,
   available: true,
 }) as KbLearnSettings;
 
@@ -17,18 +18,28 @@ export interface KbLearnSettings {
   enabled: boolean;
   /** When the weekly run last started; null before the first. */
   lastRunAt: string | null;
-  /** False when migration 270 is not applied yet. */
+  /** Drafts the last run wrote; null while it runs or before the first. */
+  lastRunDrafted: number | null;
+  /** False when migration 290 is not applied yet. */
   available: boolean;
 }
 
 /** A kb_learn_settings row (or the RPC's answer, or none) as settings. */
 export function kbLearnSettingsFrom(
-  row: { enabled?: unknown; last_run_at?: unknown } | null | undefined
+  row:
+    | { enabled?: unknown; last_run_at?: unknown; last_run_drafted?: unknown }
+    | null
+    | undefined
 ): KbLearnSettings {
   if (!row) return KB_LEARN_SETTINGS_OFF;
+  const drafted = row.last_run_drafted;
   return {
     enabled: row.enabled === true,
     lastRunAt: typeof row.last_run_at === 'string' ? row.last_run_at : null,
+    lastRunDrafted:
+      typeof drafted === 'number' && Number.isInteger(drafted) && drafted >= 0
+        ? drafted
+        : null,
     available: true,
   };
 }
@@ -45,7 +56,22 @@ export function parseKbLearnPut(
   return { ok: true, enabled };
 }
 
-/** A learned draft (kb_entries.source, 270's kb_learn_record_draft). */
+/** A learned draft (kb_entries.source, 290's kb_learn_record_draft). */
 export function isLearnedEntry(entry: { source: string | null }): boolean {
   return entry.source === 'learned';
+}
+
+/** `GET`/`PUT /api/ai/kb/learn`'s answer, read defensively by the switch:
+ *  anything missing or malformed reads as off. */
+export function parseKbLearnResponse(json: unknown): KbLearnSettings {
+  if (!json || typeof json !== 'object') return KB_LEARN_SETTINGS_OFF;
+  const v = json as Record<string, unknown>;
+  return {
+    ...kbLearnSettingsFrom({
+      enabled: v.enabled,
+      last_run_at: v.lastRunAt,
+      last_run_drafted: v.lastRunDrafted,
+    }),
+    available: v.available !== false,
+  };
 }

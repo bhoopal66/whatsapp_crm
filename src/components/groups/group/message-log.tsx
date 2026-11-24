@@ -106,7 +106,11 @@ export function GroupMessageLog({
                   {cards ? (
                     <ContactCardMessage cards={cards} />
                   ) : media ? (
-                    <GroupMessageMedia view={media} />
+                    <GroupMessageMedia
+                      view={media}
+                      messageId={m.id}
+                      outbound={out}
+                    />
                   ) : (
                     <p className="break-words whitespace-pre-wrap">
                       {m.body || (

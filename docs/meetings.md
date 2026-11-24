@@ -91,6 +91,13 @@ Inviting someone other than yourself rings their bell
 (`meeting_invite`, `meta.meeting_id`). A meeting has at most 100
 invitees.
 
+Moving a scheduled meeting rings its invitees `meeting_update`, and
+cancelling it `meeting_cancelled` (migration 278, `meta.meeting_id`),
+except whoever did it, people removed from the meeting and people who
+have left. A new title rings nobody; nor does a change after the start,
+or cancelling a meeting that is over. Bells give the time in the
+workspace's time zone. Each has its own switch under push notifications.
+
 ## The invite pop-up
 
 An invite to a meeting that is happening now also pops up on the

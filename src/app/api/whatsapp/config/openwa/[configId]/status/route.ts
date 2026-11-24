@@ -24,7 +24,16 @@ export async function GET(
   const { supabase, accountId } = ctx;
   const { configId } = await context.params;
 
-  const row = await loadOpenWARow(supabase, { accountId, configId });
+  let row;
+  try {
+    row = await loadOpenWARow(supabase, { accountId, configId });
+  } catch (err) {
+    console.error('Error loading OpenWA number:', err);
+    return NextResponse.json(
+      { error: 'Failed to read the number' },
+      { status: 500 }
+    );
+  }
   if (!row) {
     return NextResponse.json({ error: 'Number not found' }, { status: 404 });
   }

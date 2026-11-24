@@ -11,7 +11,9 @@ const h = vi.hoisted(() => ({
 vi.mock('@/lib/ai/admin-client', () => ({ supabaseAdmin: () => h.db }));
 vi.mock('@/lib/ai/config', () => ({ loadAiConfig: h.loadAiConfig }));
 // The AI transfer register (224) is its own module's concern; here it allows.
-vi.mock('@/lib/privacy/ai-transfer', () => ({ assertAiTransfer: async () => {} }));
+vi.mock('@/lib/privacy/ai-transfer', () => ({
+  assertAiTransfer: async () => {},
+}));
 vi.mock('@/lib/ai/embeddings', async (orig) => ({
   ...(await orig<typeof import('@/lib/ai/embeddings')>()),
   embedTexts: h.embedTexts,
@@ -258,6 +260,23 @@ describe('recomputeKbGapTopics', () => {
       dismissed_at: '2026-10-23T00:00:00Z',
     });
     expect(topics.filter((t) => t.status === 'open')).toHaveLength(2);
+  });
+
+  it('never sends an identifier of an older row to the provider', async () => {
+    fakeDb();
+    const first = GAPS[0]!;
+    const raw = first.question;
+    first.question = 'Write to ali@example.com about the fee';
+    try {
+      h.loadAiConfig.mockResolvedValue({ embeddingsApiKey: 'sk-e' });
+      h.embedTexts.mockResolvedValue(GAPS.map(() => [1, 0]));
+      await recomputeKbGapTopics(TEST_ACCOUNT, { now: NOW });
+      const sent = (h.embedTexts.mock.calls[0]![1] as string[]).join('|');
+      expect(sent).toContain('Write to [EMAIL] about the fee');
+      expect(sent).not.toContain('ali@example.com');
+    } finally {
+      first.question = raw;
+    }
   });
 
   it('groups by embedding with an embeddings key, lexically when embedding fails', async () => {

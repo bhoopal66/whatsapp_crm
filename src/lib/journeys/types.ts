@@ -90,6 +90,8 @@ export type Action =
       category: Category;
       billable: boolean;
       notBefore?: string;
+      /** On a held send (`notBefore`) only: the file's state once the step that planned it was done. */
+      state?: string;
       variant?: string;
     }
   | { type: 'ADVISOR_TASK'; kind: string; dueAt: string; note: string }

@@ -2,7 +2,11 @@ import { PDFDocument } from 'pdf-lib';
 import { describe, expect, it, vi } from 'vitest';
 
 import { readDocument, readDocumentBytes } from './bytes';
-import { attachCustomerDocument, uploadStaffFile } from './intake-file';
+import {
+  attachCustomerDocument,
+  classifyAndCheck,
+  uploadStaffFile,
+} from './intake-file';
 import {
   CaseFilesRefusedError,
   CaseFilesStore,
@@ -505,5 +509,488 @@ describe('attachCustomerDocument', () => {
       })
     ).rejects.toMatchObject({ reason: 'VALIDATION_FAILED' });
     expect(fa.calls).toHaveLength(0);
+  });
+});
+
+describe('classifyAndCheck on a superseded file (270)', () => {
+  const run = async (status: string, objects: Record<string, Uint8Array>) => {
+    const f = fakeAdmin(
+      {
+        case_file_spec_rows: ok([specRow]),
+        case_document_file_classify: cls,
+        case_document_file_check_result: (a) => ({
+          data: (a.p_checks as { ok: boolean }[]).every((c) => c.ok)
+            ? 'passed'
+            : 'failed',
+          error: null,
+        }),
+      },
+      {
+        case_document_files: { [FILE]: { ...fileRow, status } },
+        customer_documents: {
+          [DOC]: docRow({
+            media_url: null,
+            storage_bucket: 'case-files',
+            storage_path: 'a.pdf',
+          }),
+        },
+      }
+    );
+    const result = classifyAndCheck({
+      admin: f.admin,
+      actor: ACTOR,
+      fileId: FILE,
+      docKey: 'passport',
+      today: '2026-11-10',
+      deps: { storage: fakeStorage({ objects }).storage },
+    });
+    return { f, result };
+  };
+
+  it('classifies and checks it again', async () => {
+    const { f, result } = await run('superseded', {
+      'case-files/a.pdf': await pdfBytes(),
+    });
+    expect((await result).status).toBe('passed');
+    expect(f.rpcNames()).toContain('case_document_file_classify');
+  });
+
+  it('refuses one whose bytes are gone, before anything is classified', async () => {
+    const { f, result } = await run('superseded', {});
+    await expect(result).rejects.toMatchObject({ reason: 'FILE_STATE' });
+    expect(f.rpcNames()).not.toContain('case_document_file_classify');
+  });
+
+  it('any other file without bytes still fails its checks, as before', async () => {
+    const { result } = await run('failed', {});
+    expect((await result).status).toBe('failed');
+  });
+});
+
+describe('a file already filed as another document', () => {
+  const setup = async (over: Record<string, unknown> = {}) => {
+    const spec = [specRow, { ...specRow, doc_key: 'visa', position: 2 }];
+    const f = fakeAdmin(
+      {
+        case_document_file_can_register: ok(true),
+        customer_documents_record_internal: ok([
+          { document_id: DOC, ref: 'r' },
+        ]),
+        case_document_file_register: ok(FILE),
+        case_file_spec_rows: ok(spec),
+        case_document_file_classify: cls,
+        case_document_file_check_result: ok('passed'),
+      },
+      {
+        case_document_files: { [FILE]: { ...fileRow, ...over } },
+        customer_documents: {
+          [DOC]: docRow({
+            media_url: null,
+            storage_bucket: 'case-files',
+            storage_path: 'a.pdf',
+          }),
+        },
+      }
+    );
+    const pdf = await pdfBytes();
+    const st = fakeStorage({ objects: { 'case-files/a.pdf': pdf } });
+    const deps = { storage: st.storage, clock };
+    const common = { admin: f.admin, actor: ACTOR, deps };
+    return {
+      f,
+      st,
+      classify: (docKey: string, moveFrom?: string) =>
+        classifyAndCheck({
+          ...common,
+          fileId: FILE,
+          docKey,
+          moveFrom,
+          today: '2026-11-10',
+        }),
+      attach: (docKey: string, moveFrom?: string) =>
+        attachCustomerDocument({
+          ...common,
+          caseId: CASE,
+          customerDocumentId: DOC,
+          docKey,
+          moveFrom,
+        }),
+      upload: (docKey: string | null, moveFrom?: string) =>
+        uploadStaffFile({
+          ...common,
+          caseId: CASE,
+          accountId: 'acc',
+          contactId: 'k1',
+          file: { bytes: pdf, mime: 'application/pdf', originalName: 'a.pdf' },
+          docKey,
+          moveFrom,
+        }),
+    };
+  };
+  const refusal = {
+    name: 'CaseFilesRefusedError',
+    reason: 'ALREADY_FILED_AS',
+    filedAs: 'passport',
+  };
+
+  it.each(['passed', 'pending_checks'])(
+    'is refused when %s, naming it, with nothing read, classified or checked',
+    async (status) => {
+      const { f, st, classify } = await setup({ status });
+      await expect(classify('visa')).rejects.toMatchObject(refusal);
+      expect(f.rpcNames()).toEqual([]);
+      expect(st.downloads).toEqual([]);
+    }
+  );
+
+  it('is refused on attach, which has only registered it', async () => {
+    const { f, attach } = await setup();
+    await expect(attach('visa')).rejects.toMatchObject(refusal);
+    expect(f.rpcNames()).toEqual(['case_document_file_register']);
+  });
+
+  it('is refused on upload of the same bytes, which has only registered it', async () => {
+    const { f, upload } = await setup();
+    await expect(upload('visa')).rejects.toMatchObject(refusal);
+    expect(f.rpcNames()).toEqual([
+      'case_document_file_can_register',
+      'customer_documents_record_internal',
+      'case_document_file_register',
+    ]);
+  });
+
+  it('is not refused on an upload that picks no document', async () => {
+    const { f, upload } = await setup();
+    await expect(upload(null)).resolves.toMatchObject({ id: FILE });
+    expect(f.rpcNames()).not.toContain('case_document_file_classify');
+  });
+
+  it.each(['classify', 'attach', 'upload'] as const)(
+    'is moved by %s when moveFrom names it',
+    async (how) => {
+      const { f, ...act } = await setup();
+      await act[how]('visa', 'passport');
+      expect(f.rpcNames()).toContain('case_document_file_classify');
+      expect(f.rpcNames()).toContain('case_document_file_check_result');
+    }
+  );
+
+  it.each(['classify', 'attach', 'upload'] as const)(
+    'already moved by somebody else is answered as it stands by %s',
+    async (how) => {
+      const { f, ...act } = await setup({ doc_key: 'visa' });
+      const out = await act[how]('visa', 'passport');
+      expect(out).toMatchObject({ status: 'passed', version: 1 });
+      expect(f.rpcNames()).not.toContain('case_document_file_classify');
+      expect(f.rpcNames()).not.toContain('case_document_file_check_result');
+    }
+  );
+
+  it.each(['passed', 'pending_checks', 'superseded'])(
+    'the same document is allowed when %s',
+    async (status) => {
+      const { f, classify } = await setup({ status });
+      await classify('passport');
+      expect(f.rpcNames()).toContain('case_document_file_classify');
+    }
+  );
+
+  it.each([
+    ['failed', 'passport'],
+    ['superseded', 'passport'],
+    ['unclassified', null],
+  ])('another document is allowed when %s', async (status, doc_key) => {
+    const { f, classify } = await setup({ status, doc_key });
+    await classify('visa');
+    expect(f.rpcNames()).toContain('case_document_file_classify');
+  });
+});
+
+describe('a replaced file that would fail its checks', () => {
+  it('is refused, naming the checks, with nothing classified', async () => {
+    const f = fakeAdmin(
+      { case_file_spec_rows: ok([{ ...specRow, min_valid_days: 180 }]) },
+      {
+        case_document_files: { [FILE]: { ...fileRow, status: 'superseded' } },
+        customer_documents: { [DOC]: docRow() },
+      }
+    );
+    await expect(
+      classifyAndCheck({
+        admin: f.admin,
+        actor: ACTOR,
+        fileId: FILE,
+        docKey: 'passport',
+        expiresOn: '2026-12-01',
+        today: '2026-11-10',
+        read: { kind: 'bytes', bytes: await pdfBytes() },
+        deps: { storage: fakeStorage({}).storage, clock },
+      })
+    ).rejects.toMatchObject({
+      reason: 'REUSE_WOULD_FAIL',
+      failedChecks: [{ name: 'expiry', ok: false, detail: 'expiring' }],
+    });
+    expect(f.rpcNames()).toEqual(['case_file_spec_rows']);
+  });
+});
+
+describe('a replaced file used again without a date', () => {
+  const run = async (
+    stored: string,
+    over: { docKey?: string; expiresOn?: string | null; min?: number } = {}
+  ) => {
+    const spec = { ...specRow, min_valid_days: over.min ?? 180 };
+    const f = fakeAdmin(
+      {
+        case_document_file_register: ok(FILE),
+        case_file_spec_rows: ok([
+          spec,
+          { ...specRow, doc_key: 'visa', position: 2 },
+        ]),
+        case_document_file_classify: cls,
+        case_document_file_check_result: ok('passed'),
+      },
+      {
+        case_document_files: {
+          [FILE]: { ...fileRow, status: 'superseded', expires_on: stored },
+        },
+        customer_documents: {
+          [DOC]: docRow({
+            media_url: null,
+            storage_bucket: 'case-files',
+            storage_path: 'a.pdf',
+          }),
+        },
+      }
+    );
+    const st = fakeStorage({
+      objects: { 'case-files/a.pdf': await pdfBytes() },
+    });
+    const outcome = await attachCustomerDocument({
+      admin: f.admin,
+      actor: ACTOR,
+      caseId: CASE,
+      customerDocumentId: DOC,
+      docKey: over.docKey ?? 'passport',
+      expiresOn: over.expiresOn ?? null,
+      deps: { storage: st.storage, clock },
+    }).catch((e: unknown) => e);
+    const posted = f.calls.find(
+      (c) => c.fn === 'case_document_file_check_result'
+    );
+    return { outcome, posted: posted?.args };
+  };
+
+  it('is checked against the date it was filed with, and refused', async () => {
+    const { outcome, posted } = await run('2026-12-01');
+    expect(outcome).toMatchObject({
+      reason: 'REUSE_WOULD_FAIL',
+      failedChecks: [{ name: 'expiry', ok: false, detail: 'expiring' }],
+    });
+    expect(posted).toBeUndefined();
+  });
+
+  it('keeps that date when it passes', async () => {
+    const { posted } = await run('2031-01-01');
+    expect(posted).toMatchObject({ p_expires_on: '2031-01-01' });
+  });
+
+  it('takes the date given instead', async () => {
+    const { posted } = await run('2026-12-01', { expiresOn: '2032-01-01' });
+    expect(posted).toMatchObject({ p_expires_on: '2032-01-01' });
+  });
+
+  it('does not carry it to another document', async () => {
+    const { posted } = await run('2031-01-01', { docKey: 'visa' });
+    expect(posted).toMatchObject({ p_doc_key: 'visa', p_expires_on: null });
+  });
+});
+
+describe('"Use this one again" on a stale screen', () => {
+  const run = async (over: Record<string, unknown>, docKey = 'passport') => {
+    const f = fakeAdmin(
+      {},
+      {
+        case_document_files: {
+          [FILE]: { ...fileRow, classify_seq: 5, version: 3, ...over },
+        },
+        customer_documents: { [DOC]: docRow() },
+      }
+    );
+    const st = fakeStorage({});
+    const outcome = await classifyAndCheck({
+      admin: f.admin,
+      actor: ACTOR,
+      fileId: FILE,
+      docKey,
+      reuse: true,
+      expiresOn: '2026-12-01',
+      today: '2026-11-10',
+      deps: { storage: st.storage, clock },
+    }).catch((e: unknown) => e);
+    return { outcome, calls: f.rpcNames(), st };
+  };
+
+  it('already used again: answered as it stands, nothing classified', async () => {
+    const { outcome, calls, st } = await run({ status: 'passed' });
+    expect(outcome).toEqual({
+      fileId: FILE,
+      status: 'passed',
+      classifySeq: 5,
+      version: 3,
+      renamedName: 'x.pdf',
+      checks: [],
+      pages: 1,
+    });
+    expect(calls).toEqual([]);
+    expect(st.downloads).toEqual([]);
+  });
+
+  it.each([
+    [{ status: 'pending_checks' }],
+    [{ status: 'failed' }],
+    [{ status: 'unclassified', doc_key: null }],
+    [{ status: 'passed', doc_key: 'visa' }],
+  ])('otherwise not a replaced file: refused (%o)', async (over) => {
+    const { outcome, calls } = await run(over);
+    expect(outcome).toMatchObject({ reason: 'FILE_STATE' });
+    expect(calls).toEqual([]);
+  });
+});
+
+describe('a file that changed since it was read', () => {
+  const run = async (
+    before: Record<string, unknown>,
+    after: Record<string, unknown>,
+    over: {
+      docKey: string;
+      moveFrom?: string;
+      reuse?: boolean;
+      gone?: boolean;
+    }
+  ) => {
+    const files: Record<string, unknown> = {
+      [FILE]: { ...fileRow, ...before },
+    };
+    const spec = ['passport', 'visa', 'bank'].map((doc_key) => ({
+      ...specRow,
+      doc_key,
+    }));
+    const f = fakeAdmin(
+      {
+        case_file_spec_rows: ok(spec),
+        case_document_file_classify: [
+          () => {
+            files[FILE] = { ...fileRow, ...after };
+            return refuse('CHECK_MISMATCH')({});
+          },
+          cls,
+        ],
+        case_document_file_check_result: ok('passed'),
+      },
+      { case_document_files: files, customer_documents: { [DOC]: docRow() } }
+    );
+    const { gone, ...args } = over;
+    const result = classifyAndCheck({
+      admin: f.admin,
+      actor: ACTOR,
+      fileId: FILE,
+      ...args,
+      today: '2026-11-10',
+      read: gone
+        ? { kind: 'unreadable' }
+        : { kind: 'bytes', bytes: await pdfBytes() },
+      deps: { storage: fakeStorage({}).storage, clock },
+    });
+    const outcome = await result.catch((e: unknown) => e);
+    const sent = f.calls.filter((c) => c.fn === 'case_document_file_classify');
+    return { outcome, sent: sent.map((c) => c.args) };
+  };
+
+  it('classified by someone else as another document: refused, not moved', async () => {
+    const { outcome, sent } = await run(
+      { status: 'unclassified', doc_key: null, classify_seq: 0 },
+      { status: 'pending_checks', doc_key: 'passport', classify_seq: 1 },
+      { docKey: 'visa' }
+    );
+    expect(outcome).toMatchObject({
+      reason: 'ALREADY_FILED_AS',
+      filedAs: 'passport',
+    });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({
+      p_expect_seq: 0,
+      p_expect_status: 'unclassified',
+    });
+  });
+
+  it('replaced, with its bytes gone: refused, not a failed newest version', async () => {
+    const { outcome, sent } = await run(
+      { status: 'passed' },
+      { status: 'superseded' },
+      { docKey: 'passport', gone: true }
+    );
+    expect(outcome).toMatchObject({ reason: 'FILE_STATE' });
+    expect(sent).toHaveLength(1);
+  });
+
+  it('moveFrom names the document it no longer is: refused with the new one', async () => {
+    const { outcome, sent } = await run(
+      { doc_key: 'passport' },
+      { doc_key: 'bank', classify_seq: 2 },
+      { docKey: 'visa', moveFrom: 'passport' }
+    );
+    expect(outcome).toMatchObject({
+      reason: 'ALREADY_FILED_AS',
+      filedAs: 'bank',
+    });
+    expect(sent).toHaveLength(1);
+  });
+
+  it('used again by someone else and passed: a success, not a re-check', async () => {
+    const { outcome, sent } = await run(
+      { status: 'superseded' },
+      { status: 'passed', classify_seq: 2, version: 3 },
+      { docKey: 'passport', reuse: true }
+    );
+    expect(outcome).toMatchObject({
+      status: 'passed',
+      classifySeq: 2,
+      version: 3,
+    });
+    expect(sent).toHaveLength(1);
+  });
+
+  it('used again by someone else, still being checked: refused', async () => {
+    const { outcome, sent } = await run(
+      { status: 'superseded' },
+      { status: 'pending_checks', classify_seq: 2, version: 3 },
+      { docKey: 'passport', reuse: true }
+    );
+    expect(outcome).toMatchObject({ reason: 'FILE_STATE' });
+    expect(sent).toHaveLength(1);
+  });
+
+  it('moved by someone else at the same moment: a success', async () => {
+    const { outcome, sent } = await run(
+      { doc_key: 'passport' },
+      { doc_key: 'visa', classify_seq: 2 },
+      { docKey: 'visa', moveFrom: 'passport' }
+    );
+    expect(outcome).toMatchObject({ status: 'passed', classifySeq: 2 });
+    expect(sent).toHaveLength(1);
+  });
+
+  it('is classified as it is now when that is still allowed', async () => {
+    const { outcome, sent } = await run(
+      { status: 'pending_checks' },
+      { status: 'passed', classify_seq: 4 },
+      { docKey: 'passport' }
+    );
+    expect(outcome).toMatchObject({ status: 'passed', classifySeq: 7 });
+    expect(sent[1]).toMatchObject({
+      p_expect_seq: 4,
+      p_expect_status: 'passed',
+    });
   });
 });

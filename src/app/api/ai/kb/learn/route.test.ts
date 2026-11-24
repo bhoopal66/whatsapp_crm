@@ -64,11 +64,12 @@ describe('/api/ai/kb/learn', () => {
     expect(await (await GET()).json()).toEqual({
       enabled: false,
       lastRunAt: null,
+      lastRunDrafted: null,
       available: true,
     });
   });
 
-  it('says unavailable before migration 270', async () => {
+  it('says unavailable before migration 290', async () => {
     const c = client({ data: null, error: { code: 'PGRST205' } });
     mocks.requireRole.mockResolvedValue({
       supabase: c.supabase,

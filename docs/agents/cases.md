@@ -21,6 +21,13 @@ documents, notes, bank contact log, SLA timers, the coordinator inbox at
 - **SLA events from SQL.** The stage-change and document-received events
   fire from the triggers `case_stage_history_sla` and `case_documents_sla`
   (124); don't call them from TS as well.
+- **Timers, snooze, keyed rules (271).** `customer_message` and
+  `stage_change` end a running snooze inside `case_sla_apply_event`
+  (`case_snooze_log.actor_id` may be NULL there). A lead's
+  `customer_message` comes from the 1:1 pipeline
+  (`lead-customer-message.ts`), a group case's from the group's. Only a
+  MATCHED `case_rule_runs` row uses a `fire_key` up. Don't re-apply 124,
+  187 or 214 without 271. `verify-case-timers.sql`.
 - **Sends.** A case reply, take-over and documents request go through the
   group's send path and honour the per-person group send limit
   (`assertUnderGroupSendLimit`). Notes, bank contacts and bank workspaces
@@ -103,3 +110,17 @@ documents, notes, bank contact log, SLA timers, the coordinator inbox at
   `extractPdfPages` (no OCR; under 40 characters a page = scanned).
   `case_review_draft_create` is idempotent on input_hash and supersedes
   the pending draft. `verify-case-review.sql`.
+- **Case file reuse (270).** A superseded file goes back only to
+  `pending_checks`, by a person, as a new version and a new `classify_seq`
+  (the guard). SQL does not know whether it will pass: `classifyAndCheck`
+  runs the checks before it classifies (`REUSE_WOULD_FAIL`), since a failed
+  newest version un-readies the case. A file that counts as another document
+  needs `moveFrom` to name it (`ALREADY_FILED_AS`). Classify takes the
+  `classify_seq` and status the caller read (`CHECK_MISMATCH`); a retry
+  re-reads and re-decides, never re-sends; SQL reuses a superseded file only
+  for a caller that names that status. The body says what the click meant
+  (`reuse`, `moveFrom`): already passed under that document is answered as it
+  stands, since the same classify would be a re-check that un-readies the
+  case; a `reuse` of anything else not superseded is `FILE_STATE`. A reuse
+  under its own document keeps its expiry date. 270 restates 181's guard and
+  classify: never re-apply 181 without 270 after it.

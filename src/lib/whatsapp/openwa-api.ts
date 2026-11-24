@@ -31,6 +31,7 @@ import {
   UnsafeUrlError,
   type Resolver,
 } from '@/lib/webhooks/ssrf';
+import { readCapped } from '@/lib/media/capped-body';
 
 // ============================================================
 // Configuration (read at call time, never at module load, so a test or
@@ -238,14 +239,14 @@ export async function openwaRequest<T>(args: OpenWARequestArgs): Promise<T> {
       signal: AbortSignal.timeout(timeoutMs ?? OPENWA_TIMEOUT_MS),
     });
   } catch (err) {
-    // DNS, refused socket, timeout. The outcome of a send is unknown,
-    // which is exactly what a 5xx tells `isDefiniteSendRefusal`.
+    // DNS, refused socket, timeout. A 5xx leaves a send's outcome unknown;
+    // the cause tells `isDefiniteSendRefusal` which of them it was.
     const reason = err instanceof Error ? err.message : String(err);
     const failed = new OpenWAError(`OpenWA request failed: ${reason}`, 503, {
       route,
     });
     // Tells our own 503 from the gateway's, and a refused connection from a
-    // timeout (lib/hr/automsg/failure.ts).
+    // timeout (`neverConnected`).
     failed.cause = err;
     throw failed;
   }
@@ -934,22 +935,29 @@ export function isOpenWAMediaUrl(url: URL, sessionId: string): boolean {
   return url.pathname.startsWith(prefix) && url.pathname.endsWith('/media');
 }
 
+export type DownloadMediaArgs = Credentials & {
+  downloadUrl: string;
+  /** Past this many bytes the body is left unread (`BodyTooLargeError`). */
+  maxBytes: number;
+  /** Replaces the default timeout, for a body that is streamed on. */
+  signal?: AbortSignal;
+};
+
 /**
- * Fetch media bytes. The key goes only to this session's media route on
+ * Ask for media bytes (the body is unread). The key goes only to this session's media route on
  * the gateway (which is a loopback address, so it must be trusted past
  * the SSRF guard); any other URL is fetched without it, through the
  * guard, every redirect hop re-checked.
  */
-export async function downloadMedia(
-  args: Credentials & { downloadUrl: string }
-): Promise<{ buffer: Buffer; contentType: string }> {
-  const { apiKey, sessionId, downloadUrl } = args;
+export async function openMedia(args: DownloadMediaArgs): Promise<Response> {
+  const { apiKey, sessionId, downloadUrl, maxBytes } = args;
   let response: Response;
   try {
     response = await fetchPublicUrl(
       downloadUrl,
-      { signal: AbortSignal.timeout(OPENWA_TIMEOUT_MS) },
+      { signal: args.signal ?? AbortSignal.timeout(OPENWA_TIMEOUT_MS) },
       {
+        maxDecodedBytes: maxBytes,
         isTrusted: (url) => isOpenWAMediaUrl(url, sessionId),
         trustedHeaders: { 'X-API-Key': apiKey },
       }
@@ -973,8 +981,16 @@ export async function downloadMedia(
       { route: 'message' }
     );
   }
+  return response;
+}
+
+/** Media bytes, at most `maxBytes` of them. */
+export async function downloadMedia(
+  args: DownloadMediaArgs
+): Promise<{ buffer: Buffer; contentType: string }> {
+  const response = await openMedia(args);
   return {
-    buffer: Buffer.from(await response.arrayBuffer()),
+    buffer: await readCapped(response, args.maxBytes),
     contentType:
       response.headers.get('content-type') || 'application/octet-stream',
   };

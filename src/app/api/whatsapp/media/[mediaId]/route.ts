@@ -1,7 +1,11 @@
 import { pickActiveProfile } from '@/lib/auth/active-profile'
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { getMediaUrl, downloadMedia } from '@/lib/whatsapp/provider'
+import { getMediaUrl, streamMedia } from '@/lib/whatsapp/provider'
+import {
+  BodyTooLargeError,
+  WHATSAPP_MAX_FILE_BYTES,
+} from '@/lib/media/capped-body'
 import { loadChannels, primaryChannel } from '@/lib/whatsapp/channels'
 import { mediaResponseHeaders } from '@/lib/whatsapp/media-headers'
 import {
@@ -59,7 +63,9 @@ export async function GET(
     // `messages` (042–044/060–062) decides; without this any member —
     // a viewer, an agent confined to their own chats — could pull any
     // attachment through the account's gateway tokens by guessing or
-    // replaying an id. The LIKE repeats the partial index's predicate
+    // replaying an id. Only a customer's message counts: the proxy path is
+    // stored on inbound media alone, while a row a person writes as their
+    // own sent message could name any id. The LIKE repeats the partial index's predicate
     // (migration 062) so the lookup is an index probe, not a scan.
     const proxyPath = `/api/whatsapp/media/${mediaId}`
     const { data: owningMessage } = await supabase
@@ -67,6 +73,7 @@ export async function GET(
       .select('id, channel_id, provider')
       .eq('media_url', proxyPath)
       .like('media_url', '/api/whatsapp/media/%')
+      .eq('sender_type', 'customer')
       .limit(1)
       .maybeSingle()
     if (!owningMessage) {
@@ -81,24 +88,26 @@ export async function GET(
       )
     }
 
-    // A media id is opaque and belongs to whichever gateway issued it,
-    // and nothing in the URL says which. With a handful of connected
-    // channels, trying each (primary first) is simpler and more robust
-    // than threading a provider through every caller — and in the
-    // common single-channel case it is exactly one attempt.
-    //
-    // The message says which number carried it (060+), so that one is
-    // tried first — usually the only attempt with several numbers.
-    const carrier = owningMessage.channel_id
-      ? channels.find((c) => c.id === owningMessage.channel_id)
-      : undefined
-    // primaryChannel is null when every number is personal: then any
-    // number will do as the first attempt.
-    const first = carrier ?? primaryChannel(channels) ?? channels[0]
-    const ordered = [first, ...channels.filter((c) => c.id !== first.id)]
+    // A media id is opaque and belongs to whichever gateway issued it. The
+    // message says which number carried it (060+): that number's token is
+    // the only one that may ask for it. A row from before that names none,
+    // and nothing in the URL does either, so each number is tried, the
+    // primary first (null when every number is personal: then any will do
+    // as the first attempt).
+    const fallbackFirst = primaryChannel(channels) ?? channels[0]
+    const ordered = owningMessage.channel_id
+      ? channels.filter((c) => c.id === owningMessage.channel_id)
+      : [
+          fallbackFirst,
+          ...channels.filter((c) => c.id !== fallbackFirst.id),
+        ]
+    if (ordered.length === 0) {
+      return NextResponse.json({ error: 'Media not found' }, { status: 404 })
+    }
 
-    let resolved: { buffer: Buffer; contentType: string; mimeType: string } | null =
-      null
+    let resolved:
+      | (Awaited<ReturnType<typeof streamMedia>> & { mimeType: string })
+      | null = null
     let lastError: unknown = null
 
     for (const channel of ordered) {
@@ -107,25 +116,35 @@ export async function GET(
         // Gateway-hosted media needs the channel's own token presented
         // as a Bearer header, so the download goes back through the
         // same channel that resolved the id.
-        const { buffer, contentType } = await downloadMedia({
+        // Streamed on: a document can be 100 MB.
+        const media = await streamMedia({
           channel,
           downloadUrl: mediaInfo.url,
+          maxBytes: WHATSAPP_MAX_FILE_BYTES,
         })
-        resolved = { buffer, contentType, mimeType: mediaInfo.mimeType }
+        resolved = { ...media, mimeType: mediaInfo.mimeType }
         break
       } catch (err) {
         lastError = err
+        if (err instanceof BodyTooLargeError) break
       }
     }
 
     if (!resolved) throw lastError ?? new Error('Media could not be resolved')
-    const { buffer, contentType, mimeType } = resolved
+    const { body, contentType, contentLength, mimeType } = resolved
 
-    return new Response(new Uint8Array(buffer), {
-      status: 200,
-      headers: mediaResponseHeaders(contentType || mimeType),
-    })
+    const headers: Record<string, string> = mediaResponseHeaders(
+      contentType || mimeType
+    )
+    if (contentLength !== null) headers['Content-Length'] = String(contentLength)
+    return new Response(body, { status: 200, headers })
   } catch (error) {
+    if (error instanceof BodyTooLargeError) {
+      return NextResponse.json(
+        { error: 'This file is too large to open' },
+        { status: 413 }
+      )
+    }
     console.error('Error in WhatsApp media GET:', error)
     return NextResponse.json(
       { error: 'Failed to fetch media' },

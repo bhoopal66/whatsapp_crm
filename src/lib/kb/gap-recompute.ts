@@ -28,6 +28,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { supabaseAdmin } from '@/lib/ai/admin-client';
 import { loadAiConfig } from '@/lib/ai/config';
 import { EmbeddingsDeadlineError, embedTexts } from '@/lib/ai/embeddings';
+import { redactForProvider } from '@/lib/ai/redact-input';
 import { getDecisionLayer } from '@/lib/typesafe';
 import { accountEnabled } from '@/lib/typesafe/config';
 import { mapLimit } from '@/lib/typesafe/checks/common';
@@ -256,7 +257,8 @@ async function withEmbeddings(
     );
     const vectors = await embedTexts(
       config.embeddingsApiKey,
-      rows.map((r) => r.question),
+      // Masked here too: rows stored before the insert masked them.
+      rows.map((r) => redactForProvider(r.question)),
       { deadlineAt }
     );
     if (vectors.length !== rows.length) return rows;

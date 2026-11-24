@@ -13,8 +13,16 @@ describe('normalizeStatus', () => {
   it('maps PENDING_REVIEW → PENDING', () => {
     expect(normalizeStatus('PENDING_REVIEW')).toBe('PENDING');
   });
-  it('falls back to PENDING for unknown values (so the row is still visible)', () => {
-    expect(normalizeStatus('SOMETHING_NEW')).toBe('PENDING');
-    expect(normalizeStatus('')).toBe('PENDING');
+  it('reads REINSTATED and FLAGGED as usable', () => {
+    expect(normalizeStatus('REINSTATED')).toBe('APPROVED');
+    expect(normalizeStatus('FLAGGED')).toBe('APPROVED');
+  });
+  it('reads DELETED as unusable', () => {
+    expect(normalizeStatus('DELETED')).toBe('DISABLED');
+  });
+  it('is null for a value that is not a status, never a guess', () => {
+    expect(normalizeStatus('SOMETHING_NEW')).toBeNull();
+    expect(normalizeStatus('')).toBeNull();
+    expect(normalizeStatus('constructor')).toBeNull();
   });
 });

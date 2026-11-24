@@ -9,9 +9,11 @@
  * account, only a state SQL takes, and only when the receipt resolved to
  * a bot message (HR sends are recorded as sender_type 'bot').
  *
- * Never throws; logs one line on error, without the token or the text.
+ * Never throws; logs one line on error, without the token or the text, and
+ * answers false so that the receipt is retried.
  */
 import { supabaseAdmin } from '@/lib/automations/admin-client';
+import { isMissingFunction } from '@/lib/team-activity/db-errors';
 import type { NormalizedStatus } from '@/lib/whatsapp/inbound';
 
 export type HrDeliveryState = 'sent' | 'delivered' | 'read' | 'failed';
@@ -29,11 +31,11 @@ export async function recordHrDelivery(args: {
   at: string;
   /** The `messages` rows the receipt resolved to. */
   rows: readonly { sender_type?: string | null }[];
-}): Promise<void> {
+}): Promise<boolean> {
   const { accountId, status, at, rows } = args;
-  if (!accountId) return;
-  if (!isHrDeliveryState(status.status)) return;
-  if (!rows.some((r) => r.sender_type === 'bot')) return;
+  if (!accountId) return true;
+  if (!isHrDeliveryState(status.status)) return true;
+  if (!rows.some((r) => r.sender_type === 'bot')) return true;
   try {
     const { error } = await supabaseAdmin().rpc('hr_automsg_delivery_record', {
       p_account_id: accountId,
@@ -44,11 +46,14 @@ export async function recordHrDelivery(args: {
     });
     if (error) {
       console.error('[hr-automsg] delivery record failed:', error.message);
+      return isMissingFunction(error);
     }
+    return true;
   } catch (err) {
     console.error(
       '[hr-automsg] delivery record failed:',
       err instanceof Error ? err.message : String(err)
     );
+    return false;
   }
 }

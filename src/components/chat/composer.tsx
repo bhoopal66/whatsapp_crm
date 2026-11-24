@@ -37,7 +37,6 @@ import {
   postMessage,
   setTyping,
   uploadChatFile,
-  type AttachmentInput,
   type SharedCard,
 } from '@/lib/chat';
 import { typingStep } from '@/lib/chat/typing-flow';
@@ -54,7 +53,6 @@ import {
   type ComposerDraft,
 } from '@/lib/chat/composer';
 import {
-  chipInputs,
   chipsReady,
   EMPTY_DRAFT,
   helperLine,
@@ -83,6 +81,16 @@ import {
   pastePlan,
   transferFiles,
 } from '@/lib/chat/file-intake';
+import { postIds } from '@/lib/chat/post-id';
+import {
+  draftPost,
+  draftPosted,
+  newTakePost,
+  postedNotices,
+  takeForSend,
+  takePost,
+  type TakePost,
+} from '@/lib/chat/post-payload';
 import { quotePreview } from '@/lib/chat/quotes';
 import { chatRecorderGuard } from '@/lib/chat/recorder-guard';
 import { sensitiveKinds } from '@/lib/kb/sensitive';
@@ -96,7 +104,6 @@ import {
 import type { FormatAction } from '@/lib/chat/format';
 import {
   CHAT_VOICE_MAX_SECONDS,
-  voiceAttachment,
   voiceDurationMs,
   voiceFileName,
 } from '@/lib/chat/voice';
@@ -137,14 +144,12 @@ const FORMAT_BAR_KEY = 'chat.formatBar';
 
 /**
  * A recorded take awaiting Send. It lives only in the browser until then
- * (a discarded take uploads nothing); `uploaded` keeps a finished upload
- * so a retry after a failed post does not upload it twice.
+ * (a discarded take uploads nothing).
  */
-interface VoiceTake {
+interface VoiceTake extends TakePost {
   file: File;
   url: string;
   durationMs: number;
-  uploaded: AttachmentInput | null;
 }
 
 const FORMAT_BUTTONS: {
@@ -361,7 +366,7 @@ export function Composer({
         file,
         url,
         durationMs: voiceDurationMs(0, durationMs),
-        uploaded: null,
+        ...newTakePost(),
       };
       // Sent at once too: it shows while it goes out, and stays, with its
       // own Send, if it does not.
@@ -642,7 +647,27 @@ export function Composer({
     }
   };
 
-  if (!channel) return null;
+  const composed = composeBody(
+    draft.text,
+    draft.picked,
+    chips.map((c) => c.name)
+  );
+  // Emptied: the same words typed again are a new message (post-id.ts).
+  const emptied = !composed.ok && composed.reason === 'empty';
+  useEffect(() => {
+    if (emptied) postIds.forget(storageKey);
+  }, [emptied, storageKey]);
+
+  // A send begun before this composer was mounted (the person left the
+  // channel and came back) has gone through: its text is not unsent.
+  const dropPosted = useEffectEvent((sent: ComposerDraft) => {
+    const left = draftAfterSend(draftRef.current, sent);
+    if (left !== draftRef.current) changeDraft(left);
+  });
+  useEffect(
+    () => postedNotices.listen(storageKey, (sent) => dropPosted(sent)),
+    [storageKey]
+  );
 
   const changeDraft = (d: ComposerDraft) => {
     const step = typingStep({
@@ -659,17 +684,14 @@ export function Composer({
     writeDraft(storageKey, d);
   };
 
+  if (!channel) return null;
+
   const addFiles = (list: FileList | null) => {
     const files = Array.from(list ?? []);
     if (fileInput.current) fileInput.current.value = '';
     uploadFiles(files);
   };
 
-  const composed = composeBody(
-    draft.text,
-    draft.picked,
-    chips.map((c) => c.name)
-  );
   const canSend =
     !sending &&
     // A take being encoded goes first: it would find a send under way.
@@ -727,15 +749,29 @@ export function Composer({
       const sentDraft = draft;
       const sentChips = new Set(chips.map((c) => c.id));
       const sentReplyId = replyId;
-      const id = await postMessage(ws.sb, {
-        channelId,
-        body: composed.body,
-        threadRootId,
-        replyToId: sentReplyId ?? undefined,
-        attachments: chipInputs(chips),
+      const id = await postMessage(
+        ws.sb,
+        draftPost(postIds, storageKey, {
+          channelId,
+          threadRootId,
+          replyToId: sentReplyId,
+          body: composed.body,
+          chips,
+        })
+      );
+      draftPosted({
+        ids: postIds,
+        notices: postedNotices,
+        draftKey: storageKey,
+        sent: sentDraft,
+        mounted: aliveRef.current,
+        drop: (sent) => {
+          const left = draftAfterSend(draftRef.current, sent);
+          if (left !== draftRef.current) changeDraft(left);
+        },
+        stored: { read: readDraft, write: writeDraft },
       });
-      const left = draftAfterSend(draftRef.current, sentDraft);
-      if (left !== draftRef.current) changeDraft(left);
+      if (!aliveRef.current) return;
       setChips((c) => chipsAfterSend(c, sentChips));
       if (replyIdRef.current === sentReplyId) reply.clear();
       onPosted?.(id);
@@ -752,30 +788,34 @@ export function Composer({
     const accountId = ws.accountId;
     if (sending || !accountId) return;
     setSending(true);
+    const post = takeForSend(staged, replyId);
+    const patchTake = (p: Partial<TakePost>) =>
+      setTake((cur) => (cur?.url === staged.url ? { ...cur, ...p } : cur));
+    patchTake(post);
     try {
-      let uploaded = staged.uploaded;
+      let { uploaded } = post;
       if (!uploaded) {
         uploaded = await uploadChatFile(ws.sb, {
           accountId,
           channelId,
           file: staged.file,
         });
-        const done = uploaded;
-        setTake((cur) =>
-          cur?.url === staged.url ? { ...cur, uploaded: done } : cur
-        );
+        patchTake({ uploaded });
       }
-      const id = await postMessage(ws.sb, {
-        channelId,
-        body: t('voice.body', {
-          duration: formatClock(
-            Math.max(1, Math.round(staged.durationMs / 1000))
-          ),
-        }),
-        threadRootId,
-        replyToId: reply.target?.id,
-        attachments: [voiceAttachment(uploaded, staged.durationMs)],
-      });
+      const id = await postMessage(
+        ws.sb,
+        takePost(post, {
+          channelId,
+          threadRootId,
+          body: t('voice.body', {
+            duration: formatClock(
+              Math.max(1, Math.round(staged.durationMs / 1000))
+            ),
+          }),
+          uploaded,
+          durationMs: staged.durationMs,
+        })
+      );
       if (!aliveRef.current) return;
       dropTake();
       reply.clear();
@@ -789,10 +829,7 @@ export function Composer({
         return;
       }
       // The object is gone after all: the retry uploads it again.
-      if (key === 'attachmentMissing')
-        setTake((cur) =>
-          cur?.url === staged.url ? { ...cur, uploaded: null } : cur
-        );
+      if (key === 'attachmentMissing') patchTake({ uploaded: null });
       const b = blockFromError(key);
       if (b) setRefused(b);
       else ws.fail(err);
@@ -1067,7 +1104,15 @@ export function Composer({
           </button>
         </div>
       ) : (
-        <div ref={inputWrap} className="flex items-end gap-2" onPaste={onPaste}>
+        // In a narrow column (a thread, a phone) the text has a row of its own.
+        <div
+          ref={inputWrap}
+          className={cn(
+            'flex items-end gap-2',
+            threadRootId ? 'flex-wrap' : 'max-sm:flex-wrap'
+          )}
+          onPaste={onPaste}
+        >
           {controls.attach && (
             <button
               type="button"
@@ -1134,7 +1179,12 @@ export function Composer({
           />
           <MentionTextarea
             controlRef={input}
-            className="min-w-0 flex-1"
+            className={cn(
+              'min-w-0',
+              threadRootId
+                ? 'order-first basis-full'
+                : 'flex-1 max-sm:order-first max-sm:basis-full'
+            )}
             onCancel={reply.target ? reply.clear : undefined}
             draft={draft}
             onDraftChange={changeDraft}
@@ -1152,7 +1202,10 @@ export function Composer({
             type="button"
             onClick={() => void send()}
             disabled={!canSend}
-            className="bg-primary text-primary-foreground hover:bg-primary-hover h-9 shrink-0 rounded-lg px-4 text-sm font-semibold disabled:opacity-50"
+            className={cn(
+              'bg-primary text-primary-foreground hover:bg-primary-hover h-9 shrink-0 rounded-lg px-4 text-sm font-semibold disabled:opacity-50',
+              threadRootId ? 'ms-auto' : 'max-sm:ms-auto'
+            )}
           >
             {t('composer.send')}
           </button>

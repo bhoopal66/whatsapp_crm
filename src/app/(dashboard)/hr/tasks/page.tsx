@@ -19,6 +19,9 @@ import { createClient } from '@/lib/supabase/client';
 import type { Task } from '@/lib/tasks/types';
 import { cn } from '@/lib/utils';
 
+/** The most tasks `/api/tasks` answers. */
+const LIST_LIMIT = 200;
+
 /**
  * Open HR tasks (migration 200's workflow rules write them as ordinary
  * `tasks` rows). RLS decides which ones come back: the assignee, anyone
@@ -30,6 +33,7 @@ export default function HrTasksPage() {
   const { user, accountId } = useAuth();
   const { nameOf } = useWorkspaceMembers();
   const [tasks, setTasks] = useState<Task[] | null>(null);
+  const [truncated, setTruncated] = useState(false);
   const [failed, setFailed] = useState(false);
   const [names, setNames] = useState<Record<string, string>>({});
   const [mine, setMine] = useState(false);
@@ -40,10 +44,14 @@ export default function HrTasksPage() {
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch('/api/tasks?scope=all&hr=1&limit=200');
+      const res = await fetch(`/api/tasks?scope=all&hr=1&limit=${LIST_LIMIT}`);
       if (!res.ok) throw new Error(String(res.status));
-      const body = (await res.json()) as { tasks: Task[] };
+      const body = (await res.json()) as {
+        tasks: Task[];
+        truncated?: boolean;
+      };
       setTasks(body.tasks);
+      setTruncated(body.truncated === true);
       setFailed(false);
       setNow(Date.now());
       const ids = taskConversationIds(body.tasks);
@@ -140,6 +148,12 @@ export default function HrTasksPage() {
 
       {doneError && (
         <p className="text-destructive text-sm">{t('doneFailed')}</p>
+      )}
+
+      {truncated && !failed && (
+        <p role="status" className="text-warning text-sm">
+          {t('truncated', { count: LIST_LIMIT })}
+        </p>
       )}
 
       <div className="border-border bg-card rounded-lg border">

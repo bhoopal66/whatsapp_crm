@@ -191,3 +191,46 @@ describe('editBody', () => {
     });
   });
 });
+
+describe('all-day reminders', () => {
+  const NOW = new Date('2026-10-14T08:00:00Z');
+
+  it('default to 09:00 the day before for an all-day selection', () => {
+    const day = formFromSelection(
+      new Date('2026-10-14T20:00:00Z'),
+      new Date('2026-10-15T20:00:00Z'),
+      true,
+      DUBAI
+    );
+    expect(day.reminders).toEqual([900]);
+    expect(defaultEventForm(NOW, DUBAI).reminders).toEqual([10]);
+  });
+
+  it('follow the all-day switch only while untouched', () => {
+    const timed = defaultEventForm(NOW, DUBAI);
+    const allDay = withAllDay(timed, true);
+    expect(allDay.reminders).toEqual([900]);
+    expect(withAllDay(allDay, false).reminders).toEqual([10]);
+
+    const touched = { ...timed, reminders: [10, 60] };
+    expect(withAllDay(touched, true).reminders).toEqual([10, 60]);
+    const none = { ...timed, reminders: [] };
+    expect(withAllDay(none, true).reminders).toEqual([]);
+  });
+
+  it('keeps a saved event’s reminders', () => {
+    const saved = formFromEvent(
+      row({
+        all_day: true,
+        start_at: '2026-10-14T20:00:00.000Z',
+        end_at: '2026-10-15T20:00:00.000Z',
+        reminders: [10],
+      }),
+      []
+    );
+    expect(saved.reminders).toEqual([10]);
+    const off = withAllDay(saved, false, true);
+    expect(off.reminders).toEqual([10]);
+    expect(withAllDay(off, true, true).reminders).toEqual([10]);
+  });
+});

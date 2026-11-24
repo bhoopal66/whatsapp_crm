@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   requireRole: vi.fn(),
   rpc: vi.fn(),
   adminRpc: vi.fn(),
+  permit: vi.fn(),
   updateUserById: vi.fn(),
   getUserById: vi.fn(),
   readProfile: vi.fn(),
@@ -32,7 +33,10 @@ vi.mock('@supabase/supabase-js', () => ({
         getUserById: mocks.getUserById,
       },
     },
-    rpc: mocks.adminRpc,
+    rpc: (name: string, args: unknown) =>
+      name === 'permit_login_email'
+        ? mocks.permit(args)
+        : mocks.adminRpc(name, args),
     from: (table: string) => {
       if (table !== 'profiles') throw new Error(`unexpected table ${table}`);
       return {
@@ -95,6 +99,8 @@ describe('PATCH /api/account/members/[userId]/details', () => {
     mocks.requireRole.mockResolvedValue(ADMIN_CTX);
     mocks.rpc.mockResolvedValue({ error: null });
     mocks.adminRpc.mockResolvedValue({ error: null });
+    mocks.permit.mockReset();
+    mocks.permit.mockResolvedValue({ error: null });
     // Reset, not just clear: a test that queues two answers must not
     // leak its second one into the next test.
     mocks.updateUserById.mockReset();
@@ -110,6 +116,54 @@ describe('PATCH /api/account/members/[userId]/details', () => {
       error: null,
     });
     consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  // 288: the login refuses a new email nobody asked a permit for.
+  it('asks for a permit for the address before GoTrue, and only for an address', async () => {
+    await PATCH(
+      request({ full_name: 'Sara Ali', email: 'sara@new.example' }),
+      params
+    );
+    expect(mocks.permit).toHaveBeenCalledExactlyOnceWith({
+      p_user: 'user-2',
+      p_email: 'sara@new.example',
+    });
+    expect(mocks.permit.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.updateUserById.mock.invocationCallOrder[0]
+    );
+
+    mocks.permit.mockClear();
+    await PATCH(
+      request({ full_name: 'Sara Khan', email: CURRENT.email }),
+      params
+    );
+    expect(mocks.permit).not.toHaveBeenCalled();
+  });
+
+  it('asks for one to put the old address back', async () => {
+    mocks.updateProfiles.mockResolvedValue({
+      data: null,
+      error: { message: 'down' },
+    });
+    await PATCH(
+      request({ full_name: 'Sara Ali', email: 'sara@new.example' }),
+      params
+    );
+    expect(mocks.permit.mock.calls.map(([a]) => a.p_email)).toEqual([
+      'sara@new.example',
+      CURRENT.email,
+    ]);
+  });
+
+  it('carries on before 288, and says when a permit fails', async () => {
+    mocks.permit.mockResolvedValueOnce({ error: { code: 'PGRST202' } });
+    const body = { full_name: 'Sara Ali', email: 'sara@new.example' };
+    expect((await PATCH(request(body), params)).status).toBe(200);
+    expect(consoleError).not.toHaveBeenCalled();
+    mocks.permit.mockResolvedValueOnce({ error: { code: '57014' } });
+    await PATCH(request(body), params);
+    expect(consoleError).toHaveBeenCalledTimes(1);
+    expect(mocks.updateUserById).toHaveBeenCalledTimes(2);
   });
 
   it('asks the database, then GoTrue, then profiles, then the audit row', async () => {

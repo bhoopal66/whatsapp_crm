@@ -1,6 +1,7 @@
 // /api/privacy/retention — the workspace's retention policy (migration
 // 223). Owners and admins only.
-//   GET -> `{ policy, apply, updatedAt, rules }` (rules = the allow-list)
+//   GET -> `{ policy, apply, updatedAt, lastRun, rules }` (rules = the
+//   allow-list; lastRun = the newest sweep's outcome, 282)
 //   PUT `{ policy: { tables: { <key>: { days, action } } }, apply }`
 // The automations cron sweeps once a day; a dry run unless `apply`.
 import { NextResponse } from 'next/server';

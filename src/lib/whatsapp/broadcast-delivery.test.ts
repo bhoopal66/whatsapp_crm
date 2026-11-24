@@ -7,6 +7,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakeDb, type Row } from './broadcast.fake';
 
 const sendTemplate = vi.fn();
+// The secrets come through the service role (migration 285).
+vi.mock('@/lib/whatsapp/channel-secrets', () => ({
+  withChannelSecrets: async (rows: Array<{ id: string }>) =>
+    rows.map((r) => ({ access_token: 'tok', app_secret: null, ...r })),
+}));
 vi.mock('./provider', async (orig) => ({
   ...(await orig<typeof import('./provider')>()),
   sendTemplate: (...args: unknown[]) => sendTemplate(...args),
@@ -169,6 +174,37 @@ describe('opt-out during a pass', () => {
     expect(sendTemplate).toHaveBeenCalledTimes(1);
     expect(statuses(w)).toEqual(['sent', 'pending', 'pending']);
     expect(w.broadcasts[0].status).toBe('sending');
+  });
+});
+
+describe('do-not-contact', () => {
+  const DNC = 'Customer is marked do-not-contact';
+
+  it('skips a customer marked after the plan was built', async () => {
+    const w = world(2);
+    w.contacts[1].do_not_contact_at = '2026-11-23T08:00:01Z';
+    await deliverBroadcast(fakeDb(w), planFor(w));
+
+    expect(sendTemplate).toHaveBeenCalledTimes(1);
+    expect(w.broadcast_recipients[1]).toMatchObject({
+      status: 'failed',
+      error_message: DNC,
+    });
+  });
+
+  it('leaves them out of a resume', async () => {
+    const w = world(3);
+    (w.broadcast_recipients[0].contact as Row).opted_out_at = '2026';
+    (w.broadcast_recipients[1].contact as Row).do_not_contact_at = '2026';
+    const { plan, remaining, optedOut } = await resume(fakeDb(w));
+
+    expect(plan.planned.map((r) => r.recipientRowId)).toEqual(['r00002']);
+    expect([optedOut, plan.skippedOptedOut, remaining]).toEqual([2, 2, 0]);
+    expect(w.broadcast_recipients.map((r) => r.error_message)).toEqual([
+      OPTED_OUT_REASON,
+      DNC,
+      null,
+    ]);
   });
 });
 

@@ -31,6 +31,7 @@ const person = (userId: string, fullName: string): ChatPerson => ({
   bankCode: null,
   presenceStatus: null,
   lastSeenAt: null,
+  deactivated: false,
 });
 const pick = (p: ChatPerson): MentionCandidate => ({
   type: 'person',

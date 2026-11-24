@@ -1,5 +1,5 @@
 -- ============================================================
--- 270_kb_learn.sql — learn from the team's answers (knowledge base)
+-- 290_kb_learn.sql — learn from the team's answers (knowledge base)
 --
 -- Once a week, for a workspace whose owner or admin switched it on, the
 -- automations cron (src/lib/kb/learn-run.ts) looks at the open
@@ -15,7 +15,8 @@
 --  2. kb_learn_settings: the switch (OFF by default) and the last run,
 --     one row per account. Admin+ reads; the switch is set only through
 --     kb_learn_set_enabled() (admin+ of the ACTIVE account); the last
---     run only by kb_learn_claim_run() (service role).
+--     run only by kb_learn_claim_run() and kb_learn_finish_run()
+--     (service role).
 --  3. kb_learned_drafts: the ledger, one row per drafted topic, so a
 --     topic is drafted once. Topic ids change on every recompute (152
 --     replaces the set), so a topic is "the same" when at least half of
@@ -38,13 +39,13 @@ SET lock_timeout = '5s';
 
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = current_user AND (rolsuper OR rolbypassrls)) THEN
-    RAISE EXCEPTION '270 must be applied by a superuser or BYPASSRLS role (its functions write kb_entries, which RLS guards)';
+    RAISE EXCEPTION '290 must be applied by a superuser or BYPASSRLS role (its functions write kb_entries, which RLS guards)';
   END IF;
   IF to_regclass('public.kb_gap_topics') IS NULL THEN
-    RAISE EXCEPTION '270: apply 152_kb_gap_topics.sql first';
+    RAISE EXCEPTION '290: apply 152_kb_gap_topics.sql first';
   END IF;
   IF to_regclass('public.hr_agent_settings') IS NULL THEN
-    RAISE EXCEPTION '270: apply 202_hr_agents.sql first';
+    RAISE EXCEPTION '290: apply 202_hr_agents.sql first';
   END IF;
 END $$;
 
@@ -64,12 +65,14 @@ CREATE TABLE IF NOT EXISTS public.kb_learn_settings (
   account_id  uuid PRIMARY KEY REFERENCES public.accounts(id) ON DELETE CASCADE,
   enabled     boolean NOT NULL DEFAULT false,
   last_run_at timestamptz NULL,
+  -- Drafts the last run wrote; NULL while it runs or before the first.
+  last_run_drafted integer NULL CHECK (last_run_drafted IS NULL OR last_run_drafted >= 0),
   updated_at  timestamptz NOT NULL DEFAULT now(),
   updated_by  uuid NULL REFERENCES auth.users(id) ON DELETE SET NULL
 );
 
 COMMENT ON TABLE public.kb_learn_settings IS
-  'Learn from team answers (270): off by default. Set through kb_learn_set_enabled(); last_run_at through kb_learn_claim_run(). Mirrored by KB_LEARN_DEFAULT_ENABLED in src/lib/kb/learn.ts.';
+  'Learn from team answers (290): off by default. Set through kb_learn_set_enabled(); last_run_at through kb_learn_claim_run(). Mirrored by KB_LEARN_DEFAULT_ENABLED in src/lib/kb/learn.ts.';
 
 ALTER TABLE public.kb_learn_settings ENABLE ROW LEVEL SECURITY;
 
@@ -105,7 +108,7 @@ CREATE TABLE IF NOT EXISTS public.kb_learned_drafts (
 );
 
 COMMENT ON TABLE public.kb_learned_drafts IS
-  'Learn from team answers (270): which gap topic was drafted into which kb_entries row, so a topic is drafted once. Holds gap ids and the topic label, no team or customer message text. Admin+ read; written by kb_learn_record_draft() only.';
+  'Learn from team answers (290): which gap topic was drafted into which kb_entries row, so a topic is drafted once. Holds gap ids and the topic label, no team or customer message text. Admin+ read; written by kb_learn_record_draft() only.';
 
 CREATE INDEX IF NOT EXISTS idx_kb_learned_drafts_account
   ON public.kb_learned_drafts (account_id, created_at DESC);
@@ -147,6 +150,7 @@ BEGIN
     SET enabled = EXCLUDED.enabled, updated_at = now(), updated_by = EXCLUDED.updated_by
   RETURNING * INTO v_row;
   RETURN jsonb_build_object('enabled', v_row.enabled, 'last_run_at', v_row.last_run_at,
+                            'last_run_drafted', v_row.last_run_drafted,
                             'updated_at', v_row.updated_at);
 END $$;
 
@@ -169,7 +173,7 @@ DECLARE
   v_hit uuid;
 BEGIN
   UPDATE public.kb_learn_settings s
-     SET last_run_at = now()
+     SET last_run_at = now(), last_run_drafted = NULL
    WHERE s.account_id = p_account
      AND s.enabled
      AND (s.last_run_at IS NULL OR s.last_run_at <= now() - p_min_interval)
@@ -179,6 +183,21 @@ END $$;
 
 REVOKE ALL ON FUNCTION public.kb_learn_claim_run(uuid, interval) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.kb_learn_claim_run(uuid, interval) TO service_role;
+
+-- The run's result, for the switch's "last run" line. Service role.
+CREATE OR REPLACE FUNCTION public.kb_learn_finish_run(p_account uuid, p_drafted integer)
+RETURNS void
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  UPDATE public.kb_learn_settings
+     SET last_run_drafted = greatest(coalesce(p_drafted, 0), 0)
+   WHERE account_id = p_account;
+$$;
+
+REVOKE ALL ON FUNCTION public.kb_learn_finish_run(uuid, integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.kb_learn_finish_run(uuid, integer) TO service_role;
 
 -- Whether a topic already has a live draft: a ledger row whose entry
 -- still exists and is not 'remove', and that is the same topic (half or

@@ -37,15 +37,15 @@ is not in the new bank's stage list.
 Roles are worked out live from the person's profile and teams, never stored
 on the case. There is no IT role.
 
-| Person (live, in the case's workspace)                  | Reads       | Acts | Reassigns                                                           |
-| ------------------------------------------------------- | ----------- | ---- | ------------------------------------------------------------------- |
-| **Owner** (super admin)                                 | every case  | yes  | yes                                                                 |
-| **Admin**                                               | every case  | yes  | yes                                                                 |
-| **Team leader** of the team the case's agent is in      | those cases | yes  | yes: the agent only to someone in a team they lead; any coordinator |
-| the case's named **coordinator** (agent or team leader) | that case   | yes  | no                                                                  |
-| a **coordinator of the case's bank** (Settings → Members) | that bank's cases | yes | no                                                              |
-| the case's named **agent** (agent or team leader)       | that case   | yes  | no                                                                  |
-| viewers, bank guests, deactivated people, anyone else   | nothing     | no   | no                                                                  |
+| Person (live, in the case's workspace)                    | Reads             | Acts | Reassigns                                                           |
+| --------------------------------------------------------- | ----------------- | ---- | ------------------------------------------------------------------- |
+| **Owner** (super admin)                                   | every case        | yes  | yes                                                                 |
+| **Admin**                                                 | every case        | yes  | yes                                                                 |
+| **Team leader** of the team the case's agent is in        | those cases       | yes  | yes: the agent only to someone in a team they lead; any coordinator |
+| the case's named **coordinator** (agent or team leader)   | that case         | yes  | no                                                                  |
+| a **coordinator of the case's bank** (Settings → Members) | that bank's cases | yes  | no                                                                  |
+| the case's named **agent** (agent or team leader)         | that case         | yes  | no                                                                  |
+| viewers, bank guests, deactivated people, anyone else     | nothing           | no   | no                                                                  |
 
 "Acts" covers stage moves, details, tasks, documents, notes, the bank
 contact log, SLA events and replies. The new agent or coordinator must be
@@ -217,19 +217,19 @@ it turns "due soon": a percentage, default 20 %, or a number of minutes). A
 case with no bank has no timers. A timer is **on track**, **due soon** or
 **overdue**; the case shows the worst running one.
 
-| Event                                       | Effect                                                                       |
-| ------------------------------------------- | ---------------------------------------------------------------------------- |
-| stage change (any move, the API's included) | timers configured for the new stage restart; every other running timer stops |
-| customer writes in the group                | customer reply stops                                                         |
-| bank response logged                        | bank response stops                                                          |
-| document marked received                    | document chase restarts if configured for the stage, else stops              |
+| Event                                                         | Effect                                                                                                   |
+| ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| stage change (any move, the API's included)                   | timers configured for the new stage restart; every other running timer stops                             |
+| customer writes in the group (a lead: in the one-to-one chat) | customer reply stops                                                                                     |
+| bank response logged                                          | bank response stops                                                                                      |
+| document marked received                                      | document chase restarts if configured for the stage and a required document is still missing, else stops |
 
 Deadlines are fixed when a timer starts; a config change applies from the
 next start. The states are evaluated every 5 minutes.
 
 **Inbox** (`/cases`). The cases you may read in your active workspace.
 Filters: bank, stage, agent, priority (low, normal, high, urgent), SLA
-state, customer waiting, documents missing, bank query open (stage Query
+state, waiting for the customer (the customer reply timer runs), documents missing, bank query open (stage Query
 raised), no activity for N days, closed cases included. Sorts: most overdue
 (default), due soonest, stalest. "Last activity" ignores the SLA job and the
 inbound pipeline, so a timer cannot keep a case looking active.
@@ -341,17 +341,17 @@ The chip colour follows Compass's own status names (`TRACKER_STATUS_CHIP`
 in `lib/cases/ui.ts`; `_` reads as a space, case and extra blanks are
 ignored):
 
-| Compass status | Colour |
-|---|---|
-| To Submit | sky |
-| Inhouse Review | indigo |
-| Submitted | blue |
-| Bank Review | violet |
-| Awaiting Customer Response | amber |
-| Returned to RO | orange |
-| Awaiting Fulfillment | teal |
-| Approved / Declined | green / red |
-| Withdrawn / Closed | grey |
+| Compass status             | Colour      |
+| -------------------------- | ----------- |
+| To Submit                  | sky         |
+| Inhouse Review             | indigo      |
+| Submitted                  | blue        |
+| Bank Review                | violet      |
+| Awaiting Customer Response | amber       |
+| Returned to RO             | orange      |
+| Awaiting Fulfillment       | teal        |
+| Approved / Declined        | green / red |
+| Withdrawn / Closed         | grey        |
 
 A status not in that list takes the colour of the stage it names
 (`QUERY_ANSWERED` -> Query answered's cyan), else the colour of the
@@ -402,7 +402,20 @@ bank's required documents with default values.
 **Attaching a file.** A customer's WhatsApp document, or a staff upload,
 is attached to one of the case's required documents
 (`/api/cases/[id]/files`, `/files/attach`, `/files/[fileId]/classify`). Each
-attach is a new version; nothing is deleted.
+attach is a new version; nothing is deleted. A file that already counts as
+another document is refused (409 `ALREADY_FILED_AS`, `filedAs`) unless the
+request names that document in `moveFrom`: it would go missing.
+
+**Using a replaced version again (270).** Staff can bring a replaced
+(`superseded`) version back: it becomes the newest version and replaces the
+current one once its checks pass. Its checks run first; one that would fail
+them is refused (409 `REUSE_WOULD_FAIL`, `failedChecks`) and nothing
+changes. A file changed by somebody else meanwhile is read and decided on
+again, then refused with 409 `CHECK_MISMATCH` if it changed once more. The
+request says `reuse: true`: a file somebody else already used again is
+answered as it stands and not checked again, as is a move already made; a
+file that is not replaced is refused (409 `FILE_STATE`). With no expiry date
+given, the one it was filed with counts.
 
 **Checks.** Every attached version is checked automatically: type and file
 signature, size, a readable PDF and its page count, photo resolution (at
@@ -456,8 +469,9 @@ stack).
   inbox for up to 30 days, with an optional reason. A coordinator of the
   case, its team leader and admins can snooze; agents cannot. Snoozing
   never touches the SLA: timers keep running, and a snooze is not a touch
-  of the case. It ends by itself when its time passes; the inbox then marks
-  the case "snooze expired" for 24 hours. New inbox filters: snoozed (hide,
+  of the case. It ends when its time passes, or at once when the customer
+  writes or the stage changes (271); the inbox then marks the case "snooze
+  expired" for 24 hours. New inbox filters: snoozed (hide,
   only, all), snooze expired, mentions me.
 - **Mentions** (`/api/cases/mentions`): the list of notes that mention you
   on cases you can read, newest first.
@@ -511,7 +525,8 @@ actions.
 - **Who reads rules:** owners, admins, team leaders and agents of the
   workspace (the same people the rules list answers); viewers read none.
 - **History:** every rule evaluated on a case leaves a run row, matched or
-  not (`/api/cases/[id]/rule-runs`), shown on the case.
+  not; a rule that fires once per stage, timer run or idle stretch is used up
+  only by a match, and leaves one unmatched row however often it is asked (271) (`/api/cases/[id]/rule-runs`), shown on the case.
 - The idle and overdue triggers are evaluated by a sweep in the automations
   cron (see below). The other triggers fire from the database at once.
 

@@ -16,6 +16,10 @@ import { Loader2, Search } from 'lucide-react';
 
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
+import {
+  isUnconfirmed,
+  type NotificationStatus,
+} from '@/lib/compass/notification-status';
 import { caseStatusView } from '@/lib/cases/ui';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
@@ -53,9 +57,11 @@ interface CompassNotification {
   reference: string | null;
   phone: string | null;
   content_text: string | null;
-  status: 'sending' | 'sent' | 'failed';
+  status: NotificationStatus;
+  error_code: string | null;
   error_message: string | null;
   created_at: string;
+  updated_at: string;
   message: { status: string | null } | null;
 }
 
@@ -278,7 +284,7 @@ function NotificationsTab({ accountId }: { accountId: string }) {
       const { data, error: err } = await createClient()
         .from('compass_notifications')
         .select(
-          'id, idempotency_key, compass_id, event, reference, phone, content_text, status, error_message, created_at, message:messages(status)'
+          'id, idempotency_key, compass_id, event, reference, phone, content_text, status, error_code, error_message, created_at, updated_at, message:messages(status)'
         )
         .eq('account_id', accountId)
         .order('created_at', { ascending: false })
@@ -340,29 +346,42 @@ function NotificationsTab({ accountId }: { accountId: string }) {
                 </TableCell>
                 <TableCell className="max-w-md text-sm">
                   <p className="line-clamp-2">{row.content_text ?? '—'}</p>
-                  {row.status === 'failed' && row.error_message && (
-                    <p className="text-destructive mt-1 text-xs">
-                      {row.error_message}
+                  {isUnconfirmed(row) ? (
+                    <p className="text-warning mt-1 text-xs">
+                      {t('unconfirmedNote')}
                     </p>
+                  ) : (
+                    row.status === 'failed' &&
+                    row.error_message && (
+                      <p className="text-destructive mt-1 text-xs">
+                        {row.error_message}
+                      </p>
+                    )
                   )}
                 </TableCell>
                 <TableCell className="text-muted-foreground hidden text-xs md:table-cell">
                   {row.reference ?? row.event ?? row.idempotency_key}
                 </TableCell>
                 <TableCell>
-                  <Badge
-                    variant={
-                      row.status === 'failed'
-                        ? 'destructive'
-                        : row.status === 'sent'
-                          ? 'secondary'
-                          : 'outline'
-                    }
-                  >
-                    {row.status === 'sent' && row.message?.status
-                      ? t(`delivery.${deliveryKey(row.message.status)}`)
-                      : t(`status.${row.status}`)}
-                  </Badge>
+                  {isUnconfirmed(row) ? (
+                    <Badge className="bg-warning-soft text-warning">
+                      {t('status.unconfirmed')}
+                    </Badge>
+                  ) : (
+                    <Badge
+                      variant={
+                        row.status === 'failed'
+                          ? 'destructive'
+                          : row.status === 'sent'
+                            ? 'secondary'
+                            : 'outline'
+                      }
+                    >
+                      {row.status === 'sent' && row.message?.status
+                        ? t(`delivery.${deliveryKey(row.message.status)}`)
+                        : t(`status.${row.status}`)}
+                    </Badge>
+                  )}
                 </TableCell>
               </TableRow>
             ))}

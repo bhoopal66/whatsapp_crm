@@ -8,9 +8,22 @@ export type Row = Record<string, unknown>;
 
 const MAX_ROWS = 1000;
 
-/** One `col.op.value` term of an `or=` filter. */
+/** Split on the commas outside parentheses and quotes. */
+function splitTerms(expr: string): string[] {
+  return expr.match(/(?:"[^"]*"|\((?:"[^"]*"|[^()"])*\)|[^,"()])+/g) ?? [];
+}
+
+/** One `col.op.value` or `and(...)` term of an `or=` filter. */
 function orTerm(term: string): (r: Row) => boolean {
-  const [, col, op, value] = /^(\w+)\.(is|lt|not\.in)\.(.*)$/.exec(term) ?? [];
+  const and = /^and\((.*)\)$/.exec(term);
+  if (and) {
+    const all = splitTerms(and[1]).map(orTerm);
+    return (r) => all.every((t) => t(r));
+  }
+  const [, col, op, value] =
+    /^(\w+)\.(is|lt|lte|gte|not\.in)\.(.*)$/.exec(term) ?? [];
+  if (op === 'lte') return (r) => r[col] != null && String(r[col]) <= value;
+  if (op === 'gte') return (r) => r[col] != null && String(r[col]) >= value;
   if (op === 'is') return (r) => (r[col] ?? null) === null;
   if (op === 'lt') return (r) => r[col] != null && String(r[col]) < value;
   if (op === 'not.in') {
@@ -93,7 +106,7 @@ export function fakeDb(
           return where((r) => (r[c] ?? null) !== null);
         },
         or: (expr: string) => {
-          const terms = expr.split(/,(?=\w+\.(?:is|lt|not)\b)/).map(orTerm);
+          const terms = splitTerms(expr).map(orTerm);
           return where((r) => terms.some((t) => t(r)));
         },
         order: (c: string) => {

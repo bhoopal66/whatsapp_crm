@@ -163,7 +163,8 @@ export async function fileWithDurableCopy(args: {
         mediaId: media.objectId,
         downloadUrl: link,
         accessToken: channel.accessToken,
-        download: ({ downloadUrl }) => deps.download({ channel, downloadUrl }),
+        download: ({ downloadUrl, maxBytes }) =>
+          deps.download({ channel, downloadUrl, maxBytes }),
         mimeType: mimeType ?? undefined,
         fileSize,
         fileName: media.fileName,

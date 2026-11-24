@@ -175,6 +175,44 @@ server block sets any. `verify-storage-safe-mime.sql` asserts the bucket
 lists and the trigger's refusals; nothing in CI checks the nginx
 headers.
 
+## Chats and messages from a login (migration 284)
+
+What a signed-in person's own database access may write, whatever the
+client:
+
+| Table | Allowed | Never |
+| --- | --- | --- |
+| `conversations` | open a company chat for a contact they can see; open a personal chat on their own personal number; update a chat they can see | change its contact or workspace; delete it (delete the contact: open work and the legal hold are checked there); take it off its number unless an admin |
+| `messages` | add their own sent message to a chat they may write to | edit or delete any message; add one for the customer, the bot or a colleague, with another status, time or AI mark |
+
+Webhooks, delivery statuses, automations, merges and erasure use the
+service role or definer functions and are not affected. Refusals are
+`42501`.
+
+## WhatsApp media in Storage (migration 283)
+
+`chat-media` and `flow-media` are public buckets, because the WhatsApp
+gateways fetch a file by its link: whoever holds an object's full link can
+open it. Everything else about an object goes through RLS on
+`storage.objects`:
+
+- A signed-in person lists, reads, replaces, moves and removes only the
+  objects they uploaded (`owner_id`, or `owner` on a row an older Storage
+  wrote), and only in their active workspace's folder. This holds for
+  owners and admins too: what a person may see of a customer's files is
+  decided by the messages they may see, not by the bucket.
+- A person uploads into `chat-media` at `account-<id>/<file>`,
+  `account-<id>/staged/<file>` and `account-<id>/groups/<file>` only.
+  `inbound/`, `avatars/`, `voice-library/` and any other folder are
+  written by the server (service role). A new folder the browser uploads
+  to needs a migration restating 283's list
+  (`src/lib/storage/chat-media-owner-policy.test.ts`).
+- Anything a screen must do with another person's object goes through a
+  route with its own permission check and the service role, as the voice
+  library does.
+
+`verify-chat-media-owner.sql`.
+
 ## Housekeeping
 
 `edge_purge()` deletes expired claims, counters, failures and locks.
@@ -183,3 +221,52 @@ process; an install that does not ping that cron can schedule
 `SELECT public.edge_purge()` with pg_cron every 15 minutes instead.
 Correctness does not depend on it: an unpurged row is dead weight,
 never a wrong answer.
+
+## Read rules (migration 285)
+
+- `automation_logs`, `automation_steps`, `flow_nodes`: owners and admins.
+- `whatsapp_config`: every member reads the rows, nobody signed in reads
+  `access_token`, `verify_token` or `app_secret`. These columns are not
+  granted to `authenticated`, so a session never selects `*` from this
+  table; server code adds them with `withChannelSecrets()`
+  (`src/lib/whatsapp/channel-secrets.ts`). A new column needs its own
+  `GRANT SELECT`; `verify-read-rules.sql` fails until it has one.
+- `contact_notes`: a note is inserted and changed by its writer only, on a
+  customer the writer can see.
+## Invitations and API keys (migration 287)
+
+Both are made only in the name of the signed-in owner or admin who makes
+them. An invitation is for an assignable role, lasts at most 365 days and
+cannot be edited, only deleted. It opens with its token, which the database
+hashes; the stored hash is not a link. The older calls that take the hash
+(`redeem_invitation`, `peek_invitation`) stay callable only until the build
+that uses the token is out; then revoke them from `anon` and
+`authenticated`. An API key can be revoked but not otherwise changed by a
+session, and it keeps working after its maker leaves until someone revokes it
+in Settings → API keys.
+## A row belongs to its parent's account (migration 286)
+
+- A table that carries its own `account_id` beside a parent id ties the
+  two with a composite foreign key or a restrictive policy:
+  `team_members`, `whatsapp_channel_members`, `whatsapp_channel_teams`,
+  `whatsapp_routes`, `broadcast_recipients`, `broadcasts`,
+  `contact_tags`, `contact_custom_values`, `ai_knowledge_chunks`.
+- A function that reads `team_members` through a team joins on
+  `account_id` too; `verify-team-and-row-rules.sql` reads every body.
+- `team_members` has ONE foreign key to `teams`, the composite one: a
+  second would make PostgREST's `teams(team_members(...))` ambiguous.
+- A session writes only its own reaction, edits only its own customer
+  note (an admin may delete one), and links a deal only to rows it can
+  read (`deals_link_guard`).
+
+## Access points (migration 289)
+
+- Webhook endpoints and quick replies are inserted as `auth.uid()`, and a
+  session updates only the columns the app writes, never the maker, the
+  account or a webhook's secret.
+- `recycle_excluded_among`, `team_activity_start_check`,
+  `acknowledge_insight_attention` and `dismiss_tag_suggestion` answer only
+  for a customer or chat the caller can see.
+- The rate card tables need a live staff membership
+  (`current_account_id()`); `filter_contacts_by_tags` is not executable by
+  `anon`.

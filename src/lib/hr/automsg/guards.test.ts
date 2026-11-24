@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { decide, inQuietHours, type DecideInput } from './guards';
 import {
@@ -13,6 +14,7 @@ import {
 import {
   DEFAULT_SETTINGS,
   HOLD_REASONS,
+  STALE_REASONS,
   TEMPLATE_KINDS,
   TRIGGERS,
   type AutoMsgSettings,
@@ -49,6 +51,7 @@ function input(
     now: NOW,
     duplicate: false,
     state: {
+      stale: null,
       closed: false,
       optedOut: false,
       consent: true,
@@ -61,7 +64,8 @@ function input(
 }
 const why = (i: DecideInput) => {
   const d = decide(i);
-  return d.allow ? 'allow' : d.hold;
+  if (d.allow) return 'allow';
+  return d.hold === null ? d.cancel : d.hold;
 };
 
 describe('automsg guards', () => {
@@ -389,5 +393,34 @@ describe('validateTemplateBody: category and promotional wording (027a)', () => 
         body('hr_interview_invite', text)
       )
     ).toBe('ok');
+  });
+});
+
+describe('a reason that no longer holds (migration 275)', () => {
+  it('is cancelled with that reason, at night too', () => {
+    const i = input();
+    i.state.stale = 'stage_changed';
+    i.settings = { ...i.settings, quietStart: '00:00', quietEnd: '23:59' };
+    expect(decide(i)).toEqual({
+      allow: false,
+      hold: null,
+      cancel: 'stage_changed',
+    });
+  });
+  it('is only held while the kill switch is on', () => {
+    const i = input();
+    i.state.stale = 'no_longer_waiting';
+    i.settings = { ...i.settings, killSwitch: true };
+    expect(decide(i)).toEqual({ allow: false, hold: 'kill_switch' });
+  });
+  it('lists the reasons 275 answers, and no others', () => {
+    const sql = readFileSync(
+      'supabase/migrations/275_hr_automsg_still_true.sql',
+      'utf8'
+    );
+    const found = [...sql.matchAll(/NULL ELSE '([a-z_]+)' END/g)].map(
+      (m) => m[1]
+    );
+    expect(found).toEqual([...STALE_REASONS]);
   });
 });

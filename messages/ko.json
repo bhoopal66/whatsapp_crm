@@ -215,6 +215,9 @@
     "description": "다른 팀원이 나에게 배정한 대화가 여기에 표시되며, 관리자에게는 WhatsApp 번호가 오프라인이 되었을 때의 알림도 표시됩니다.",
     "bellLabel": "알림, {count, plural, =0 {읽지 않은 알림 없음} other {읽지 않은 알림 #건}}",
     "markAllRead": "모두 읽음으로 표시",
+    "markAllReadHint": "지금까지의 모든 알림을 읽음으로 표시합니다. 여기에 표시되지 않은 이전 알림도 포함됩니다",
+    "loadOlder": "이전 알림 더 보기",
+    "loadOlderFailed": "이전 알림을 불러오지 못했습니다",
     "markReadFailed": "알림을 읽음으로 표시하지 못했습니다",
     "markAllReadFailed": "모두 읽음으로 표시하지 못했습니다",
     "emptyTitle": "아직 알림이 없습니다",
@@ -287,7 +290,7 @@
         },
         "overdueCases": {
           "label": "기한 지난 케이스",
-          "hint": "{count, plural, =0 {SLA 기한 초과} other {고객 대기 중 #건}}"
+          "hint": "{count, plural, =0 {SLA 기한 초과} other {고객 답변 대기 #건}}"
         },
         "allClear": "모두 처리됨",
         "unavailable": "불러오지 못함"
@@ -346,7 +349,7 @@
         "leads": "{count, plural, other {리드 {shown}건}}",
         "overdue": "SLA 기한 초과",
         "dueSoon": "기한 임박",
-        "customerWaiting": "고객 대기 중",
+        "customerWaiting": "고객 답변 대기",
         "documentsMissing": "서류 누락",
         "bankQueries": "은행 문의",
         "urgent": "가장 급한 케이스",
@@ -844,7 +847,12 @@
       "draftSent": "초안을 보냈습니다.",
       "draftDiscarded": "초안을 삭제했습니다.",
       "draftReplaced": "그 사이 AI가 새 초안을 보류했습니다. 지금 표시됩니다.",
+      "draftMaybeSent": "초안이 전송되었을 수 있습니다. 다시 보내기 전에 채팅을 확인하세요.",
+      "draftSentUnsaved": "초안은 전송되었지만 저장하지 못해 이 채팅에 표시되지 않습니다. 다시 보내지 마세요.",
       "draftError": "AI 초안을 처리하지 못했습니다.",
+      "unconfirmedLabel": "보내기를 누른 텍스트",
+      "copyText": "복사",
+      "copiedText": "복사됨",
       "outcomeWarning": "AI가 마지막 메시지에 답하지 않았습니다: {reason}",
       "outcomeDetail": "세부 정보: {detail}",
       "outcome": {
@@ -982,6 +990,35 @@
       "toastBulkNotDeleted": "삭제된 연락처가 없습니다. 더 이상 접근 권한이 없거나 이미 삭제되었을 수 있습니다.",
       "toastBulkDeleted": "연락처 {count}개가 삭제되었습니다"
     },
+    "deleteDialog": {
+      "checking": "함께 삭제되는 항목을 확인하는 중…",
+      "deletedTitle": "{count, plural, other {고객과 함께 삭제됩니다:}}",
+      "keptTitle": "{count, plural, other {고객 없이 남습니다:}}",
+      "chats": "{count, plural, other {채팅 #개와 메시지}}",
+      "tasks": "{count, plural, other {미완료 작업 #개}}",
+      "dealRooms": "{count, plural, other {딜 룸 #개}}",
+      "deals": "{count, plural, other {딜 #건}}",
+      "documents": "{count, plural, other {문서 #개}}",
+      "cases": "{count, plural, other {케이스 #건}}",
+      "optOutNote": "수신 거부와 연락 금지는 기억되며, 번호가 다시 추가되면 다시 적용됩니다.",
+      "blockedOne": "이 고객은 아직 삭제할 수 없습니다:",
+      "blockedSome": "{count, plural, other {연락처 #개는 아직 삭제할 수 없어 제외됩니다:}}",
+      "blockedAll": "선택한 연락처는 모두 아직 삭제할 수 없습니다:",
+      "blockedRow": "{name}: {reason}",
+      "blockedHint": "진행 중인 업무를 먼저 종료하세요. 법적 보존은 설정의 개인정보에서 해제합니다.",
+      "more": "외 {count}명",
+      "moreNames": "다른 {count}명",
+      "close": "닫기",
+      "reasonLegalHold": "법적 보존",
+      "reasonCases": "{count, plural, other {진행 중인 케이스 #건}}",
+      "reasonDealRooms": "{count, plural, other {열린 딜 룸 #개}}",
+      "reasonSubmissionGroups": "{count, plural, other {활성 제출 그룹 #개}}",
+      "reasonOpenWork": "진행 중인 업무",
+      "reasonFailed": "실패, 다시 시도하세요",
+      "stayedRow": "{name} ({reason})",
+      "toastRefused": "{name} 고객이 삭제되지 않았습니다: {reason}.",
+      "toastBulkStayed": "연락처 {total}개 중 {count}개가 삭제되었습니다. 삭제되지 않음: {names}."
+    },
     "form": {
       "addTitle": "연락처 추가",
       "addDesc": "새 연락처를 만듭니다. 이름은 필수입니다.",
@@ -1098,18 +1135,21 @@
       "problemNoPhone": "전화번호가 없습니다.",
       "problemNotSaved": "저장하지 못함: {reason}",
       "problemsMore": "+ {count}개 더",
+      "savedAs": "이미 고객입니다 ({savedAs}(으)로 저장됨)",
+      "errorEncoding": "이 파일의 일부 글자를 읽을 수 없습니다. Excel에서 \"CSV UTF-8\" 또는 .xlsx로 저장한 뒤 업로드하세요.",
+      "errorXls": "이전 형식의 .xls 통합 문서입니다. .xlsx 또는 CSV로 저장한 뒤 업로드하세요.",
+      "errorXlsxLimit": "통합 문서가 너무 커서 가져올 수 없습니다: {reason}",
+      "errorCsvParse": "파일을 읽을 수 없습니다.",
       "closeConfirm": "아직 가져오는 중입니다. 중지할까요? 이미 가져온 연락처는 그대로 유지됩니다.",
       "keepImporting": "계속 가져오기",
       "stopAndClose": "중지하고 닫기",
       "title": "연락처 가져오기",
-      "desc": "필수 <phoneCode>phone</phoneCode> 열이 포함된 CSV를 업로드하세요. 선택 항목: <nameCode>name</nameCode>, <emailCode>email</emailCode>, <companyCode>company</companyCode>. <tagsCode>tags</tagsCode>를 포함한 그 밖의 열은 무시됩니다.",
-      "uploadDropzone": "클릭하여 CSV 파일 선택",
-      "uploadHint": "브라우저 제한까지 .csv 업로드 가능",
-      "rowsReady": "{count}개 행 준비됨",
-      "rowsReady_plural": "{count}개 행 준비됨",
+      "desc": "필수 <phoneCode>phone</phoneCode> 열이 포함된 CSV 또는 Excel(.xlsx, 첫 번째 시트) 파일을 업로드하세요. 선택 항목: <nameCode>name</nameCode>, <emailCode>email</emailCode>, <companyCode>company</companyCode>. <tagsCode>tags</tagsCode>를 포함한 그 밖의 열은 무시됩니다.",
+      "uploadDropzone": "클릭하여 CSV 또는 Excel 파일 선택",
+      "uploadHint": "브라우저 제한까지 .csv 또는 .xlsx 업로드 가능",
+      "rowsReady": "{count, plural, one {#개 행 준비됨} other {#개 행 준비됨}}",
       "preview": "미리보기 · 처음 {count}개",
-      "moreRows": "표시되지 않은 행 {count}개 더 있음",
-      "moreRows_plural": "표시되지 않은 행 {count}개 더 있음",
+      "moreRows": "{count, plural, one {표시되지 않은 행 #개 더 있음} other {표시되지 않은 행 #개 더 있음}}",
       "importComplete": "가져오기 완료",
       "resultImported": "{count}개 가져옴",
       "resultSkipped": "{count}개 건너뜀",
@@ -1122,15 +1162,11 @@
       },
       "cancel": "취소",
       "close": "닫기",
-      "importBtn": "{count}개 연락처 가져오기",
-      "importBtn_plural": "{count}개 연락처 가져오기",
-      "toastNoValidRows": "유효한 행을 찾을 수 없습니다. CSV에 \"phone\" 열 헤더가 있는지 확인하세요.",
-      "toastImported": "연락처 {count}개를 가져왔습니다",
-      "toastImported_plural": "연락처 {count}개를 가져왔습니다",
-      "toastSkipped": "중복 {count}건을 건너뛰었습니다",
-      "toastSkipped_plural": "중복 {count}건을 건너뛰었습니다",
-      "toastFailed": "연락처 {count}개를 가져오지 못했습니다",
-      "toastFailed_plural": "연락처 {count}개를 가져오지 못했습니다",
+      "importBtn": "{count, plural, one {#개 연락처 가져오기} other {#개 연락처 가져오기}}",
+      "toastNoValidRows": "유효한 행을 찾을 수 없습니다. 파일에 \"phone\" 열 헤더가 있는지 확인하세요.",
+      "toastImported": "{count, plural, one {연락처 #개를 가져왔습니다} other {연락처 #개를 가져왔습니다}}",
+      "toastSkipped": "{count, plural, one {중복 #건을 건너뛰었습니다} other {중복 #건을 건너뛰었습니다}}",
+      "toastFailed": "{count, plural, one {연락처 #개를 가져오지 못했습니다} other {연락처 #개를 가져오지 못했습니다}}",
       "toastError": "가져오기 실패"
     },
     "customFields": {
@@ -1140,6 +1176,7 @@
       "fieldName": "새 필드 이름…",
       "loading": "불러오는 중…",
       "empty": "아직 커스텀 필드가 없습니다.",
+      "loadFailed": "사용자 지정 필드를 불러오지 못해 지금은 추가하거나 변경할 수 없습니다.",
       "renameAria": "{name} 이름 변경",
       "deleteTitle": "필드 삭제",
       "deleteConfirm": "\"{name}\"을(를) 삭제하시겠습니까? 모든 연락처에 저장된 값도 함께 삭제되며, 되돌릴 수 없습니다.",
@@ -1148,7 +1185,9 @@
       "toastCreateFailed": "필드를 만들 수 없습니다. 권한이 없을 수 있습니다.",
       "toastCreated": "\"{name}\"을(를) 만들었습니다.",
       "toastRenameFailed": "필드 이름을 변경할 수 없습니다.",
+      "toastNotRenamed": "이름이 변경되지 않았습니다. 필드가 삭제되었거나 더 이상 권한이 없을 수 있습니다.",
       "toastDeleteFailed": "필드를 삭제할 수 없습니다.",
+      "toastNotDeleted": "삭제된 항목이 없습니다. 필드가 이미 삭제되었거나 더 이상 권한이 없을 수 있습니다.",
       "toastDeleted": "\"{name}\"을(를) 삭제했습니다."
     }
   },
@@ -1518,6 +1557,7 @@
         "errorLoadFields": "커스텀 필드를 불러오지 못했습니다",
         "csvBadLines": "읽을 수 없는 줄(닫히지 않은 따옴표): {lines}.",
         "errorCsvParse": "파일을 읽을 수 없습니다.",
+        "errorEncoding": "이 파일의 일부 글자를 읽을 수 없습니다. Excel에서 \"CSV UTF-8\" 또는 .xlsx로 저장한 뒤 업로드하세요.",
         "errorXlsxLimit": "통합 문서가 너무 커서 가져올 수 없습니다: {reason}",
         "errorCsvMissingPhone": "파일에 'phone' 또는 'Phone Number' 열이 있어야 합니다.",
         "errorXls": "이전 형식의 .xls 통합 문서입니다. .xlsx 또는 CSV로 저장한 뒤 업로드하세요.",
@@ -2322,6 +2362,7 @@
       "customised": "(기본값에서 변경됨)",
       "saved": "{department} 설정을 저장했습니다",
       "saveFailed": "부서 설정을 저장하지 못했습니다",
+      "rereadFailed": "현재 설정을 확인하지 못해 아무것도 변경하지 않았습니다. 다시 시도하세요.",
       "loadFailed": "부서 설정을 불러오지 못했습니다",
       "memberLabel": "부서",
       "memberChanged": "{name}님이 {department} 부서로 이동했습니다",
@@ -2453,7 +2494,20 @@
         "failed": "업무를 인계하지 못했습니다. 다시 시도하세요.",
         "later": "나중에",
         "removeWarning": "{name} 님이 아직 {what}을(를) 보유하고 있습니다. 제거하면 담당자가 없어지므로 먼저 인계하세요.",
-        "noPeople": "업무를 인계받을 다른 사람이 없습니다."
+        "noPeople": "업무를 인계받을 다른 사람이 없습니다.",
+        "holdsKeys": "만든 API 키 {count, plural, other {#개}}가 아직 유효합니다",
+        "keysTitle": "이 사람이 만든 API 키 {count, plural, other {#개}}",
+        "keysHint": "자동으로 취소되는 것은 없습니다. 연동이 키로 실행 중일 수 있으니, 아무도 쓰지 않는 키만 취소하세요.",
+        "keyLastUsed": "마지막 사용 {date}",
+        "keyNeverUsed": "사용 기록 없음",
+        "revoke": "취소",
+        "revokeConfirm": "\"{name}\" 키를 취소할까요? 이 키를 쓰는 모든 것이 즉시 멈춥니다.",
+        "revoked": "\"{name}\" 키를 취소했습니다.",
+        "revokeFailed": "키를 취소하지 못했습니다. 다시 시도하세요.",
+        "keysUnreadable": "API 키를 읽을 수 없습니다.",
+        "removeKeysWarning": "{name}님이 만든 API 키 {count, plural, other {#개}}는 제거 후에도 유효합니다. 아무도 쓰지 않는 키는 취소하세요.",
+        "strayTitle": "관리자가 없는 API 키 {count, plural, other {#개}}",
+        "strayHint": "이 워크스페이스를 떠난 사람이 만든 키입니다. 취소할 때까지 계속 작동합니다."
       }
     },
     "invite": {
@@ -2899,6 +2953,8 @@
       "makeDefault": "기본으로 설정",
       "madeDefault": "{name}이(가) 기본 번호가 되었습니다",
       "chatCount": "채팅 {count}개",
+      "chatCountUnknown": "채팅 수를 확인할 수 없음",
+      "removeChatsUnknown": "이 번호의 채팅 수를 확인할 수 없습니다.",
       "rename": "이름 변경",
       "renamed": "이름을 {name}(으)로 변경했습니다",
       "saveName": "이름 저장",
@@ -3403,6 +3459,7 @@
       "uploadFile": "파일 업로드",
       "uploadTooltip": "PDF, .txt, .md, .csv 또는 .json — 텍스트를 추출하여 문서로 추가합니다",
       "uploadSuccess": "문서가 추가되었습니다 ({chars}자 추출).",
+      "uploadEncoding": "이 파일의 일부 글자를 읽을 수 없습니다. UTF-8 텍스트(Excel에서는 \"CSV UTF-8\")로 저장한 뒤 업로드하세요.",
       "uploadFailed": "업로드에 실패했습니다."
     },
     "aiKnowledgeGaps": {
@@ -4746,7 +4803,7 @@
       }
     },
     "title": "Taamul Compass",
-    "subtitle": "Compass ERP에서 동기화된 고객과 Whapi 번호로 발송된 상태 알림입니다. 읽기 전용이며, 원본 데이터는 Compass에서 관리합니다.",
+    "subtitle": "Compass ERP에서 동기화된 고객과 Meta 번호로 발송된 상태 알림입니다. 읽기 전용이며, 원본 데이터는 Compass에서 관리합니다.",
     "tabs": {
       "customers": "고객",
       "notifications": "알림",
@@ -4759,6 +4816,7 @@
     "noMatches": "검색 조건에 맞는 고객이 없습니다.",
     "noNotifications": "Compass가 아직 알림을 보내지 않았습니다.",
     "latest100": "최근 알림 100건을 표시합니다.",
+    "unconfirmedNote": "WhatsApp에 전달했지만 명확한 응답이 없었습니다. 고객이 받았을 수 있으므로 다시 보내지 않습니다. 채팅을 확인하세요.",
     "linked": "채팅 있음",
     "notYet": "메시지 없음",
     "loadMore": "더 보기",
@@ -4779,7 +4837,8 @@
     "status": {
       "sending": "발송 중",
       "sent": "발송됨",
-      "failed": "실패"
+      "failed": "실패",
+      "unconfirmed": "확인되지 않음"
     },
     "delivery": {
       "sent": "발송됨",
@@ -5724,6 +5783,7 @@
       "dmSize": "다이렉트 메시지는 2~8명이 참여할 수 있습니다.",
       "lastAdmin": "채널에는 관리자가 한 명 이상 있어야 합니다.",
       "lastMember": "마지막 멤버는 채널을 나갈 수 없습니다.",
+      "dmPair": "두 사람 간의 다이렉트 메시지는 나갈 수 없습니다.",
       "pinLimit": "채널에는 최대 100개까지 고정할 수 있습니다.",
       "reasonRequired": "사유를 5자 이상 입력하세요.",
       "threadInvalid": "이 스레드에는 답글을 달 수 없습니다.",
@@ -5870,7 +5930,9 @@
       "close": "스레드 닫기",
       "loading": "스레드를 불러오는 중…",
       "gone": "이 메시지를 볼 수 없습니다.",
-      "replies": "{count, plural, =0 {아직 답글이 없습니다} other {답글 #개}}"
+      "replies": "{count, plural, =0 {아직 답글이 없습니다} other {답글 #개}}",
+      "loadOlder": "이전 답글 불러오기",
+      "loadingOlder": "이전 답글을 불러오는 중…"
     },
     "members": {
       "title": "멤버",
@@ -6081,6 +6143,7 @@
       "timeline": {
         "loading": "메시지를 불러오는 중…",
         "loadOlder": "이전 메시지 불러오기",
+        "loadFailed": "메시지를 불러오지 못했습니다.",
         "empty": "이 그룹에 아직 메시지가 없습니다.",
         "unsupported": "지원되지 않는 메시지",
         "savedToDeal": "딜 파일에 자동 저장됨",
@@ -6112,9 +6175,11 @@
         "confirmBody": "{count, plural, other {#명}}에게 전송되며 받는 멤버마다 요금이 부과됩니다. 보낸 후에는 수정하거나 삭제할 수 없습니다.",
         "confirm": "템플릿 보내기",
         "cancel": "취소",
+        "notRecorded": "그룹에 전송되었지만 여기에 기록되지 않았습니다. 이 대화에는 표시되지 않습니다.",
         "errors": {
           "window_closed": "응답 가능 시간이 방금 종료되었습니다. 승인된 템플릿을 보내세요.",
           "room_not_open": "이 룸은 열려 있지 않습니다.",
+          "unconfirmed": "이미 전송되었을 수 있습니다. 다시 보내기 전에 그룹을 확인하세요.",
           "group_not_ready": "아직 아무도 그룹에 참여하지 않았습니다.",
           "group_suspended": "WhatsApp이 이 그룹을 정지했습니다.",
           "template_rejected": "WhatsApp이 이 템플릿을 거부했습니다.",
@@ -6561,6 +6626,7 @@
       "ownHint": "A person's own limit replaces the default for them. These save as soon as you add, change or remove them.",
       "none": "Nobody has a limit of their own.",
       "openNow": "{count, plural, one {# open chat now} other {# open chats now}}",
+      "openUnknown": "열린 대화: 확인할 수 없음",
       "limitFor": "Chat limit for {name}",
       "update": "Update",
       "remove": "Remove the limit for {name}",
@@ -6590,10 +6656,12 @@
       "bad_limit": "A chat limit must be a whole number from 1 to 500.",
       "pool_member_invalid": "Everyone who takes turns must be an active agent or team leader here. Refresh and try again.",
       "pool_too_large": "At most 500 people can take turns.",
+      "pool_changed": "이 페이지를 연 뒤 다른 사람이 순번 대상자를 변경했습니다. 저장된 내용이 없습니다. 페이지를 새로 고친 후 다시 시도하세요.",
       "no_such_member": "That person is no longer in this workspace.",
       "not_allowed": "Only an owner or admin can change chat assignment.",
       "not_available": "Chat assignment needs a database update (migration 236).",
-      "invalid_body": "Something in the form was not valid. Refresh and try again."
+      "invalid_body": "Something in the form was not valid. Refresh and try again.",
+      "reload": "이 페이지는 오래되었습니다. 새로 고친 후 다시 시도하세요."
     }
   },
   "Workspaces": {
@@ -6835,6 +6903,7 @@
         "marketing_opt_in_withdrawn": "수신 동의 철회됨",
         "opted_out": "수신 거부함",
         "resubscribed": "다시 구독함",
+        "restored": "고객 삭제 이전 상태로 복원됨",
         "do_not_contact_set": "연락 금지 설정됨",
         "do_not_contact_cleared": "연락 금지 해제됨"
       },
@@ -7029,6 +7098,7 @@
     },
     "mineHint": "내가 걸거나 받았거나 내 전화로 울린 통화, 최신순",
     "missedHint": "최근 7일간의 부재중 전화, 최신순",
+    "tasksTruncated": "부재중 전화 작업 중 처음 {count, number}개만 표시합니다. 표시가 없는 통화에도 작업이 있을 수 있습니다.",
     "missedWho": {
       "label": "부재중 전화 범위",
       "mine": "내 것",
@@ -7416,7 +7486,8 @@
         "invalidDateTime": "이 시간대에 존재하지 않는 날짜와 시간입니다.",
         "durationInvalid": "회의 시간을 선택하세요.",
         "startInPast": "이미 지난 시간입니다.",
-        "saveFailed": "회의를 저장하지 못했습니다."
+        "saveFailed": "회의를 저장하지 못했습니다.",
+        "savedPartly": "회의는 저장되었지만 초대한 사람들이 모두 업데이트되지는 않았습니다. 목록을 확인하고 다시 시도해 주세요."
       },
       "durationCustom": "직접 입력한 회의 시간(분)",
       "minutesUnit": "분",
@@ -8164,16 +8235,20 @@
       "call_outcome_due": "통화 결과 입력 필요",
       "deal_room_join_request": "딜룸 참여 요청",
       "deal_room_update": "딜룸 업데이트",
+      "deal_room_message": "딜룸의 고객 및 은행 메시지",
       "channel_disconnected": "WhatsApp 번호 연결 끊김",
       "channel_reconnected": "WhatsApp 번호 다시 연결됨",
       "inbound_message_failed": "WhatsApp 메시지를 저장하지 못함",
       "meta_number_alert": "Meta 번호 상태 악화",
+      "retention_failed": "자동 데이터 삭제(보관 기간) 실패",
       "pbx_connection_silent": "전화 시스템 응답 없음",
       "pbx_connection_restored": "전화 시스템 복구됨",
       "team_activity_alert": "팀 활동 알림",
       "team_activity_unlock_request": "차단된 메시지의 잠금 해제 요청",
       "team_activity_unlock_decided": "내 잠금 해제 요청이 결정됨",
       "meeting_invite": "회의 초대",
+      "meeting_update": "회의 시간이 변경됨",
+      "meeting_cancelled": "회의가 취소됨",
       "meeting_reminder": "회의 미리 알림",
       "event_reminder": "캘린더 미리 알림",
       "group_join_request": "WhatsApp 그룹 가입 요청",
@@ -8280,7 +8355,10 @@
       "atStart": "시작 시",
       "minutes": "{count}분",
       "hours": "{count}시간",
-      "days": "{count}일"
+      "days": "{count}일",
+      "atMidnight": "자정",
+      "dayBefore": "전날 {time}",
+      "daysBefore": "{count}일 전 {time}"
     },
     "repeat": {
       "daily": "{interval, plural, =1 {매일} other {#일마다}}",
@@ -9210,7 +9288,7 @@
       "sla": "SLA",
       "allSla": "모든 SLA",
       "sort": "정렬",
-      "customerWaiting": "고객 대기 중",
+      "customerWaiting": "고객 답변 대기",
       "documentsMissing": "서류 누락",
       "bankQueryOpen": "은행 문의 진행 중",
       "noActivity": "활동 없음",
@@ -9250,7 +9328,7 @@
       "due": "마감"
     },
     "flags": {
-      "customerWaiting": "고객 대기 중",
+      "customerWaiting": "고객 답변 대기",
       "documentsMissing": "서류 {count}건 누락",
       "bankQuery": "은행 문의",
       "overdueTasks": "지연된 작업 {count}건"
@@ -11720,7 +11798,8 @@
       "invalid_timezone": "목록에서 시간대를 선택하세요.",
       "invalid_hours": "영업시간을 확인하세요. 시작은 종료보다 빨라야 하고, 하루 안의 시간이 겹치면 안 됩니다.",
       "invalid_target": "목표는 1~1440 사이의 정수(분)여야 합니다.",
-      "not_allowed": "소유자와 관리자만 응답 시간을 바꿀 수 있습니다."
+      "not_allowed": "소유자와 관리자만 응답 시간을 바꿀 수 있습니다.",
+      "reload": "이 페이지는 오래되었습니다. 새로 고친 후 다시 시도하세요."
     }
   },
   "CommandBar": {
@@ -12087,6 +12166,10 @@
     "sidebarLink": "이 고객의 문서 열기"
   },
   "CaseFiles": {
+    "useAgain": "이 파일 다시 사용",
+    "useAgainTitle": "이 {label} 파일을 다시 사용할까요?",
+    "useAgainBody": "{name}을(를) 다시 검사합니다. 통과하면 현재 버전을 대체합니다.",
+    "usedAgain": "{label}에 이전 파일을 다시 사용합니다.",
     "title": "케이스 파일",
     "hint": "은행에 보내는 파일로, 문서마다 하나씩입니다. 파일은 첨부할 때 검사됩니다.",
     "closedReadOnly": "종료된 케이스이므로 파일을 보기만 할 수 있습니다.",
@@ -12127,6 +12210,9 @@
     "uploadTooLarge": "파일이 10MB보다 큽니다.",
     "uploadWrongType": "PDF, JPEG 또는 PNG 파일을 고르세요.",
     "uploadConfirm": "업로드",
+    "filedAs": "이 파일은 이미 {type}(으)로 분류되어 있습니다. 여기로 옮기면 {type} 문서가 없어집니다.",
+    "moveConfirm": "여기로 옮기기",
+    "reuseWouldFail": "지금은 검사를 통과하지 못하는 이전 버전이어서 아무것도 변경하지 않았습니다:",
     "expiresOn": "만료일 (선택)",
     "expiryHint": "만료 검사에 쓰입니다. 문서가 최소 {days}일 동안 유효해야 합니다.",
     "expiryInvalid": "올바른 만료일을 입력하세요.",
@@ -12194,6 +12280,9 @@
       "VALIDATION_FAILED": "올바르지 않은 요청입니다.",
       "MIME_NOT_ALLOWED": "PDF, JPEG 또는 PNG 파일을 업로드하세요.",
       "FILE_INVALID": "여기에서 사용할 수 없는 파일입니다.",
+      "ALREADY_FILED_AS": "이 파일은 이미 다른 문서로 분류되어 있습니다. 새로 고친 뒤 다시 시도하세요.",
+      "REUSE_WOULD_FAIL": "지금은 검사를 통과하지 못하는 이전 버전이어서 아무것도 변경하지 않았습니다.",
+      "STORAGE_UNAVAILABLE": "파일 저장소가 응답하지 않습니다. 잠시 후 다시 시도하세요.",
       "generic": "문제가 발생했습니다. 다시 시도하세요."
     }
   },
@@ -12414,6 +12503,7 @@
       "done": "완료",
       "empty": "열린 HR 작업이 없습니다.",
       "loadFailed": "HR 작업을 불러오지 못했습니다.",
+      "truncated": "마감이 가까운 처음 {count, number}개 작업만 표시합니다. ‘내 작업’과 ‘기한 지남만’은 이 목록 안에서만 찾습니다.",
       "doneFailed": "작업을 완료로 표시하지 못했습니다.",
       "doneTask": "“{title}” 완료 처리",
       "openChat": "채팅 열기",
@@ -12947,6 +13037,7 @@
     "empty": "지금 처리할 항목이 없습니다.",
     "partial": "불러오지 못해 표시되지 않은 항목: {parts}.",
     "stale": "새로 고치지 못한 항목: {parts}. 지금 보이는 내용은 이전에 불러온 것입니다.",
+    "casesTruncated": "처음 {count, number}개 케이스만 표시합니다. 그 뒤의 케이스는 이 목록에 없습니다.",
     "parts": {
       "hr": "HR 대화",
       "drafts": "에이전트 초안",
@@ -13052,6 +13143,7 @@
       "CASE_NOT_FOUND": "해당 번호나 코드의 진행 중인 케이스가 없습니다.",
       "BANK_MISMATCH": "케이스가 다른 은행에 있습니다.",
       "CASE_EXISTS_NAME_MISMATCH": "이 면허는 다른 회사명으로 등록되어 있습니다.",
+      "COMPANY_RESTRICTED": "이 회사 또는 고객은 다른 동료가 담당하고 있습니다. 분류 담당자가 처리합니다.",
       "OTHER": "자동으로 등록할 수 없었습니다."
     },
     "actions": {
@@ -13416,7 +13508,11 @@
       },
       "apply": "적용: 매일 삭제하고 비웁니다",
       "dryRun": "미리보기만: 매일 세기만 하고 바꾸지 않습니다",
-      "saved": "보관 기간을 저장했습니다"
+      "saved": "보관 기간을 저장했습니다",
+      "lastDryRun": "마지막 실행 {at}: 미리보기. {rows, plural, one {#개 행} other {#개 행}}과 {files, plural, one {#개 파일} other {#개 파일}}을 삭제하거나 비우게 됩니다.",
+      "lastApply": "마지막 실행 {at}: {rows, plural, one {#개 행} other {#개 행}}을 삭제하거나 비웠고, {files, plural, one {#개 파일} other {#개 파일}}이 삭제 대기 중입니다.",
+      "lastMore": "남은 데이터가 있으며 자동으로 계속됩니다.",
+      "lastFailed": "마지막 실행 {at}이 실패했습니다({code}). 자동으로 다시 시도하며 소유자에게 알렸습니다."
     },
     "ai": {
       "title": "고객 텍스트를 AI 제공자에게 보내기",
@@ -13498,8 +13594,9 @@
   "KbLearn": {
     "title": "팀 답변에서 학습",
     "description": "매주 한 번, 열린 주제에 대해 팀이 채팅에서 답한 내용으로 답변 초안을 작성합니다. 초안일 뿐이며 관리자가 승인하기 전에는 아무것도 전송되지 않습니다.",
-    "notApplied": "아직 사용할 수 없습니다: 데이터베이스 마이그레이션 270을 적용하세요.",
+    "notApplied": "아직 사용할 수 없습니다: 데이터베이스 마이그레이션 290을 적용하세요.",
     "lastRun": "마지막 실행 {when}.",
+    "lastRunDrafts": "마지막 실행 {when}. 새 초안: {count}개.",
     "notRunYet": "첫 실행은 한 시간 안에 시작됩니다.",
     "loadFailed": "학습 설정을 불러오지 못했습니다",
     "saveFailed": "학습 설정을 저장하지 못했습니다",

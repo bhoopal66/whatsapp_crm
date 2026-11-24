@@ -94,10 +94,10 @@ export interface MembersPanelProps {
   onLeft: () => void;
 }
 
-/** A workspace owner or admin: never restricted, never blocked (160). */
+/** An active workspace owner or admin: never restricted, never blocked (160). */
 function isWorkspaceAdminPerson(person: ChatPerson | undefined): boolean {
   const role = person?.role;
-  return isAccountRole(role) && canManageMembers(role);
+  return !person?.deactivated && isAccountRole(role) && canManageMembers(role);
 }
 
 function Avatar({ person, userId }: { person?: ChatPerson; userId: string }) {
@@ -298,7 +298,13 @@ export function MembersPanel({
       : null;
     const leaveWhy =
       mine && ctx
-        ? leaveBlock({ kind: ctx.kind, myRole, userId: me, ...roster })
+        ? leaveBlock({
+            kind: ctx.kind,
+            myRole,
+            userId: me,
+            dmMemberIds: channel?.dmMemberIds ?? [],
+            ...roster,
+          })
         : 'notMember';
     const removable =
       !!ctx && canRemoveMember(m, { ...ctx, ...roster, userId: me });
@@ -396,7 +402,7 @@ export function MembersPanel({
                   <span>{t('members.remove')}</span>
                 </DropdownMenuItem>
               )}
-              {leaveWhy !== 'notMember' && (
+              {leaveWhy !== 'notMember' && leaveWhy !== 'dmPair' && (
                 <DropdownMenuItem
                   variant="destructive"
                   disabled={leaveWhy !== null}

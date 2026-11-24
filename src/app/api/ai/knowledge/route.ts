@@ -12,7 +12,7 @@ import {
 } from '@/lib/rate-limit';
 import { loadEmbeddingsKey } from '@/lib/ai/config';
 import { ingestDocument } from '@/lib/ai/knowledge';
-import { AiError } from '@/lib/ai/types';
+import { ingestWarning } from '@/lib/ai/ingest-warning';
 
 /**
  * GET /api/ai/knowledge
@@ -93,13 +93,12 @@ export async function POST(request: Request) {
         content
       );
     } catch (err) {
-      const message = err instanceof AiError ? err.message : 'indexing failed';
       console.error('[ai/knowledge POST] ingest error:', err);
       return NextResponse.json(
         {
           success: true,
           id: doc.id,
-          warning: `Saved, but semantic indexing failed (${message}). Lexical search still works; use Reindex to retry.`,
+          warning: ingestWarning('Saved', err),
         },
         { status: 200 }
       );

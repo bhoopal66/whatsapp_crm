@@ -123,7 +123,20 @@ export function MeetingFormDialog({
           body: JSON.stringify(built.body),
         }
       );
-      if (!res.ok) throw new Error(String(res.status));
+      if (!res.ok) {
+        // `saved: true`: the meeting itself changed and only the invitee
+        // step failed, so say that and reload rather than leave stale data.
+        const failed = (await res.json().catch(() => null)) as {
+          saved?: unknown;
+        } | null;
+        if (failed?.saved === true) {
+          toast.error(t('errors.savedPartly'));
+          onOpenChange(false);
+          onSaved?.(null);
+          return;
+        }
+        throw new Error(String(res.status));
+      }
       const json = (await res.json().catch(() => null)) as {
         meeting?: unknown;
         id?: unknown;
@@ -308,7 +321,7 @@ export function MeetingFormDialog({
                   return (
                     <li
                       key={id}
-                      className="bg-muted flex items-center gap-1.5 rounded-full py-0.5 pe-1 ps-0.5 text-xs"
+                      className="bg-muted flex items-center gap-1.5 rounded-full py-0.5 ps-0.5 pe-1 text-xs"
                     >
                       <PersonAvatar
                         person={{ userId: id, name, avatarUrl: avatarOf(id) }}

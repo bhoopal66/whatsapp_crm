@@ -113,7 +113,9 @@ contract.
   in Recruitment (cv_review, created_by NULL), but only if every message
   in it came through an HR line (`'other_numbers'` otherwise: one company
   chat per contact means a sales chat must never turn into a candidate).
-  Off by default.
+  Off by default. The sales bot asks the same function before it answers
+  (`notSalesChat` in `lib/ai/auto-reply.ts`) and stands down on an HR
+  line; with auto-open off it only knows a chat by its HR row.
   `verify-hr-lines.sql`.
 - **My worklist (029c).** `/worklist`: `lib/worklist` ranks open HR
   chats (Hire fast's own scoring, imported), cases needing action and
@@ -121,3 +123,13 @@ contract.
   Assignee ids are auth user ids; titles carry no names or bodies.
 - **263.** `hr_automsg_due` lets channels take turns under its limit (203's
   order within a channel).
+- **275.** A queued row is re-checked for its reason
+  (`hr_automsg_stale_reason` ↔ `STALE_REASONS`): a stage row while the
+  chat is in that stage, a nudge while the silence in its dedupe key
+  lasts. Otherwise the engine or the claim cancels it, reason in
+  `last_error` (never a hold: it would go out when the chat moves back).
+  Restates 215's row_state, claim and mark: apply in order, once.
+  `verify-hr-automsg-still-true.sql`.
+- **Opt-out (2026-11-23).** `agents/inbound.ts` checks `isOptOut` before
+  the closed / department gates; a failed stamp is re-read, retried once,
+  then logged `OPT-OUT NOT RECORDED`.

@@ -210,6 +210,49 @@ describe('PATCH moves the case', () => {
   });
 });
 
+describe('a status sent for a closed case', () => {
+  const closedAs = (stage: string) =>
+    m.cases.get.mockResolvedValue({
+      id: 'case-1',
+      stage,
+      outcome: stage,
+      closedAt: new Date('2026-11-20T08:00:00Z'),
+    });
+
+  it.each(['ACTIVE', 'ENDED'] as const)(
+    'on an %s group is 200 with case_status_applied false, logged once',
+    async (status) => {
+      m.store.findByRef.mockResolvedValue(group({ status }));
+      m.cases.applySubmissionStatus.mockResolvedValue(false);
+      closedAs('Declined');
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const res = await patch({ status: 'APPROVED' });
+      const logged = warn.mock.calls;
+      warn.mockRestore();
+      expect(res.status).toBe(200);
+      expect((await res.json()).data).toMatchObject({
+        case_status_applied: false,
+        case_status_reason: 'case_closed',
+        case: { id: 'case-1', stage: 'Declined' },
+      });
+      expect(logged).toHaveLength(1);
+    }
+  );
+
+  it('adds nothing for a repeat of the closing status, an applied one, or an open case', async () => {
+    m.cases.applySubmissionStatus.mockResolvedValue(false);
+    closedAs('Withdrawn');
+    const repeat = await patch({ status: 'Customer_Withdrawn' });
+    m.cases.get.mockResolvedValue({ id: 'case-1', stage: 'Under review' });
+    const open = await patch({ status: 'WHATEVER' });
+    m.cases.applySubmissionStatus.mockResolvedValue(true);
+    closedAs('Approved');
+    const applied = await patch({ status: 'APPROVED' });
+    for (const res of [repeat, open, applied])
+      expect((await res.json()).data).not.toHaveProperty('case_status_applied');
+  });
+});
+
 describe('GET /api/v1/submission-groups/{submission_id}', () => {
   it('answers 404 for an unknown submission', async () => {
     m.store.findByRef.mockResolvedValue(null);

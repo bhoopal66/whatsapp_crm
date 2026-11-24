@@ -11,8 +11,9 @@
  * with "My team" (the people in the teams they lead, and themselves).
  * The "When" column says the clock behind the ranking in words
  * ("Overdue by 2 h"); the score itself only orders the list. A part
- * that could not be read is named, with a Retry, and an empty list is
- * then never called "Nothing needs action".
+ * that could not be read is named, with a Retry, and so is a list of
+ * cases that was cut; an empty list is then never called "Nothing needs
+ * action".
  */
 import Link from 'next/link';
 import { useFormatter, useTranslations } from 'next-intl';
@@ -36,6 +37,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import {
+  WORKLIST_CASE_MAX,
   worklistLoadStatus,
   type WorklistLoad,
   type WorklistPart,
@@ -110,7 +112,10 @@ export interface WorklistViewProps {
    */
   emptyLabel?: string;
   /** The load behind `items`, for the parts it lacks; null: nothing to say. */
-  load?: Pick<WorklistLoad, 'missing' | 'stale'> | null;
+  load?:
+    | (Pick<WorklistLoad, 'missing' | 'stale'> &
+        Partial<Pick<WorklistLoad, 'casesTruncated'>>)
+    | null;
   onRetry?: () => void;
   /** A retry is on its way. */
   retrying?: boolean;
@@ -135,6 +140,8 @@ export function WorklistView({
   const tAll = useTranslations();
   const format = useFormatter();
   const status = load && mode !== 'none' ? worklistLoadStatus(load) : 'ok';
+  // Cases were left unread, so an empty list proves nothing either.
+  const casesCut = mode !== 'none' && load?.casesTruncated === true;
   const named = (parts: readonly WorklistPart[]) =>
     format.list(parts.map((p) => t(PART_KEY[p])));
   // A bank guest has nothing to rank; an unknown role is still loading.
@@ -223,6 +230,9 @@ export function WorklistView({
             retrying={retrying}
           />
         )}
+        {casesCut && (
+          <LoadNote text={t('casesTruncated', { count: WORKLIST_CASE_MAX })} />
+        )}
         {status === 'failed' && !retrying ? (
           <ErrorState onRetry={onRetry} className="m-4" />
         ) : shown === null || status === 'failed' ? (
@@ -232,8 +242,8 @@ export function WorklistView({
           >
             {t('loading')}
           </p>
-        ) : shown.length === 0 && status === 'partial' ? null : shown.length ===
-          0 ? (
+        ) : shown.length === 0 &&
+          (status === 'partial' || casesCut) ? null : shown.length === 0 ? (
           <p
             data-testid="worklist-empty"
             className="text-muted-foreground p-6 text-center text-sm"

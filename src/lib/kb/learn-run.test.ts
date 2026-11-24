@@ -63,8 +63,12 @@ function fakeStore(
   over: Partial<KbLearnStore> & {
     threads?: Record<string, LearnThread | null>;
   } = {}
-): KbLearnStore & { recorded: RecordDraftArgs[] } {
+): KbLearnStore & {
+  recorded: RecordDraftArgs[];
+  finished: [string, number][];
+} {
   const recorded: RecordDraftArgs[] = [];
+  const finished: [string, number][] = [];
   const threads: Record<string, LearnThread | null> = over.threads ?? {
     c1: {
       messages: [
@@ -89,8 +93,12 @@ function fakeStore(
   };
   return {
     recorded,
+    finished,
     dueAccounts: async () => [ACCOUNT],
     claimRun: async () => true,
+    finishRun: async (id, n) => {
+      finished.push([id, n]);
+    },
     openTopics: async () => [
       { id: 't1', label: 'Account without a trade licence?', coverage: 'none' },
     ],
@@ -233,6 +241,11 @@ describe('learnTopic', () => {
           contactName: null,
           senderNames: {},
         },
+        c2: {
+          messages: [reply('نعم، تكفي رخصة العمل الحر')],
+          contactName: null,
+          senderNames: {},
+        },
       },
     });
     const d = deps(store, {
@@ -306,6 +319,45 @@ describe('learnTopic', () => {
   });
 });
 
+describe('learnTopic evidence', () => {
+  it('needs two team answers from different chats', async () => {
+    const store = fakeStore({
+      threads: {
+        c1: {
+          messages: [reply('Yes, a freelance permit works.')],
+          contactName: null,
+          senderNames: {},
+        },
+        c2: null,
+      },
+    });
+    const d = deps(store);
+    expect(
+      await learnTopic(d, ACCOUNT, CONFIG, {
+        id: 't1',
+        label: 'x',
+        coverage: 'none',
+      })
+    ).toEqual({ drafted: false, reason: 'no_answers' });
+    expect(d.generate).not.toHaveBeenCalled();
+  });
+
+  it('sends the chat text fenced as evidence', async () => {
+    const store = fakeStore();
+    const d = deps(store);
+    await learnTopic(d, ACCOUNT, CONFIG, {
+      id: 't1',
+      label: 'x',
+      coverage: 'none',
+    });
+    const user = d.sent[1]!;
+    expect(user.indexOf('<evidence>')).toBeLessThan(
+      user.indexOf('freelance permit')
+    );
+    expect(user.trimEnd().endsWith('</evidence>')).toBe(true);
+  });
+});
+
 describe('learnAccount', () => {
   it('needs an AI key', async () => {
     const store = fakeStore();
@@ -363,6 +415,23 @@ describe('runKbLearning', () => {
     });
     const res = await runKbLearning(deps(store));
     expect(res).toEqual({ accounts: 1, drafted: 1 });
+    // The switch's "last run" line: one draft, for the claimed account.
+    expect(store.finished).toEqual([['b', 1]]);
+  });
+
+  it('a failed run record does not stop the pass', async () => {
+    const store = fakeStore({
+      dueAccounts: async () => ['a', 'b'],
+      finishRun: async () => {
+        throw new Error('db down');
+      },
+    });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(await runKbLearning(deps(store))).toEqual({
+      accounts: 2,
+      drafted: 2,
+    });
+    warn.mockRestore();
   });
 
   it('never throws when the account scan fails', async () => {

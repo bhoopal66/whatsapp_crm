@@ -20,9 +20,11 @@ import type {
 import {
   CHANNELS,
   DEFAULT_SETTINGS,
+  STALE_REASONS,
   type AutoMsgSettings,
   type Channel,
   type HoldReason,
+  type StaleReason,
   type Trigger,
 } from './types';
 
@@ -130,6 +132,7 @@ export function toRowState(j: Json): RowState {
   return {
     row,
     closed: bool(j.closed, true),
+    stale: STALE_REASONS.find((r) => r === j.stale) ?? null,
     inbox: inbox === 'recruiter' || inbox === 'dept' ? inbox : null,
     personal: bool(j.personal, false),
     optedOut: bool(j.opted_out, false),
@@ -198,8 +201,12 @@ export class PgAutoMsgStore implements AutoMsgStorePort {
     });
   }
 
-  async cancel(id: string): Promise<void> {
-    await this.call('hr_automsg_mark', { p_id: id, p_status: 'cancelled' });
+  async cancel(id: string, reason?: StaleReason): Promise<void> {
+    await this.call('hr_automsg_mark', {
+      p_id: id,
+      p_status: 'cancelled',
+      ...(reason ? { p_error: reason } : {}),
+    });
   }
 
   async claim(id: string, now: Date): Promise<ClaimOutcome> {
@@ -207,7 +214,7 @@ export class PgAutoMsgStore implements AutoMsgStorePort {
       p_id: id,
       p_now: now.toISOString(),
     });
-    return r === 'claimed' || r === 'capped' ? r : 'lost';
+    return r === 'claimed' || r === 'capped' || r === 'cancelled' ? r : 'lost';
   }
 
   async markSent(

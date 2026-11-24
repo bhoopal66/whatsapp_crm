@@ -8,15 +8,18 @@ import {
 } from './drag';
 import { descriptionParts, popoverActions } from './popover-rules';
 import {
+  ALL_DAY_REMINDER_PRESETS,
   parseCustomReminder,
   reminderLabel,
+  reminderPresets,
   toggleReminder,
 } from './reminder-chips';
 import { aMeeting, anEvent, aTask } from './test-items';
 
-const detail = (createdBy: string, canEdit: boolean) => ({
+const detail = (createdBy: string, canEdit: boolean, canDelete = canEdit) => ({
   createdBy,
   canEdit,
+  canDelete,
   attendees: [
     { user_id: 'u2', response: 'pending' as const },
     { user_id: 'u3', response: 'accepted' as const },
@@ -58,6 +61,27 @@ describe('popoverActions', () => {
       'u1'
     );
     expect(a.askScope).toBe(true);
+  });
+
+  it("offers Delete, never Edit, for a leaver's event the API lets go", () => {
+    expect(
+      popoverActions(anEvent(), detail('u1', false, true), 'u9')
+    ).toMatchObject({ edit: false, remove: true, askScope: false });
+    // One date or the whole series; an invited admin still answers.
+    expect(
+      popoverActions(
+        anEvent({ recurring: true }),
+        detail('u1', false, true),
+        'u2'
+      )
+    ).toMatchObject({ edit: false, remove: true, askScope: true, rsvp: true });
+    expect(
+      popoverActions(
+        anEvent({ recurring: true }),
+        detail('u1', false, false),
+        'u9'
+      )
+    ).toMatchObject({ remove: false, askScope: false });
   });
 
   it('offers Join on a live meeting and the contact on a task', () => {
@@ -111,6 +135,37 @@ describe('reminder chips', () => {
     expect(reminderLabel(120)).toEqual({ key: 'hours', count: 2 });
     expect(reminderLabel(2880)).toEqual({ key: 'days', count: 2 });
     expect(reminderLabel(45)).toEqual({ key: 'minutes', count: 45 });
+  });
+
+  it('labels all-day reminders as times before midnight', () => {
+    expect(reminderLabel(900, true)).toEqual({
+      key: 'dayBefore',
+      count: 1,
+      time: '9:00',
+    });
+    expect(reminderLabel(360, true)).toEqual({
+      key: 'dayBefore',
+      count: 1,
+      time: '18:00',
+    });
+    expect(reminderLabel(0, true).key).toBe('atMidnight');
+    // A saved timed-style value still reads sensibly: 10 min before midnight.
+    expect(reminderLabel(10, true)).toEqual({
+      key: 'dayBefore',
+      count: 1,
+      time: '23:50',
+    });
+    expect(reminderLabel(2340, true)).toEqual({
+      key: 'daysBefore',
+      count: 2,
+      time: '9:00',
+    });
+  });
+
+  it('offers midnight, 18:00 and 09:00 for an all-day event', () => {
+    expect(reminderPresets(true)).toEqual([0, 360, 900]);
+    expect(ALL_DAY_REMINDER_PRESETS).not.toContain(10);
+    expect(reminderPresets(false)).toContain(10);
   });
 });
 

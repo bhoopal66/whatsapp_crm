@@ -19,6 +19,7 @@ const read = (tag: string, failed: WorklistPart[] = []): WorklistRead => {
       cases: rows('cases'),
     },
     failed,
+    casesTruncated: false,
   };
 };
 
@@ -26,7 +27,12 @@ describe('mergeWorklistLoad', () => {
   it('holds a clean read as it is', () => {
     const r = read('a');
     const m = mergeWorklistLoad(null, r);
-    expect(m).toEqual({ inputs: r.inputs, missing: [], stale: [] });
+    expect(m).toEqual({
+      inputs: r.inputs,
+      missing: [],
+      stale: [],
+      casesTruncated: false,
+    });
     expect(worklistLoadStatus(m)).toBe('ok');
   });
 
@@ -57,7 +63,21 @@ describe('mergeWorklistLoad', () => {
     expect(m.inputs.hrTasks).toEqual(a);
     expect(worklistLoadStatus(m)).toBe('stale');
     m = mergeWorklistLoad(m, read('d'));
-    expect(m).toEqual({ inputs: read('d').inputs, missing: [], stale: [] });
+    expect(m).toEqual({
+      inputs: read('d').inputs,
+      missing: [],
+      stale: [],
+      casesTruncated: false,
+    });
+  });
+
+  it('a cut case list is cut for as long as its rows are the ones held', () => {
+    let m = mergeWorklistLoad(null, { ...read('a'), casesTruncated: true });
+    expect(m.casesTruncated).toBe(true);
+    m = mergeWorklistLoad(m, read('b', ['cases']));
+    expect(m.casesTruncated).toBe(true);
+    m = mergeWorklistLoad(m, read('c'));
+    expect(m.casesTruncated).toBe(false);
   });
 
   it('can hold a missing and a stale part at once', () => {

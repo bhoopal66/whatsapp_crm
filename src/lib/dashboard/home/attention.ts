@@ -47,7 +47,7 @@ export function countInboxUnread(
   return n;
 }
 
-/** Open cases past their SLA, and how many of those have the customer waiting. */
+/** Open cases past their SLA, and how many of those wait for the customer. */
 export function overdueCases(
   rows: readonly Pick<InboxRow, 'slaState' | 'customerWaiting'>[]
 ): { overdue: number; waiting: number } {

@@ -24,6 +24,7 @@ const person = (
   bankCode: null,
   presenceStatus: null,
   lastSeenAt: null,
+  deactivated: false,
 });
 const member = (userId: string, role: ChannelRole): ChannelMember => ({
   channelId: 'c1',
@@ -84,10 +85,10 @@ describe('addRules / addCandidates', () => {
     ).toEqual(['ann', 'bob', 'gus']);
   });
 
-  it('private: a non-admin member who is workspace admin adds bank guests only', () => {
-    expect(offered(ctx({ myRole: 'member', accountRole: 'admin' }))).toEqual([
-      'gus',
-    ]);
+  it('private: a workspace admin who is no channel admin adds nobody, guests included (289)', () => {
+    expect(offered(ctx({ myRole: 'member', accountRole: 'admin' }))).toEqual(
+      []
+    );
   });
 
   it('private: a non-member, a DM, a deal room, an archive and a guest add nobody', () => {
@@ -181,7 +182,12 @@ describe('canSetRoles / roleChange', () => {
 });
 
 describe('leaveBlock', () => {
-  const base = { kind: 'private' as const, userId: 'me', peopleById: byId };
+  const base = {
+    kind: 'private' as const,
+    userId: 'me',
+    peopleById: byId,
+    dmMemberIds: [] as string[],
+  };
   it('the last non-guest admin of a private channel cannot leave', () => {
     const members = [member('me', 'admin'), member('ann', 'member')];
     expect(leaveBlock({ ...base, myRole: 'admin', members })).toBe('lastAdmin');
@@ -219,6 +225,17 @@ describe('leaveBlock', () => {
         members: [member('me', 'admin')],
       })
     ).toBeNull();
+  });
+
+  it('a DM opened by two people cannot be left; one of three can (273)', () => {
+    const dm = {
+      ...base,
+      kind: 'dm' as const,
+      myRole: 'member' as const,
+      members: [member('me', 'member'), member('ann', 'member')],
+    };
+    expect(leaveBlock({ ...dm, dmMemberIds: ['ann', 'me'] })).toBe('dmPair');
+    expect(leaveBlock({ ...dm, dmMemberIds: ['ann', 'bob', 'me'] })).toBeNull();
   });
 
   it('an archived channel can still be left, as chat_leave_channel allows (087)', () => {

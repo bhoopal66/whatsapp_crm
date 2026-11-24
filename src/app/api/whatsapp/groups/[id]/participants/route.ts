@@ -5,8 +5,9 @@
 // 2026-11-20); removing and promoting stay with its managers. POST adds
 // people (skipping anyone who opted out or is do-not-contact, unless an
 // owner/admin sends `overrideConsent: true`; at most 60 people an hour
-// per person and 120 per number, 429 `too_many_adds`), DELETE removes
-// them, PATCH promotes or demotes. Our own number can be neither
+// per person and 120 per number: the rest are `notAttempted` with
+// `error: too_many_adds`, 429 when nobody is left to add), DELETE
+// removes them, PATCH promotes or demotes. Our own number can be neither
 // removed nor demoted: that would strand the group. After a change the
 // snapshot is re-read, best effort.
 // ============================================================
@@ -40,7 +41,11 @@ import {
   promoteAdmins,
   removeParticipants,
 } from '@/lib/whatsapp/groups';
-import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
+import {
+  checkRateLimit,
+  RATE_LIMITS,
+  rateLimitRemaining,
+} from '@/lib/rate-limit';
 import { normalizePhone } from '@/lib/whatsapp/phone-utils';
 
 export const maxDuration = 60;
@@ -84,27 +89,37 @@ export async function POST(request: Request, { params }: Params) {
     });
     // Mass-adding is what gets a number restricted: counted in people, for
     // the person adding and for the number.
-    for (let i = 0; i < screened.recipients.length; i++) {
-      for (const [key, rule] of [
-        [`group-add:${ctx.userId}`, RATE_LIMITS.groupAddPerson],
-        [`group-add-number:${channel.id}`, RATE_LIMITS.groupAddNumber],
-      ] as const) {
-        if (!checkRateLimit(key, rule).success) {
-          throw new GroupHttpError(
-            429,
-            'too_many_adds',
-            'Too many people were added in the last hour'
-          );
-        }
-      }
+    const waIds = screened.recipients.map((r) => r.waId);
+    const budgets = [
+      [`group-add:${ctx.userId}`, RATE_LIMITS.groupAddPerson],
+      [`group-add-number:${channel.id}`, RATE_LIMITS.groupAddNumber],
+    ] as const;
+    const allowed = Math.min(
+      waIds.length,
+      ...budgets.map(([key, rule]) => rateLimitRemaining(key, rule))
+    );
+    if (allowed === 0 && waIds.length > 0) {
+      throw new GroupHttpError(
+        429,
+        'too_many_adds',
+        'Too many people were added in the last hour'
+      );
     }
-    logConsentOverride(group.id, ctx.userId, screened.overridden);
+    for (let i = 0; i < allowed; i++) {
+      for (const [key, rule] of budgets) checkRateLimit(key, rule);
+    }
+    const overLimit = waIds.slice(allowed);
+    logConsentOverride(
+      group.id,
+      ctx.userId,
+      screened.recipients.slice(0, allowed).filter((r) => r.overridden).length
+    );
     const outcome =
-      screened.recipients.length > 0
+      allowed > 0
         ? await addParticipants({
             channel,
             groupId: group.wa_group_id,
-            participants: screened.recipients.map((r) => r.waId),
+            participants: waIds.slice(0, allowed),
             deadline,
           })
         : null;
@@ -115,14 +130,14 @@ export async function POST(request: Request, { params }: Params) {
     return NextResponse.json({
       added: outcome?.added ?? [],
       refused: outcome?.refused ?? [],
-      notAttempted: outcome?.notAttempted ?? [],
+      notAttempted: [...(outcome?.notAttempted ?? []), ...overLimit],
       invalid: [
         ...screened.invalid,
         ...(outcome?.invalid ?? []),
         ...screened.notFound,
       ],
       skipped: screened.skipped,
-      error: outcome?.error ?? null,
+      error: outcome?.error ?? (overLimit.length > 0 ? 'too_many_adds' : null),
       resynced,
     });
   } catch (err) {

@@ -48,7 +48,7 @@ interface UsageResponse {
     translate?: { calls: number; tokens: number };
     // Recruiter agent drafts (migration 202); absent from older servers.
     hr_agent?: { calls: number; tokens: number };
-    // Learned knowledge-base drafts (migration 270); absent from older servers.
+    // Learned knowledge-base drafts (migration 290); absent from older servers.
     kb_learn?: { calls: number; tokens: number };
   };
   by_model: {

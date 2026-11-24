@@ -67,11 +67,16 @@ export interface HealthVerdict {
  * them), `NOT_INIT` is what a missing status text maps to, an unknown
  * word may be a sleeping channel, and a 5xx or timeout is Whapi's blip,
  * not the number's — none of which should page anybody.
+ *
+ * OpenWA's `disconnected` is down only when `disconnectedConfirmed`: the
+ * gateway resets every session to it on each boot and relaunches them one
+ * by one, so one look proves nothing (see `confirmDisconnected`).
  */
 export function nextHealth(
   prevStatus: string,
   probe: ProbeOutcome,
-  provider: WhatsAppProvider = 'whapi'
+  provider: WhatsAppProvider = 'whapi',
+  disconnectedConfirmed = false
 ): HealthVerdict {
   let status = prevStatus;
   let reason: HealthReason = 'inconclusive';
@@ -89,7 +94,7 @@ export function nextHealth(
         reason = 'paired';
       } else if (
         probe.status === 'qr_ready' ||
-        probe.status === 'disconnected'
+        (probe.status === 'disconnected' && disconnectedConfirmed)
       ) {
         status = 'disconnected';
         reason = 'logged_out';
@@ -136,6 +141,44 @@ export function nextHealth(
   return verdictFor(prevStatus, status, reason, detail);
 }
 
+/**
+ * How long a number must have stayed on OpenWA's `disconnected` before it
+ * is believed: the five minutes between two ticks, less the slack a tick
+ * may come early by (see `everyInterval`).
+ */
+export const OPENWA_DISCONNECTED_CONFIRM_MS = 4.5 * 60_000;
+
+/**
+ * Record one probe in `firstSeen` (number id → when the current run of
+ * `disconnected` answers began) and say whether the run is long enough to
+ * believe. `ready`, or an answer that is down on its own, ends the run. An
+ * inconclusive one does not: OpenWA retries a dead session for ever, so it
+ * alternates `disconnected` and `initializing`. In this process only: after
+ * a restart of the app a run starts again.
+ */
+export function confirmDisconnected(
+  firstSeen: Map<string, number>,
+  channel: Pick<WhatsAppChannel, 'id' | 'provider'>,
+  probe: ProbeOutcome,
+  nowMs: number
+): boolean {
+  if (channel.provider !== 'openwa') return false;
+  if (!probe.ok || probe.status !== 'disconnected') {
+    if (nextHealth('', probe, 'openwa').reason !== 'inconclusive') {
+      firstSeen.delete(channel.id);
+    }
+    return false;
+  }
+  const since = firstSeen.get(channel.id);
+  if (since === undefined) {
+    firstSeen.set(channel.id, nowMs);
+    return false;
+  }
+  return nowMs - since >= OPENWA_DISCONNECTED_CONFIRM_MS;
+}
+
+const disconnectedSince = new Map<string, number>();
+
 function verdictFor(
   prevStatus: string,
   status: string,
@@ -164,7 +207,7 @@ export interface ChannelAlert {
 type AlertChannel = Pick<
   WhatsAppChannel,
   'label' | 'wabaId' | 'phoneNumberId'
-> & { provider?: WhatsAppProvider };
+> & { provider?: WhatsAppProvider; isPersonal?: boolean };
 
 /** `Support (…2504)`. `waba_id` holds the display number on a Whapi row. */
 function shortName(channel: AlertChannel): string {
@@ -199,7 +242,9 @@ export function channelHealthAlert(
 ): ChannelAlert | null {
   const name = shortName(channel);
 
-  if (channel.provider === 'openwa') return openwaAlert(name, verdict);
+  if (channel.provider === 'openwa') {
+    return openwaAlert(name, verdict, channel.isPersonal === true);
+  }
 
   if (verdict.notify === 'up') {
     return {
@@ -260,11 +305,22 @@ export function channelHealthAlert(
   }
 }
 
-/** OpenWA's wording: no panel.whapi.cloud, the fix is the QR in Settings. */
+/**
+ * OpenWA's wording: no panel.whapi.cloud, the fix is the QR in Settings.
+ * A personal number (190) is its holder's to re-link, and the alert goes
+ * to them, so it names their own screen and phone.
+ */
 function openwaAlert(
   name: string,
-  verdict: HealthVerdict
+  verdict: HealthVerdict,
+  personal: boolean
 ): ChannelAlert | null {
+  const relink = personal
+    ? 'Re-link it in Settings → Profile → My WhatsApp by scanning the QR'
+    : 'An admin must re-link it in Settings → WhatsApp by scanning the QR';
+  const scan = personal
+    ? 'with your phone, from WhatsApp → Linked devices'
+    : 'and whoever holds the phone scans it from WhatsApp → Linked devices';
   if (verdict.notify === 'up') {
     return {
       type: 'channel_reconnected',
@@ -286,9 +342,7 @@ function openwaAlert(
       title: `WhatsApp number ${name} is disconnected`,
       body:
         `The OpenWA gateway no longer accepts this number (${verdict.detail}): ` +
-        'its session was deleted or the API key changed. An admin must ' +
-        're-link it in Settings → WhatsApp by scanning the QR. ' +
-        until,
+        `its session was deleted or the API key changed. ${relink}. ${until}`,
     };
   }
   return {
@@ -297,9 +351,8 @@ function openwaAlert(
       verdict.reason === 'logged_out' ? 'logged out' : 'disconnected'
     }`,
     body:
-      `The OpenWA gateway reports this number as ${verdict.detail}. An ` +
-      'admin must re-link it in Settings → WhatsApp by scanning the QR, ' +
-      `and whoever holds the phone scans it from WhatsApp → Linked devices. ${until}`,
+      `The OpenWA gateway reports this number as ${verdict.detail}. ` +
+      `${relink}, ${scan}. ${until}`,
   };
 }
 
@@ -404,6 +457,8 @@ export interface ChannelHealthSummary {
 export interface ChannelHealthDeps {
   probe?: (channel: WhatsAppChannel) => Promise<ChannelProbe | null>;
   now?: () => Date;
+  /** When each OpenWA number's run of `disconnected` began. */
+  disconnectedSince?: Map<string, number>;
 }
 
 /** Probes at once — each is capped at 5s, and a tick has 60s in all. */
@@ -427,7 +482,12 @@ export async function runChannelHealthCheck(
 ): Promise<ChannelHealthSummary> {
   const probe = deps.probe ?? probeChannel;
   const now = deps.now ?? (() => new Date());
+  const firstSeen = deps.disconnectedSince ?? disconnectedSince;
   const channels = await loadLinkedChannelsForHealth(admin);
+  const probedIds = new Set(channels.map((c) => c.id));
+  for (const id of firstSeen.keys()) {
+    if (!probedIds.has(id)) firstSeen.delete(id);
+  }
   const summary: ChannelHealthSummary = {
     checked: 0,
     changed: 0,
@@ -449,7 +509,12 @@ export async function runChannelHealthCheck(
           if (outcome.ok && channel.provider === 'whapi') {
             channel = await syncPairedNumber(admin, channel, outcome.phone);
           }
-          const verdict = nextHealth(channel.status, outcome, channel.provider);
+          const verdict = nextHealth(
+            channel.status,
+            outcome,
+            channel.provider,
+            confirmDisconnected(firstSeen, channel, outcome, now().getTime())
+          );
           if (!verdict.notify) {
             if (verdict.reason === 'inconclusive') {
               console.warn(
@@ -496,7 +561,8 @@ export async function runChannelHealthCheck(
 }
 
 /**
- * Write the new status and alert the account's owners and admins.
+ * Write the new status and alert the account's owners and admins, or,
+ * for a personal number (190), its holder alone.
  * Returns how many were notified, or null when another writer (an
  * overlapping tick, an admin re-saving the number) moved the row first
  * — the conditional update is what keeps two ticks from alerting twice.
@@ -557,7 +623,7 @@ async function applyTransition(
   if (!alert) return 0;
 
   try {
-    return await alertAdmins(admin, channel.accountId, alert);
+    return await sendAlert(admin, channel, alert);
   } catch (err) {
     // Typical causes: a transient DB error, or this build running
     // before migration 065 widened the notifications type CHECK. A
@@ -575,18 +641,29 @@ async function applyTransition(
   }
 }
 
-/** Store one alert per owner and admin. Returns how many; throws on a DB error. */
-async function alertAdmins(
+/**
+ * Store one alert per owner and admin; a personal number's goes to its
+ * holder only, who alone can re-link it. Returns how many; throws on a DB
+ * error.
+ */
+async function sendAlert(
   admin: SupabaseClient,
-  accountId: string,
+  channel: WhatsAppChannel,
   alert: ChannelAlert
 ): Promise<number> {
-  const { data: admins, error: profilesError } = await admin
+  const { accountId } = channel;
+  // A personal row without a holder: nobody can act on it.
+  if (channel.isPersonal && !channel.personalUserId) return 0;
+  const people = admin
     .from('profiles')
     .select('user_id')
-    .eq('account_id', accountId)
-    .in('account_role', ['owner', 'admin'])
-    // A deactivated owner or admin no longer works this account.
+    .eq('account_id', accountId);
+  const { data: admins, error: profilesError } = await (
+    channel.isPersonal
+      ? people.eq('user_id', channel.personalUserId)
+      : people.in('account_role', ['owner', 'admin'])
+  )
+    // Someone deactivated no longer works this account.
     .is('deactivated_at', null);
   if (profilesError) {
     throw new Error(`alert not saved: ${profilesError.message}`);
@@ -601,6 +678,9 @@ async function alertAdmins(
     actor_user_id: null,
     title: alert.title,
     body: alert.body,
+    // The bell sends a personal number's alert to its holder's profile
+    // tab (notifications/target.ts), whatever their role.
+    ...(channel.isPersonal ? { meta: { personal: true } } : {}),
   }));
   // Nobody to tell. Retrying would not change that.
   if (rows.length === 0) return 0;

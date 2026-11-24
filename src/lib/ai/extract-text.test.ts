@@ -74,6 +74,22 @@ describe('extractKnowledgeText (PDF)', () => {
   });
 });
 
+describe('extractKnowledgeText (text)', () => {
+  const text = (bytes: Uint8Array<ArrayBuffer>) =>
+    extractKnowledgeText('rates.csv', 'text/csv', bytes.buffer);
+
+  it('reads a Windows-1256 file', async () => {
+    // "محمد" as an Arabic Windows saves it.
+    expect(await text(Uint8Array.of(0xe3, 0xcd, 0xe3, 0xcf))).toBe('محمد');
+  });
+
+  it('refuses text with lost letters instead of indexing it', async () => {
+    await expect(
+      text(Uint8Array.from(new TextEncoder().encode('a\ufffdb')))
+    ).rejects.toMatchObject({ code: 'text_encoding', status: 400 });
+  });
+});
+
 describe('beforeDeadline', () => {
   it('rejects with pdf_timeout when the work outlives the deadline', async () => {
     await expect(

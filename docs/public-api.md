@@ -87,6 +87,7 @@ may be reworded.
 | 400    | `bad_request`  | Malformed input                                                                     |
 | 404    | `not_found`    | No such resource                                                                    |
 | 500    | `internal`     | Server error                                                                        |
+| 503    | `unavailable`  | The key could not be checked (the database did not answer). Says nothing about the key and is not counted as a bad one; nothing was done. Retry after `Retry-After` seconds |
 
 ## Rate limits
 
@@ -197,7 +198,10 @@ Response (201):
 
 Domain error codes beyond the table above: `whatsapp_not_configured`
 (400), `whatsapp_error` (502 — the request reached the WhatsApp gateway and it rejected the
-send), `template_malformed` (500).
+send), `template_malformed` (500), `customer_opted_out` (422 — the
+customer opted out of messages or is marked do-not-contact, on this
+contact or another one with the same number; nothing was sent. Don't
+retry).
 
 ### `GET /api/v1/contacts`
 
@@ -416,8 +420,14 @@ Broadcast status + counts. Scope: `broadcasts:send`. `status` moves
 arrive. `status` can stay `sending` after a failure of the sending
 number itself (a revoked or expired access token, a logged-out number,
 a lapsed subscription): delivery stops at the first recipient that hit
-it, the rest stay pending, and the campaign is finished by resuming it
-from the dashboard once the number is fixed — the API has no resume.
+it and the rest stay pending. A campaign interrupted that way, or by a
+restart, is continued automatically by the broadcast cron, at the
+earliest half an hour later and for 7 days after it was created, once
+the number can send again and only between 08:00 and 21:00 in the
+workspace's time zone (Team activity's; Asia/Dubai when none is saved).
+Sending right after your request is not held to those hours. No recipient is sent to twice, so don't
+create it again. Someone can also resume it from the dashboard at any
+time, which is the only way after the 7 days; the API has no resume.
 `failed` can follow `sent`: WhatsApp can accept a send and report it
 failed later, and a campaign in which every recipient failed that way
 moves to `failed`. `sent` and `failed` are final unless someone resumes
@@ -627,6 +637,8 @@ active and ended groups alike, and the answer adds
 - An update whose `changed_at` is older than the last applied one is
   **stale**: `200` with `sync.applied: false, reason: "stale"`, nothing
   written. `reason: "no_case"` means the group has no case.
+- A `status` a closed case did not take: `200` with
+  `case_status_applied: false` and `case_status_reason: "case_closed"`.
 - A refused stage or value is `422` with its code (`unknown_stage`,
   `presub_reentry`, `case_closed`, `final_stage`, `stage_not_in_bank`,
   `bank_invalid`, `product_invalid`, `amount_invalid`,

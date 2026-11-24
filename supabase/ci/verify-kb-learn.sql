@@ -1,4 +1,4 @@
--- Behavioural regression suite for migration 270: learn from team
+-- Behavioural regression suite for migration 290: learn from team
 -- answers (knowledge base).
 --
 -- Asserts: the switch is off by default and, while off, nothing is
@@ -11,14 +11,14 @@
 -- takes 'kb_learn'; the writer functions are service role only.
 --
 -- ONE statement on purpose (the pinned CLI rejects several); fixtures
--- are rolled back through a sentinel. Fixture emails: kb270-*.
+-- are rolled back through a sentinel. Fixture emails: kb290-*.
 
 DO $verify$
 DECLARE
-  u_owner  UUID := '00000000-0000-4000-8000-000000270001';
-  u_admin  UUID := '00000000-0000-4000-8000-000000270002';
-  u_agent  UUID := '00000000-0000-4000-8000-000000270003';
-  u_owner2 UUID := '00000000-0000-4000-8000-000000270004';
+  u_owner  UUID := '00000000-0000-4000-8000-000000290001';
+  u_admin  UUID := '00000000-0000-4000-8000-000000290002';
+  u_agent  UUID := '00000000-0000-4000-8000-000000290003';
+  u_owner2 UUID := '00000000-0000-4000-8000-000000290004';
   a_acct UUID; b_acct UUID;
   g1 UUID; g2 UUID; g3 UUID; g_other UUID;
   e1 UUID; e2 UUID;
@@ -58,10 +58,10 @@ BEGIN
   $fn$;
 
   INSERT INTO auth.users (id, email) VALUES
-    (u_owner,  'kb270-owner@example.invalid'),
-    (u_admin,  'kb270-admin@example.invalid'),
-    (u_agent,  'kb270-agent@example.invalid'),
-    (u_owner2, 'kb270-owner2@example.invalid')
+    (u_owner,  'kb290-owner@example.invalid'),
+    (u_admin,  'kb290-admin@example.invalid'),
+    (u_agent,  'kb290-agent@example.invalid'),
+    (u_owner2, 'kb290-owner2@example.invalid')
   ON CONFLICT DO NOTHING;
   SELECT account_id INTO a_acct FROM profiles WHERE user_id = u_owner;
   SELECT account_id INTO b_acct FROM profiles WHERE user_id = u_owner2;
@@ -102,6 +102,11 @@ BEGIN
   IF kb_learn_claim_run(a_acct) THEN failed := failed || 'claimed twice in a week'::text; END IF; n := n + 1;
   UPDATE kb_learn_settings SET last_run_at = now() - interval '8 days' WHERE account_id = a_acct;
   IF NOT kb_learn_claim_run(a_acct) THEN failed := failed || 'claim refused after a week'::text; END IF; n := n + 1;
+
+  -- ---------- the run's result ----------
+  PERFORM kb_learn_finish_run(a_acct, 3);
+  r := pg_temp.kl_try(u_admin, 'select last_run_drafted::text from public.kb_learn_settings');
+  IF r <> '3' THEN failed := failed || ('finish_run: ' || r); END IF; n := n + 1;
 
   -- ---------- a learned entry is a draft ----------
   res := kb_learn_record_draft(a_acct, gen_random_uuid(), 'Account without a trade licence', ARRAY[g1, g2],
@@ -176,6 +181,7 @@ BEGIN
   IF r <> 'ok' THEN failed := failed || 'usage log refused kb_learn'::text; END IF; n := n + 1;
   IF has_function_privilege('authenticated', 'public.kb_learn_record_draft(uuid,uuid,text,uuid[],text,text,text,text,text,integer)', 'EXECUTE')
      OR has_function_privilege('authenticated', 'public.kb_learn_claim_run(uuid,interval)', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public.kb_learn_finish_run(uuid,integer)', 'EXECUTE')
      OR has_function_privilege('authenticated', 'public.kb_learn_topic_drafted(uuid,uuid[],text)', 'EXECUTE')
      OR has_function_privilege('anon', 'public.kb_learn_set_enabled(boolean)', 'EXECUTE')
      OR NOT has_function_privilege('service_role', 'public.kb_learn_record_draft(uuid,uuid,text,uuid[],text,text,text,text,text,integer)', 'EXECUTE')
@@ -188,7 +194,7 @@ BEGIN
     IF SQLERRM <> 'KL_ROLLBACK' THEN RAISE; END IF;
   END;
 
-  IF n <> 29 THEN RAISE EXCEPTION 'verify-kb-learn: only % checks ran', n; END IF;
+  IF n <> 30 THEN RAISE EXCEPTION 'verify-kb-learn: only % checks ran', n; END IF;
   IF cardinality(failed) > 0 THEN
     RAISE EXCEPTION 'verify-kb-learn: % failed: %', cardinality(failed), array_to_string(failed, '; ');
   END IF;

@@ -12,7 +12,7 @@ import { useNotifications } from '@/components/notifications/notifications-provi
 import { NotificationItem } from '@/components/notifications/notification-item';
 
 /**
- * Every recent notification, full width. The top bar's bell is the
+ * Every notification, a page at a time, full width. The top bar's bell is the
  * everyday way in; this page stays as its "View all" and as the place
  * push notifications and SQL's push_bell_url fall back to. List, count
  * and realtime are the shell's NotificationsProvider, shared with the
@@ -24,8 +24,12 @@ export default function NotificationsPage() {
     notifications,
     unread,
     error,
+    hasOlder,
+    loading,
+    loadingOlder,
     markingAll,
     load,
+    loadOlder,
     markAllRead,
   } = useNotifications();
 
@@ -52,7 +56,8 @@ export default function NotificationsPage() {
         <Button
           variant="outline"
           size="sm"
-          disabled={unread === 0 || markingAll}
+          disabled={unread === 0 || loadingOlder || markingAll}
+          title={t('markAllReadHint')}
           onClick={() => void markAllRead()}
         >
           {markingAll ? (
@@ -77,6 +82,20 @@ export default function NotificationsPage() {
             <NotificationItem key={n.id} notification={n} />
           ))}
         </ul>
+      )}
+
+      {hasOlder && (
+        <div className="flex justify-center">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={loading || loadingOlder || markingAll}
+            onClick={() => void loadOlder()}
+          >
+            {loadingOlder && <Loader2 className="h-4 w-4 animate-spin" />}
+            {t('loadOlder')}
+          </Button>
+        </div>
       )}
     </div>
   );

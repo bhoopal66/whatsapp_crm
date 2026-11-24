@@ -536,6 +536,7 @@ const ERROR_KEYS: Record<ChatErrorKey, true> = {
   dmSize: true,
   lastAdmin: true,
   lastMember: true,
+  dmPair: true,
   pinLimit: true,
   reasonRequired: true,
   threadInvalid: true,

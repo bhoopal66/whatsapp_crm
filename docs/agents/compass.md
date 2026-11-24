@@ -14,4 +14,10 @@ back out of the text; no match or media → not sent outside the window), the ex
 `sender_id`, `renameExisting: false`, `pauseActiveFlows: false`), and at
 most once per `idempotency_key` (claimed as `sending` before the
 gateway call; a `db_error` after the gateway accepted keeps the key
-spent). `docs/compass.md` is the contract handed to the Compass team.
+spent). `error_code = 'delivery_unconfirmed'` is written on the row right
+before the gateway call and removed only by a definite refusal or the
+`sent` record: a row carrying it may have reached the customer and is
+never sent again (409). A customer who opted out or is do-not-contact is
+refused (422) in the group and one-to-one, before anything is created; a
+failed read refuses too. `docs/compass.md` is the contract handed to the
+Compass team.

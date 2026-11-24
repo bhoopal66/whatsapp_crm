@@ -42,11 +42,20 @@ parser, signature check, WebSocket helpers, token manager and CDR helpers.
   `pbx_phone_variants` (↔ `phoneVariants` / `contactPhoneCandidates`). The
   `calls_guard` trigger strips number, file and meta for every writer, late
   PBX events included.
+- **Numbers.** `contacts.phone_normalized` is only the typed digits (022, no
+  country code added), so a contact is found by number with
+  `storedPhoneCandidates` (national and `00` forms too), never by `phone`.
+  A number search goes through `numberSearchTerm` (`phone.ts`).
 - **Call-backs** (`callback_requests`, written by the journey sink, which
   gives a do-not-contact customer a task instead; hours restated untested) are
-  dialled by `callbacks.ts` 09:00–20:00 Asia/Dubai, at most 3 attempts, never
-  to a do-not-contact contact; a `dialing` claim older than 30 minutes is
-  released on every pass, outside hours too.
+  dialled by `callbacks.ts` 09:00–20:00 Asia/Dubai, at most 3 attempts (30 min,
+  then 2 h apart), never to a do-not-contact contact or number; a `dialing`
+  claim older than 30 minutes is released on every pass, outside hours too.
+  Only a refusal the PBX stated is a failed dial: an unclear answer stays
+  `dialing`, never redialled at once. `ringClash` keeps one customer from being
+  rung twice in 30 minutes and is asked again AFTER the claim (that second look
+  is what stops overlapping passes: keep both). A wait moves `not_before`, so
+  the head of the queue cannot block it; no owner or extension is `skipped`.
 - **Browser.** The Linkus softphone SDK loads at runtime from
   `NEXT_PUBLIC_LINKUS_SDK_URL` (unset: desk phones only). It and
   `NEXT_PUBLIC_PBX_ORIGIN` (https and wss) are added to the CSP in

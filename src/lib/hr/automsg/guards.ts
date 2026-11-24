@@ -9,10 +9,15 @@ import type {
   ContactState,
   HoldReason,
   StoredTemplate,
+  StaleReason,
   Trigger,
 } from './types';
 
-export type Decision = { allow: true } | { allow: false; hold: HoldReason };
+export type Decision =
+  | { allow: true }
+  | { allow: false; hold: HoldReason }
+  /** Cancelled for good with this reason, not held. */
+  | { allow: false; hold: null; cancel: StaleReason };
 
 export interface DecideInput {
   settings: AutoMsgSettings;
@@ -87,6 +92,8 @@ export function decide(i: DecideInput): Decision {
   if (i.settings.killSwitch) return hold('kill_switch');
   if (!enabled) return hold('disabled');
   if (i.state.closed) return hold('closed');
+  if (i.state.stale !== null)
+    return { allow: false, hold: null, cancel: i.state.stale };
   if (i.state.optedOut) return hold('opted_out');
   if (i.settings.requiresConsent && !i.state.consent) return hold('no_consent');
   if (inQuietHours(i.now, i.settings)) return hold('quiet_hours');

@@ -12,7 +12,7 @@
  * Every rule is the server's; this only collects and shows.
  */
 import { useEffect, useRef, useState } from 'react';
-import { useTranslations } from 'next-intl';
+import { useFormatter, useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 
 import {
@@ -32,6 +32,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { RETENTION_RULES, type RetentionAction } from '@/lib/privacy/retention';
+import type { RetentionLastRun } from '@/lib/privacy/store';
 
 const FIELD =
   'border-input bg-card dark:bg-input/30 h-9 rounded-md border px-3 text-sm';
@@ -379,8 +380,10 @@ type Row = { on: boolean; days: string; action: RetentionAction };
 
 function Retention() {
   const t = useTranslations('Privacy');
+  const format = useFormatter();
   const [rows, setRows] = useState<Record<string, Row> | null>(null);
   const [apply, setApply] = useState(false);
+  const [lastRun, setLastRun] = useState<RetentionLastRun | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -389,6 +392,7 @@ function Retention() {
         tables?: Record<string, { days: number; action: RetentionAction }>;
       };
       apply: boolean;
+      lastRun: RetentionLastRun | null;
     }>('/api/privacy/retention').then((r) => {
       if (!r.ok) return void toast.error(r.error);
       const tables = r.data.policy?.tables ?? {};
@@ -405,6 +409,7 @@ function Retention() {
         )
       );
       setApply(r.data.apply);
+      setLastRun(r.data.lastRun ?? null);
     });
   }, []);
 
@@ -493,6 +498,34 @@ function Retention() {
                 {apply ? t('retention.apply') : t('retention.dryRun')}
               </span>
             </div>
+            {lastRun && (
+              <p
+                className={
+                  lastRun.mode === 'failed'
+                    ? 'text-destructive text-sm'
+                    : 'text-muted-foreground text-sm'
+                }
+                role={lastRun.mode === 'failed' ? 'alert' : undefined}
+              >
+                {t(
+                  lastRun.mode === 'failed'
+                    ? 'retention.lastFailed'
+                    : lastRun.mode === 'apply'
+                      ? 'retention.lastApply'
+                      : 'retention.lastDryRun',
+                  {
+                    at: format.dateTime(new Date(lastRun.at), {
+                      dateStyle: 'medium',
+                      timeStyle: 'short',
+                    }),
+                    rows: lastRun.rows,
+                    files: lastRun.files,
+                    code: lastRun.code || '-',
+                  }
+                )}
+                {lastRun.more && ` ${t('retention.lastMore')}`}
+              </p>
+            )}
             <Button onClick={save} disabled={busy}>
               {t('save')}
             </Button>

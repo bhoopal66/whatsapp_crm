@@ -21,6 +21,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   BroadcastError,
   assertHeaderMedia,
+  CONSENT_FAILURE_REASONS,
   OPTED_OUT_REASON,
   quietHoursMessage,
   type BroadcastPlan,
@@ -36,7 +37,16 @@ import {
 } from '@/lib/broadcasts/unconfirmed-send';
 import { isInQuietHours, parseQuietHours } from '@/lib/broadcasts/quiet-hours';
 import { resolveTemplateRow } from '@/lib/whatsapp/template-body';
+import { isLocalPhone, storedForms } from '@/lib/contacts/phone-match';
+import {
+  validateContactPhone,
+  withUaeCountryCode,
+} from '@/lib/contacts/phone-validation';
 import { sanitizePhoneForMeta, isValidE164 } from '@/lib/whatsapp/phone-utils';
+import {
+  consentRefusal,
+  type ConsentRefusal,
+} from '@/lib/whatsapp/send-origin';
 
 /** Which recipients a resume pass picks up. */
 export type ResumeScope = 'pending' | 'failed' | 'all';
@@ -163,9 +173,9 @@ export interface ResumePlan {
    */
   unsendable: number;
   /**
-   * In-scope rows whose customer has since asked not to be messaged
-   * (`contacts.opted_out_at`, migration 076). Left out of the plan and
-   * stamped 'failed' with {@link OPTED_OUT_REASON}.
+   * In-scope rows whose customer has since opted out (migration 076) or
+   * been marked do-not-contact (086). Left out of the plan and stamped
+   * 'failed' with {@link CONSENT_FAILURE_REASONS}.
    */
   optedOut: number;
 }
@@ -175,6 +185,7 @@ export { OPTED_OUT_REASON };
 interface RecipientContact {
   phone?: string | null;
   opted_out_at?: string | null;
+  do_not_contact_at?: string | null;
 }
 
 interface RecipientRow {
@@ -189,8 +200,21 @@ function rowContact(row: RecipientRow): RecipientContact | null {
   return (Array.isArray(row.contact) ? row.contact[0] : row.contact) ?? null;
 }
 
-function contactPhone(row: RecipientRow): string | null {
-  return rowContact(row)?.phone ?? null;
+/**
+ * The number to send to, or null when the contact's is not usable. The
+ * saved number may be a local form of the one the first pass sent to
+ * (`findOrCreateContact` matches those): a UAE mobile gets its 971, and
+ * the rest is the rule `createBroadcast` applies. A local number that is
+ * still local is never sent: the gateway calls that 'sent', to nobody. An
+ * international one that breaks the entry rules goes as it is saved, as
+ * WhatsApp itself may have given it.
+ */
+function sendablePhone(row: RecipientRow): string | null {
+  const saved = rowContact(row)?.phone ?? '';
+  const checked = validateContactPhone(withUaeCountryCode(saved));
+  if (checked.ok) return checked.normalized;
+  const digits = sanitizePhoneForMeta(saved);
+  return isValidE164(digits) && !isLocalPhone(digits) ? digits : null;
 }
 
 /** Rows per load: the most PostgREST answers with. */
@@ -214,6 +238,42 @@ async function stampFailed(
     }
   }
 }
+
+/**
+ * Of these numbers, the ones a contact saved under any form of them asked
+ * not to be messaged on. A failed read stops the pass.
+ */
+async function refusedNumbers(
+  db: SupabaseClient,
+  accountId: string,
+  phones: string[]
+): Promise<Map<string, ConsentRefusal>> {
+  const numberOf = new Map<string, string>();
+  for (const phone of phones.map(sanitizePhoneForMeta))
+    for (const form of storedForms(phone)) numberOf.set(form, phone);
+  const forms = [...numberOf.keys()];
+  const out = new Map<string, ConsentRefusal>();
+  for (let i = 0; i < forms.length; i += TWIN_LOOKUP_CHUNK) {
+    const { data, error } = await db
+      .from('contacts')
+      .select('phone_normalized, opted_out_at, do_not_contact_at')
+      .eq('account_id', accountId)
+      .in('phone_normalized', forms.slice(i, i + TWIN_LOOKUP_CHUNK));
+    if (error) {
+      console.error('[broadcast-resume] consent read failed:', error.message);
+      throw new BroadcastError('internal', 'Failed to load recipients', 500);
+    }
+    for (const row of data ?? []) {
+      const refusal = consentRefusal(row);
+      const number = numberOf.get(row.phone_normalized as string);
+      if (refusal && number) out.set(number, refusal);
+    }
+  }
+  return out;
+}
+
+/** Numbers per `.in()` filter. */
+const TWIN_LOOKUP_CHUNK = 200;
 
 /**
  * Build a {@link BroadcastPlan} for the recipients of an existing
@@ -298,9 +358,12 @@ export async function planBroadcastResume(
   // A customer who asked not to be messaged after the campaign was
   // planned (migration 076) is never sent to: their row is stamped
   // failed with the reason, which also settles the broadcast's status.
-  const sendable: RecipientRow[] = [];
+  let sendable: { row: RecipientRow; phone: string }[] = [];
   const unsendable: string[] = [];
-  const optedOut: string[] = [];
+  const refused: Record<ConsentRefusal, string[]> = {
+    opted_out: [],
+    do_not_contact: [],
+  };
   // Page until the pass is full or the rows run out: a first page of
   // customers who all opted out is not "nothing left to send".
   for (
@@ -311,7 +374,7 @@ export async function planBroadcastResume(
     const { data, error: recError } = await db
       .from('broadcast_recipients')
       .select(
-        'id, template_params, contact_id, contact:contacts(phone, opted_out_at)'
+        'id, template_params, contact_id, contact:contacts(phone, opted_out_at, do_not_contact_at)'
       )
       .eq('broadcast_id', broadcastId)
       .in('status', statuses)
@@ -334,26 +397,49 @@ export async function planBroadcastResume(
 
     const rows = (data ?? []) as RecipientRow[];
     for (const row of rows) {
-      if (rowContact(row)?.opted_out_at) {
-        optedOut.push(row.id);
+      const refusal = consentRefusal(rowContact(row));
+      if (refusal) {
+        refused[refusal].push(row.id);
         continue;
       }
-      const sanitized = sanitizePhoneForMeta(contactPhone(row) ?? '');
-      if (isValidE164(sanitized)) sendable.push(row);
+      const phone = sendablePhone(row);
+      if (phone) sendable.push({ row, phone });
       else unsendable.push(row.id);
     }
     if (rows.length < LOAD_PAGE) break;
   }
 
+  // A saved local form that now becomes a number that rings: the opt-out
+  // may sit on the contact that holds it in full, which is not this row's.
+  const completed = sendable.filter(
+    ({ row, phone }) =>
+      phone !== sanitizePhoneForMeta(rowContact(row)?.phone ?? '')
+  );
+  if (completed.length > 0) {
+    const refusals = await refusedNumbers(
+      db,
+      accountId,
+      completed.map((c) => c.phone)
+    );
+    sendable = sendable.filter(({ row, phone }) => {
+      const refusal = refusals.get(sanitizePhoneForMeta(phone));
+      if (refusal) refused[refusal].push(row.id);
+      return !refusal;
+    });
+  }
+
   // Left out of the plan whatever becomes of the stamps; the next pass
   // retries one that failed.
-  await stampFailed(db, optedOut, OPTED_OUT_REASON);
+  for (const refusal of ['opted_out', 'do_not_contact'] as const) {
+    await stampFailed(db, refused[refusal], CONSENT_FAILURE_REASONS[refusal]);
+  }
+  const optedOut = refused.opted_out.length + refused.do_not_contact.length;
   await stampFailed(db, unsendable, 'No valid phone number on contact');
 
   const slice = sendable.slice(0, RESUME_MAX_PER_REQUEST);
   const remaining = Math.max(
     0,
-    inScope - slice.length - optedOut.length - unsendable.length
+    inScope - slice.length - optedOut - unsendable.length
   );
 
   if (slice.length === 0) {
@@ -428,23 +514,23 @@ export async function planBroadcastResume(
     templateRow: resolvedTemplate.row,
     headerMediaUrl,
     quietHours,
-    planned: slice.map((row) => ({
+    planned: slice.map(({ row, phone }) => ({
       recipientRowId: row.id,
       contactId: row.contact_id ?? null,
-      phone: sanitizePhoneForMeta(contactPhone(row) ?? ''),
+      phone,
       params: Array.isArray(row.template_params)
         ? row.template_params.filter((p): p is string => typeof p === 'string')
         : [],
     })),
     rejected: 0,
-    skippedOptedOut: optedOut.length,
+    skippedOptedOut: optedOut,
   };
 
   return {
     plan,
     remaining,
     unsendable: unsendable.length,
-    optedOut: optedOut.length,
+    optedOut,
   };
 }
 

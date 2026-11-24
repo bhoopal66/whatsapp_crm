@@ -83,6 +83,7 @@ describe('downloadMedia never leaks the token', () => {
     await whapiDownload({
       downloadUrl: 'https://gate.whapi.cloud/media/1',
       token: 'tok',
+      maxBytes: 1024,
     });
     expect(calls[0].auth).toBe('Bearer tok');
     expect(calls[0].redirect).toBe('manual');
@@ -93,6 +94,7 @@ describe('downloadMedia never leaks the token', () => {
     const { buffer } = await whapiDownload({
       downloadUrl: 'https://8.8.8.8/in-files/a.jpg',
       token: 'tok',
+      maxBytes: 1024,
     });
     expect(buffer.toString()).toBe('bytes');
     expect(calls[0].auth).toBeNull();
@@ -104,6 +106,7 @@ describe('downloadMedia never leaks the token', () => {
       whapiDownload({
         downloadUrl: 'http://169.254.169.254/latest/meta-data',
         token: 'tok',
+        maxBytes: 1024,
       })
     ).rejects.toThrow(/refused/);
     expect(calls).toHaveLength(0);
@@ -119,6 +122,7 @@ describe('downloadMedia never leaks the token', () => {
     await whapiDownload({
       downloadUrl: 'https://gate.whapi.cloud/media/1',
       token: 'tok',
+      maxBytes: 1024,
     });
     expect(calls.map((c) => c.auth)).toEqual(['Bearer tok', null]);
   });
@@ -128,10 +132,12 @@ describe('downloadMedia never leaks the token', () => {
     await metaDownload({
       downloadUrl: 'https://lookaside.fbsbx.com/whatsapp/abc',
       accessToken: 'mtok',
+      maxBytes: 1024,
     });
     await metaDownload({
       downloadUrl: 'https://8.8.8.8/a.jpg',
       accessToken: 'mtok',
+      maxBytes: 1024,
     });
     expect(calls.map((c) => c.auth)).toEqual(['Bearer mtok', null]);
   });
@@ -147,6 +153,7 @@ describe('downloadMedia never leaks the token', () => {
       metaDownload({
         downloadUrl: 'https://8.8.8.8/a.jpg',
         accessToken: 'mtok',
+        maxBytes: 1024,
       })
     ).rejects.toThrow(/refused/);
   });
@@ -159,14 +166,17 @@ describe('downloadMedia never leaks the token', () => {
       downloadUrl:
         'https://lookaside.fbsbx.com/whatsapp_business/attachments/?mid=1',
       token: 'mtok',
+      maxBytes: 1024,
     });
     await mirrorDefaultDownload({
       downloadUrl: 'https://gate.whapi.cloud/media/abc',
       token: 'wtok',
+      maxBytes: 1024,
     });
     await mirrorDefaultDownload({
       downloadUrl: 'https://8.8.8.8/in-files/a.jpg',
       token: 'wtok',
+      maxBytes: 1024,
     });
     expect(calls.map((c) => c.auth)).toEqual([
       'Bearer mtok',

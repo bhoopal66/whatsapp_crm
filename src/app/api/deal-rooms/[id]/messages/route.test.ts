@@ -47,7 +47,11 @@ import { POST } from './route';
 const HOUR = 3_600_000;
 let mem: ReturnType<typeof memoryDb>;
 
-function seed(windowUntil: string | null, status = 'open') {
+function seed(
+  windowUntil: string | null,
+  status = 'open',
+  record: () => unknown = () => 'gm-1'
+) {
   mem = memoryDb(
     {
       deal_rooms: [
@@ -63,7 +67,7 @@ function seed(windowUntil: string | null, status = 'open') {
     },
     {
       rpc: (fn) => {
-        if (fn === 'deal_room_record_message') return 'gm-1';
+        if (fn === 'deal_room_record_message') return record();
         return null;
       },
     }
@@ -239,6 +243,45 @@ describe('POST /api/deal-rooms/[id]/messages', () => {
     expect(mem.rpcCalls.map(([fn]) => fn)).not.toContain(
       'deal_room_record_message'
     );
+  });
+
+  it.each([
+    ['a timeout', new MetaError('no answer', 504)],
+    ['a Meta 5xx', new MetaError('down', 500, 131000)],
+    ['no message id', new MetaError('Meta returned no message id', 502)],
+    ['a dropped connection', new TypeError('fetch failed')],
+  ])('answers 502 unconfirmed to %s, keeping the file', async (_n, err) => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    m.sendGroupText.mockRejectedValue(err);
+    m.sendGroupMedia.mockRejectedValue(err);
+    for (const res of [await post({ text: 'Hello' }), await postFile(pdf())]) {
+      expect(res.status).toBe(502);
+      expect((await res.json()).code).toBe('unconfirmed');
+    }
+    expect(mem.uploads).toHaveLength(1);
+    expect(mem.removed).toEqual([]);
+    expect(mem.rpcCalls).toEqual([]);
+  });
+
+  it.each([
+    ['once: tries again and answers its id', 1, 'gm-1'],
+    ['twice: answers 201 with no id, the message being out', 2, null],
+  ])('a record that fails %s', async (_n, failures, id) => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    let left = failures;
+    seed(new Date(Date.now() + HOUR).toISOString(), 'open', () => {
+      if (left-- > 0) throw { message: 'timeout' };
+      return 'gm-1';
+    });
+    const res = await post({ text: 'Hello' });
+    expect(res.status).toBe(201);
+    expect(await res.json()).toEqual({ id, waMessageId: 'wamid.T' });
+    expect(m.sendGroupText).toHaveBeenCalledTimes(1);
+    const recorded = mem.rpcCalls.filter(
+      ([fn]) => fn === 'deal_room_record_message'
+    );
+    expect(recorded).toHaveLength(2);
+    expect(recorded[1]).toEqual(recorded[0]);
   });
 
   it('marks the room suspended on 131207', async () => {

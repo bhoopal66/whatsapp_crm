@@ -3,9 +3,11 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { closeSystemTasks } from '@/lib/tasks/system';
 import type { SystemTaskSource } from '@/lib/tasks/types';
 
+import { dncContactIds } from './calls';
 import { pbxApiFor, PbxConnectionError, type PbxHandle } from './connection';
-import { digitsOnly } from './extensions';
 import { outboundCallsEnabled } from './outbound';
+import { contactPhoneCandidates, normalizeRemoteNumber } from './phone';
+import { YeastarError } from './yeastar';
 
 /**
  * Dials the "Call me back" queue (callback_requests, migration 086).
@@ -13,13 +15,30 @@ import { outboundCallsEnabled } from './outbound';
  * A pending request whose `not_before` has passed is dialled only
  * between 09:00 and 20:00 Dubai time, from its owner's extension: the
  * request's `assigned_to`, else the contact's owner, mapped to an
- * extension in that workspace. The PBX rings the owner first and then
+ * extension in that workspace (with no owner or no extension it is
+ * `skipped`: nobody can place it). The PBX rings the owner first and then
  * the customer, whose recording notice plays before the owner is
- * connected. The dial waits while that extension is not idle (or is
- * known to be unregistered or away): the request stays pending, and no
- * attempt is spent. A contact on do-not-contact is never dialled
- * (`skipped`). Each dial spends one attempt; the third failure marks it
- * `failed`, and the CALLBACK task stays open for a person either way.
+ * connected. The number dialled is the dial route's normalised form; one
+ * that is missing or an extension marks the request `failed`. A contact on
+ * do-not-contact, or whose number another do-not-contact contact of the
+ * workspace holds, is never dialled (`skipped`).
+ *
+ * The dial waits while that extension is not idle (or is known to be
+ * unregistered or away), while the PBX is backing off, and while the
+ * customer is being rung or was rung in the last `RING_GAP_MS`
+ * (`ringClash`: another request of theirs, or any outbound call to their
+ * number): the request stays pending, no attempt is spent, and
+ * `not_before` moves it behind the rest of the queue. The clash is looked
+ * for again after the claim, which is what stops two overlapping passes
+ * that claim two requests of one customer: each claim is committed before
+ * its own second look, so at least one sees the other and steps back.
+ *
+ * Each dial spends one attempt; the third failure marks it `failed`, and
+ * the CALLBACK task stays open for a person either way. Every way back to
+ * `pending` after an attempt waits (`retryNotBefore`). Only a refusal the
+ * PBX stated counts as a failed dial (`dialRefused`): a timeout may have
+ * rung the customer, so the request stays `dialing` for its 30012 or the
+ * stale release.
  *
  * The call's 30012 settles a `dialing` request (`settleCallbackCall`,
  * from the event processor): answered closes it and its task.
@@ -46,6 +65,12 @@ export const CALLBACK_HOURS = { start: 9, end: 20 } as const;
 export const MAX_CALLBACK_ATTEMPTS = 3;
 /** A `dialing` request not updated for this long has lost its result. */
 export const STALE_DIALING_MS = 30 * 60 * 1000;
+/** A customer rung this recently is not rung again by the queue. */
+export const RING_GAP_MS = 30 * 60 * 1000;
+/** How long a request that could not be dialled now leaves the queue. */
+export const CALLBACK_WAIT_MS = 5 * 60 * 1000;
+/** The wait after each attempt; the last one is after the second. */
+const RETRY_AFTER_MS = [30 * 60 * 1000, 2 * 60 * 60 * 1000];
 /** Stale requests looked at in one pass; the rest wait for the next. */
 const STALE_BATCH = 50;
 
@@ -53,6 +78,66 @@ type Row = Record<string, unknown>;
 const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
 const message = (err: unknown) =>
   (err instanceof Error ? err.message : String(err)).slice(0, 500);
+
+/** When a request back to pending after that many attempts is due again. */
+export function retryNotBefore(attempts: number, nowMs: number): string {
+  const step = Math.min(Math.max(attempts, 1), RETRY_AFTER_MS.length) - 1;
+  return new Date(nowMs + RETRY_AFTER_MS[step]).toISOString();
+}
+
+/**
+ * The PBX said no before anything rang: our own connection error, an error
+ * code, or a failure before `call/dial` was reached (the token). Anything
+ * else (a timeout, an unreadable answer) may have rung.
+ */
+function dialRefused(err: unknown): boolean {
+  if (err instanceof PbxConnectionError) return true;
+  return (
+    err instanceof YeastarError &&
+    (err.errcode !== null || err.endpoint !== 'call/dial')
+  );
+}
+
+/**
+ * When to try again because the customer is being rung, or was in the
+ * last `RING_GAP_MS`; null when they may be rung now. A waiting request of
+ * theirs does not count, or two waiting ones would block each other.
+ */
+async function ringClash(
+  db: SupabaseClient,
+  input: {
+    requestId: string;
+    accountId: string;
+    contactId: unknown;
+    number: string;
+  },
+  nowMs: number
+): Promise<string | null> {
+  const sibling = await db
+    .from('callback_requests')
+    .select('id')
+    .eq('account_id', input.accountId)
+    .eq('contact_id', input.contactId)
+    .eq('status', 'dialing')
+    .neq('id', input.requestId)
+    .limit(1);
+  if (sibling.error)
+    throw new Error(`callback_requests read: ${sibling.error.message}`);
+  if (((sibling.data ?? []) as unknown[]).length)
+    return new Date(nowMs + CALLBACK_WAIT_MS).toISOString();
+  const rung = await db
+    .from('calls')
+    .select('started_at')
+    .eq('account_id', input.accountId)
+    .eq('direction', 'outbound')
+    .in('remote_number', contactPhoneCandidates(input.number))
+    .gt('started_at', new Date(nowMs - RING_GAP_MS).toISOString())
+    .order('started_at', { ascending: false })
+    .limit(1);
+  if (rung.error) throw new Error(`calls read: ${rung.error.message}`);
+  const last = str(((rung.data ?? []) as Row[])[0]?.started_at);
+  return last ? new Date(Date.parse(last) + RING_GAP_MS).toISOString() : null;
+}
 
 const hourFormat = new Intl.DateTimeFormat('en-GB', {
   timeZone: CALLBACK_TIME_ZONE,
@@ -80,9 +165,14 @@ export interface CallbacksSummary {
   outsideHours: boolean;
   dialled: number;
   skipped: number;
-  /** Left pending: owner busy, unmapped, or the PBX backing off. */
+  /**
+   * Left pending for later: owner busy, customer just rung, the PBX
+   * backing off, or a refused dial with attempts left.
+   */
   waiting: number;
   failed: number;
+  /** Dialled with no clear answer: left `dialing` (see the header). */
+  uncertain: number;
   /** Requests stuck `dialing` that were moved on (`STALE_DIALING_MS`). */
   released: number;
 }
@@ -109,6 +199,7 @@ export async function dialDueCallbacks(
     skipped: 0,
     waiting: 0,
     failed: 0,
+    uncertain: 0,
     released: 0,
   };
   // Before the hours check: releasing a stuck request never dials.
@@ -125,6 +216,7 @@ export async function dialDueCallbacks(
     .select('id, account_id, contact_id, assigned_to, attempts')
     .eq('status', 'pending')
     .or(`not_before.is.null,not_before.lte.${nowIso}`)
+    .order('not_before', { ascending: true, nullsFirst: true })
     .order('created_at', { ascending: true })
     .limit(limit);
   if (error) throw new Error(`callback_requests read failed: ${error.message}`);
@@ -142,6 +234,13 @@ export async function dialDueCallbacks(
     if (r.error)
       throw new Error(`callback_requests update: ${r.error.message}`);
     return ((r.data ?? []) as unknown[]).length > 0;
+  };
+  /** Stays pending and lets the rest of the queue past. */
+  const wait = async (id: string, until?: string) => {
+    await update(id, 'pending', {
+      not_before: until ?? new Date(now() + CALLBACK_WAIT_MS).toISOString(),
+    });
+    summary.waiting++;
   };
 
   for (const req of (data ?? []) as Row[]) {
@@ -162,27 +261,41 @@ export async function dialDueCallbacks(
       }
       const c = await db
         .from('contacts')
-        .select('phone, do_not_contact_at, user_id')
+        .select('phone, user_id')
         .eq('account_id', accountId)
         .eq('id', req.contact_id)
         .maybeSingle();
       if (c.error) throw new Error(`contacts read: ${c.error.message}`);
       const contact = c.data as Row | null;
-      if (!contact || contact.do_not_contact_at) {
+      if (!contact) {
         await update(id, 'pending', {
           status: 'skipped',
-          last_error: contact ? 'do_not_contact' : 'contact not found',
+          last_error: 'contact not found',
         });
         summary.skipped++;
         continue;
       }
-      const phone = digitsOnly(str(contact.phone) ?? '');
-      if (!phone) {
+      const remote = normalizeRemoteNumber(str(contact.phone));
+      if (!remote || remote.internal) {
         await update(id, 'pending', {
           status: 'failed',
-          last_error: 'the contact has no phone number',
+          last_error: remote
+            ? 'the contact’s number is an extension'
+            : 'the contact has no phone number',
         });
         summary.failed++;
+        continue;
+      }
+      const number = remote.number;
+      if (
+        (await dncContactIds(db, accountId, number, [String(req.contact_id)]))
+          .length
+      ) {
+        await update(id, 'pending', {
+          status: 'skipped',
+          last_error: 'do_not_contact',
+        });
+        summary.skipped++;
         continue;
       }
       const owner = str(req.assigned_to) ?? str(contact.user_id);
@@ -198,11 +311,12 @@ export async function dialDueCallbacks(
       const ext = ((e?.data ?? []) as Row[])[0];
       if (!ext) {
         await update(id, 'pending', {
+          status: 'skipped',
           last_error: owner
             ? 'the owner has no extension in this workspace'
             : 'no owner to call from',
         });
-        summary.waiting++;
+        summary.skipped++;
         continue;
       }
       const connectionId = String(ext.connection_id);
@@ -219,7 +333,7 @@ export async function dialDueCallbacks(
         busyExtensions.has(key) ||
         !extensionFree(p.data as Row | null, str(ext.registration_state))
       ) {
-        summary.waiting++;
+        await wait(id);
         continue;
       }
       if (!handles.has(connectionId)) {
@@ -233,7 +347,18 @@ export async function dialDueCallbacks(
       }
       const handle = handles.get(connectionId);
       if (!handle) {
-        summary.waiting++;
+        await wait(id);
+        continue;
+      }
+      const ring = {
+        requestId: id,
+        accountId,
+        contactId: req.contact_id,
+        number,
+      };
+      const clash = await ringClash(db, ring, now());
+      if (clash) {
+        await wait(id, clash);
         continue;
       }
       // Claim before dialling, so an overlapping run cannot ring twice.
@@ -243,27 +368,52 @@ export async function dialDueCallbacks(
           status: 'dialing',
           attempts: spent,
           last_error: null,
+          // An earlier attempt's call must not settle this one.
+          pbx_call_id: null,
         }))
       ) {
         continue;
       }
-      busyExtensions.add(key);
-      try {
-        const { callId } = await handle.api.dial({
-          caller: extension,
-          callee: phone,
-        });
-        await update(id, 'dialing', { pbx_call_id: callId });
-        summary.dialled++;
-      } catch (err) {
-        const gaveUp = spent >= MAX_CALLBACK_ATTEMPTS;
+      // Again now the claim is committed: an overlapping pass may have
+      // claimed another request of this customer meanwhile.
+      const late = await ringClash(db, ring, now());
+      if (late) {
         await update(id, 'dialing', {
-          status: gaveUp ? 'failed' : 'pending',
+          status: 'pending',
+          attempts,
+          not_before: late,
+        });
+        summary.waiting++;
+        continue;
+      }
+      busyExtensions.add(key);
+      let callId: string;
+      try {
+        ({ callId } = await handle.api.dial({
+          caller: extension,
+          callee: number,
+        }));
+      } catch (err) {
+        if (!dialRefused(err)) {
+          await update(id, 'dialing', {
+            last_error: `dial not confirmed: ${message(err)}`,
+          });
+          summary.uncertain++;
+          continue;
+        }
+        const back = backAfter(spent, now());
+        await update(id, 'dialing', {
+          ...back,
           last_error: `dial failed: ${message(err)}`,
         });
-        if (gaveUp) summary.failed++;
+        if (back.status === 'failed') summary.failed++;
         else summary.waiting++;
+        continue;
       }
+      // The customer is being rung: an error saving the id must not undo
+      // the claim (the stale release picks the request up).
+      summary.dialled++;
+      await update(id, 'dialing', { pbx_call_id: callId });
     } catch (err) {
       console.error(`[pbx] callback ${id}: ${message(err)}`);
     }
@@ -271,10 +421,17 @@ export async function dialDueCallbacks(
   return summary;
 }
 
+/** Where an attempt that did not reach the customer leaves the request. */
+function backAfter(attempts: number, nowMs: number): Row {
+  return attempts >= MAX_CALLBACK_ATTEMPTS
+    ? { status: 'failed' }
+    : { status: 'pending', not_before: retryNotBefore(attempts, nowMs) };
+}
+
 /**
  * The 30012 of a call dialled for a call-back: answered → `done` and the
- * request's task closed; otherwise back to `pending`, or `failed` once
- * the attempts are spent. A call no `dialing` request placed is ignored.
+ * request's task closed; otherwise back to `pending` after a wait
+ * (`retryNotBefore`), or `failed` once the attempts are spent. A call no `dialing` request placed is ignored.
  * Answers whether a request was settled.
  */
 export async function settleCallbackCall(
@@ -286,8 +443,10 @@ export async function settleCallbackCall(
     status: string;
     /** Settle only a request not updated since then (the stale release). */
     staleBefore?: string;
+    now?: () => number;
   }
 ): Promise<boolean> {
+  const { now = Date.now } = input;
   const { data, error } = await db
     .from('callback_requests')
     .select('id, attempts, task_id')
@@ -302,7 +461,7 @@ export async function settleCallbackCall(
   const next = input.answered
     ? { status: 'done', last_error: null }
     : {
-        status: attempts >= MAX_CALLBACK_ATTEMPTS ? 'failed' : 'pending',
+        ...backAfter(attempts, now()),
         last_error: `call ended ${input.status.toLowerCase()}`,
       };
   const move = db
@@ -393,6 +552,7 @@ export async function releaseStaleCallbacks(
             answered: status === 'answered',
             status: status.replace(/_/g, ' '),
             staleBefore,
+            now: () => at,
           });
           if (settled) released++;
           continue;
@@ -403,7 +563,7 @@ export async function releaseStaleCallbacks(
       const moved = await db
         .from('callback_requests')
         .update({
-          status: attempts >= MAX_CALLBACK_ATTEMPTS ? 'failed' : 'pending',
+          ...backAfter(attempts, at),
           last_error: 'no result came back from the PBX',
         })
         .eq('id', id)

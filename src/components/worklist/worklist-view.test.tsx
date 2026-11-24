@@ -258,6 +258,22 @@ describe('WorklistView when a read failed', () => {
     expect(retries(html)).toBe(1);
   });
 
+  it('says when only the first cases were read, and proves nothing empty', () => {
+    const load = { missing: [], stale: [], casesTruncated: true };
+    const html = render({ mode: 'own', load });
+    expect(html).toContain('Showing the first 1,000 cases.');
+    expect(rowsOf(html)).toHaveLength(ITEMS.length);
+    expect(render({ mode: 'own', items: [], load })).not.toContain(
+      'worklist-empty'
+    );
+    expect(render({ mode: 'none', items: [], load })).not.toContain(
+      'Showing the first'
+    );
+    expect(
+      render({ mode: 'own', load: { ...load, casesTruncated: false } })
+    ).not.toContain('Showing the first');
+  });
+
   it('says nothing to a guest, who has no list', () => {
     const html = render({
       mode: 'none',

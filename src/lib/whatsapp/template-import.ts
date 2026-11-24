@@ -5,6 +5,7 @@
  */
 
 import type { MetaTemplateRecord } from './meta-api';
+import { normalizeStatus } from './template-status-normalize';
 import type {
   MessageTemplate,
   MessageTemplateStatus,
@@ -28,17 +29,6 @@ const HEADER_TYPE_FROM_META: Record<
   DOCUMENT: 'document',
 };
 
-const KNOWN_STATUSES: ReadonlySet<string> = new Set<MessageTemplateStatus>([
-  'DRAFT',
-  'PENDING',
-  'APPROVED',
-  'REJECTED',
-  'PAUSED',
-  'DISABLED',
-  'IN_APPEAL',
-  'PENDING_DELETION',
-]);
-
 /** Columns the sync writes. `user_id` is added by the route. */
 export interface ImportedTemplateRow {
   name: string;
@@ -50,7 +40,8 @@ export interface ImportedTemplateRow {
   footer_text: string | null;
   buttons: TemplateButton[] | null;
   sample_values: TemplateSampleValues | null;
-  status: MessageTemplateStatus;
+  /** Null: not one we know. A stored status stays, a new row waits. */
+  status: MessageTemplateStatus | null;
   meta_template_id: string;
   quality_score: 'GREEN' | 'YELLOW' | 'RED' | null;
 }
@@ -86,10 +77,10 @@ function toButton(
 /**
  * Map one Meta template to a local row, or `null` when it has no BODY
  * (a template the CRM could never render or send). Categories and
- * statuses outside the local enums fall back to sendable defaults:
- * an unknown category becomes Marketing — the safe assumption for a
- * campaign tool — and an unknown status is stored as-is only if the
- * CHECK constraint allows it, else PENDING.
+ * statuses outside the local enums: an unknown category becomes
+ * Marketing — the safe assumption for a campaign tool — and a status is
+ * read as the status webhook reads it (`normalizeStatus`: FLAGGED still
+ * sends), null when it is not one we know.
  */
 export function metaTemplateToRow(
   t: MetaTemplateRecord
@@ -129,9 +120,7 @@ export function metaTemplateToRow(
     footer_text: footer?.text ?? null,
     buttons: mapped.length > 0 ? mapped : null,
     sample_values: Object.keys(sample).length > 0 ? sample : null,
-    status: KNOWN_STATUSES.has(t.status)
-      ? (t.status as MessageTemplateStatus)
-      : 'PENDING',
+    status: normalizeStatus(t.status),
     meta_template_id: t.id,
     quality_score:
       quality === 'GREEN' || quality === 'YELLOW' || quality === 'RED'

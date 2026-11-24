@@ -8,6 +8,7 @@ import {
   useCallback,
   useRef,
   useMemo,
+  useReducer,
   useSyncExternalStore,
 } from 'react';
 import { createClient } from '@/lib/supabase/client';
@@ -75,6 +76,7 @@ import { NewMessagesButton } from './new-messages-button';
 import { deleteAccountMedia } from '@/lib/storage/upload-media';
 import { TemplatePicker } from './template-picker';
 import { AiThreadBanner, type AiBannerPatch } from './ai-thread-banner';
+import { NO_DRAFT_MEMORY, draftMemoryReducer } from '@/lib/ai/pending-draft';
 import { needsAttention } from '@/lib/inbox/attention';
 import { pageWithUnsettled, sentRowId } from '@/lib/inbox/optimistic';
 import { shouldMarkRead, startUnreadReset } from '@/lib/inbox/read-state';
@@ -399,6 +401,11 @@ export function MessageThread({
   // The session cache's key half (lib/inbox/message-cache.ts).
   const viewerId = user?.id ?? null;
   const [loading, setLoading] = useState(false);
+  // The AI banner's typed text: it outlives the banner, which changes slot.
+  const [draftMemory, rememberDraft] = useReducer(
+    draftMemoryReducer,
+    NO_DRAFT_MEMORY
+  );
   // Whether the open chat's history is known (lib/inbox/thread-load.ts).
   const [threadLoad, setThreadLoad] = useState<ThreadLoad>(NO_THREAD);
   const [reloadToken, setReloadToken] = useState(0);
@@ -2371,6 +2378,8 @@ export function MessageThread({
             lastMessageFromCustomer={lastMessageFromCustomer}
             currentUserId={user?.id}
             onChange={(patch) => onAiChange(conversation.id, patch)}
+            memory={draftMemory}
+            remember={rememberDraft}
           />
         )}
 
@@ -2628,6 +2637,8 @@ export function MessageThread({
             lastMessageFromCustomer={lastMessageFromCustomer}
             currentUserId={user?.id}
             onChange={(patch) => onAiChange(conversation.id, patch)}
+            memory={draftMemory}
+            remember={rememberDraft}
           />
         )}
         {/* The full row never arrived: the AI banner and the Call button

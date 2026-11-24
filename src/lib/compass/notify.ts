@@ -35,12 +35,28 @@
 //      timeout; the customer must not hear "approved" twice. The key is
 //      claimed (row inserted as `sending`) before the gateway call.
 //      Only a `failed` claim, or a `sending` claim abandoned for longer
-//      than STALE_CLAIM_MS (the process died mid-send), may be retried.
+//      than STALE_CLAIM_MS (the process died mid-send), may be retried,
+//      and neither once DELIVERY_UNCONFIRMED is on the row: that is
+//      written right before the gateway call and removed only by a
+//      definite refusal or the `sent` record, so a row carrying it may
+//      already have reached the customer.
 // ============================================================
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe';
+import {
+  ContactLookupError,
+  findExistingContact,
+  findMatchingContacts,
+  isUniqueViolation,
+  type ExistingContact,
+} from '@/lib/contacts/dedupe';
+import {
+  DELIVERY_UNCONFIRMED,
+  isClaimRetryable,
+  isUnconfirmed,
+  type NotificationStatus,
+} from '@/lib/compass/notification-status';
 import { parseCompassId, normalizeCompassPhone } from '@/lib/compass/contacts';
 import {
   ChannelError,
@@ -50,6 +66,7 @@ import {
 } from '@/lib/whatsapp/channels';
 import { setLeadSourceIfEmpty } from '@/lib/leads/lead-source';
 import { sanitizePhoneForMeta } from '@/lib/whatsapp/phone-utils';
+import { consentRefusal } from '@/lib/whatsapp/send-origin';
 import { resolveTemplateRow } from '@/lib/whatsapp/template-body';
 import {
   compassTemplateFor,
@@ -69,8 +86,8 @@ import {
   type SystemSendResult,
 } from '@/lib/submission-groups/service';
 
-/** A `sending` claim older than this is presumed dead and may be retried. */
-export const STALE_CLAIM_MS = 2 * 60_000;
+const DELIVERY_UNCONFIRMED_MESSAGE =
+  'The message was handed to WhatsApp and its outcome is not confirmed. The customer may have received it, so it is not sent again.';
 
 export const NOTIFICATION_TYPES = ['text', 'image', 'document'] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
@@ -230,6 +247,16 @@ export function parseNotificationRequest(input: unknown): NotificationRequest {
   };
 }
 
+const deliveryUnconfirmed = () =>
+  new NotifyError(DELIVERY_UNCONFIRMED, DELIVERY_UNCONFIRMED_MESSAGE, 409);
+
+const sendInProgress = () =>
+  new NotifyError(
+    'in_progress',
+    'A notification with this idempotency_key is being sent right now — check its status with GET before retrying',
+    409
+  );
+
 // ---------- the stored log row ----------
 
 export const NOTIFICATION_SELECT = '*, message:messages(status, message_id)';
@@ -237,7 +264,8 @@ export const NOTIFICATION_SELECT = '*, message:messages(status, message_id)';
 export interface ApiCompassNotification {
   id: string;
   idempotency_key: string;
-  status: 'sending' | 'sent' | 'failed';
+  /** A row that stuck after the hand-over is `failed`, whatever is stored. */
+  status: NotificationStatus;
   /** WhatsApp delivery progress once sent: sent → delivered → read, or failed. */
   delivery_status: string | null;
   compass_id: string | null;
@@ -264,10 +292,17 @@ export function serializeNotification(
     status?: string;
     message_id?: string;
   } | null;
+  // The mark of a live send is not an error yet.
+  const unconfirmed = isUnconfirmed({
+    status: row.status as string,
+    updated_at: row.updated_at as string,
+    error_code: row.error_code as string | null,
+  });
+  const status = unconfirmed ? 'failed' : (row.status as NotificationStatus);
   return {
     id: row.id as string,
     idempotency_key: row.idempotency_key as string,
-    status: row.status as ApiCompassNotification['status'],
+    status,
     delivery_status: message?.status ?? null,
     compass_id: (row.compass_id as string | null) ?? null,
     event: (row.event as string | null) ?? null,
@@ -284,30 +319,16 @@ export function serializeNotification(
         ? 'customer'
         : null,
     submission_group_id: (row.submission_group_id as string | null) ?? null,
-    error: row.error_code
-      ? {
-          code: row.error_code as string,
-          message: (row.error_message as string | null) ?? '',
-        }
-      : null,
+    error:
+      row.error_code && status !== 'sending'
+        ? {
+            code: row.error_code as string,
+            message: (row.error_message as string | null) ?? '',
+          }
+        : null,
     created_at: row.created_at as string,
     updated_at: row.updated_at as string,
   };
-}
-
-/**
- * May a stored claim be taken over by a retry? `sent` never; `failed`
- * always; `sending` only once it has been abandoned.
- */
-export function isClaimRetryable(
-  row: { status: string; updated_at: string },
-  now = Date.now()
-): boolean {
-  if (row.status === 'failed') return true;
-  if (row.status === 'sending') {
-    return now - new Date(row.updated_at).getTime() > STALE_CLAIM_MS;
-  }
-  return false;
 }
 
 // ---------- orchestration ----------
@@ -348,16 +369,24 @@ export async function getNotificationByKey(
   return row ? serializeNotification(row) : null;
 }
 
+/** Now, but always later than `previous`: two writers never share a stamp. */
+function stampAfter(previous?: string): string {
+  const last = previous ? new Date(previous).getTime() : 0;
+  return new Date(Math.max(Date.now(), last + 1)).toISOString();
+}
+
 /**
- * Claim the key. Returns the claimed row id, or the already-sent row
- * when this is a duplicate. Throws `in_progress` (409) while another
+ * Claim the key. Returns the claimed row id and the claim's token (the
+ * `updated_at` it wrote), or the already-sent row when this is a duplicate. Throws `in_progress` (409) while another
  * request holds a live claim.
  */
 async function claim(
   db: SupabaseClient,
   accountId: string,
   req: NotificationRequest
-): Promise<{ id: string } | { duplicateOf: Record<string, unknown> }> {
+): Promise<
+  { id: string; token: string } | { duplicateOf: Record<string, unknown> }
+> {
   const fields = {
     compass_id: req.compassId,
     event: req.event,
@@ -367,7 +396,7 @@ async function claim(
     status: 'sending',
     error_code: null,
     error_message: null,
-    updated_at: new Date().toISOString(),
+    updated_at: stampAfter(),
   };
 
   const { data: inserted, error } = await db
@@ -380,7 +409,9 @@ async function claim(
     .select('id')
     .single();
 
-  if (inserted) return { id: inserted.id as string };
+  if (inserted) {
+    return { id: inserted.id as string, token: fields.updated_at };
+  }
   if (!isUniqueViolation(error)) {
     throw new NotifyError('internal', 'Failed to record the notification', 500);
   }
@@ -393,53 +424,96 @@ async function claim(
   }
   if (existing.status === 'sent') return { duplicateOf: existing };
 
-  const retryable = isClaimRetryable(
-    existing as { status: string; updated_at: string }
-  );
-  if (retryable) {
+  const row = existing as {
+    status: string;
+    updated_at: string;
+    error_code: string | null;
+  };
+  // A marked `sending` row that is still fresh is a live send (below).
+  if (isUnconfirmed(row)) throw deliveryUnconfirmed();
+  if (isClaimRetryable(row)) {
     // Compare-and-set on updated_at: of two retries racing for the same
     // failed/stale claim, exactly one matches the old timestamp.
+    const token = stampAfter(row.updated_at);
     const { data: reclaimed } = await db
       .from('compass_notifications')
-      .update(fields)
+      .update({ ...fields, updated_at: token })
       .eq('id', existing.id as string)
       .eq('updated_at', existing.updated_at as string)
       .select('id');
     if (reclaimed && reclaimed.length > 0) {
-      return { id: reclaimed[0].id as string };
+      return { id: reclaimed[0].id as string, token };
     }
   }
 
-  throw new NotifyError(
-    'in_progress',
-    'A notification with this idempotency_key is being sent right now — check its status with GET before retrying',
-    409
+  throw sendInProgress();
+}
+
+const customerOptedOut = () =>
+  new NotifyError(
+    'customer_opted_out',
+    'The customer has opted out of WhatsApp messages. Nothing was sent.',
+    422
   );
+
+/** A contact read whose failure answers a retryable 503. */
+async function readContacts<T>(read: Promise<T>): Promise<T> {
+  try {
+    return await read;
+  } catch (err) {
+    if (!(err instanceof ContactLookupError)) throw err;
+    throw new NotifyError(
+      'contact_lookup_failed',
+      'The customer could not be looked up. Nothing was sent — retry later with the same idempotency_key.',
+      503
+    );
+  }
+}
+
+/**
+ * The CRM contact a 1:1 update would reach, found the way
+ * `resolveConversationByPhone` finds it, or null when this phone has
+ * none. Throws the group path's 422 when it, or any other contact this
+ * phone matches, opted out or is do-not-contact (the opt-out may sit on
+ * an older local-format twin), and a retryable 503 when that cannot be
+ * read.
+ */
+async function consentingContact(
+  db: SupabaseClient,
+  accountId: string,
+  phone: string
+): Promise<ExistingContact | null> {
+  const number = sanitizePhoneForMeta(`+${phone}`);
+  const contact = await readContacts(
+    findExistingContact(db, accountId, number)
+  );
+  const matches = await readContacts(
+    findMatchingContacts(db, accountId, number)
+  );
+  const registers = [contact, ...matches] as ({
+    opted_out_at?: string | null;
+    do_not_contact_at?: string | null;
+  } | null)[];
+  if (registers.some((r) => consentRefusal(r))) throw customerOptedOut();
+  return contact;
 }
 
 /**
  * The Meta number this notification would go out on, and the chat this
- * phone already has, or null when the account has no Meta number.
+ * contact already has, or null when the account has no Meta number.
  * Read-only: nothing is created.
  *
  * It asks `resolveSendChannel` exactly what the send core will ask it
- * (surface 'api', provider 'meta', the chat's own numbers), for the
- * chat this phone already has — found the way `resolveConversationByPhone`
- * finds it. A provider pin outranks a chat pinned to a linked-device
+ * (surface 'api', provider 'meta', the chat's own numbers). A provider pin outranks a chat pinned to a linked-device
  * number, so the answer is the account's one Meta number.
  */
 async function metaNumberFor(
   db: SupabaseClient,
   accountId: string,
-  phone: string
+  contact: ExistingContact | null
 ): Promise<{ channel: WhatsAppChannel; conversationId: string | null } | null> {
   let conversationId: string | null = null;
   let numbers: ConversationNumbers | undefined;
-  const contact = await findExistingContact(
-    db,
-    accountId,
-    sanitizePhoneForMeta(`+${phone}`)
-  );
   if (contact) {
     const { data } = await db
       .from('conversations')
@@ -621,10 +695,8 @@ async function groupCandidate(
     if (error) throw lookupFailed();
     if (data) return data as GroupCandidate;
   }
-  const contact = await findExistingContact(
-    db,
-    accountId,
-    sanitizePhoneForMeta(`+${phone}`)
+  const contact = await readContacts(
+    findExistingContact(db, accountId, sanitizePhoneForMeta(`+${phone}`))
   );
   if (!contact) return null;
   const { data, error } = await db
@@ -667,12 +739,6 @@ async function sendToGroup(
     contactId: group.contact_id,
     messageId,
   });
-  const optedOut = () =>
-    new NotifyError(
-      'customer_opted_out',
-      'The customer has opted out of WhatsApp messages. Nothing was sent.',
-      422
-    );
   const failed = (message: string) =>
     new NotifyError('group_send_failed', message, 502);
   const base = baseKey.slice(0, MAX_SYSTEM_KEY_LENGTH - 2);
@@ -699,7 +765,7 @@ async function sendToGroup(
       case 'sent':
         return delivered(result.messageId);
       case 'blocked':
-        throw optedOut();
+        throw customerOptedOut();
       case 'refused':
         // A first attempt the group refused never reached WhatsApp: 1:1 is
         // safe. After a failed attempt it may have, so report instead.
@@ -718,7 +784,7 @@ async function sendToGroup(
             409
           );
         }
-        if (result.sendStatus === 'blocked') throw optedOut();
+        if (result.sendStatus === 'blocked') throw customerOptedOut();
         continue; // failed: try the next attempt key
     }
   }
@@ -750,20 +816,72 @@ export async function sendCompassNotification(
   }
   const notificationId = claimed.id;
 
-  const record = async (fields: Record<string, unknown>) => {
-    const { error } = await db
-      .from('compass_notifications')
-      .update({ ...fields, updated_at: new Date().toISOString() })
-      .eq('id', notificationId);
-    if (error) {
+  // The `updated_at` this request last wrote. Every write below matches
+  // it: a row another request took over after STALE_CLAIM_MS carries that
+  // request's stamp, and is left alone (`claimLost`).
+  let token = claimed.token;
+  let claimLost = false;
+
+  // Retried once: an outcome that is not stored leaves the row marked
+  // DELIVERY_UNCONFIRMED.
+  const record = async (fields: Record<string, unknown>): Promise<boolean> => {
+    const stamp = stampAfter(token);
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      const { data, error } = await db
+        .from('compass_notifications')
+        .update({ ...fields, updated_at: stamp })
+        .eq('id', notificationId)
+        // `stamp` too: a first attempt may be stored and its answer lost.
+        .in('updated_at', [token, stamp])
+        .select('id');
+      if (!error) {
+        if (!data || data.length === 0) {
+          claimLost = true;
+          return false;
+        }
+        token = stamp;
+        return true;
+      }
       console.error('[compass/notify] could not record outcome:', error);
     }
+    return false;
+  };
+
+  // Compare-and-set: a claim taken over, or already handed over, is not
+  // handed over twice.
+  const markHandedToGateway = async () => {
+    const stamp = stampAfter(token);
+    const { data, error } = await db
+      .from('compass_notifications')
+      .update({
+        error_code: DELIVERY_UNCONFIRMED,
+        error_message: DELIVERY_UNCONFIRMED_MESSAGE,
+        updated_at: stamp,
+      })
+      .eq('id', notificationId)
+      .eq('updated_at', token)
+      .eq('status', 'sending')
+      .is('error_code', null)
+      .select('id');
+    if (error) {
+      throw new NotifyError(
+        'internal',
+        'Failed to record the notification. Nothing was sent.',
+        500
+      );
+    }
+    if (!data || data.length === 0) {
+      claimLost = true;
+      throw sendInProgress();
+    }
+    token = stamp;
   };
 
   // Once the gateway has accepted the message, a later failure must
   // not free the key for a retry — that would be the double send the
   // key exists to prevent.
   let handedToGateway = false;
+  let accepted = false;
   try {
     let phone = req.to;
     let name = req.name;
@@ -805,7 +923,10 @@ export async function sendCompassNotification(
         422
       );
     }
-    if (phone !== req.to) await record({ phone });
+    if (phone !== req.to) {
+      await record({ phone });
+      if (claimLost) throw sendInProgress();
+    }
 
     // 170: a text update goes ONLY into the customer's submission group
     // when there is a live one; it is sent from the group's own number,
@@ -856,9 +977,11 @@ export async function sendCompassNotification(
       }
     }
 
+    const contact = await consentingContact(db, accountId, phone);
+
     // Checked before a contact or chat is created, so a missing channel
     // leaves nothing behind. The send core re-checks (requireProvider).
-    const meta = await metaNumberFor(db, accountId, phone);
+    const meta = await metaNumberFor(db, accountId, contact);
     if (!meta) {
       throw new NotifyError(
         'meta_not_connected',
@@ -895,15 +1018,12 @@ export async function sendCompassNotification(
       template = await compassTemplateSend(db, accountId, req.event, req.text);
     }
 
-    const resolved = await resolveConversationByPhone(
-      db,
-      accountId,
-      `+${phone}`,
-      name,
-      { renameExisting: false }
+    const resolved = await readContacts(
+      resolveConversationByPhone(db, accountId, `+${phone}`, name, {
+        renameExisting: false,
+      })
     );
 
-    handedToGateway = true;
     const sent = await sendMessageToConversation(db, accountId, {
       conversationId: resolved.conversationId,
       ...(template
@@ -923,14 +1043,22 @@ export async function sendCompassNotification(
       provider: 'meta',
       requireProvider: true,
       pauseActiveFlows: false,
+      beforeGateway: async () => {
+        await markHandedToGateway();
+        handedToGateway = true;
+      },
     });
 
-    await record({
+    accepted = true;
+    const outcome = {
       status: 'sent',
+      error_code: null,
+      error_message: null,
       message_id: sent.messageId,
       conversation_id: resolved.conversationId,
       contact_id: resolved.contactId,
-    });
+    };
+    const recorded = await record(outcome);
 
     if (req.compassId) {
       await db
@@ -963,17 +1091,24 @@ export async function sendCompassNotification(
     const row = await loadNotification(db, accountId, { id: notificationId });
     return {
       notification: serializeNotification(
-        row ?? {
-          id: notificationId,
-          idempotency_key: req.idempotencyKey,
-          status: 'sent',
-        }
+        row
+          ? // Sent, even when the row could not be told so.
+            recorded
+            ? row
+            : { ...row, ...outcome }
+          : {
+              id: notificationId,
+              idempotency_key: req.idempotencyKey,
+              status: 'sent',
+            }
       ),
       duplicate: false,
       contactCreated: resolved.contactCreated,
       conversationCreated: resolved.conversationCreated,
     };
   } catch (err) {
+    // The row belongs to the request that took the claim over.
+    if (claimLost) throw err;
     const code =
       err instanceof NotifyError || err instanceof SendMessageError
         ? err.code
@@ -986,9 +1121,24 @@ export async function sendCompassNotification(
     // the message (persisting it failed). The customer has it; keep
     // the key spent.
     const delivered =
+      accepted ||
+      (handedToGateway &&
+        err instanceof SendMessageError &&
+        err.code === 'db_error');
+    // A timeout or a gateway 5xx may have reached the customer.
+    if (
       handedToGateway &&
-      err instanceof SendMessageError &&
-      err.code === 'db_error';
+      !delivered &&
+      !(err instanceof SendMessageError && err.definite)
+    ) {
+      console.error('[compass/notify] send outcome unconfirmed:', code);
+      await record({
+        status: 'failed',
+        error_code: DELIVERY_UNCONFIRMED,
+        error_message: DELIVERY_UNCONFIRMED_MESSAGE,
+      });
+      throw deliveryUnconfirmed();
+    }
     await record({
       status: delivered ? 'sent' : 'failed',
       error_code: code,

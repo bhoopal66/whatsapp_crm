@@ -79,7 +79,9 @@ let service: FakeDb;
 function as(
   role: string,
   extension = '201',
-  visible = [{ id: C1, phone: '971501234567' }]
+  visible = [
+    { id: C1, phone: '971501234567', phone_normalized: '971501234567' },
+  ]
 ) {
   rls = createFakeDb(
     {
@@ -122,6 +124,7 @@ beforeEach(() => {
         account_id: A,
         user_id: 'owner-9',
         phone: '971501234567',
+        phone_normalized: '971501234567',
         do_not_contact_at: null,
       },
       {
@@ -129,6 +132,7 @@ beforeEach(() => {
         account_id: A,
         user_id: 'owner-8',
         phone: '971502222222',
+        phone_normalized: '971502222222',
         do_not_contact_at: null,
       },
       {
@@ -136,6 +140,7 @@ beforeEach(() => {
         account_id: A,
         user_id: null,
         phone: '971503333333',
+        phone_normalized: '971503333333',
         do_not_contact_at: '2026-10-01T00:00:00Z',
         do_not_contact_reason: 'Asked',
       },
@@ -314,6 +319,15 @@ describe('POST /api/pbx/calls/[pbxCallId]/[action]', () => {
       channelId: 'ch-cust',
       number: '971501234567',
     });
+  });
+
+  it.each([
+    ['+971 50 123 4567', '971501234567'],
+    ['050 123 4567', '0501234567'],
+  ])('transfers to a visible customer saved as %s', async (phone, digits) => {
+    as('agent', '201', [{ id: C1, phone, phone_normalized: digits }]);
+    const res = await post('pbx-1', 'transfer', { number: '0501234567' });
+    expect(res.status).toBe(200);
   });
 
   it('validates the transfer body', async () => {

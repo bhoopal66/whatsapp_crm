@@ -1,4 +1,5 @@
 import type { getDocumentProxy } from 'unpdf';
+import { decodeText, TextEncodingError } from '@/lib/csv/decode-text';
 import { AiError } from './types';
 
 /**
@@ -169,7 +170,15 @@ export async function extractKnowledgeText(
       );
     }
   } else {
-    text = new TextDecoder('utf-8').decode(bytes);
+    try {
+      text = decodeText(new Uint8Array(bytes));
+    } catch (err) {
+      if (!(err instanceof TextEncodingError)) throw err;
+      throw new AiError(
+        'Some letters in this file cannot be read. Save it as UTF-8 text (in Excel, "CSV UTF-8") and upload that.',
+        { code: 'text_encoding', status: 400 }
+      );
+    }
   }
 
   // Collapse the whitespace pdf.js leaves between text runs while

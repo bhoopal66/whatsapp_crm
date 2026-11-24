@@ -32,7 +32,9 @@ import {
  * Meta is the source of truth for status, so an APPROVED / REJECTED /
  * PAUSED verdict overwrites the local one — the same thing the
  * `message_template_status_update` webhook does, one template at a
- * time.
+ * time. A template Meta no longer has is set DISABLED, so no sender
+ * offers it: its deletion reaches us only through that webhook, and
+ * before this a missed one stayed APPROVED here for good.
  */
 export async function POST() {
   try {
@@ -57,11 +59,29 @@ export async function POST() {
       );
     }
 
-    const remote = await listMessageTemplates({
+    // Read before the list: a template submitted while Meta is being
+    // read is in neither, and must not look deleted.
+    const { data: before, error: beforeErr } = await supabase
+      .from('message_templates')
+      .select('id, meta_template_id, status')
+      .eq('account_id', accountId);
+    if (beforeErr) throw beforeErr;
+    // Not `channels`: it leaves out a number it cannot decrypt, and that
+    // number's WABA may be where a template we miss here lives.
+    const { data: metaRows, error: metaErr } = await supabase
+      .from('whatsapp_config')
+      .select('waba_id')
+      .eq('account_id', accountId)
+      .eq('provider', 'meta');
+    if (metaErr) throw metaErr;
+
+    const { templates: remote, complete } = await listMessageTemplates({
       wabaId: meta.wabaId,
       accessToken: meta.accessToken,
     });
 
+    // Read again after it, so a row added meanwhile is matched, not
+    // inserted twice.
     const { data: existing, error: listErr } = await supabase
       .from('message_templates')
       .select('id, name, language, meta_template_id')
@@ -78,6 +98,7 @@ export async function POST() {
     let created = 0;
     let updated = 0;
     let skipped = 0;
+    const touched = new Set<string>();
     for (const t of remote) {
       const row = metaTemplateToRow(t);
       if (!row) {
@@ -87,20 +108,60 @@ export async function POST() {
       const id =
         byMetaId.get(row.meta_template_id) ??
         byNameLang.get(`${row.name} ${row.language}`);
+      const { status, ...columns } = row;
       if (id) {
         const { error } = await supabase
           .from('message_templates')
-          .update({ ...row, submission_error: null })
+          .update({
+            ...columns,
+            // One we do not know says nothing: the stored one stays.
+            ...(status ? { status } : {}),
+            submission_error: null,
+          })
           .eq('id', id)
           .eq('account_id', accountId);
         if (error) throw error;
+        touched.add(id);
         updated++;
       } else {
-        const { error } = await supabase
-          .from('message_templates')
-          .insert({ ...row, account_id: accountId, user_id: userId });
+        const { error } = await supabase.from('message_templates').insert({
+          ...columns,
+          status: status ?? 'PENDING',
+          account_id: accountId,
+          user_id: userId,
+        });
         if (error) throw error;
         created++;
+      }
+    }
+
+    // Templates have no WABA of their own here, so a missing one means
+    // deleted only when this WABA is the account's only one, and only
+    // against a list known to be whole.
+    const wabas = new Set((metaRows ?? []).map((r) => r.waba_id));
+    const oneWaba = wabas.size === 1 && wabas.has(meta.wabaId);
+    let disabled = 0;
+    if (oneWaba && complete && remote.length > 0) {
+      // Every remote id, the body-less `skipped` ones included.
+      const remoteIds = new Set(remote.map((t) => t.id));
+      for (const row of before ?? []) {
+        if (!row.meta_template_id || remoteIds.has(row.meta_template_id)) {
+          continue;
+        }
+        if (touched.has(row.id) || row.status === 'DISABLED') continue;
+        // Submitted seconds ago, Meta's list may not have it yet, and no
+        // sender offers it.
+        if (row.status === 'PENDING') continue;
+        // The id again: a row resubmitted meanwhile carries a new one.
+        const { data, error } = await supabase
+          .from('message_templates')
+          .update({ status: 'DISABLED' })
+          .eq('id', row.id)
+          .eq('account_id', accountId)
+          .eq('meta_template_id', row.meta_template_id)
+          .select('id');
+        if (error) throw error;
+        disabled += data?.length ?? 0;
       }
     }
 
@@ -110,6 +171,7 @@ export async function POST() {
       created,
       updated,
       skipped,
+      disabled,
     });
   } catch (err) {
     if (err instanceof MetaError) {

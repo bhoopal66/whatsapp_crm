@@ -42,7 +42,11 @@ describe('loadWorklistInputs', () => {
       hr_agent_drafts: { data: null, error: { message: 'x' } },
     });
     const out = await loadWorklistInputs(sb, jsonFetch(500, { error: 'x' }));
-    expect(out).toEqual({ inputs: EMPTY, failed: ['hr', 'drafts', 'cases'] });
+    expect(out).toEqual({
+      inputs: EMPTY,
+      failed: ['hr', 'drafts', 'cases'],
+      casesTruncated: false,
+    });
   });
 
   it('counts the HR part as failed when only its tasks or rule fail', async () => {
@@ -78,7 +82,11 @@ describe('loadWorklistInputs', () => {
       error: 'Your department does not have access to this',
     });
     const out = await loadWorklistInputs(sb, f);
-    expect(out).toEqual({ inputs: EMPTY, failed: [] });
+    expect(out).toEqual({
+      inputs: EMPTY,
+      failed: [],
+      casesTruncated: false,
+    });
     expect(
       String((f as unknown as ReturnType<typeof vi.fn>).mock.calls[0]![0])
     ).toMatch(/^\/api\/cases\?.*limit=200/);
@@ -175,5 +183,79 @@ describe('loadWorklistInputs cases option', () => {
     const f = jsonFetch(200, { rows: [], nextCursor: null });
     await loadWorklistInputs(fakeSupabase({}), f);
     expect(f).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('loadWorklistInputs reads every page of cases', () => {
+  const caseRow = (id: string) => ({
+    caseId: id,
+    stage: 'submitted',
+    agentId: 'u-1',
+    lastActivityAt: '2026-11-20T00:00:00Z',
+  });
+  /** Answers each `after` with its page; a number is an error status. */
+  const paged = (
+    pages: Record<string, { rows: string[]; next: string | null } | number>
+  ) => {
+    const asked: string[] = [];
+    const f = vi.fn(async (url: string) => {
+      const after = new URL(url, 'http://x').searchParams.get('after') ?? '';
+      asked.push(after);
+      const page = pages[after];
+      if (typeof page === 'number') {
+        return new Response('{"error":"x"}', { status: page });
+      }
+      return new Response(
+        JSON.stringify({ rows: page.rows.map(caseRow), nextCursor: page.next })
+      );
+    }) as unknown as typeof fetch;
+    return { f, asked };
+  };
+  const load = (f: typeof fetch) => loadWorklistInputs(fakeSupabase({}), f);
+  const ids = (out: Awaited<ReturnType<typeof load>>) =>
+    out.inputs.cases.map((c) => (c as unknown as { caseId: string }).caseId);
+
+  it('follows nextCursor to the end, one row per case', async () => {
+    const { f, asked } = paged({
+      '': { rows: ['a', 'b'], next: 'k1' },
+      k1: { rows: ['b', 'c'], next: 'k2' },
+      k2: { rows: ['d'], next: null },
+    });
+    const out = await load(f);
+    expect(asked).toEqual(['', 'k1', 'k2']);
+    expect(ids(out)).toEqual(['a', 'b', 'c', 'd']);
+    expect([out.failed, out.casesTruncated]).toEqual([[], false]);
+  });
+
+  it('stops at 1,000 and says the list is cut', async () => {
+    const { f, asked } = paged(
+      Object.fromEntries(
+        ['', 'k1', 'k2', 'k3', 'k4', 'k5'].map((k, i) => [
+          k,
+          { rows: [`c${i}`], next: `k${i + 1}` },
+        ])
+      )
+    );
+    const out = await load(f);
+    expect(asked).toEqual(['', 'k1', 'k2', 'k3', 'k4']);
+    expect(ids(out)).toHaveLength(5);
+    expect([out.failed, out.casesTruncated]).toEqual([[], true]);
+  });
+
+  it.each([500, 403])(
+    'a later page answering %i leaves the ones read, marked cut',
+    async (status) => {
+      const { f } = paged({ '': { rows: ['a'], next: 'k1' }, k1: status });
+      const out = await load(f);
+      expect(ids(out)).toEqual(['a']);
+      expect([out.failed, out.casesTruncated]).toEqual([[], true]);
+    }
+  );
+
+  it('a first page that fails is the part that failed', async () => {
+    const { f } = paged({ '': 500 });
+    const out = await load(f);
+    expect(ids(out)).toEqual([]);
+    expect([out.failed, out.casesTruncated]).toEqual([['cases'], false]);
   });
 });

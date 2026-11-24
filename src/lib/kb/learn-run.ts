@@ -1,5 +1,5 @@
 /**
- * Learn from team answers (migration 270): the weekly cron job.
+ * Learn from team answers (migration 290): the weekly cron job.
  *
  * For each workspace with the switch on whose last run is a week old
  * (kb_learn_claim_run stamps it first, so two crons never both run), up
@@ -30,6 +30,7 @@ import {
   ANSWER_WINDOW_MS,
   KB_LEARN_INTERVAL_DAYS,
   MAX_ANSWERS_PER_TOPIC,
+  MIN_ANSWERS_PER_TOPIC,
   MAX_TOPICS_PER_RUN,
   buildLearnPrompt,
   cleanTopicLabel,
@@ -96,6 +97,8 @@ export interface RecordDraftArgs {
 export interface KbLearnStore {
   dueAccounts(since: Date): Promise<string[]>;
   claimRun(accountId: string): Promise<boolean>;
+  /** Records how many drafts the run wrote (the switch shows it). */
+  finishRun(accountId: string, drafted: number): Promise<void>;
   openTopics(accountId: string): Promise<LearnTopic[]>;
   topicGapIds(accountId: string, topicId: string): Promise<string[]>;
   topicDrafted(
@@ -195,7 +198,8 @@ export async function learnTopic(
     questions.push({ text: gap.question, names });
     answers.push({ text: reply.content_text, names, at: reply.created_at });
   }
-  if (answers.length === 0) return { drafted: false, reason: 'no_answers' };
+  if (answers.length < MIN_ANSWERS_PER_TOPIC)
+    return { drafted: false, reason: 'no_answers' };
 
   // Every name known in the topic's chats is masked in every text: a
   // customer may name someone from another chat. Fail closed: nothing
@@ -207,7 +211,7 @@ export async function learnTopic(
   });
   if (!redacted.ok) return { drafted: false, reason: 'redaction' };
   const { evidence } = redacted;
-  if (evidence.answers.length === 0)
+  if (evidence.answers.length < MIN_ANSWERS_PER_TOPIC)
     return { drafted: false, reason: 'no_answers' };
   const arabic = wantsArabic(evidence.answers);
   const prompt = buildLearnPrompt({
@@ -324,6 +328,13 @@ export async function runKbLearning(
       accounts++;
       const res = await learnAccount(deps, accountId, passDeadline);
       drafted += res.drafted;
+      try {
+        await deps.store.finishRun(accountId, res.drafted);
+      } catch (err) {
+        console.warn(
+          `[kb-learn] could not record the run for account ${accountId}: ${message(err)}`
+        );
+      }
     }
   } catch (err) {
     console.error(`[kb-learn] pass failed: ${message(err)}`);
@@ -356,6 +367,13 @@ export function supabaseKbLearnStore(db: SupabaseClient): KbLearnStore {
       });
       if (error) throw new Error(`claim: ${error.message}`);
       return data === true;
+    },
+    async finishRun(accountId, drafted) {
+      const { error } = await db.rpc('kb_learn_finish_run', {
+        p_account: accountId,
+        p_drafted: drafted,
+      });
+      if (error) throw new Error(`finish: ${error.message}`);
     },
     async openTopics(accountId) {
       const { data, error } = await db

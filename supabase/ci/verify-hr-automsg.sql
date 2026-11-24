@@ -542,7 +542,7 @@ BEGIN
   j := CASE WHEN r LIKE '{%' THEN r::jsonb END;
   r := (SELECT string_agg(key, ',' ORDER BY key) FROM jsonb_object_keys(j) key);
   c := c || pg_temp.hr_chk('row_state keys', r,
-                           'channel,closed,consent,contact_name,inbox,last_inbound_at,opted_out,personal,row,sent_today,settings,template,trigger_enabled');
+                           'channel,closed,consent,contact_name,inbox,last_inbound_at,opted_out,personal,row,sent_today,settings,stale,template,trigger_enabled');
   r := concat_ws('/', j->'row'->>'id' = o1::text, j->>'closed', j->>'inbox', j->>'personal', j->>'opted_out',
                  j->>'contact_name', j->>'trigger_enabled', j->>'sent_today', j->'template'->>'meta_template_name',
                  j->'settings'->>'daily_cap', j->>'consent');
@@ -666,6 +666,8 @@ BEGIN
   c := c || pg_temp.hr_chk('a needs_review row was claimable or cancellable', r, 'lost/ERROR % ALREADY_DECIDED:%');
 
   -- sent + sending + needs_review all count toward the cap (k8: o7 needs_review).
+  -- Claimed today: 16 minutes ago is yesterday just after midnight in Dubai.
+  UPDATE hr_automsg_outbox o SET claimed_at = now() WHERE o.id = o7;
   PERFORM pg_temp.hr_as(u_owner, 'SELECT public.hr_automsg_settings_set(NULL, NULL, NULL, NULL, NULL, 1)::text');
   r := pg_temp.hr_as(NULL, format('SELECT public.hr_automsg_claim(%L, now())', o8));
   c := c || pg_temp.hr_chk('a needs_review row did not count toward the daily cap', r, 'capped');

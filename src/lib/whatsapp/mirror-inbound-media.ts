@@ -1,3 +1,4 @@
+import { BodyTooLargeError } from '@/lib/media/capped-body';
 import { chatMediaStoredMime } from '@/lib/storage/safe-mime';
 import {
   downloadMedia as whapiDownloadMedia,
@@ -103,6 +104,7 @@ export async function downloadMedia(
     ? metaDownloadMedia({
         downloadUrl: args.downloadUrl,
         accessToken: args.token,
+        maxBytes: args.maxBytes,
       })
     : whapiDownloadMedia(args);
 }
@@ -242,11 +244,12 @@ export async function mirrorInboundMedia(
     const { buffer, contentType } = await download({
       downloadUrl,
       token: accessToken,
+      maxBytes: MEDIA_MAX_BYTES,
     });
 
-    // The reported `file_size` is advisory; the transfer is the truth. Check
-    // again so an understated size can't push a rejected upload onto
-    // the bucket.
+    // The reported `file_size` is advisory; the transfer is the truth. The
+    // download stops past the limit, and an injected one is checked again
+    // so it can't push a rejected upload onto the bucket.
     if (buffer.byteLength > MEDIA_MAX_BYTES) {
       console.warn(
         `[mirror-media] skipping ${logId}: downloaded ${buffer.byteLength} bytes, over the ${MEDIA_MAX_BYTES}-byte bucket limit`
@@ -305,6 +308,12 @@ export async function mirrorInboundMedia(
     // browser, so it has to carry the public one. See lib/supabase/urls.
     return publicUrl ? toPublicSupabaseUrl(publicUrl) : null;
   } catch (error) {
+    if (error instanceof BodyTooLargeError) {
+      console.warn(
+        `[mirror-media] skipping ${logId}: over the ${MEDIA_MAX_BYTES}-byte bucket limit`
+      );
+      return null;
+    }
     console.warn(
       `[mirror-media] could not mirror ${logId}:`,
       error instanceof Error ? error.message : error

@@ -2,6 +2,7 @@ import type {
   Automation,
   AutomationLogStepResult,
   AutomationStep,
+  AutomationStepType,
   AutomationTriggerType,
   ConditionStepConfig,
   KeywordMatchTriggerConfig,
@@ -94,6 +95,8 @@ export interface DispatchInput {
 export async function runAutomationsForTrigger(input: DispatchInput): Promise<boolean> {
   // Whether any automation matched and started executing: the inbound
   // pipeline skips intent_match when a keyword_match automation acted.
+  // For intent_match, whether it sent the customer something: the AI
+  // stands down for that, not for one that only tagged or failed.
   let executed = false
   try {
     const db = supabaseAdmin()
@@ -146,9 +149,9 @@ export async function runAutomationsForTrigger(input: DispatchInput): Promise<bo
         : (automations as Automation[]).filter((a) => triggerMatches(a, input.context))
 
     for (const automation of toRun) {
-      executed = true
+      if (input.triggerType !== 'intent_match') executed = true
       try {
-        await executeAutomation(automation, input)
+        if (await executeAutomation(automation, input)) executed = true
       } catch (err) {
         console.error('[automations] execute failed:', automation.id, err)
       }
@@ -289,8 +292,13 @@ export async function resumePendingExecution(pending: {
 // Internal execution
 // ------------------------------------------------------------
 
-async function executeAutomation(automation: Automation, input: DispatchInput) {
+/** Answers whether a step sent the customer something. */
+async function executeAutomation(
+  automation: Automation,
+  input: DispatchInput,
+): Promise<boolean> {
   const db = supabaseAdmin()
+  const results: AutomationLogStepResult[] = []
 
   const { data: log, error: logErr } = await db
     .from('automation_logs')
@@ -320,7 +328,7 @@ async function executeAutomation(automation: Automation, input: DispatchInput) {
 
   if (logErr || !log) {
     console.error('[automations] cannot create log:', logErr)
-    return
+    return false
   }
 
   const { data: steps, error: stepsErr } = await loadSteps(automation.id)
@@ -337,7 +345,7 @@ async function executeAutomation(automation: Automation, input: DispatchInput) {
         customerJustWrote: input.customerJustWrote === true,
         steps,
         alreadyRun: new Set(),
-        results: [],
+        results,
         errorMessage: null,
       },
       [{ parentStepId: null, branch: null, startPosition: 0 }],
@@ -354,7 +362,16 @@ async function executeAutomation(automation: Automation, input: DispatchInput) {
   if (rpcErr) {
     console.error('[automations] increment counter failed:', rpcErr)
   }
+  return results.some((r) => r.status === 'success' && CUSTOMER_STEPS.has(r.step_type))
 }
+
+/** Steps the customer sees. */
+const CUSTOMER_STEPS: ReadonlySet<string> = new Set<AutomationStepType>([
+  'send_message',
+  'send_buttons',
+  'send_list',
+  'send_template',
+])
 
 interface ExecuteArgs {
   automation: Automation

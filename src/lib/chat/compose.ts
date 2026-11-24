@@ -60,14 +60,15 @@ export function togglePick(
 export const pickerIsFull = (count: number, max?: number): boolean =>
   max !== undefined && max !== 1 && count >= max;
 
-/** Everyone a DM may include besides the viewer: no bank guests. */
+/** Everyone a DM may include besides the viewer: no bank guests, nobody deactivated. */
 export function dmCandidates(
   people: readonly ChatPerson[],
   userId: string | null
 ): ChatPerson[] {
   const me = userId?.toLowerCase();
   return people.filter(
-    (p) => p.role !== 'bank_guest' && p.userId.toLowerCase() !== me
+    (p) =>
+      p.role !== 'bank_guest' && !p.deactivated && p.userId.toLowerCase() !== me
   );
 }
 

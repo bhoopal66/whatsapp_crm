@@ -6,9 +6,10 @@
 //
 // The Taamul Compass integration (migration 056, docs/compass.md).
 // A text update goes only into the customer's live submission group
-// when there is one (migration 170); otherwise it is sent on the Whapi number, into the customer's existing chat
-// without changing who handles it, at most once per idempotency_key —
-// the rules and their reasons are in lib/compass/notify.ts.
+// when there is one (migration 170); otherwise it is sent on the Meta
+// number only, into the customer's existing chat without changing who
+// handles it, at most once per idempotency_key. The rules and their
+// reasons are in lib/compass/notify.ts.
 //
 // Body:
 //   {
@@ -36,6 +37,10 @@ import {
   keysetFilter,
   buildPage,
 } from '@/lib/api/v1/pagination';
+import {
+  NOTIFICATION_STATUSES,
+  notificationStatusFilter,
+} from '@/lib/compass/notification-status';
 import {
   NOTIFICATION_SELECT,
   NotifyError,
@@ -95,14 +100,15 @@ export async function GET(request: Request) {
       .eq('account_id', ctx.accountId);
 
     if (status) {
-      if (!['sending', 'sent', 'failed'].includes(status)) {
+      const known = NOTIFICATION_STATUSES.find((s) => s === status);
+      if (!known) {
         return fail(
           'bad_request',
           "'status' must be sending, sent or failed",
           400
         );
       }
-      query = query.eq('status', status);
+      query = query.or(notificationStatusFilter(known));
     }
     if (compassId) query = query.eq('compass_id', compassId);
 

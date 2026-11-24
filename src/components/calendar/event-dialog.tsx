@@ -68,8 +68,8 @@ import {
 import { repeatValues } from '@/lib/calendar/ui/popover-format';
 import {
   parseCustomReminder,
-  REMINDER_PRESETS,
   reminderLabel,
+  reminderPresets,
   toggleReminder,
 } from '@/lib/calendar/ui/reminder-chips';
 import {
@@ -302,7 +302,7 @@ export function EventDialog({
           id="event-all-day"
           checked={values.allDay}
           onCheckedChange={(on) =>
-            setValues((v) => (v ? withAllDay(v, on) : v))
+            setValues((v) => (v ? withAllDay(v, on, editing) : v))
           }
         />
       </div>
@@ -413,7 +413,7 @@ export function EventDialog({
               return (
                 <li
                   key={id}
-                  className="bg-muted flex items-center gap-1.5 rounded-full py-0.5 pe-1 ps-0.5 text-xs"
+                  className="bg-muted flex items-center gap-1.5 rounded-full py-0.5 ps-0.5 pe-1 text-xs"
                 >
                   <PersonAvatar
                     size="sm"
@@ -521,11 +521,16 @@ export function EventDialog({
 
       <Field id="event-reminder-custom" label={t('form.reminders')}>
         <div className="flex flex-wrap gap-1.5">
-          {[...new Set([...REMINDER_PRESETS, ...values.reminders])]
+          {[
+            ...new Set([
+              ...reminderPresets(values.allDay),
+              ...values.reminders,
+            ]),
+          ]
             .sort((a, b) => a - b)
             .map((m) => {
               const on = values.reminders.includes(m);
-              const { key, count } = reminderLabel(m);
+              const label = reminderLabel(m, values.allDay);
               return (
                 <Button
                   key={m}
@@ -538,7 +543,10 @@ export function EventDialog({
                     set('reminders', toggleReminder(values.reminders, m))
                   }
                 >
-                  {t(`reminders.${key}`, { count })}
+                  {t(`reminders.${label.key}`, {
+                    count: label.count,
+                    time: 'time' in label ? label.time : '',
+                  })}
                 </Button>
               );
             })}

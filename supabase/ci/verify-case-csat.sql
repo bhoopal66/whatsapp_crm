@@ -215,7 +215,7 @@ BEGIN
 
   -- ---------- 5. lost claims, expiry ----------
   UPDATE case_csat_requests q SET status = 'sending', claimed_at = t10 - interval '1 hour', created_at = t10,
-         sent_at = NULL WHERE q.id = q_app;
+         sent_at = NULL, handed_to_gateway_at = t10 - interval '1 hour' WHERE q.id = q_app;
   PERFORM case_csat_claim(t10);
   n := n + 1; failed := failed || pg_temp.cx_ok(
     (SELECT q.status FROM case_csat_requests q WHERE q.id = q_app) = 'unconfirmed',

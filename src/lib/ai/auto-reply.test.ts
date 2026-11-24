@@ -66,8 +66,14 @@ const h = vi.hoisted(() => ({
     resumes: [] as Record<string, unknown>[],
     /** Held drafts written for review (`ai_pending_draft`). */
     drafts: [] as Record<string, unknown>[],
-    /** Fail the held-draft write with this message. */
-    draftError: null as string | null,
+    /** The chat's `hr_conversations` row, and what each HR read answers. */
+    hrRow: null as Record<string, unknown> | null,
+    hrRowError: null as string | null,
+    hrLine: 'off' as string | null,
+    /** hr_is_line (279); null = the function is not there yet. */
+    hrIsLine: false as boolean | null,
+    hrLineError: null as string | null,
+    deptError: null as string | null,
   },
 }));
 
@@ -117,6 +123,20 @@ vi.mock('./admin-client', () => ({
               error: null,
             });
           },
+        };
+        return chain;
+      }
+      if (table === 'hr_conversations') {
+        const chain = {
+          select: () => chain,
+          eq: () => chain,
+          maybeSingle: () =>
+            Promise.resolve({
+              data: h.state.hrRowError ? null : h.state.hrRow,
+              error: h.state.hrRowError
+                ? { message: h.state.hrRowError }
+                : null,
+            }),
         };
         return chain;
       }
@@ -226,14 +246,17 @@ vi.mock('./admin-client', () => ({
             // The dispatch's first read sees `conv`; a re-read sees what
             // a person made of it since (`convLive`).
             maybeSingle: () =>
-              cols === 'personal_owner_id'
+              cols === 'personal_owner_id, inbox_department'
                 ? // A read of its own: must not use up the "first read".
                   Promise.resolve({
                     data: {
                       personal_owner_id:
                         h.state.conv?.personal_owner_id ?? null,
+                      inbox_department: h.state.conv?.inbox_department ?? null,
                     },
-                    error: null,
+                    error: h.state.deptError
+                      ? { message: h.state.deptError }
+                      : null,
                   })
                 : Promise.resolve({
                     data:
@@ -250,7 +273,8 @@ vi.mock('./admin-client', () => ({
           // So are the held-draft write and the "nobody answered" flag.
           const flag = Object.keys(payload).join() === 'ai_attention_at';
           const resume = payload.ai_autoreply_disabled === false;
-          const draft = 'ai_pending_draft' in payload;
+          const draft =
+            'ai_pending_draft' in payload && !('ai_handoff_reason' in payload);
           if ('ai_last_outcome' in payload) h.state.outcomes.push(payload);
           else if (resume) h.state.resumes.push(payload);
           else if (draft) h.state.drafts.push(payload);
@@ -264,7 +288,10 @@ vi.mock('./admin-client', () => ({
             const hit = filters.every(
               ([col, v]) => col === 'id' || (row[col] ?? null) === v
             );
-            if (handoff && hit) h.state.updatePayload = payload;
+            if (handoff && hit) {
+              h.state.updatePayload = payload;
+              if ('ai_pending_draft' in payload) h.state.drafts.push(payload);
+            }
             if (flag && hit) {
               h.state.flags.push(payload);
               // The next flag write finds the stamp, as the row would.
@@ -273,10 +300,7 @@ vi.mock('./admin-client', () => ({
             return hit;
           };
           const result = () => ({
-            error:
-              draft && h.state.draftError
-                ? { message: h.state.draftError }
-                : null,
+            error: null,
           });
           const chain = {
             eq: (col: string, v: unknown) => {
@@ -320,6 +344,26 @@ vi.mock('./admin-client', () => ({
       };
     },
     rpc: (name: string, args: unknown) => {
+      if (name === 'hr_is_line') {
+        if (h.state.hrLineError) {
+          return Promise.resolve({
+            data: null,
+            error: { message: h.state.hrLineError },
+          });
+        }
+        return Promise.resolve(
+          h.state.hrIsLine === null
+            ? { data: null, error: { code: 'PGRST202', message: 'missing' } }
+            : { data: h.state.hrIsLine, error: null }
+        );
+      }
+      if (name === 'hr_auto_open_recruiter') {
+        return Promise.resolve(
+          h.state.hrLineError
+            ? { data: null, error: { message: h.state.hrLineError } }
+            : { data: h.state.hrLine, error: null }
+        );
+      }
       h.state.rpcCalls.push({ name, args });
       return Promise.resolve(
         h.state.claimError
@@ -429,7 +473,12 @@ beforeEach(() => {
   h.state.resumeRows = [];
   h.state.resumes = [];
   h.state.drafts = [];
-  h.state.draftError = null;
+  h.state.hrRow = null;
+  h.state.hrRowError = null;
+  h.state.hrLine = 'off';
+  h.state.hrIsLine = false;
+  h.state.hrLineError = null;
+  h.state.deptError = null;
   h.loadAiConfig.mockResolvedValue(aiConfig());
   h.buildConversationContext.mockResolvedValue([
     { role: 'user', content: 'hi' },
@@ -1564,6 +1613,78 @@ describe('dispatchInboundToAiReply — recorded outcomes (077)', () => {
     expect(h.engineSendText).not.toHaveBeenCalled();
   });
 
+  it('skipped_automation: a meaning trigger just answered this message', async () => {
+    expect(
+      await dispatchInboundToAiReply({ ...ARGS, meaningTriggerActed: true })
+    ).toBe('skipped');
+    expect(lastOutcome()).toBe('skipped_automation');
+    expect(h.generateReply).not.toHaveBeenCalled();
+    expect(h.engineSendText).not.toHaveBeenCalled();
+  });
+
+  describe('chats that are not sales', () => {
+    const LINE = { ...ARGS, inboundChannelId: 'ch-hr' };
+    const silent = () => {
+      expect(h.generateReply).not.toHaveBeenCalled();
+      expect(h.engineSendText).not.toHaveBeenCalled();
+    };
+
+    it('an HR chat is never answered, whatever number it is on', async () => {
+      h.state.hrRow = { conversation_id: 'conv-1' };
+      expect(await dispatchInboundToAiReply(ARGS)).toBe('skipped');
+      expect(lastOutcome()).toBe('skipped_number');
+      silent();
+    });
+
+    it.each(['hr', 'it', 'accounts'])(
+      'nor a chat in the %s inbox',
+      async (dept) => {
+        h.state.conv = { ...h.state.conv, inbox_department: dept };
+        expect(await dispatchInboundToAiReply(ARGS)).toBe('skipped');
+        expect(lastOutcome()).toBe('skipped_number');
+        silent();
+      }
+    );
+
+    it('nor a message on an HR line', async () => {
+      h.state.hrIsLine = true;
+      expect(await dispatchInboundToAiReply(LINE)).toBe('skipped');
+      expect(lastOutcome()).toBe('skipped_number');
+      silent();
+    });
+
+    it.each(['opened', 'exists', 'other_numbers'])(
+      'nor, before 279, one that opened a Recruitment chat (%s)',
+      async (answer) => {
+        h.state.hrIsLine = null;
+        h.state.hrLine = answer;
+        expect(await dispatchInboundToAiReply(LINE)).toBe('skipped');
+        expect(lastOutcome()).toBe('skipped_number');
+        silent();
+      }
+    );
+
+    it.each(['hrRowError', 'hrLineError', 'deptError'] as const)(
+      'a failed check (%s) stands the bot down',
+      async (key) => {
+        h.state[key] = 'timeout';
+        expect(await dispatchInboundToAiReply(LINE)).toBe('skipped');
+        expect(lastOutcome()).toBe('error');
+        silent();
+      }
+    );
+
+    it.each(['off', 'not_hr_line'])(
+      'a sales chat on an ordinary number (%s) is answered',
+      async (answer) => {
+        h.state.hrIsLine = null;
+        h.state.hrLine = answer;
+        h.state.conv = { ...h.state.conv, inbox_department: 'sales' };
+        expect(await dispatchInboundToAiReply(ARGS)).toBe('replied');
+      }
+    );
+  });
+
   it('skipped_paused: the bot is paused on this thread', async () => {
     h.state.conv = {
       ...h.state.conv,
@@ -2300,8 +2421,20 @@ describe('dispatchInboundToAiReply — a held draft is rewritten once, then queu
     expect(lastOutcome()).toBe('held_for_review');
   });
 
-  it('a failed draft write does not stop the hand-off', async () => {
-    h.state.draftError = 'column missing';
+  it.each([
+    ['assigned', { assigned_agent_id: 'u-9' }],
+    ['paused', { ai_autoreply_disabled: true }],
+  ])('a chat a person %s meanwhile gets no held draft', async (_n, live) => {
+    h.state.convLive = { ...h.state.conv, ...live };
+    h.runGuardrailGate.mockResolvedValue(
+      held('held (approval)', { retryable: false })
+    );
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('handed_off');
+    expect(h.state.drafts).toEqual([]);
+    expect(h.state.updatePayload).toBeNull();
+  });
+
+  it('the held draft is written with the hand-off, in one update', async () => {
     h.runGuardrailGate.mockResolvedValue(
       held('held (approval)', { retryable: false })
     );
@@ -2309,6 +2442,7 @@ describe('dispatchInboundToAiReply — a held draft is rewritten once, then queu
     expect(h.state.updatePayload).toMatchObject({
       ai_handoff_reason: 'guardrail',
       ai_autoreply_disabled: true,
+      ai_pending_draft: expect.any(String),
     });
     expect(sentTexts()).toEqual([HANDOFF_MSG]);
     expect(lastOutcome()).toBe('held_for_review');
@@ -2582,7 +2716,7 @@ describe('dispatchInboundToAiReply — dispatch review fixes', () => {
       expect(lastOutcome()).toBe('skipped_assigned');
     });
 
-    it('paused meanwhile: skipped_paused, the held draft still stored', async () => {
+    it('paused meanwhile: skipped_paused, and no held draft', async () => {
       h.state.conv = { ...h.state.conv, ai_reply_count: 0 };
       h.state.convLive = {
         ...h.state.conv,
@@ -2594,7 +2728,7 @@ describe('dispatchInboundToAiReply — dispatch review fixes', () => {
         guard('hold', 'held (approval)', false)
       );
       expect(await dispatchInboundToAiReply(ARGS)).toBe('handed_off');
-      expect(h.state.drafts[0]).toMatchObject({ ai_pending_draft: FIRST });
+      expect(h.state.drafts).toEqual([]);
       expect(h.state.updatePayload).toBeNull();
       expect(notificationRows()).toEqual([]);
       expect(lastOutcome()).toBe('skipped_paused');
@@ -3167,5 +3301,59 @@ describe('dispatchInboundToAiReply — a burst inside a flow', () => {
       })
     ).toBe('replied');
     expect(h.engineSendText).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('dispatchInboundToAiReply — knowledge gaps are stored masked', () => {
+  it('masks identifiers in the stored question', async () => {
+    h.loadAiConfig.mockResolvedValue(aiConfig({ retrievalMinScore: 0.4 }));
+    h.buildConversationContext.mockResolvedValue([
+      {
+        role: 'user',
+        content: 'Write to ali@example.com about the early settlement fee?',
+      },
+    ]);
+    h.retrieveKnowledge.mockResolvedValue(
+      retrieval(['x'], { bestSimilarity: 0.1 })
+    );
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('handed_off');
+    expect(h.state.gaps).toHaveLength(1);
+    expect(h.state.gaps[0].question).toContain('[EMAIL]');
+    expect(h.state.gaps[0].question).not.toContain('ali@example.com');
+  });
+});
+
+describe('dispatchInboundToAiReply — a knowledge search that failed', () => {
+  const failed = { hasKnowledgeBase: false, failed: true };
+  const ask = (content: string) =>
+    h.buildConversationContext.mockResolvedValue([{ role: 'user', content }]);
+
+  it.each([
+    ['a floor', { retrievalMinScore: 0.4 }],
+    ['strict grounding', { strictGrounding: true }],
+  ])('hands off as an error with %s', async (_n, extra) => {
+    h.loadAiConfig.mockResolvedValue(aiConfig(extra));
+    ask('What is the early settlement fee?');
+    h.retrieveKnowledge.mockResolvedValue(
+      retrieval(['a keyword hit'], { ...failed, hasKnowledgeBase: true })
+    );
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('handed_off');
+    expect(h.state.updatePayload).toMatchObject({ ai_handoff_reason: 'error' });
+    expect(h.state.gaps).toEqual([]);
+    expect(h.generateReply).not.toHaveBeenCalled();
+  });
+
+  it('answers as before with neither', async () => {
+    h.loadAiConfig.mockResolvedValue(aiConfig());
+    ask('What is the early settlement fee?');
+    h.retrieveKnowledge.mockResolvedValue(retrieval([], failed));
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('replied');
+  });
+
+  it('leaves a short turn to the prompt, like the gate', async () => {
+    h.loadAiConfig.mockResolvedValue(aiConfig({ strictGrounding: true }));
+    ask('yes please');
+    h.retrieveKnowledge.mockResolvedValue(retrieval([], failed));
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('replied');
   });
 });

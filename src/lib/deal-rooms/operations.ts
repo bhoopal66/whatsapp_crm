@@ -33,6 +33,7 @@ import {
   sendGroupTemplate,
   sendGroupText,
 } from '@/lib/whatsapp/meta-groups';
+import { isDefiniteSendRefusal } from '@/lib/whatsapp/provider';
 import { safeStoredMime } from '@/lib/storage/safe-mime';
 import { toPublicSupabaseUrl } from '@/lib/supabase/urls';
 
@@ -43,6 +44,7 @@ import {
   roomMediaPath,
   type RoomMediaKind,
 } from './room-media';
+import { ROOM_SEND_UNCONFIRMED } from './send-outcome';
 import { metaChannel } from './shared';
 import { saveTranscript } from './transcript';
 
@@ -467,6 +469,10 @@ async function fileSentMedia(
   return media;
 }
 
+/** Before the one retry of a record the database refused or dropped. */
+const RECORD_RETRY_MS = 500;
+
+/** `id` null: WhatsApp has the message, the CRM could not record it. */
 export async function sendRoomMessage(
   db: SupabaseClient,
   args: { roomId: string; userId: string; input: PostInput }
@@ -522,20 +528,30 @@ export async function sendRoomMessage(
             });
     waMessageId = sent.messageId;
   } catch (err) {
-    if (staged) await dropStaged(db, staged.path);
+    const refused = isDefiniteSendRefusal(err);
+    if (staged && refused) await dropStaged(db, staged.path);
     if (err instanceof MetaError && err.isGroupSuspended) {
       await setStatus(db, room.id, 'suspended', 'suspended by WhatsApp').catch(
         (e: Error) => console.error('[deal-rooms] suspend failed:', e.message)
       );
     }
-    return metaFailure(err);
+    if (refused) return metaFailure(err);
+    // A timeout, a 5xx, a dropped connection: the group may hold it, and
+    // Meta may still be fetching the file's link. Worded as a failure it
+    // is sent twice.
+    console.error('[deal-rooms] send outcome unknown:', err);
+    return fail(
+      502,
+      ROOM_SEND_UNCONFIRMED,
+      'This message may have been sent: check the group before sending it again'
+    );
   }
 
   const media =
     input.kind === 'media'
       ? await fileSentMedia(db, room, input, staged!, waMessageId, args.userId)
       : null;
-  const { data, error } = await db.rpc('deal_room_record_message', {
+  const row = {
     p_account: room.account_id,
     p_group_id: access.groupId,
     p_direction: 'out',
@@ -553,8 +569,15 @@ export async function sendRoomMessage(
     p_staff_user_id: args.userId,
     p_status: 'sent',
     p_error: null,
-  });
+  };
   // The message went out; a failed record must not invite a second send.
+  // Nothing else puts it in the chat, so it is tried
+  // twice: the function keeps one row per message id.
+  let { data, error } = await db.rpc('deal_room_record_message', row);
+  if (error) {
+    await new Promise((r) => setTimeout(r, RECORD_RETRY_MS));
+    ({ data, error } = await db.rpc('deal_room_record_message', row));
+  }
   if (error) console.error('[deal-rooms] message not recorded:', error.message);
   return { ok: true, id: (data as string | null) ?? null, waMessageId };
 }

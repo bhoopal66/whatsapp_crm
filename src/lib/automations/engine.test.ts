@@ -194,7 +194,7 @@ vi.mock("@/lib/chat-tags/server", () => ({
   writeConversationChatTags: h.writeChatTags,
 }));
 
-vi.mock("./meta-send", () => ({
+vi.mock("./channel-send", () => ({
   engineSendText: vi.fn(async () => ({ whatsapp_message_id: "m1" })),
   engineSendTemplate: vi.fn(async () => ({ whatsapp_message_id: "m1" })),
   engineSendInteractive: vi.fn(async () => ({ whatsapp_message_id: "m1" })),
@@ -221,6 +221,7 @@ import {
   runAutomationsForTrigger,
   triggerMatches,
 } from "./engine";
+import { engineSendText } from "./channel-send";
 import { safeFetch } from "@/lib/webhooks/ssrf";
 import type { Automation, KeywordMatchTriggerConfig } from "@/types";
 
@@ -366,12 +367,31 @@ describe("runAutomationsForTrigger — intent_match", () => {
     ).toEqual(["a3"]);
   });
 
-  it("reports whether anything executed", async () => {
+  // What the AI stands down for: a customer who was answered.
+  it("reports whether the customer was sent something", async () => {
     h.state.automations = [intentAutomation("a1")];
+    h.state.conversations = [
+      { id: "cv-1", account_id: ACCOUNT, contact_id: "c1" },
+    ];
+    const context = {
+      message_text: "x",
+      message_id: "wamid.1",
+      conversation_id: "cv-1",
+    };
     judge.mockResolvedValue(new Map([["automation:a1", 0.9]]));
-    expect(await run({ message_text: "x", message_id: "wamid.1" })).toBe(true);
+    // Only changed a field.
+    expect(await run(context)).toBe(false);
+
+    h.state.steps = [
+      { ...updateStep(), step_type: "send_message", step_config: { text: "Hi" } },
+    ];
+    expect(await run(context)).toBe(true);
+
+    vi.mocked(engineSendText).mockRejectedValueOnce(new Error("refused"));
+    expect(await run(context)).toBe(false);
+
     judge.mockResolvedValue(new Map());
-    expect(await run({ message_text: "x", message_id: "wamid.2" })).toBe(false);
+    expect(await run({ ...context, message_id: "wamid.2" })).toBe(false);
   });
 
   it("skips an automation whose stored config is invalid", async () => {

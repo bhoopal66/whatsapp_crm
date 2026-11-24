@@ -62,10 +62,9 @@ What erase does:
 - **Kept as records:** consent and opt-out history, audit trails, the
   legal hold itself.
 - **The contact** stays as "Erased customer" with no name, email or phone,
-  so the kept records keep their reference. Their opt-out stays on that
-  row only. **It does not follow the phone number:** a number imported or
-  added again, or that writes in, becomes a new contact with no opt-out.
-  Keep a do-not-contact list outside the app, or do not re-import it.
+  so the kept records keep their reference. Their opt-out or
+  do-not-contact stays on that row and, from migration 280, **follows the
+  phone number**: see [Deleting a customer](#deleting-a-customer).
 - **Stored files** are deleted after the database commit, and only files
   of this workspace that nothing kept still uses (a library voice note, a
   forwarded file, a template header, a case document). The list is stored
@@ -91,6 +90,29 @@ row in `privacy_requests`. The row holds who made it, when, and counts.
 The customer is identified only by a hash of the workspace and contact
 id, never the id itself.
 
+## Deleting a customer
+
+Deleting (Contacts, or the customer's page; owners and admins) is not an
+erase. The confirmation lists what it does (migration 280):
+
+- **Deleted with the customer:** their chats and messages, tasks and
+  deal rooms.
+- **Kept, without the customer:** deals, customer documents and bank cases.
+- **Refused:** a customer under an active legal hold, or with an open
+  case, an open deal room or an active submission group. Close those
+  first. When several are deleted at once, the refused ones are left out
+  and named with their reason; the rest are deleted.
+
+**An opt-out or do-not-contact is kept** when its customer is deleted,
+erased or given another number, so a number added again (by hand, by an
+import, or by writing in) is not messaged: the new contact gets the same
+opt-out back, with a "restored" line in its consent history. The number
+is kept only as a keyed hash, never a name and never the do-not-contact
+reason. Lifting it on the new contact lifts it for good. A customer whose
+number changed keeps it on both numbers, and lifting it lifts both;
+putting back the number they had before (a mistyped one corrected) frees
+the number in between.
+
 ## Retention
 
 Settings → Privacy → Retention. Turn on a kind of data, give it a number
@@ -114,6 +136,18 @@ sweeps once a day:
 - **What can never be swept.** Bank cases, case files, the case's
   WhatsApp group, consent and audit tables are not on the list and
   cannot be added by a setting.
+- **Files.** The stored files of the messages it deletes or blanks are
+  deleted too (282), unless something else still points at them: another
+  message, a customer's document, a case, or a deal's files, which keep
+  a deal room's attachments. They are listed with the sweep's log entry
+  and removed right after it; one that cannot be deleted is tried again
+  daily.
+- **Batches.** It works through old rows 500 of each kind at a time and
+  continues every minute until nothing is left, so the first Apply on
+  years of data finishes by itself.
+- **When it fails** the owners get a notification (once a day), the log
+  has an entry, and it is tried again every 15 minutes. Settings → Privacy
+  shows the outcome of the last run.
 - **Call recordings** have their own retention (Settings → Consent and
   retention).
 

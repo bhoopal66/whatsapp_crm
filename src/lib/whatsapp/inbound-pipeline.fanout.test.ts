@@ -59,6 +59,10 @@ const h = vi.hoisted(() => ({
   rotate: vi.fn(),
   // case_csat_capture (migration 246): true when the reply was stored.
   csatRpc: vi.fn(),
+  // The contact's open cases without a group.
+  caseRows: null as Record<string, unknown>[] | null,
+  // case_sla_event_system (migration 124).
+  slaRpc: vi.fn(),
 }));
 
 function respond(call: Call): Result {
@@ -89,6 +93,9 @@ function respond(call: Call): Result {
   if (call.table === 'messages' && call.op === 'upsert') {
     return { data: h.upsertRows, error: null };
   }
+  if (call.table === 'cases' && call.op === 'select') {
+    return { data: h.caseRows, error: null };
+  }
   if (call.table === 'broadcast_recipients' && call.op === 'select') {
     return { data: h.recipientRows, error: null };
   }
@@ -111,6 +118,7 @@ function fakeDb() {
       h.rpcArgs.push(args);
       if (fn === 'customer_documents_record') return h.docRpc(args);
       if (fn === 'case_csat_capture') return h.csatRpc(args);
+      if (fn === 'case_sla_event_system') return h.slaRpc(args);
       return Promise.resolve({ data: null, error: null });
     },
     from(table: string) {
@@ -311,6 +319,8 @@ beforeEach(() => {
     .mockReset()
     .mockResolvedValue({ assignedTo: 'agent-2', reason: 'assigned' });
   h.csatRpc.mockReset().mockResolvedValue({ data: false, error: null });
+  h.caseRows = null;
+  h.slaRpc.mockReset().mockResolvedValue({ data: null, error: null });
 });
 
 // Broadcast first-reply rotation (migration 236): only the FIRST reply
@@ -727,6 +737,22 @@ describe('processMessage — journey bot', () => {
     expect(triggers()).toEqual(['new_message_received', 'keyword_match']);
   });
 
+  it.each([
+    ['intent_match', true],
+    ['first_inbound_message', false],
+  ])(
+    'tells the AI reply that %s acted: meaning trigger %s',
+    async (trigger, acted) => {
+      h.automations.mockImplementation(
+        async (input: { triggerType: string }) => input.triggerType === trigger
+      );
+      await processMessage(message, 'acct-1', 'owner-1', channel);
+      expect(h.ai).toHaveBeenCalledWith(
+        expect.objectContaining({ meaningTriggerActed: acted })
+      );
+    }
+  );
+
   it('a journey that consumes suppresses content automations and the AI reply', async () => {
     h.journey.mockResolvedValue({ consumed: true });
     await processMessage(message, 'acct-1', 'owner-1', channel);
@@ -773,7 +799,7 @@ describe('processMessage — case CSAT reply', () => {
     h.automations.mock.calls.map(
       (c) => (c[0] as { triggerType: string }).triggerType
     );
-  const rating = { ...message, id: 'wamid.csat', text: '5, great' };
+  const rating = { ...message, id: 'wamid.csat', text: '5' };
 
   it('asks nothing of the database for a message that is not a rating', async () => {
     await processMessage(message, 'acct-1', 'owner-1', channel);
@@ -787,13 +813,28 @@ describe('processMessage — case CSAT reply', () => {
     expect(h.rpcArgs[i]).toEqual({
       p_account: 'acct-1',
       p_contact: 'contact-1',
+      p_conversation: 'conv-1',
       p_message: 'row-1',
+      p_quoted: null,
       p_score: 5,
-      p_comment: 'great',
+      p_comment: null,
     });
     expect(h.journey).not.toHaveBeenCalled();
     expect(triggers()).toEqual([]);
     expect(h.ai).not.toHaveBeenCalled();
+  });
+
+  it('a captured rating with a comment still reaches the journey and the AI', async () => {
+    h.csatRpc.mockResolvedValue({ data: true, error: null });
+    await processMessage(
+      { ...rating, text: '1, please call me' },
+      'acct-1',
+      'owner-1',
+      channel
+    );
+    expect(h.rpcs).toContain('case_csat_capture');
+    expect(h.journey).toHaveBeenCalledTimes(1);
+    expect(h.ai).toHaveBeenCalledTimes(1);
   });
 
   it('a rating no request was open for fans out as usual', async () => {
@@ -1517,5 +1558,116 @@ describe('processMessage: onPersistFailure', () => {
     h.refuse = 'conversations:update';
     await expect(run({ onPersistFailure: 'throw' })).resolves.toBeUndefined();
     expect(h.rpcs).toContain('bump_conversation_on_inbound');
+  });
+});
+
+// A case without a live WhatsApp group is answered in this chat: its
+// customer reply timer stops and a snooze ends (case_sla_event_system).
+describe('processMessage — an open case without a group hears the customer', () => {
+  const caseReads = () => h.calls.filter((c) => c.table === 'cases');
+
+  it('sends the event to each open case this chat answers, once', async () => {
+    const group = (over: Record<string, unknown>) => ({
+      wa_mode: 'group',
+      status: 'ACTIVE',
+      wa_group_id: '1203@g.us',
+      wa_closed_at: null,
+      ...over,
+    });
+    h.caseRows = [
+      { id: 'lead', group_id: null, group: null },
+      {
+        id: 'no-whatsapp',
+        group_id: 'g-1',
+        group: group({ wa_mode: 'none', wa_group_id: null }),
+      },
+      {
+        id: 'ended',
+        group_id: 'g-2',
+        group: group({ status: 'ENDED' }),
+      },
+      // Creating it failed, or is still to come.
+      {
+        id: 'not-made',
+        group_id: 'g-5',
+        group: group({ wa_group_id: null }),
+      },
+      {
+        id: 'closed',
+        group_id: 'g-6',
+        group: group({ wa_closed_at: '2026-11-20T09:00:00Z' }),
+      },
+      // Its own group tells it.
+      { id: 'live-group', group_id: 'g-3', group: group({}) },
+      // A group that could not be read is not taken for none.
+      { id: 'unknown', group_id: 'g-4', group: null },
+    ];
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+    expect(caseReads().map((c) => c.filters)).toEqual([
+      [
+        ['eq', 'account_id', 'acct-1'],
+        ['eq', 'contact_id', 'contact-1'],
+        ['is', 'closed_at', null],
+      ],
+    ]);
+    expect(h.slaRpc.mock.calls.map(([a]) => a)).toEqual(
+      ['lead', 'no-whatsapp', 'ended', 'not-made', 'closed'].map((id) => ({
+        p_case: id,
+        p_event: 'customer_message',
+        p_now: expect.any(String),
+      }))
+    );
+  });
+
+  it('one read and nothing else for a contact with no lead', async () => {
+    h.caseRows = [];
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+    expect(caseReads()).toHaveLength(1);
+    expect(h.slaRpc).not.toHaveBeenCalled();
+  });
+
+  it('a sender over the rate limit answered too', async () => {
+    h.caseRows = [{ id: 'lead-1' }];
+    await processMessage(message, 'acct-1', 'owner-1', channel, undefined, {
+      fanOut: false,
+    });
+    expect(h.slaRpc).toHaveBeenCalledTimes(1);
+  });
+
+  it('never on a replay or a personal number', async () => {
+    h.caseRows = [{ id: 'lead-1' }];
+    await processMessage(message, 'acct-1', 'owner-1', {
+      ...channel,
+      isPersonal: true,
+      personalUserId: 'owner-1',
+    });
+    h.upsertRows = [];
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+    info.mockRestore();
+    expect(caseReads()).toHaveLength(0);
+    expect(h.slaRpc).not.toHaveBeenCalled();
+  });
+
+  it('a failed read or event is logged; the message still fans out', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    h.caseRows = [{ id: 'lead-1' }, { id: 'lead-2' }];
+    h.slaRpc.mockResolvedValueOnce({
+      data: null,
+      error: { code: '57014', message: 'timeout' },
+    });
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+    expect(h.slaRpc).toHaveBeenCalledTimes(2);
+    expect(h.flows).toHaveBeenCalledTimes(1);
+
+    h.refuse = 'cases:select';
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+    h.refuse = null;
+    expect(h.slaRpc).toHaveBeenCalledTimes(2);
+    expect(h.flows).toHaveBeenCalledTimes(2);
+    expect(
+      error.mock.calls.filter(([m]) => String(m).startsWith('[cases]'))
+    ).toHaveLength(2);
+    error.mockRestore();
   });
 });

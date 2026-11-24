@@ -88,6 +88,7 @@ import {
 } from '@/lib/customer-docs/filing-copy';
 import { noteDigestStop } from '@/lib/desk/digest';
 import { noteCsatReply } from '@/lib/cases/csat';
+import { noteLeadCustomerMessage } from '@/lib/cases/lead-customer-message';
 import { routeDeskDocument } from '@/lib/desk/route-inbound';
 
 // The happy-path status ladder — pending → sent → delivered → read →
@@ -333,8 +334,10 @@ export async function handleStatusUpdate(
 
   // 4) HR automated messages (migration 212): the receipt onto the HR
   //    outbox row. After the broadcast mirror, so it cannot delay it;
-  //    only bot messages pay the round trip. Never throws.
-  await recordHrDelivery({ accountId, status, at: tsIso, rows });
+  //    only bot messages pay the round trip. Never throws. Not written:
+  //    the receipt is retried (the function only moves forward).
+  const hr = await recordHrDelivery({ accountId, status, at: tsIso, rows });
+  if (hr === false) failed = true;
 
   // 5) Webhook fan-out for messages we store (inbox / API sends).
   //    Runs last so a slow subscriber can't delay the mirrors above.
@@ -1004,6 +1007,20 @@ export async function processMessage(
   // SQL — see the helper for why that matters.
   await reopenClosedConversation(supabaseAdmin(), conversation);
 
+  // The customer answered: the customer-reply timer of their open cases
+  // without a live WhatsApp group stops and a snoozed one wakes (a
+  // group's messages never come through here). After the idempotency
+  // boundary, so a replay is not a second answer; before the fan-out cut,
+  // because a sender over the rate limit (fanOut: false) still answered.
+  // Never throws.
+  if (!channel.isPersonal) {
+    await noteLeadCustomerMessage(supabaseAdmin(), {
+      accountId,
+      contactId: contactRecord.id,
+      messageRowId: insertedRows[0].id,
+    });
+  }
+
   // Web push for the people who work this chat (migration 109). Part of
   // the inbox rather than the fan-out, so a sender over the rate limit
   // (fanOut: false) still rings; after the idempotency boundary because
@@ -1031,10 +1048,9 @@ export async function processMessage(
   // The worker downloads the recorded URL with no credentials, so only a
   // copy in our own bucket is recorded here. When the number opted out
   // of mirroring (039), the mirror failed or the file is over its size
-  // cap, `mediaUrl` is the gateway's link: a Meta lookaside URL needs a
-  // bearer token and expires in minutes, a Whapi `/media/` link needs the
-  // channel token, so recording it files a document the NAS can never
-  // fetch. That case is filed by `fileWithDurableCopy`, which makes its
+  // cap, `mediaUrl` is our proxy path (Meta) or the gateway's link, and a
+  // Whapi `/media/` link needs the channel token, so recording it files a
+  // document the NAS can never fetch. That case is filed by `fileWithDurableCopy`, which makes its
   // own copy first (the message row keeps the link it has). It can take
   // up to 20 s, so it runs on each exit below, after the inbox and the
   // fan-out, and goes to `later` when the route collects it: awaited
@@ -1083,9 +1099,9 @@ export async function processMessage(
         admin: supabaseAdmin(),
         channel: () => channel,
         media: {
-          // The link parseMessageContent already resolved (Meta's comes
-          // from getMediaUrl), still fresh this early in the after().
-          link: mediaUrl,
+          // The link parseMessageContent already resolved. Our proxy path
+          // (Meta) is no link to download: the media id is asked again.
+          link: mediaUrl.startsWith('/') ? (media.link ?? null) : mediaUrl,
           id: media.id,
           objectId: media.id ?? message.id,
           mimeType: media.mimeType,
@@ -1288,8 +1304,9 @@ export async function processMessage(
 
   // A 1-5 reply to a case rating request (migration 246) is stored as the
   // case's CSAT score. A Flow that consumed the message wins (its menus
-  // take typed numbers too); a captured rating is consumed like a Flow's,
-  // so no journey, content automation or AI reply answers it. Costs
+  // take typed numbers too); a captured bare rating is consumed like a
+  // Flow's, so no journey, content automation or AI reply answers it. One
+  // with a comment is stored and still answered (281). Costs
   // nothing unless the text reads as a rating; never throws.
   const csatConsumed =
     !flowConsumed &&
@@ -1297,7 +1314,9 @@ export async function processMessage(
     (await noteCsatReply(supabaseAdmin(), {
       accountId,
       contactId: contactRecord.id,
+      conversationId: conversation.id,
       messageRowId: insertedRows[0].id,
+      quotedRowId: replyToInternalId,
       text: contentText ?? message.text,
     }));
 
@@ -1385,6 +1404,9 @@ export async function processMessage(
   // A keyword_match automation that acted on this message wins: a
   // meaning trigger would otherwise answer the same text a second time.
   let keywordActed = false;
+  // And a meaning trigger that answered the customer wins over the AI
+  // reply below.
+  let meaningActed = false;
   for (const triggerType of automationTriggers) {
     if (triggerType === 'intent_match' && keywordActed) continue;
     const acted = await runAutomationsForTrigger({
@@ -1407,6 +1429,7 @@ export async function processMessage(
       return false;
     });
     if (triggerType === 'keyword_match' && acted) keywordActed = true;
+    if (triggerType === 'intent_match' && acted) meaningActed = true;
   }
 
   // AI auto-reply. Runs for any inbound the deterministic flow runner
@@ -1448,6 +1471,7 @@ export async function processMessage(
       // A media caption is not in the bot's text context (context.ts
       // keeps text/interactive rows only); the gates still read it.
       inboundText,
+      meaningTriggerActed: meaningActed,
     });
   }
 
@@ -1733,8 +1757,8 @@ export async function resolveInboundMediaUrl(
         // OpenWA loopback URL was refused and never mirrored. Whapi and
         // Meta land on the same client as before (Whapi links are on
         // Whapi's host, Meta's on its lookaside host).
-        download: ({ downloadUrl: url }) =>
-          downloadMedia({ channel, downloadUrl: url }),
+        download: ({ downloadUrl: url, maxBytes }) =>
+          downloadMedia({ channel, downloadUrl: url, maxBytes }),
         mimeType: mimeType ?? undefined,
         fileSize,
         fileName: media.filename,
@@ -1751,9 +1775,14 @@ export async function resolveInboundMediaUrl(
     }
   }
 
-  // Mirroring off or failed: fall back to the gateway's own link. On
-  // Whapi and Meta it works today and expires in ~30 days, which beats
-  // an empty bubble now. OpenWA's never works in a browser (above).
+  // Mirroring off or failed. Meta's link needs a bearer token and dies
+  // within minutes, while the file itself stays with Meta for weeks: the
+  // bubble gets our proxy, which asks for a fresh link each time. Whapi's
+  // own link works today and expires in ~30 days, which beats an empty
+  // bubble now. OpenWA's never works in a browser (above).
+  if (channel.provider === 'meta' && media.id && !media.link) {
+    return `/api/whatsapp/media/${encodeURIComponent(media.id)}`;
+  }
   return gatewayLinkViewable ? downloadUrl : null;
 }
 

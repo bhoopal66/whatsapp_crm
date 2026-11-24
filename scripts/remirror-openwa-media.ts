@@ -99,6 +99,7 @@ async function main() {
       const { buffer, contentType } = await provider.downloadMedia({
         channel,
         downloadUrl: info.url,
+        maxBytes: 100 * 1024 * 1024,
       });
       if (!apply) {
         console.log(`  ok   ${label}: ${buffer.byteLength} bytes (dry run)`);

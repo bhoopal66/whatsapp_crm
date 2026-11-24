@@ -21,6 +21,8 @@ import { GroupHttpError } from './server';
 export interface Recipient {
   waId: string;
   contactId: string | null;
+  /** Refused, and let through by `overrideConsent`. */
+  overridden?: true;
 }
 
 export interface ScreenedRecipients {
@@ -96,7 +98,11 @@ export async function screenRecipients(
         out.skipped.push({ waId, contactId: id, reason });
       } else {
         if (reason) out.overridden++;
-        out.recipients.push({ waId, contactId: id });
+        out.recipients.push({
+          waId,
+          contactId: id,
+          ...(reason ? { overridden: true } : {}),
+        });
       }
     }
   }
@@ -135,7 +141,11 @@ export async function screenRecipients(
       out.skipped.push({ waId, contactId: null, reason: refusalOf.get(hit)! });
     } else {
       if (hit) out.overridden++;
-      out.recipients.push({ waId, contactId: null });
+      out.recipients.push({
+        waId,
+        contactId: null,
+        ...(hit ? { overridden: true } : {}),
+      });
     }
   }
   return out;

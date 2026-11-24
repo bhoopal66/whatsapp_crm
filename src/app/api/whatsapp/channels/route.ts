@@ -136,7 +136,9 @@ export async function GET() {
           .select('id', { count: 'exact', head: true })
           .eq('account_id', accountId)
           .eq('channel_id', r.id)
-          .then(({ count }) => count ?? 0)
+          // Null, never 0, when it could not be counted: the screen shows
+          // it before disconnecting the number.
+          .then(({ count, error }) => (error ? null : count))
       )
     );
 
