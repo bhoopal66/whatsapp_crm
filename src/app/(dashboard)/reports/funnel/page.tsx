@@ -50,6 +50,7 @@ import {
   type FunnelReport,
   type FunnelRow,
 } from '@/lib/reports/funnel';
+import { shownReport } from '@/lib/reports/shown-report';
 import type { RangePreset } from '@/lib/team-activity/range';
 import { cn } from '@/lib/utils';
 
@@ -95,7 +96,7 @@ export default function FunnelReportPage() {
   const [agent, setAgent] = useState<string>(ALL);
   const [bank, setBank] = useState<string>(ALL);
   const [channel, setChannel] = useState<string>(ALL);
-  const [loaded, setLoaded] = useState<Loaded | null>(null);
+  const [loaded, setLoaded] = useState<(Loaded & { key: string }) | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<LoadError | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -120,7 +121,8 @@ export default function FunnelReportPage() {
 
   useEffect(() => {
     let cancelled = false;
-    void fetch(`/api/reports/funnel?${withZone()}`)
+    const key = withZone();
+    void fetch(`/api/reports/funnel?${key}`)
       .then(async (res) => {
         const body = (await res.json().catch(() => null)) as
           (Loaded & { error?: string }) | null;
@@ -130,7 +132,7 @@ export default function FunnelReportPage() {
           return;
         }
         setError(null);
-        setLoaded({ report: body.report, range: body.range });
+        setLoaded({ report: body.report, range: body.range, key });
       })
       .catch(() => {
         if (!cancelled) setError('load');
@@ -142,6 +144,8 @@ export default function FunnelReportPage() {
       cancelled = true;
     };
   }, [withZone, reloadKey]);
+
+  const queryKey = useMemo(() => withZone(), [withZone]);
 
   const reload = useCallback(() => {
     setLoading(true);
@@ -163,8 +167,15 @@ export default function FunnelReportPage() {
     [t, tSource]
   );
 
-  const report = loaded?.report ?? null;
-  const options = report?.options ?? { agents: [], numbers: [], banks: [] };
+  // Figures fetched for another filter are not shown under this one: when a
+  // change fails to load, the failed state with Retry stands in their place.
+  const shown = shownReport(loaded, queryKey);
+  const report = shown?.report ?? null;
+  const options = loaded?.report.options ?? {
+    agents: [],
+    numbers: [],
+    banks: [],
+  };
 
   const optionItems = (all: string, list: FunnelOption[]) => ({
     [ALL]: all,
@@ -186,15 +197,15 @@ export default function FunnelReportPage() {
   const numberItems = optionItems(t('filters.allNumbers'), options.numbers);
 
   const days = useMemo(() => {
-    if (!loaded) return [];
-    const { from, to, tz } = loaded.range;
+    if (!shown) return [];
+    const { from, to, tz } = shown.range;
     const last = new Date(Math.max(Date.parse(from), Date.parse(to) - 1));
     return fillFunnelDays(
-      loaded.report.daily,
+      shown.report.daily,
       zonedDay(new Date(from), tz),
       zonedDay(last, tz)
     );
-  }, [loaded]);
+  }, [shown]);
 
   return (
     <div className="min-w-0 space-y-6">

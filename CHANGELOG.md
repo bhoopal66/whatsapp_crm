@@ -22,6 +22,12 @@ and polish.
 
 ### Fixed
 
+- **A failed filter change no longer leaves the old figures under the new
+  filter.** The funnel report and Team activity now show figures only under
+  the filter they were fetched for; after a failed load the error with Retry
+  stands alone.
+- **Token usage card is translated.** Every text on it now follows the
+  workspace language (English, Arabic, Korean), dates included.
 - **Home screen figures that looked exact but were not.** A task list cut at
   200 now shows "200+" and no "due today" figure; the Hot, Upset and Pinned
   tiles count the chats the list they open shows (other people's personal
