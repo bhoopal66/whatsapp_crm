@@ -13,6 +13,11 @@
 -- and saw nothing of it. The person alone, not their team leader, and
 -- nobody else. calls.user_id, so every report, is unchanged.
 --
+-- With several people writing one note, a save must not overwrite what
+-- it never read: pbx_save_call_note writes only the fields it is sent,
+-- and a note only over the text its writer last saw. pbx_set_disposition
+-- writes both fields blind; it stays for a build still running.
+--
 -- Restates pbx_set_disposition (089) and pbx_can_view_call and
 -- calls_select (198). Re-running 089 or 198 undoes it: apply in order.
 -- Re-runnable.
@@ -118,3 +123,88 @@ BEGIN
    WHERE id = p_call_id;
 END;
 $$;
+
+-- Saves a call's outcome, its note, or both: p_fields holds only what is
+-- to be written ({disposition?, notes?, notes_seen?}; a key that is not
+-- there is left alone, null clears). notes_seen is the text the writer
+-- last saw (null: an empty note). A stored note that is neither that text
+-- nor the new one (a retry after a lost answer) is someone else's work:
+-- nothing is written and the answer is {conflict: true, notes: <stored>}.
+-- It is an answer and not an error so the note never reaches the logs.
+-- Compared as text, not by notes_updated_at: pbx_set_disposition stamps
+-- that on an outcome too. Without notes_seen (a browser tab older than
+-- this) the note is written only over an empty one or the writer's own.
+-- notes_updated_* is stamped only when the note changes.
+CREATE OR REPLACE FUNCTION public.pbx_save_call_note(p_call_id uuid, p_fields jsonb)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_call   calls;
+  v_notes  text := NULLIF(btrim(p_fields ->> 'notes'), '');
+  v_seen   text := NULLIF(btrim(p_fields ->> 'notes_seen'), '');
+  v_stored text;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'Unauthorized' USING ERRCODE = '42501';
+  END IF;
+  SELECT * INTO v_call FROM calls WHERE id = p_call_id FOR UPDATE;
+  IF NOT FOUND OR NOT pbx_can_view_call(v_call) THEN
+    RAISE EXCEPTION 'Call not found' USING ERRCODE = 'P0002';
+  END IF;
+  IF current_role_rank() < 3
+     AND NOT (pbx_answered_call(v_call) AND current_role_rank() >= 2) THEN
+    RAISE EXCEPTION 'Only the person on the call or a team leader can record its outcome'
+      USING ERRCODE = '42501';
+  END IF;
+  IF jsonb_typeof(p_fields) IS DISTINCT FROM 'object'
+     OR NOT p_fields ?| ARRAY['disposition', 'notes']
+     OR jsonb_typeof(p_fields -> 'disposition') NOT IN ('string', 'null')
+     OR jsonb_typeof(p_fields -> 'notes') NOT IN ('string', 'null')
+     OR jsonb_typeof(p_fields -> 'notes_seen') NOT IN ('string', 'null') THEN
+    RAISE EXCEPTION 'Nothing to change' USING ERRCODE = '22023';
+  END IF;
+  IF p_fields ->> 'disposition' NOT IN
+     ('interested', 'docs_requested', 'call_back', 'not_eligible', 'wrong_number') THEN
+    RAISE EXCEPTION 'Unknown disposition' USING ERRCODE = '22023';
+  END IF;
+  IF char_length(v_notes) > 4000 THEN
+    RAISE EXCEPTION 'Notes are limited to 4000 characters' USING ERRCODE = '22023';
+  END IF;
+  IF v_call.erased_at IS NOT NULL THEN
+    RAISE EXCEPTION 'This call was erased' USING ERRCODE = '55000';
+  END IF;
+
+  IF p_fields ? 'notes' THEN
+    v_stored := NULLIF(btrim(v_call.notes), '');
+    IF v_notes IS DISTINCT FROM v_stored THEN
+      IF NOT (CASE WHEN p_fields ? 'notes_seen'
+                   THEN v_seen IS NOT DISTINCT FROM v_stored
+                   ELSE v_stored IS NULL
+                        OR COALESCE(v_call.notes_updated_by = auth.uid(), false) END) THEN
+        RETURN jsonb_build_object('conflict', true, 'notes', v_stored);
+      END IF;
+      UPDATE calls
+         SET notes = v_notes,
+             notes_updated_by = auth.uid(),
+             notes_updated_at = now()
+       WHERE id = p_call_id
+       RETURNING * INTO v_call;
+    END IF;
+  END IF;
+  IF p_fields ? 'disposition' THEN
+    UPDATE calls
+       SET disposition = p_fields ->> 'disposition'
+     WHERE id = p_call_id
+     RETURNING * INTO v_call;
+  END IF;
+  RETURN jsonb_build_object(
+    'disposition', v_call.disposition,
+    'notes', v_call.notes,
+    'notes_updated_at', v_call.notes_updated_at);
+END;
+$$;
+REVOKE ALL ON FUNCTION public.pbx_save_call_note(uuid, jsonb) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.pbx_save_call_note(uuid, jsonb) TO authenticated, service_role;

@@ -886,6 +886,27 @@ export function recoverWrapUps(
   );
 }
 
+/**
+ * A closed wrap-up opened again to save what it kept (call-note-store):
+ * it takes the panel from another wrap-up, which waits, but not from a
+ * live call. Its two minutes start again, or it would close at once.
+ */
+export function reopenWrapUp(
+  s: PanelState,
+  call: PanelCall,
+  now: number
+): PanelState {
+  if (s.panel && (s.panel.endedAt === null || s.panel.key === call.key))
+    return s;
+  return {
+    ...s,
+    panel: { ...call, endedAt: now },
+    waiting: [...(s.panel ? [s.panel] : []), ...s.waiting].filter(
+      (w) => w.key !== call.key
+    ),
+  };
+}
+
 /** The panel reports whether an outcome is chosen for its call. */
 export function noteOutcome(
   s: PanelState,
