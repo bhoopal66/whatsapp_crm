@@ -233,6 +233,7 @@ describe('pbx call helpers', () => {
       scope: 'mine',
       from: null,
       to: null,
+      before: null,
       limit: 50,
     });
     expect(
@@ -247,6 +248,7 @@ describe('pbx call helpers', () => {
       scope: 'missed',
       from: '2026-09-30T20:00:00.000Z',
       to: null,
+      before: null,
       limit: 200,
     });
     const A = '00000000-0000-4000-8000-0000000000aa';

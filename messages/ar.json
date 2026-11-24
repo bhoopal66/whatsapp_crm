@@ -7116,6 +7116,10 @@
     "taskDone": "المهمة منجزة",
     "taskDoneBy": "أنجزها {name}",
     "loadFailed": "تعذر تحميل المكالمات",
+    "loadOlder": "تحميل الأقدم",
+    "loadingOlder": "جارٍ تحميل المكالمات الأقدم…",
+    "loadOlderFailed": "تعذر تحميل المكالمات الأقدم",
+    "refreshFailed": "تعذر التحديث. قد تكون القائمة متأخرة قليلاً.",
     "playRecording": "تشغيل التسجيل",
     "hideRecording": "إخفاء التسجيل",
     "unrouted": {

@@ -45,7 +45,11 @@ const call = (p: Row): Row => ({
   account_id: A,
   direction: 'inbound',
   status: 'answered',
-  started_at: '2026-10-12T08:00:00.000Z',
+  // Each a millisecond older than the one before it, so the list keeps
+  // the order they were added in.
+  started_at: new Date(
+    Date.parse('2026-10-12T08:00:00.000Z') - n
+  ).toISOString(),
   answered_at: null,
   ended_at: null,
   ring_seconds: 5,
@@ -519,6 +523,50 @@ describe('GET /api/pbx/calls', () => {
       as('team_leader');
       visible = [];
       expect((await get('scope=all')).body).toEqual({ calls: [] });
+    });
+  });
+
+  describe('paging past a full list', () => {
+    const uuid = (k: number) =>
+      `00000000-0000-4000-8000-0000000001${String(k).padStart(2, '0')}`;
+    beforeEach(() => {
+      // Five calls of one instant, then one a microsecond-trimmed second
+      // earlier: the id alone orders the five.
+      for (let k = 1; k <= 5; k++)
+        rls.tables.calls.push(
+          call({ id: uuid(k), started_at: '2026-10-12T08:00:00.123456+00:00' })
+        );
+      rls.tables.calls.push(
+        call({ id: uuid(9), started_at: '2026-10-12T07:59:59+00:00' })
+      );
+    });
+
+    it('says when more exist, and continues without skipping or doubling one', async () => {
+      const seen: string[] = [];
+      let next = '';
+      const truncated: boolean[] = [];
+      for (let p = 0; p < 3; p++) {
+        const { body } = await get(`limit=2${next}`);
+        seen.push(...body.calls.map((c: { id: string }) => c.id));
+        truncated.push(body.truncated);
+        const last = body.calls.at(-1);
+        next = `&before=${encodeURIComponent(last.startedAt)}&beforeId=${last.id}`;
+      }
+      expect(seen).toEqual([5, 4, 3, 2, 1, 9].map(uuid));
+      expect(truncated).toEqual([true, true, false]);
+      expect((await get('limit=6')).body.truncated).toBe(false);
+    });
+
+    it('refuses half a cursor, or one it did not give', async () => {
+      const at = encodeURIComponent('2026-10-12T08:00:00.123456+00:00');
+      for (const qs of [
+        `before=${at}`,
+        `beforeId=${uuid(1)}`,
+        `before=yesterday&beforeId=${uuid(1)}`,
+        `before=${at},id.is.null&beforeId=${uuid(1)}`,
+        `before=${at}&beforeId=x`,
+      ])
+        expect((await get(qs)).status).toBe(400);
     });
   });
 

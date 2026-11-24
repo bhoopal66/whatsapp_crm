@@ -22,6 +22,10 @@ and polish.
 
 ### Fixed
 
+- **The Calls screen no longer stops at 200 calls or goes stale.** "Load
+  older" brings the rest, and the list refreshes when the tab is shown
+  again, when one of your calls ends, and every minute while it is on
+  screen. A refresh that fails keeps the list and says so. No migration.
 - **A missed call shows its callback task whoever holds it.** When a ring
   group rang two people, only the one holding the task saw a badge on
   "My missed calls", and the other rang the customer again. Every missed

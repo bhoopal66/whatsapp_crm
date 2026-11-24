@@ -3,7 +3,14 @@
 import { EmptyState } from '@/components/dashboard/empty-state';
 import { ErrorState } from '@/components/dashboard/error-state';
 import { LoadingState } from '@/components/dashboard/loading-state';
-import { useEffect, useMemo, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from 'react';
 import Link from 'next/link';
 import { useLocale, useTranslations } from 'next-intl';
 import { AudioLines, BarChart3, Phone, PhoneMissed } from 'lucide-react';
@@ -21,6 +28,7 @@ import { VoicemailPanel } from '@/components/pbx/voicemail-panel';
 import { MyStatus } from '@/components/calls/my-status';
 import { CallButton } from '@/components/pbx/call-button';
 import { useCalls } from '@/components/pbx/call-provider';
+import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/use-auth';
 import { canLeadTeam } from '@/lib/auth/roles';
 import { PBX_ROUTES_HREF } from '@/lib/pbx/admin-ui';
@@ -34,11 +42,19 @@ import {
   visibleCallTabs,
   callsListReady,
   internalCallParty,
+  liveKey,
   type CallsTab,
   type CallSides,
   type InternalSide,
 } from '@/lib/pbx/call-ui';
-import { loadCallsList, type CallsList } from '@/lib/pbx/calls-list';
+import {
+  callLeft,
+  listReducer,
+  loadCallsList,
+  startCallsRefresh,
+  type ListAction,
+  type ListView,
+} from '@/lib/pbx/calls-list';
 import { listPlayerOffered, nextOpenPlayer } from '@/lib/pbx/list-player';
 import {
   callHeading,
@@ -63,15 +79,8 @@ type CallRow = TimelineCall & {
   /** Missed calls only: the callback task, whoever holds it. */
   task?: MissedCallTask | null;
 };
-interface Loaded extends CallsList<CallRow> {
-  tab: CallsTab;
-  /** Missed calls: the Team / All toggle's side when this was asked. */
-  wide: boolean;
-  failed: boolean;
-}
-
 const getJson = (url: string) =>
-  fetch(url).then((r) => {
+  fetch(url, { cache: 'no-store' }).then((r) => {
     if (!r.ok) throw new Error(String(r.status));
     return r.json();
   });
@@ -81,7 +90,8 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
   const tl = useTranslations('CustomerTimeline');
   const locale = useLocale();
   const { accountRole, user, reviewsAllCalls } = useAuth();
-  const hasPhone = Boolean(useCalls()?.me);
+  const phone = useCalls();
+  const hasPhone = Boolean(phone?.me);
   // A direct link to a tab this role is not offered (the API would
   // refuse it, or it is not theirs) shows My calls, as an unknown ?tab=
   // does.
@@ -102,39 +112,70 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
     () => Intl.DateTimeFormat().resolvedOptions().timeZone,
     []
   );
-  const [loaded, setLoaded] = useState<Loaded | null>(null);
+  const [view, dispatch] = useReducer(
+    listReducer as (
+      v: ListView<CallRow> | null,
+      a: ListAction<CallRow>
+    ) => ListView<CallRow> | null,
+    null
+  );
   // The one row whose recording player is open (lib/pbx/list-player).
   const [openPlayer, setOpenPlayer] = useState<string | null>(null);
 
   const listReady = callsListReady(tab, accountRole);
-  const [reloadKey, setReloadKey] = useState(0);
-  useEffect(() => {
+  const key = `${tab}:${wide}`;
+  // One count for every read of the screen (listReducer).
+  const seqRef = useRef(0);
+  const refresh = useCallback(() => {
     // The report tab loads its own figures; Unrouted waits for the role.
     if (!listReady) return;
-    let cancelled = false;
+    const seq = ++seqRef.current;
     loadCallsList<CallRow>(tab, wide, Date.now(), getJson)
-      .then((list) => {
-        if (!cancelled && list)
-          setLoaded({ tab, wide, ...list, failed: false });
-      })
-      .catch(() => {
-        if (!cancelled)
-          setLoaded({
-            tab,
-            wide,
-            calls: [],
-            numbers: [],
-            failed: true,
-          });
-      });
+      .then((list) => list && dispatch({ type: 'loaded', key, seq, list }))
+      .catch(() => dispatch({ type: 'failed', key, seq }));
+  }, [key, listReady, tab, wide]);
+  const refresher = useRef<ReturnType<typeof startCallsRefresh> | null>(null);
+  useEffect(() => {
+    refresh();
+    const r = startCallsRefresh(refresh, document, window);
+    refresher.current = r;
     return () => {
-      cancelled = true;
+      refresher.current = null;
+      r.stop();
     };
-  }, [tab, listReady, wide, reloadKey]);
+  }, [refresh]);
+
+  // The caller's calls in progress, as the call layer follows call_live:
+  // the one ringing and the panel's. Answering moves a call from the
+  // first to the second, so only one that ended leaves.
+  const ringing = phone?.ringing;
+  const panel = phone?.panel;
+  const liveKeys = [
+    ...(ringing ? [liveKey(ringing)] : []),
+    ...(panel && panel.endedAt === null ? [panel.key] : []),
+  ].join('\n');
+  const liveBefore = useRef(liveKeys);
+  useEffect(() => {
+    const split = (k: string) => (k ? k.split('\n') : []);
+    if (callLeft(split(liveBefore.current), split(liveKeys)))
+      refresher.current?.soon();
+    liveBefore.current = liveKeys;
+  }, [liveKeys]);
 
   const say = (p: Part) =>
     typeof p === 'string' ? p : tl(p.key as never, p.values as never);
-  const current = loaded?.tab === tab && loaded.wide === wide ? loaded : null;
+  const current = view?.key === key ? view : null;
+  const shown = current?.list ?? null;
+  const last = shown?.calls.at(-1);
+  const loadOlder = () => {
+    if (!last || current?.older === 'loading') return;
+    dispatch({ type: 'olderStarted', key });
+    loadCallsList<CallRow>(tab, wide, Date.now(), getJson, last)
+      .then(
+        (list) => list && dispatch({ type: 'older', key, after: last.id, list })
+      )
+      .catch(() => dispatch({ type: 'olderFailed', key, after: last.id }));
+  };
 
   const row = (c: CallRow) => {
     const h = callHeading(c, { timeZone, locale });
@@ -242,51 +283,49 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
     );
 
   const split =
-    current && (tab === 'mine' || tab === 'log' || tab === 'unrouted')
-      ? splitCallLog(current.calls, Date.now(), timeZone)
+    shown && (tab === 'mine' || tab === 'log' || tab === 'unrouted')
+      ? splitCallLog(shown.calls, Date.now(), timeZone)
       : null;
 
   // Which numbers want a route, with a way to add one (admins only see
   // this tab, and only they edit routes).
-  const numbers = tab === 'unrouted' &&
-    current &&
-    current.numbers.length > 0 && (
-      <section className="border-border bg-card overflow-hidden rounded-xl border">
-        <h2 className="border-border text-muted-foreground flex flex-wrap items-baseline justify-between gap-x-3 border-b px-4 py-2 text-xs font-semibold tracking-wide uppercase">
-          {t('unrouted.numbersTitle')}
-          <span className="font-normal tracking-normal normal-case">
-            {t('unrouted.numbersWindow', { days: UNROUTED_SUMMARY_DAYS })}
-          </span>
-        </h2>
-        <ul>
-          {current.numbers.map((n) => (
-            <li
-              key={n.didNumber}
-              className="border-border flex flex-wrap items-center gap-x-3 gap-y-1 border-b px-4 py-3 last:border-b-0"
+  const numbers = tab === 'unrouted' && shown && shown.numbers.length > 0 && (
+    <section className="border-border bg-card overflow-hidden rounded-xl border">
+      <h2 className="border-border text-muted-foreground flex flex-wrap items-baseline justify-between gap-x-3 border-b px-4 py-2 text-xs font-semibold tracking-wide uppercase">
+        {t('unrouted.numbersTitle')}
+        <span className="font-normal tracking-normal normal-case">
+          {t('unrouted.numbersWindow', { days: UNROUTED_SUMMARY_DAYS })}
+        </span>
+      </h2>
+      <ul>
+        {shown.numbers.map((n) => (
+          <li
+            key={n.didNumber}
+            className="border-border flex flex-wrap items-center gap-x-3 gap-y-1 border-b px-4 py-3 last:border-b-0"
+          >
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold tabular-nums">{n.didNumber}</p>
+              <p className="text-muted-foreground text-sm">
+                {t('unrouted.numberCalls', {
+                  count: n.calls,
+                  last: messageWhen(n.lastAt, Date.now(), {
+                    locale,
+                    timeZone,
+                  }),
+                })}
+              </p>
+            </div>
+            <Link
+              href={PBX_ROUTES_HREF}
+              className="text-primary text-sm font-medium hover:underline"
             >
-              <div className="min-w-0 flex-1">
-                <p className="font-semibold tabular-nums">{n.didNumber}</p>
-                <p className="text-muted-foreground text-sm">
-                  {t('unrouted.numberCalls', {
-                    count: n.calls,
-                    last: messageWhen(n.lastAt, Date.now(), {
-                      locale,
-                      timeZone,
-                    }),
-                  })}
-                </p>
-              </div>
-              <Link
-                href={PBX_ROUTES_HREF}
-                className="text-primary text-sm font-medium hover:underline"
-              >
-                {t('unrouted.addRoute')}
-              </Link>
-            </li>
-          ))}
-        </ul>
-      </section>
-    );
+              {t('unrouted.addRoute')}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
 
   return (
     <div className="mx-auto w-full max-w-6xl space-y-4 p-4 md:p-6">
@@ -375,15 +414,9 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
         <CallReport />
       ) : !current ? (
         <LoadingState />
-      ) : current.failed ? (
-        <ErrorState
-          message={t('loadFailed')}
-          onRetry={() => {
-            setLoaded(null);
-            setReloadKey((k) => k + 1);
-          }}
-        />
-      ) : current.calls.length === 0 ? (
+      ) : !shown ? (
+        <ErrorState message={t('loadFailed')} onRetry={refresh} />
+      ) : shown.calls.length === 0 ? (
         <EmptyState
           icon={tab === 'missed' ? PhoneMissed : Phone}
           title={
@@ -402,7 +435,30 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
           {list(split.older, t('older'))}
         </>
       ) : (
-        list(current.calls)
+        list(shown.calls)
+      )}
+      {current?.stale && (
+        <p role="status" className="text-muted-foreground text-sm">
+          {t('refreshFailed')}
+        </p>
+      )}
+      {shown?.truncated && (
+        <div className="flex flex-wrap items-center justify-center gap-3">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={current?.older === 'loading'}
+            onClick={loadOlder}
+          >
+            {t(current?.older === 'loading' ? 'loadingOlder' : 'loadOlder')}
+          </Button>
+          {current?.older === 'failed' && (
+            <p role="status" className="text-muted-foreground text-sm">
+              {t('loadOlderFailed')}
+            </p>
+          )}
+        </div>
       )}
     </div>
   );

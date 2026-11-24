@@ -7116,6 +7116,10 @@
     "taskDone": "Task done",
     "taskDoneBy": "Done by {name}",
     "loadFailed": "Couldn't load calls",
+    "loadOlder": "Load older",
+    "loadingOlder": "Loading older calls…",
+    "loadOlderFailed": "Couldn’t load older calls",
+    "refreshFailed": "Couldn’t refresh. The list may be a little behind.",
     "playRecording": "Play recording",
     "hideRecording": "Hide recording",
     "unrouted": {

@@ -1,12 +1,14 @@
 // ============================================================
 // GET /api/pbx/calls — a call list (module 015, migration 089).
-//   ?contactId=&userId=&userIds=&direction=external&scope=mine|my_missed|missed|all|unrouted&from=&to=&limit=
+//   ?contactId=&userId=&userIds=&direction=external&scope=mine|my_missed|missed|all|unrouted&from=&to=&before=&beforeId=&limit=
 //   → { calls: [{ id, pbxCallId, direction, status, startedAt,
 //       answeredAt, endedAt, ringSeconds, talkSeconds, remoteNumber, didNumber, extension,
 //       contactId, contactName, doNotContactAt, doNotContactReason,
 //       userId, userName, rangNames, disposition, notes, recordingState,
 //       recordingDeleted, legalHold, task? }],
-//       numbers?: [{ didNumber, calls, lastAt }] }
+//       truncated, numbers?: [{ didNumber, calls, lastAt }] }
+// truncated: calls older than the last one exist; before/beforeId (that
+// call's startedAt and id, as answered) is the page that continues.
 // didNumber: the number the customer dialled (calls.did_number).
 // pbxCallId: the PBX's own id (calls.pbx_call_id), the one a live call
 // is known by, so the in-call window can leave the call in progress
@@ -168,16 +170,27 @@ export async function GET(request: Request) {
       if (q.to) query = query.lt('started_at', q.to);
       return query;
     };
-    const { data, error } = await scoped(
+    let page = scoped(
       'id, pbx_call_id, direction, status, started_at, answered_at, ended_at, ring_seconds, talk_seconds, remote_number, did_number, extension, contact_id, user_id, disposition, notes, recording_state, meta'
-    )
+    );
+    // Past (started_at, id): at or before that instant, and not that
+    // call or one listed before it.
+    if (q.before)
+      page = page
+        .lte('started_at', q.before.startedAt)
+        .or(`started_at.lt.${q.before.startedAt},id.lt.${q.before.id}`);
+    const { data, error } = await page
       .order('started_at', { ascending: false })
-      .limit(q.limit);
+      .order('id', { ascending: false })
+      .limit(q.limit + 1);
     if (error) throw new Error(`calls read failed: ${error.message}`);
-    const rows = (data ?? []) as unknown as CallRow[];
+    const read = (data ?? []) as unknown as CallRow[];
+    const truncated = read.length > q.limit;
+    const rows = read.slice(0, q.limit);
 
     let numbers: UnroutedNumber[] | undefined;
-    if (q.scope === 'unrouted') {
+    // A later page's reader has them already.
+    if (q.scope === 'unrouted' && !q.before) {
       // The numbers start at the request's `from`, else
       // UNROUTED_SUMMARY_DAYS ago. Reading all history on every open
       // made the tab slower each day, and a number fixed long ago
@@ -186,7 +199,7 @@ export async function GET(request: Request) {
         q.from ??
         new Date(Date.now() - UNROUTED_SUMMARY_DAYS * DAY_MS).toISOString();
       let all: Pick<CallRow, 'did_number' | 'started_at'>[];
-      if (rows.length < q.limit) {
+      if (!truncated) {
         // A short list is every unrouted call, the older ones included.
         const sinceAt = Date.parse(since);
         all = rows.filter((r) => Date.parse(r.started_at) >= sinceAt);
@@ -383,6 +396,7 @@ export async function GET(request: Request) {
           ...(listsMissed && { task: tasks?.get(r.id) ?? null }),
         };
       }),
+      truncated,
       ...(numbers && { numbers }),
     });
   } catch (err) {
