@@ -30,7 +30,7 @@ export interface FieldLike {
   textContent?: string | null;
   readOnly?: boolean;
   disabled?: boolean;
-  closest(selector: string): unknown;
+  getAttribute(name: string): string | null;
 }
 
 /** Inputs that hold words; the rest (a checkbox, a search box) hold no work. */
@@ -51,8 +51,11 @@ const TEXT_TYPES = new Set([
 export function fieldHasText(el: FieldLike): boolean {
   if (el.disabled || el.readOnly) return false;
   // Mirrors a widget keeps for form posts (base-ui's Select) hold a value
-  // all the time.
-  if (el.closest('[aria-hidden="true"]')) return false;
+  // all the time. Only the element itself counts: a modal dialog marks
+  // everything outside it aria-hidden, and a field behind it still holds
+  // what was typed.
+  if (el.getAttribute('aria-hidden') === 'true') return false;
+  if (el.getAttribute('tabindex') === '-1') return false;
   const tag = el.tagName.toLowerCase();
   if (tag === 'input' && !TEXT_TYPES.has(el.type ?? 'text')) return false;
   const text =
