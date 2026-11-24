@@ -10,6 +10,10 @@ import {
 } from "react"
 import { useRouter } from "next/navigation"
 import { useTranslations } from "next-intl"
+import {
+  CONDITION_CONTACT_FIELDS,
+  isConditionContactField,
+} from "@/lib/automations/contact-fields"
 import { toast } from "sonner"
 import {
   ArrowLeft,
@@ -598,6 +602,34 @@ function ChatTagAnySelect({
  *  any account custom fields (stored as `custom:<id>`). A saved custom field
  *  that's since been deleted is preserved as a labelled option so editing an
  *  existing automation doesn't silently drop it. */
+function ConditionFieldSelect({
+  value,
+  onChange,
+  t,
+}: {
+  value: string
+  onChange: (v: string) => void
+  t: ReturnType<typeof useTranslations>
+}) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className={SELECT_CLASS}
+    >
+      <option value="">{t("fields.choose")}</option>
+      {CONDITION_CONTACT_FIELDS.map((f) => (
+        <option key={f} value={f}>
+          {t(`fields.${f}`)}
+        </option>
+      ))}
+      {value && !isConditionContactField(value) && (
+        <option value={value}>{t("fields.unknown", { id: value })}</option>
+      )}
+    </select>
+  )
+}
+
 function ContactFieldSelect({
   value,
   onChange,
@@ -1937,11 +1969,10 @@ function StepEditor({
           {subject === "contact_field" && (
             <>
               <FieldBlock label={t("config.operandLabel")}>
-                <Input
-                  placeholder={t("config.placeholderContact")}
+                <ConditionFieldSelect
                   value={(cfg.operand as string) ?? ""}
-                  onChange={(e) => set({ operand: e.target.value })}
-                  className="text-foreground"
+                  onChange={(operand) => set({ operand })}
+                  t={t}
                 />
               </FieldBlock>
               <FieldBlock label={t("config.conditionIs")}>

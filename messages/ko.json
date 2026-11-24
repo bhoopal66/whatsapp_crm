@@ -1882,7 +1882,9 @@
         "email": "이메일",
         "company": "회사",
         "customFields": "커스텀 필드",
-        "unknown": "{id} (알 수 없는 필드)"
+        "unknown": "{id} (알 수 없는 필드)",
+        "phone": "전화번호",
+        "choose": "필드 선택…"
       },
       "agents": {
         "select": "상담원 선택…",
@@ -13684,8 +13686,7 @@
     "triesAgain": "{when} 이후에 다시 시도합니다.",
     "triesSoon": "한 시간 안에 다시 시도합니다.",
     "usageLabel": "학습된 답변"
-  }
-,
+  },
   "AiUsage": {
     "title": "토큰 사용량",
     "description": "초안과 자동 답변 봇이 제공업체 키로 사용한 토큰입니다. 개수만 집계하며 메시지 내용은 여기에 저장되지 않습니다.",

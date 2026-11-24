@@ -1882,7 +1882,9 @@
         "email": "Email",
         "company": "Company",
         "customFields": "Custom fields",
-        "unknown": "{id} (unknown field)"
+        "unknown": "{id} (unknown field)",
+        "phone": "Phone",
+        "choose": "Choose a field…"
       },
       "agents": {
         "select": "Select an agent…",
@@ -13684,8 +13686,7 @@
     "triesAgain": "It tries again after {when}.",
     "triesSoon": "It tries again within the hour.",
     "usageLabel": "Learned answers"
-  }
-,
+  },
   "AiUsage": {
     "title": "Token usage",
     "description": "Tokens spent on your provider key by drafts and the auto-reply bot. Counts only — no message content is stored here.",

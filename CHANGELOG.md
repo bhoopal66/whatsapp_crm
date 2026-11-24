@@ -22,6 +22,10 @@ and polish.
 
 ### Fixed
 
+- **A "Contact field" condition whose read failed** fails its step instead
+  of taking the "no" branch, and the field is picked from a list (name,
+  phone, email, company); an unknown saved name cannot be activated. No
+  migration.
 - **Automations honour "Do not contact".** A customer marked so is sent no
   automation message (text, buttons, list, template), not even right after
   they wrote; before, only "opted out" was checked. No migration.

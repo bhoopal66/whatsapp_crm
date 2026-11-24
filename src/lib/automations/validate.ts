@@ -1,5 +1,6 @@
 import type { AutomationTriggerType } from '@/types'
 import { validateInteractivePayload } from '@/lib/whatsapp/interactive'
+import { isConditionContactField } from './contact-fields'
 import { TRIGGER_META } from './trigger-meta'
 import { TEAM_CHAT_BODY_MAX } from './team-chat-post'
 import { validateIntentTriggerConfig } from '@/lib/insights/meaning-config'
@@ -161,6 +162,11 @@ function validateOne(step: StepLike, path: string, issues: ValidationIssue[]): v
       }
       if (!nonEmpty(c.operand)) {
         issues.push({ path: `${path}.operand`, message: 'condition operand is required' })
+      } else if (c.subject === 'contact_field' && !isConditionContactField(c.operand)) {
+        issues.push({
+          path: `${path}.operand`,
+          message: `unknown contact field: ${String(c.operand)}`,
+        })
       }
       break
     case 'send_webhook':

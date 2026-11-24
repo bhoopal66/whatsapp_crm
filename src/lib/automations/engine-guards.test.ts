@@ -370,6 +370,33 @@ describe('a contact marked do not contact', () => {
   });
 });
 
+describe('a contact_field condition', () => {
+  const field = (operand: string): [string, Row] => [
+    'condition',
+    { subject: 'contact_field', operand, value: 'ACME' },
+  ];
+
+  it('fails its step when the contact cannot be read', async () => {
+    h.refuse.add('contacts.select:company');
+    steps(field('company'), CLOSE);
+    await trigger('new_message_received');
+    expect(log().steps_executed).toHaveLength(1);
+    expect(log().steps_executed[0]).toMatchObject({
+      status: 'failed',
+      detail: 'condition: the contact field could not be read',
+    });
+    expect(JSON.stringify(log())).not.toContain('secret');
+    expect(h.db.conversations[0].status).toBeUndefined();
+  });
+
+  it('control: compares the field it read', async () => {
+    contact().company = 'ACME';
+    steps(field('company'));
+    await trigger('new_message_received');
+    expect(log().steps_executed[0].detail).toBe('branch=yes');
+  });
+});
+
 describe('time_of_day', () => {
   it.each([
     ['2026-01-15T05:30:00Z', '09:00-18:00', 'yes'], // 09:30 in Dubai

@@ -439,3 +439,20 @@ describe("validateTriggerForActivation", () => {
     }
   });
 });
+
+describe("contact_field condition", () => {
+  const issuesFor = (operand: string) =>
+    validateStepsForActivation([
+      { step_type: "condition", step_config: { subject: "contact_field", operand, value: "x" } },
+    ])
+
+  it("refuses a field the condition cannot read", () => {
+    expect(issuesFor("company_name")).toEqual([
+      { path: "steps[0].operand", message: "unknown contact field: company_name" },
+    ])
+  })
+
+  it.each(["name", "phone", "email", "company"])("accepts %s", (field) => {
+    expect(issuesFor(field)).toEqual([])
+  })
+})
