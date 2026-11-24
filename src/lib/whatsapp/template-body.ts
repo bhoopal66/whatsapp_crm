@@ -62,6 +62,43 @@ export function templateBodyParams(
   return Array.isArray(templateParams) ? templateParams : [];
 }
 
+/** A non-empty string, or undefined: what a structured param may hold. */
+function textParam(messageParams: unknown, key: string): string | undefined {
+  const value =
+    messageParams && typeof messageParams === 'object'
+      ? (messageParams as Record<string, unknown>)[key]
+      : undefined;
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+/**
+ * The row a linked-device number (Whapi, OpenWA) renders and sends as an
+ * ordinary message: its header text with the header's own value filled in,
+ * and its header picture or file where the editor stores it. The composer
+ * asks for the header's value and it was then dropped, so the customer
+ * read a literal `{{1}}`; and the stored link was never looked at, so a
+ * template with a picture went out without it.
+ */
+export function renderedForLinkedDevice(
+  template: MessageTemplate,
+  messageParams?: unknown
+): MessageTemplate {
+  if (template.header_type === 'text') {
+    const value = textParam(messageParams, 'headerText');
+    return value && template.header_content
+      ? {
+          ...template,
+          header_content: renderTemplateBody(template.header_content, [value]),
+        }
+      : template;
+  }
+  const link =
+    textParam(messageParams, 'headerMediaUrl') ?? template.header_media_url;
+  return link && !template.header_content
+    ? { ...template, header_content: link }
+    : template;
+}
+
 /** `en_US` → `en`; used to match a request against a synced row. */
 function baseLanguage(language: string): string {
   return language.toLowerCase().split(/[_-]/)[0];

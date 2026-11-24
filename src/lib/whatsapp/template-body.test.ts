@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import {
+  renderedForLinkedDevice,
   renderTemplateBody,
   resolveTemplateRow,
   templateBodyParams,
@@ -217,5 +218,54 @@ describe('templateContentText', () => {
 
   it('is null when there is no local row to render from', () => {
     expect(templateContentText(null, ['A123'])).toBeNull();
+  });
+});
+
+describe('renderedForLinkedDevice', () => {
+  const row = (over: Partial<MessageTemplate>) =>
+    ({
+      id: 't',
+      name: 't',
+      language: 'en',
+      body_text: 'Hi',
+      ...over,
+    }) as MessageTemplate;
+
+  it('fills the header text with its own value', () => {
+    const t = row({ header_type: 'text', header_content: 'Case {{1}}' });
+    expect(
+      renderedForLinkedDevice(t, { body: ['x'], headerText: ' TC-1 ' })
+        .header_content
+    ).toBe('Case TC-1');
+  });
+
+  it('leaves the header as it is when no value was given', () => {
+    const t = row({ header_type: 'text', header_content: 'Case {{1}}' });
+    expect(renderedForLinkedDevice(t)).toBe(t);
+    expect(renderedForLinkedDevice(t, { headerText: '  ' })).toBe(t);
+    expect(renderedForLinkedDevice(t, { headerText: 7 })).toBe(t);
+  });
+
+  it('takes the picture from where the editor stores it', () => {
+    const t = row({
+      header_type: 'image',
+      header_media_url: 'https://h/a.png',
+    });
+    expect(renderedForLinkedDevice(t).header_content).toBe('https://h/a.png');
+    expect(
+      renderedForLinkedDevice(t, { headerMediaUrl: 'https://h/b.png' })
+        .header_content
+    ).toBe('https://h/b.png');
+  });
+
+  it('keeps a link already in the old place, and a template without one', () => {
+    const old = row({
+      header_type: 'document',
+      header_content: 'https://h/old.pdf',
+      header_media_url: 'https://h/new.pdf',
+    });
+    expect(renderedForLinkedDevice(old)).toBe(old);
+    const none = row({ header_type: 'video' });
+    expect(renderedForLinkedDevice(none)).toBe(none);
   });
 });

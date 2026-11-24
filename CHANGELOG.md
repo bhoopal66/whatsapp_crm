@@ -39,6 +39,15 @@ and polish.
   sideways, wide tables everywhere scroll inside their own box, and the
   small "how is this calculated" marks are big enough to tap and show the
   keyboard focus. No migration.
+- **Templates can be sent from any screen.** Filling in a template's blanks
+  could push its Send button off a laptop's or phone's window, with nothing
+  to scroll: those people could not send it. The window now scrolls and its
+  buttons always show; a tap outside no longer throws away what was filled
+  in; a template list that could not be read says so instead of "No approved
+  templates"; a double tap sends once. Every dialog in the app stays inside
+  the window. On a linked number (Whapi, OpenWA) a template's header value is
+  filled in (the customer read a literal `{{1}}`) and its picture goes with
+  it. No migration.
 - **A failed message says why.** WhatsApp accepts a message and may fail it
   a moment later with a reason; a chat showed only a red mark. The reason
   (the person is not on WhatsApp, Meta could not charge, marketing limit,

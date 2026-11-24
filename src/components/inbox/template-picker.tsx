@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { MessageTemplate } from "@/types";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,7 @@ import {
   ChevronRight,
   LayoutTemplate,
   Loader2,
+  RotateCw,
 } from "lucide-react";
 import { collectTemplateVariableSlots as collectVariableSlots } from "@/lib/whatsapp/template-slots";
 import { renderTemplateBody } from "@/lib/whatsapp/template-body";
@@ -53,6 +54,8 @@ export function TemplatePicker({
 
   const [templates, setTemplates] = useState<MessageTemplate[]>([]);
   const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
+  const [reload, setReload] = useState(0);
   const [selected, setSelected] = useState<MessageTemplate | null>(null);
   const [params, setParams] = useState<string[]>([]);
   const [headerText, setHeaderText] = useState<string>("");
@@ -64,43 +67,51 @@ export function TemplatePicker({
     let cancelled = false;
     (async () => {
       setLoading(true);
-      const supabase = createClient();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (!user) {
-        if (!cancelled) {
-          setTemplates([]);
-          setLoading(false);
-        }
-        return;
-      }
-
+      setFailed(false);
       // Scope by RLS (message_templates_select → is_account_member), NOT by
       // user_id. Templates are account-owned, so filtering on the caller's
       // user_id hid templates that a teammate created — leaving them unable
-      // to send approved templates in a shared account.
-      const { data, error } = await supabase
-        .from("message_templates")
-        .select("*")
-        .eq("status", "APPROVED")
-        .order("created_at", { ascending: false });
-
-      if (cancelled) return;
-      if (error) {
-        console.error("Failed to fetch templates:", error);
-        setTemplates([]);
-      } else {
-        setTemplates((data as MessageTemplate[]) ?? []);
+      // to send approved templates in a shared account. RLS alone decides:
+      // asking the auth server who we are first turned a moment without it
+      // into "No approved templates".
+      let rows: MessageTemplate[] | null = null;
+      try {
+        const { data, error } = await createClient()
+          .from("message_templates")
+          .select("*")
+          .eq("status", "APPROVED")
+          .order("created_at", { ascending: false });
+        if (error) console.error("Failed to fetch templates:", error);
+        else rows = (data as MessageTemplate[]) ?? [];
+      } catch (err) {
+        console.error("Failed to fetch templates:", err);
       }
+      if (cancelled) return;
+      setTemplates(rows ?? []);
+      // A list that could not be read is not an empty list.
+      setFailed(rows === null);
       setLoading(false);
     })();
 
     return () => {
       cancelled = true;
     };
+  }, [open, reload]);
+
+  // One send per opening: the dialog stays mounted while it closes, and a
+  // fast second tap would send the template again.
+  const sentRef = useRef(false);
+  useEffect(() => {
+    if (open) sentRef.current = false;
   }, [open]);
+  const sendOnce = useCallback(
+    (template: MessageTemplate, values: TemplateSendValues) => {
+      if (sentRef.current) return;
+      sentRef.current = true;
+      onSelect(template, values);
+    },
+    [onSelect],
+  );
 
   function resetSelection() {
     setSelected(null);
@@ -121,7 +132,7 @@ export function TemplatePicker({
       slots.headerVarCount === 0 &&
       slots.urlButtonSlots.length === 0;
     if (noInputsNeeded) {
-      onSelect(template, { body: [] });
+      sendOnce(template, { body: [] });
       handleOpenChange(false);
       return;
     }
@@ -140,7 +151,7 @@ export function TemplatePicker({
         Object.entries(buttonParams).map(([k, v]) => [Number(k), v.trim()]),
       );
     }
-    onSelect(selected, values);
+    sendOnce(selected, values);
     handleOpenChange(false);
   }
 
@@ -158,9 +169,16 @@ export function TemplatePicker({
     );
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="border-border bg-popover sm:max-w-lg">
-        <DialogHeader>
+    <Dialog
+      open={open}
+      onOpenChange={handleOpenChange}
+      // With a template chosen, a tap beside a field (to put the phone's
+      // keyboard away) must not throw away what was filled in.
+      disablePointerDismissal={selected !== null}
+    >
+      {/* A column: the middle scrolls, the buttons always show. */}
+      <DialogContent className="border-border bg-popover flex flex-col overflow-hidden sm:max-w-lg">
+        <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-2 text-popover-foreground">
             <LayoutTemplate className="h-4 w-4 text-primary" />
             {selected ? selected.name : t("sendTemplate")}
@@ -173,10 +191,23 @@ export function TemplatePicker({
         </DialogHeader>
 
         {!selected ? (
-          <div className="max-h-[60vh] space-y-2 overflow-y-auto">
+          <div className="-mx-1 min-h-0 flex-1 space-y-2 overflow-y-auto px-1">
             {loading ? (
               <div className="flex items-center justify-center py-8">
                 <Loader2 className="h-5 w-5 animate-spin text-primary" />
+              </div>
+            ) : failed ? (
+              <div className="rounded-md border border-border bg-card-2 p-6 text-center">
+                <p className="text-sm text-popover-foreground">{t("loadFailed")}</p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-3"
+                  onClick={() => setReload((n) => n + 1)}
+                >
+                  <RotateCw className="h-4 w-4" />
+                  {t("retry")}
+                </Button>
               </div>
             ) : templates.length === 0 ? (
               <div className="rounded-md border border-border bg-background/50 p-6 text-center">
@@ -219,7 +250,7 @@ export function TemplatePicker({
             )}
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="-mx-1 min-h-0 flex-1 space-y-3 overflow-y-auto px-1">
             <div className="rounded-md border border-border bg-background/50 p-3">
               <p className="mb-1 text-xs text-muted-foreground">{t("preview")}</p>
               <p className="whitespace-pre-wrap text-sm text-popover-foreground">
@@ -234,7 +265,7 @@ export function TemplatePicker({
             {slots && slots.headerVarCount > 0 && (
               <div className="space-y-1">
                 <Label className="text-xs text-popover-foreground">
-                  {`Header {{1}}`}
+                  {t("headerValuePlaceholder")}
                 </Label>
                 <Input
                   value={headerText}
@@ -246,7 +277,9 @@ export function TemplatePicker({
             )}
             {slots?.bodyKeys.map((v, i) => (
               <div key={v} className="space-y-1">
-                <Label className="text-xs text-popover-foreground">{`Body {{${v}}}`}</Label>
+                <Label className="text-xs text-popover-foreground">
+                  {t("bodyValuePlaceholder", { val: `{{${v}}}` })}
+                </Label>
                 <Input
                   value={params[i] ?? ""}
                   onChange={(e) => {
@@ -262,7 +295,7 @@ export function TemplatePicker({
             {slots?.urlButtonSlots.map((slot) => (
               <div key={slot.index} className="space-y-1">
                 <Label className="text-xs text-popover-foreground">
-                  {`URL button "${slot.text}" — value for `}{`{{1}}`}
+                  {t("urlValueLabel", { text: slot.text, val: "{{1}}" })}
                 </Label>
                 <Input
                   value={buttonParams[slot.index] ?? ""}
@@ -283,9 +316,14 @@ export function TemplatePicker({
           </div>
         )}
 
-        <DialogFooter className="gap-2">
+        <DialogFooter className="shrink-0 gap-2 sm:items-center">
           {selected ? (
             <>
+              {!canConfirm && (
+                <p className="text-muted-foreground text-xs sm:me-auto">
+                  {t("fillAll")}
+                </p>
+              )}
               <Button
                 variant="outline"
                 onClick={resetSelection}
