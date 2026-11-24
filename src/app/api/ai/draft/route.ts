@@ -157,6 +157,7 @@ export async function POST(request: Request) {
       config,
       systemPrompt,
       messages,
+      purpose: 'draft',
     }).catch(async (err) => {
       // Billed even when the answer was cut off or empty.
       await logFailedAiUsage(supabaseAdmin, err, {

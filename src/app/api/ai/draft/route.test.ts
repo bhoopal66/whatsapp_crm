@@ -164,6 +164,11 @@ describe('POST /api/ai/draft', () => {
     );
   });
 
+  it('registers the call as a draft, not a reply, in the transfer register', async () => {
+    await post({ conversation_id: CONV });
+    expect(mocks.generateReply.mock.calls[0][0].purpose).toBe('draft');
+  });
+
   it('logs the usage of a billed draft that failed, once, and still answers the error', async () => {
     const err = new AiError('cut off', {
       code: 'truncated',

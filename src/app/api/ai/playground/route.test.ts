@@ -77,6 +77,12 @@ describe('POST /api/ai/playground', () => {
     mocks.logFailedAiUsage.mockResolvedValue(undefined);
   });
 
+  it('registers the call as the playground, not a reply, in the transfer register', async () => {
+    const res = await post();
+    expect(res.status).toBe(200);
+    expect(mocks.generateReply.mock.calls[0][0].purpose).toBe('playground');
+  });
+
   it('logs the usage of a billed call that failed, once, and still answers the error', async () => {
     const err = new AiError('cut off', {
       code: 'truncated',
