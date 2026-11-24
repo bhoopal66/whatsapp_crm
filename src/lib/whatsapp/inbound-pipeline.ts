@@ -71,6 +71,7 @@ import {
 import { runInboundInsights } from '@/lib/insights/inbound';
 import { suggestReminderForMessage } from '@/lib/reminders/suggest';
 import { handleHrInboundMessage } from '@/lib/hr/agents/inbound';
+import { recordHrStop } from '@/lib/hr/agents/stop';
 import { autoOpenRecruiterChat } from '@/lib/hr/auto-open';
 import { recordHrDelivery } from '@/lib/hr/automsg/delivery';
 import { getInsightSettings, insightsAvailable } from '@/lib/insights/settings';
@@ -735,13 +736,42 @@ export interface ProcessMessageOptions {
   /**
    * 'throw': a message that could not be stored throws
    * `InboundPersistError`, so a durable caller retries it. Only before the
-   * idempotency boundary; after it nothing changes. Default: the failure is
-   * logged and swallowed.
+   * idempotency boundary; after it nothing changes, bar a candidate's STOP
+   * that could not be recorded (stage `opt_out`, thrown once all else ran).
+   * Default: the failure is logged and swallowed.
    */
   onPersistFailure?: 'throw';
+  /**
+   * A durable caller runs this event again. A message already stored then
+   * still owes its STOP stamp, if it is one; nothing else is repeated. Not
+   * set for a gateway's own replay, which repeats nothing at all.
+   */
+  retry?: boolean;
 }
 
 export async function processMessage(
+  message: NormalizedInboundMessage,
+  accountId: string,
+  configOwnerUserId: string,
+  channel: WhatsAppChannel,
+  later?: Promise<unknown>[],
+  options: ProcessMessageOptions = {}
+) {
+  const owed = { stop: false };
+  await runInboundMessage(
+    message,
+    accountId,
+    configOwnerUserId,
+    channel,
+    later,
+    options,
+    owed
+  );
+  if (owed.stop && options.onPersistFailure === 'throw')
+    throw new InboundPersistError('opt_out');
+}
+
+async function runInboundMessage(
   message: NormalizedInboundMessage,
   // Tenancy. Resolved from the matched whatsapp_config row; every
   // contact / conversation / message row created downstream is
@@ -760,8 +790,10 @@ export async function processMessage(
   // up the next message of the same delivery (TypeSafe's watch, then
   // Smart insights). The route awaits it after its loop; without it, it
   // is awaited here.
-  later?: Promise<unknown>[],
-  options: ProcessMessageOptions = {}
+  later: Promise<unknown>[] | undefined,
+  options: ProcessMessageOptions,
+  // Set when a STOP could not be recorded.
+  owed: { stop: boolean }
 ) {
   // Before the idempotency boundary only: the message is not in the inbox.
   const notStored = (stage: InboundPersistStage, code?: string) => {
@@ -954,6 +986,17 @@ export async function processMessage(
     return notStored('message', msgError.code);
   }
 
+  const recordStop = async (retry: boolean) => {
+    owed.stop = !(await recordHrStop(supabaseAdmin(), {
+      accountId,
+      conversationId: conversation.id,
+      contactId: contactRecord.id,
+      channelId: channel.id,
+      text: contentText ?? message.text ?? '',
+      retry,
+    }));
+  };
+
   // Replayed delivery: the message already exists, so acknowledge it as a
   // no-op. Returning here is what keeps a retry from double-bumping unread,
   // re-advancing flows, re-firing automations, re-invoking AI handling, and
@@ -963,8 +1006,15 @@ export async function processMessage(
       '[webhook] duplicate inbound message ignored (idempotent replay):',
       message.id
     );
+    // A durable retry may still owe the STOP stamp (idempotent).
+    if (options.retry) await recordStop(true);
     return;
   }
+
+  // A candidate's STOP, before anything reacts to the message and whatever
+  // the HR switches say. Never throws; a stamp that did not land fails the
+  // event at the end of processMessage, so the durable queue retries it.
+  await recordStop(false);
 
   // A chat no person has touched goes to whoever last called this
   // customer from an extension. human_engaged_at (067) is the test

@@ -47,6 +47,7 @@ const h = vi.hoisted(() => ({
   insights: vi.fn(),
   reminder: vi.fn(),
   hrAgents: vi.fn(),
+  hrStop: vi.fn(),
   autoOpen: vi.fn(),
   autoTag: vi.fn(),
   reopen: vi.fn(),
@@ -200,6 +201,9 @@ vi.mock('@/lib/reminders/suggest', () => ({
 vi.mock('@/lib/hr/agents/inbound', () => ({
   handleHrInboundMessage: (...args: unknown[]) => h.hrAgents(...args),
 }));
+vi.mock('@/lib/hr/agents/stop', () => ({
+  recordHrStop: (...args: unknown[]) => h.hrStop(...args),
+}));
 vi.mock('@/lib/hr/auto-open', () => ({
   autoOpenRecruiterChat: (...args: unknown[]) => h.autoOpen(...args),
 }));
@@ -307,6 +311,7 @@ beforeEach(() => {
   h.insights.mockReset().mockResolvedValue({ skipped: 'off' });
   h.reminder.mockReset().mockResolvedValue({ status: 'off' });
   h.hrAgents.mockReset().mockResolvedValue(undefined);
+  h.hrStop.mockReset().mockResolvedValue(true);
   h.autoOpen.mockReset().mockResolvedValue('off');
   h.autoTag.mockReset().mockResolvedValue('not_auto');
   h.reopen.mockReset().mockResolvedValue(undefined);
@@ -681,6 +686,94 @@ describe('processMessage — recruiter agents hook', () => {
     info.mockRestore();
     expect(h.hrAgents).not.toHaveBeenCalled();
     expect(h.autoOpen).not.toHaveBeenCalled();
+  });
+});
+
+// A candidate's STOP (hr/agents/stop.ts): recorded before anything reacts
+// to the message; one that could not be recorded fails the event, and the
+// durable retry repeats that stamp and nothing else.
+describe('processMessage — recording a STOP', () => {
+  const run = (
+    ch = channel,
+    opts?: Parameters<typeof processMessage>[5]
+  ): Promise<void> =>
+    processMessage(
+      { ...message, text: 'STOP' },
+      'acct-1',
+      'owner-1',
+      ch,
+      undefined,
+      opts
+    );
+  const asked = {
+    accountId: 'acct-1',
+    conversationId: 'conv-1',
+    contactId: 'contact-1',
+    channelId: 'ch-1',
+    text: 'STOP',
+  };
+  const THROW = { onPersistFailure: 'throw' } as const;
+
+  beforeEach(() => {
+    vi.spyOn(console, 'info').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it.each([
+    ['a company chat', channel, undefined],
+    [
+      'a personal chat',
+      { ...channel, isPersonal: true, personalUserId: 'owner-1' },
+      undefined,
+    ],
+    ['a sender over the rate limit', channel, { fanOut: false }],
+  ] as const)('%s: before the unread bump and the reactions', async (...c) => {
+    h.hrStop.mockImplementation(async () => {
+      expect(h.rpcs).toEqual([]);
+      expect(h.flows).not.toHaveBeenCalled();
+      return true;
+    });
+    await run(c[1], c[2]);
+    expect(h.hrStop).toHaveBeenCalledTimes(1);
+    expect(h.hrStop.mock.calls[0][1]).toEqual({ ...asked, retry: false });
+    expect(h.rpcs).toContain('bump_conversation_on_inbound');
+  });
+
+  it('one that was not recorded fails the event once everything else ran', async () => {
+    h.hrStop.mockResolvedValue(false);
+    await expect(run(channel, THROW)).rejects.toMatchObject({
+      name: 'InboundPersistError',
+      stage: 'opt_out',
+    });
+    expect(h.flows).toHaveBeenCalledTimes(1);
+    expect(h.webhook).toHaveBeenCalledTimes(1);
+    expect(h.hrAgents).toHaveBeenCalledTimes(1);
+    // Without a queue behind it nothing throws.
+    await expect(run()).resolves.toBeUndefined();
+  });
+
+  it('the retry repeats the stamp and nothing else, until it lands', async () => {
+    h.upsertRows = [];
+    h.hrStop.mockResolvedValueOnce(false);
+    const retry = { ...THROW, retry: true };
+    await expect(run(channel, retry)).rejects.toMatchObject({
+      stage: 'opt_out',
+    });
+    await expect(run(channel, retry)).resolves.toBeUndefined();
+    expect(h.hrStop).toHaveBeenCalledTimes(2);
+    expect(h.hrStop.mock.calls[1][1]).toEqual({ ...asked, retry: true });
+    expect(h.rpcs).toEqual([]);
+    for (const fn of [h.flows, h.automations, h.ai, h.webhook, h.hrAgents]) {
+      expect(fn).not.toHaveBeenCalled();
+    }
+  });
+
+  it('a gateway replay records nothing', async () => {
+    h.upsertRows = [];
+    await run(channel, THROW);
+    expect(h.hrStop).not.toHaveBeenCalled();
   });
 });
 

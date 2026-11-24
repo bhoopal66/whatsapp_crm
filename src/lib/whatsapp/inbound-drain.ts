@@ -31,7 +31,9 @@ export async function drainInboundEvents(
   while (processed < DRAIN_MAX_EVENTS && now() < deadline) {
     const [event] = await claimInboundEvents(1);
     if (!event) break;
-    const outcome = await processInboundEvent(event);
+    const outcome = await processInboundEvent(event, {
+      attempt: event.attempt,
+    });
     await settleInboundEvent(event.id, event.attempt, outcome);
     processed++;
   }

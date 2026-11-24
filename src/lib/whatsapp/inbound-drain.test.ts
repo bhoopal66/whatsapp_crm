@@ -52,6 +52,14 @@ describe('drainInboundEvents', () => {
     expect(h.inbox.rows[1].state).toBe('done');
   });
 
+  it('hands the attempt over', async () => {
+    h.inbox.add({});
+    await drainInboundEvents();
+    expect(h.process.mock.calls[0][1]).toEqual({
+      attempt: h.process.mock.calls[0][0].attempt,
+    });
+  });
+
   it('stops at 50 rows', async () => {
     for (let i = 0; i < 60; i++) h.inbox.add({});
     expect(await drainInboundEvents()).toEqual({ processed: 50 });

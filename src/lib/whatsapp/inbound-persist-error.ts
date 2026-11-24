@@ -3,8 +3,13 @@
  * `messages` idempotency boundary: nothing of it is in the inbox, so it is
  * safe, and needed, to process it again. Thrown only where the caller asked
  * for it (`onPersistFailure: 'throw'`). Carries no customer text.
+ *
+ * `opt_out` is the one stage after the boundary: the message is stored and
+ * everything else ran, but a candidate's STOP could not be stamped. The
+ * retry finds the message stored and repeats the stamp only.
  */
-export type InboundPersistStage = 'contact' | 'conversation' | 'message';
+export type InboundPersistStage =
+  'contact' | 'conversation' | 'message' | 'opt_out';
 
 export class InboundPersistError extends Error {
   constructor(

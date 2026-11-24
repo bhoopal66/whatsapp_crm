@@ -81,7 +81,7 @@ export function createRcsSendPort(
       const to = await recipientNumber(
         db,
         req,
-        (reason) => new RcsSendError(reason, false)
+        (reason, retryable) => new RcsSendError(reason, retryable)
       );
       const body = {
         to: `+${to}`,
