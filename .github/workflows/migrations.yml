@@ -1610,3 +1610,8 @@ jobs:
       # only over what the page had loaded.
       - name: Verify case config versions
         run: supabase db query --local --file supabase/ci/verify-case-config-versions.sql
+
+      # Migration 313: the bells of who loses a submission group follow its
+      # end.
+      - name: Verify bells at the end of a submission group
+        run: supabase db query --local --file supabase/ci/verify-sg-end-bells.sql

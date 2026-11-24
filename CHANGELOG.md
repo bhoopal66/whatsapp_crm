@@ -34,6 +34,12 @@ and polish.
 
 ### Fixed
 
+- **When a submission group ends, its bells follow.** The unread bell of an
+  agent who loses the group opens the customer's page instead of "does not
+  exist". **Migration required: 313**.
+- **A customer wording is not saved over one the screen never showed**, a
+  failed load of the wordings offers Reload, and a team note edit that came
+  back says when the note was changed meanwhile.
 - **The HR panel no longer reads a failed load as "not tracked".** A first
   read that failed made a tracked candidate look unsorted (and offered to
   open it again); it is now retried after 1, 4 and 15 seconds, then shows
