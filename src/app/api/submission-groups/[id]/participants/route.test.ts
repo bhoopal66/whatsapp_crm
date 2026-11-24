@@ -113,4 +113,14 @@ describe('POST /api/submission-groups/[id]/participants', () => {
     mocks.addNumber.mockResolvedValue({ status: 'failed', reason: 'down' });
     expect((await post({ phone: '+971501234567' })).status).toBe(502);
   });
+
+  it('says an unconfirmed add may have happened', async () => {
+    mocks.addNumber.mockResolvedValue({ status: 'unconfirmed' });
+    const res = await post({ phone: '+971501234567' });
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({
+      error: 'The number may have been added; check the group',
+      code: 'send_unconfirmed',
+    });
+  });
 });

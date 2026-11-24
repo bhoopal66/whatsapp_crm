@@ -2506,7 +2506,8 @@ describe('addNumber (211)', () => {
     const s = setup();
     s.api.addError = new Error('timeout');
     const r = await s.svc.addNumber('g-1', 'ali', '971501234567');
-    expect(r.status).toBe('failed');
+    // It may be in the group: never worded as "try again".
+    expect(r).toEqual({ status: 'unconfirmed' });
     expect(s.store.addSettles).toEqual([
       { id: 'add-1', status: 'failed', error: 'timeout' },
     ]);
@@ -2515,6 +2516,19 @@ describe('addNumber (211)', () => {
     expect(await s.svc.addNumber('g-1', 'ali', '971501234567')).toEqual({
       status: 'added',
     });
+  });
+
+  it('is failed only when the number was certainly not added', async () => {
+    const s = setup();
+    for (const err of [
+      new SubmissionGroupNotAttemptedError(new Error('not_admin')),
+      new WhapiError('no', 403),
+      new SubmissionGroupChannelError(CH),
+    ]) {
+      s.api.addError = err;
+      const r = await s.svc.addNumber('g-1', 'ali', '971501234567');
+      expect(r.status).toBe('failed');
+    }
   });
 
   it('tells the staff-number hook which group and phone were added', async () => {

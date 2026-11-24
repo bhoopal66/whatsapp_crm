@@ -34,6 +34,10 @@ and polish.
 
 ### Fixed
 
+- **Add number says when nobody knows.** When WhatsApp gave no answer, a
+  submission group's Add number said the number could not be added, though
+  it may be in the group; it now asks to check the group first. No
+  migration.
 - **Load older in a WhatsApp group skips no message.** Photos of one album
   share a second, and a page that ended inside it lost the rest of them. No
   migration.

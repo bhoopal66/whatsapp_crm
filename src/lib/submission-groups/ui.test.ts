@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { caseStatusView } from '@/lib/cases/ui';
 
 import {
+  addNumberFailure,
   AVATAR_TONES,
   avatarTone,
   bankName,
@@ -719,5 +720,17 @@ describe('staffNumberNote (219, 299)', () => {
     ]) {
       expect(staffNumberNote(quiet, change)).toBeNull();
     }
+  });
+});
+
+describe('addNumberFailure', () => {
+  it('never words an unknown outcome as a failure', () => {
+    const unconfirmed = { error: 'x', code: 'send_unconfirmed' };
+    expect(addNumberFailure(502, unconfirmed)).toEqual({ key: 'maybeAdded' });
+    expect(addNumberFailure(504, null)).toEqual({ key: 'maybeAdded' });
+    expect(addNumberFailure(413, null)).toEqual({ key: 'failed' });
+    expect(addNumberFailure(409, { error: 'Ended' })).toEqual({
+      words: 'Ended',
+    });
   });
 });

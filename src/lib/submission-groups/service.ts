@@ -207,7 +207,10 @@ export type AddNumberResult =
   /** WhatsApp would not add them: the link to share instead, when known. */
   | { status: 'refused'; inviteLink: string | null }
   | { status: 'not_allowed'; code: AddNumberRefusal }
-  | { status: 'failed'; reason: string };
+  /** Certainly not added. */
+  | { status: 'failed'; reason: string }
+  /** WhatsApp gave no answer: the number may be in the group. */
+  | { status: 'unconfirmed' };
 
 export interface SubmissionGroupServiceDeps {
   store: GroupStore;
@@ -1055,12 +1058,18 @@ export class SubmissionGroupService {
         groupId,
         err: errText(err),
       });
-      const reason =
-        err instanceof SubmissionGroupChannelError
-          ? INVITE_NO_NUMBER
-          : 'The number could not be added; try again';
       await settle('failed', errText(err));
-      return { status: 'failed', reason };
+      if (err instanceof SubmissionGroupChannelError)
+        return { status: 'failed', reason: INVITE_NO_NUMBER };
+      if (
+        err instanceof SubmissionGroupNotAttemptedError ||
+        isDefiniteSendRefusal(err)
+      )
+        return {
+          status: 'failed',
+          reason: 'The number could not be added; try again',
+        };
+      return { status: 'unconfirmed' };
     }
     await settle(outcome, null);
     if (outcome === 'added') {

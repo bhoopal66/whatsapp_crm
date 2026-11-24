@@ -16,6 +16,7 @@ import {
   toErrorResponse,
 } from '@/lib/auth/account';
 import { validateContactPhone } from '@/lib/contacts/phone-validation';
+import { SEND_UNCONFIRMED } from '@/lib/groups/unconfirmed-sends';
 import { isUuid, ownGroup, SgHttpError } from '@/lib/submission-groups/http';
 import {
   submissionGroupService,
@@ -103,6 +104,12 @@ export async function POST(request: Request, { params }: Params) {
       throw new SgHttpError(refusal.status, refusal.message);
     }
     if (out.status === 'failed') throw new SgHttpError(502, out.reason);
+    if (out.status === 'unconfirmed')
+      throw new SgHttpError(
+        502,
+        'The number may have been added; check the group',
+        { code: SEND_UNCONFIRMED }
+      );
     return NextResponse.json(
       out.status === 'added'
         ? { added: true, phone }

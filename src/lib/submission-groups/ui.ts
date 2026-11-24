@@ -667,3 +667,17 @@ export function staffNumberNote(
       return null;
   }
 }
+
+/**
+ * What the add-number dialog says of a refusal: the answer's own words,
+ * or one of its keys. No words is a proxy's answer (the app restarting),
+ * and a 5xx of that kind may have come after the add.
+ */
+export function addNumberFailure(
+  status: number,
+  body: { error?: unknown; code?: unknown } | null
+): { words: string } | { key: 'failed' | 'maybeAdded' } {
+  if (body?.code === SEND_UNCONFIRMED) return { key: 'maybeAdded' };
+  if (typeof body?.error === 'string') return { words: body.error };
+  return { key: status >= 500 ? 'maybeAdded' : 'failed' };
+}

@@ -15,6 +15,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { addNumberFailure } from '@/lib/submission-groups/ui';
 
 /**
  * Add another phone number to a submission group's WhatsApp group
@@ -55,9 +56,11 @@ export function AddNumberDialog({
         added?: unknown;
         inviteLink?: unknown;
         error?: unknown;
+        code?: unknown;
       } | null;
       if (!res.ok) {
-        setError(typeof json?.error === 'string' ? json.error : t('failed'));
+        const why = addNumberFailure(res.status, json);
+        setError('words' in why ? why.words : t(why.key));
         return;
       }
       onAdded();
@@ -70,7 +73,8 @@ export function AddNumberDialog({
         });
       }
     } catch {
-      setError(t('failed'));
+      // The answer was lost, not necessarily the request.
+      setError(t('maybeAdded'));
     } finally {
       setBusy(false);
     }

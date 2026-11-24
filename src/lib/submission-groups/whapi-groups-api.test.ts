@@ -472,6 +472,33 @@ describe('addParticipant (211)', () => {
     ).rejects.toThrow('unavailable');
   });
 
+  it('tells an add that may have happened from one that did not', async () => {
+    const thrownFor = async (error: string | null) => {
+      h.addParticipants.mockResolvedValue(
+        outcome({ notAttempted: ['971501234567'], error })
+      );
+      return api()
+        .addParticipant('cfg-1', WA_GROUP, '971501234567')
+        .catch((err: unknown) => err);
+    };
+    for (const error of ['not_admin', 'rate_limited', 'time_budget', null]) {
+      expect(await thrownFor(error)).toBeInstanceOf(
+        SubmissionGroupNotAttemptedError
+      );
+    }
+    for (const error of ['gateway_unavailable', 'unknown']) {
+      expect(await thrownFor(error)).not.toBeInstanceOf(
+        SubmissionGroupNotAttemptedError
+      );
+    }
+    h.loadChannels.mockRejectedValueOnce(new Error('db down'));
+    expect(
+      await api()
+        .addParticipant('cfg-1', WA_GROUP, '971501234567')
+        .catch((err: unknown) => err)
+    ).toBeInstanceOf(SubmissionGroupNotAttemptedError);
+  });
+
   it('throws when the number was never tried, with no error named', async () => {
     h.addParticipants.mockResolvedValue(
       outcome({ notAttempted: ['971501234567'] })
