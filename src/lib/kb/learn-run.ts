@@ -27,12 +27,13 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { supabaseAdmin } from '@/lib/ai/admin-client';
 import { loadAiConfig } from '@/lib/ai/config';
 import { generateReply } from '@/lib/ai/generate';
-import type { AiConfig } from '@/lib/ai/types';
+import { AiError, type AiConfig } from '@/lib/ai/types';
 import { notSalesChat } from '@/lib/ai/not-sales-chat';
 import { logAiUsage, type LogAiUsageArgs } from '@/lib/ai/usage';
 
 import {
   ANSWER_WINDOW_MS,
+  BURST_GAP_MS,
   KB_LEARN_INTERVAL_DAYS,
   MAX_ANSWERS_PER_TOPIC,
   MIN_ANSWERS_PER_TOPIC,
@@ -58,13 +59,17 @@ export const TOPIC_MIN_BUDGET_MS = 15_000;
 export const MAX_ACCOUNTS_PER_PASS = 20;
 /** Gaps of a topic read to find answers. */
 const MAX_GAPS_READ = 25;
-/** Topics read per account (some are skipped as covered or drafted). */
-const MAX_TOPICS_READ = 40;
+/** Topics read per account. The query already leaves out the covered,
+ *  drafted and backed-off ones; those without team answers cost no
+ *  model call, so many may be looked at. */
+const MAX_TOPICS_READ = 200;
 
 export interface LearnTopic {
   id: string;
   label: string;
   coverage: string;
+  /** Every gap of the topic, newest first. */
+  gapIds: string[];
 }
 
 export interface LearnGap {
@@ -81,6 +86,8 @@ export interface LearnThread {
   contactName: string | null;
   /** auth user id → the team member's name, masked out too. */
   senderNames: Record<string, string>;
+  /** The customer's messages the gap is about (messages.id). */
+  questionIds?: string[];
 }
 
 export type RecordDraftResult =
@@ -107,7 +114,6 @@ export interface KbLearnStore {
   /** Records how many drafts the run wrote (the switch shows it). */
   finishRun(accountId: string, drafted: number): Promise<void>;
   openTopics(accountId: string): Promise<LearnTopic[]>;
-  topicGapIds(accountId: string, topicId: string): Promise<string[]>;
   topicDrafted(
     accountId: string,
     gapIds: string[],
@@ -116,8 +122,8 @@ export interface KbLearnStore {
   /** Every person and company name known to the account. Throws when any
    *  part of it cannot be read. */
   knownNames(accountId: string): Promise<string[]>;
-  /** Notes that the model's text was thrown away, so the topic is not
-   *  asked again at once. */
+  /** Notes that the model's text was thrown away, or that it declined,
+   *  so the topic is not asked again for 28 days. */
   recordDiscard(
     args: Pick<
       RecordDraftArgs,
@@ -195,7 +201,7 @@ export async function learnTopic(
   if (topic.coverage === 'full' || topic.coverage === 'partial')
     return { drafted: false, reason: 'covered' };
   const key = topicKey(accountId, topic.label);
-  const gapIds = await store.topicGapIds(accountId, topic.id);
+  const { gapIds } = topic;
   if (gapIds.length === 0) return { drafted: false, reason: 'no_answers' };
   if (await store.topicDrafted(accountId, gapIds, key))
     return { drafted: false, reason: 'already' };
@@ -223,7 +229,11 @@ export async function learnTopic(
       new Date(at + ANSWER_WINDOW_MS).toISOString()
     );
     if (!thread) continue;
-    const reply = pickTeamAnswer(gap.created_at, thread.messages);
+    const reply = pickTeamAnswer(
+      gap.created_at,
+      thread.messages,
+      thread.questionIds
+    );
     if (!reply?.content_text) continue;
     // A sender whose name is unknown cannot be masked out of a reply.
     const senderName = reply.sender_id
@@ -263,6 +273,23 @@ export async function learnTopic(
     arabic,
   });
   const model = config.modelSmall || config.model;
+  const backOff = () =>
+    store.recordDiscard({
+      accountId,
+      topicId: topic.id,
+      topicKey: key,
+      gapIds,
+      evidenceCount: evidence.answers.length,
+    });
+  const logUsage = (usage: LogAiUsageArgs['usage']) =>
+    deps.logUsage({
+      accountId,
+      conversationId: null,
+      mode: 'kb_learn',
+      provider: config.provider,
+      model,
+      usage,
+    });
   let text: string;
   try {
     // generateReply runs assertAiTransfer (purpose 'kb_learn') first.
@@ -273,32 +300,27 @@ export async function learnTopic(
       model,
       purpose: 'kb_learn',
     });
-    await deps.logUsage({
-      accountId,
-      conversationId: null,
-      mode: 'kb_learn',
-      provider: config.provider,
-      model,
-      usage: result.usage,
-    });
+    await logUsage(result.usage);
     text = result.text;
   } catch (err) {
     console.warn(
       `[kb-learn] model call failed for account ${accountId}: ${message(err)}`
     );
+    // Billed all the same when the provider answered (cut off, empty).
+    if (err instanceof AiError && err.usage) await logUsage(err.usage);
+    if (
+      err instanceof AiError &&
+      (err.code === 'truncated' || err.code === 'empty_response')
+    ) {
+      await backOff();
+      return { drafted: false, reason: 'unusable' };
+    }
     return { drafted: false, reason: 'model' };
   }
   const answer = parseLearnedAnswer(text, arabic, matcher);
-  if (answer === 'unusable') return { drafted: false, reason: 'unusable' };
-  if (answer === 'discarded') {
-    await store.recordDiscard({
-      accountId,
-      topicId: topic.id,
-      topicKey: key,
-      gapIds,
-      evidenceCount: evidence.answers.length,
-    });
-    return { drafted: false, reason: 'discarded' };
+  if (answer === 'unusable' || answer === 'discarded') {
+    await backOff();
+    return { drafted: false, reason: answer };
   }
 
   const notes = learnedReviewerNotes(answers.map((a) => a.at));
@@ -451,24 +473,19 @@ export function supabaseKbLearnStore(db: SupabaseClient): KbLearnStore {
       if (error) throw new Error(`finish: ${error.message}`);
     },
     async openTopics(accountId) {
-      const { data, error } = await db
-        .from('kb_gap_topics')
-        .select('id, label, coverage')
-        .eq('account_id', accountId)
-        .eq('status', 'open')
-        .order('question_count', { ascending: false })
-        .limit(MAX_TOPICS_READ);
+      const { data, error } = await db.rpc('kb_learn_open_topics', {
+        p_account: accountId,
+        p_limit: MAX_TOPICS_READ,
+      });
       if (error) throw new Error(`topics: ${error.message}`);
-      return (data ?? []) as LearnTopic[];
-    },
-    async topicGapIds(accountId, topicId) {
-      const { data, error } = await db
-        .from('kb_gap_topic_members')
-        .select('gap_id')
-        .eq('account_id', accountId)
-        .eq('topic_id', topicId);
-      if (error) throw new Error(`members: ${error.message}`);
-      return ((data ?? []) as { gap_id: string }[]).map((r) => r.gap_id);
+      return (
+        (data ?? []) as (Omit<LearnTopic, 'gapIds'> & { gap_ids: string[] })[]
+      ).map((t) => ({
+        id: t.id,
+        label: t.label,
+        coverage: t.coverage,
+        gapIds: t.gap_ids ?? [],
+      }));
     },
     async topicDrafted(accountId, gapIds, topicKey) {
       const { data, error } = await db.rpc('kb_learn_topic_drafted', {
@@ -540,7 +557,7 @@ export function supabaseKbLearnStore(db: SupabaseClient): KbLearnStore {
       const { data: rows, error } = await db
         .from('messages')
         .select(
-          'sender_type, sender_id, content_type, content_text, template_name, created_at, channel_id'
+          'id, sender_type, sender_id, content_type, content_text, template_name, created_at, channel_id, status, ai_generated, is_forwarded, reply_to_message_id'
         )
         .eq('conversation_id', conversationId)
         .gt('created_at', from)
@@ -552,15 +569,26 @@ export function supabaseKbLearnStore(db: SupabaseClient): KbLearnStore {
       // The question itself came in at or just before the gap was noted.
       const { data: asked, error: askedError } = await db
         .from('messages')
-        .select('channel_id')
+        .select('id, channel_id, created_at')
         .eq('conversation_id', conversationId)
         .eq('sender_type', 'customer')
         .lte('created_at', from)
         .order('created_at', { ascending: false })
         .limit(5);
       if (askedError) throw new Error(`question: ${askedError.message}`);
+      const before = (asked ?? []) as {
+        id: string;
+        channel_id: string | null;
+        created_at: string;
+      }[];
+      // The question is the customer's last burst before the gap.
+      const questionIds = before
+        .filter(
+          (m) => Date.parse(from) - Date.parse(m.created_at) <= BURST_GAP_MS
+        )
+        .map((m) => m.id);
       const channels = new Set(
-        [...messages, ...((asked ?? []) as { channel_id: string | null }[])]
+        [...messages, ...before]
           .map((m) => m.channel_id)
           .filter((id): id is string => typeof id === 'string')
       );
@@ -595,7 +623,12 @@ export function supabaseKbLearnStore(db: SupabaseClient): KbLearnStore {
         }[])
           if (p.full_name) senderNames[p.user_id] = p.full_name;
       }
-      return { messages, contactName: k.name ?? null, senderNames };
+      return {
+        messages,
+        contactName: k.name ?? null,
+        senderNames,
+        questionIds,
+      };
     },
     async knownNames(accountId) {
       const names = new Set<string>();
@@ -677,12 +710,13 @@ export function supabaseKbLearnStore(db: SupabaseClient): KbLearnStore {
   };
 }
 
-function defaultDeps(): KbLearnDeps {
+/** Exported for the tests. */
+export function defaultDeps(): KbLearnDeps {
   const db = supabaseAdmin();
   return {
     store: supabaseKbLearnStore(db),
-    loadConfig: (accountId) =>
-      loadAiConfig(db, accountId, { requireActive: false }),
+    // Null while the workspace's AI master switch is off.
+    loadConfig: (accountId) => loadAiConfig(db, accountId),
     generate: generateReply,
     logUsage: (args) => logAiUsage(db, args),
   };

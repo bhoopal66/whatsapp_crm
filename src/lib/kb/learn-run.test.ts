@@ -1,9 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/lib/ai/admin-client', () => ({ supabaseAdmin: () => ({}) }));
+const loadAiConfig = vi.hoisted(() => vi.fn(async () => null));
+vi.mock('@/lib/ai/config', () => ({ loadAiConfig }));
 
-import type { AiConfig } from '@/lib/ai/types';
+import { AiError, type AiConfig } from '@/lib/ai/types';
 import {
+  defaultDeps,
   learnAccount,
   learnTopic as learnTopicWith,
   supabaseKbLearnStore,
@@ -24,9 +27,18 @@ const learnTopic = (
   d: KbLearnDeps,
   accountId: string,
   config: AiConfig,
-  topic: Parameters<typeof learnTopicWith>[3],
+  topic: Omit<Parameters<typeof learnTopicWith>[3], 'gapIds'> & {
+    gapIds?: string[];
+  },
   names: string[] = []
-) => learnTopicWith(d, accountId, config, topic, names);
+) =>
+  learnTopicWith(
+    d,
+    accountId,
+    config,
+    { gapIds: ['g1', 'g2'], ...topic },
+    names
+  );
 const GAP_AT = '2026-11-10T10:00:00.000Z';
 const at = (minutes: number) =>
   new Date(Date.parse(GAP_AT) + minutes * 60_000).toISOString();
@@ -110,9 +122,13 @@ function fakeStore(
       finished.push([id, n]);
     },
     openTopics: async () => [
-      { id: 't1', label: 'Account without a trade licence?', coverage: 'none' },
+      {
+        id: 't1',
+        label: 'Account without a trade licence?',
+        coverage: 'none',
+        gapIds: ['g1', 'g2'],
+      },
     ],
-    topicGapIds: async () => ['g1', 'g2'],
     topicDrafted: async () => false,
     gaps: async () => [gap('g1', 'c1'), gap('g2', 'c2')],
     thread: async (_a, conversationId) => threads[conversationId] ?? null,
@@ -375,6 +391,78 @@ describe('learnTopic evidence', () => {
   });
 });
 
+describe('back-off, gaps and usage', () => {
+  const topic = { id: 't1', label: 'x', coverage: 'none' };
+  const usage = { promptTokens: 9, completionTokens: 1, totalTokens: 10 };
+
+  it('records a declined, malformed or cut-off answer in the ledger', async () => {
+    const answers: (() => Promise<never> | Promise<unknown>)[] = [
+      async () => ({ text: '{"question":null,"answer_en":null}', usage }),
+      async () => ({ text: 'not json', usage }),
+      async () => {
+        throw new AiError('cut', { code: 'truncated', usage });
+      },
+    ];
+    for (const generate of answers) {
+      const recordDiscard = vi.fn(async () => {});
+      const d = deps(fakeStore({ recordDiscard }), {
+        generate: generate as unknown as KbLearnDeps['generate'],
+      });
+      expect(await learnTopic(d, ACCOUNT, CONFIG, topic)).toEqual({
+        drafted: false,
+        reason: 'unusable',
+      });
+      expect(recordDiscard).toHaveBeenCalledTimes(1);
+      // Billed, so logged: the cut-off call too.
+      expect(d.logUsage).toHaveBeenCalledWith(
+        expect.objectContaining({ mode: 'kb_learn', usage })
+      );
+    }
+  });
+
+  it('a network failure is not the topic’s: no back-off', async () => {
+    const recordDiscard = vi.fn(async () => {});
+    const d = deps(fakeStore({ recordDiscard }), {
+      generate: async () => {
+        throw new AiError('down', { code: 'network_error' });
+      },
+    });
+    const out = await learnTopic(d, ACCOUNT, CONFIG, topic);
+    expect(out.reason).toBe('model');
+    expect(recordDiscard).not.toHaveBeenCalled();
+  });
+
+  it('reads the newest 25 gaps, and records them all', async () => {
+    const gapIds = Array.from({ length: 1200 }, (_, i) => `n${i}`);
+    const gaps = vi.fn(async () => [gap('g1', 'c1'), gap('g2', 'c2')]);
+    const store = fakeStore({ gaps });
+    await learnTopic(deps(store), ACCOUNT, CONFIG, { ...topic, gapIds });
+    expect(gaps).toHaveBeenCalledWith(ACCOUNT, gapIds.slice(0, 25));
+    expect(store.recorded[0]!.gapIds).toHaveLength(1200);
+  });
+
+  it('takes the open topics, and their gaps in order, from the query', async () => {
+    const asked = vi.fn((a: Record<string, unknown>) => {
+      void a;
+      return [{ id: 't', label: 'l', coverage: 'none', gap_ids: ['b', 'a'] }];
+    });
+    const store = supabaseKbLearnStore(
+      fakeDb({}, {}, { kb_learn_open_topics: asked })
+    );
+    expect(await store.openTopics(ACCOUNT)).toEqual([
+      { id: 't', label: 'l', coverage: 'none', gapIds: ['b', 'a'] },
+    ]);
+    expect(asked.mock.calls[0]![0]).toMatchObject({ p_account: ACCOUNT });
+  });
+
+  it('needs the AI master switch on', async () => {
+    await defaultDeps().loadConfig(ACCOUNT);
+    const opts = (loadAiConfig.mock.calls[0] as unknown[])[2] as
+      { requireActive?: boolean } | undefined;
+    expect(opts?.requireActive ?? true).toBe(true);
+  });
+});
+
 describe('learnAccount', () => {
   it('needs an AI key', async () => {
     const store = fakeStore();
@@ -393,6 +481,7 @@ describe('learnAccount', () => {
           id: `t${k}`,
           label: `topic ${k}`,
           coverage: 'none',
+          gapIds: ['g1', 'g2'],
         })),
     });
     const d = deps(store);
@@ -506,7 +595,6 @@ describe('privacy', () => {
 
   it('the label of a chat that may not be learned from is not sent', async () => {
     const store = fakeStore({
-      topicGapIds: async () => ['g0', 'g1', 'g2'],
       gaps: async () => [
         { ...gap('g0', 'hr'), question: 'salary certificate complaint' },
         gap('g1', 'c1'),
@@ -516,6 +604,7 @@ describe('privacy', () => {
     const d = deps(store);
     await learnTopic(d, ACCOUNT, CONFIG, {
       ...topic,
+      gapIds: ['g0', 'g1', 'g2'],
       label: 'salary certificate complaint',
     });
     expect(d.sent.length).toBeGreaterThan(0);

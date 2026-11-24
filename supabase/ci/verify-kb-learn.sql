@@ -20,7 +20,7 @@ DECLARE
   u_agent  UUID := '00000000-0000-4000-8000-000000290003';
   u_owner2 UUID := '00000000-0000-4000-8000-000000290004';
   a_acct UUID; b_acct UUID;
-  g1 UUID; g2 UUID; g3 UUID; g_other UUID;
+  g1 UUID; g2 UUID; g3 UUID; g4 UUID; g_other UUID;
   e1 UUID; e2 UUID;
   res JSONB; r TEXT;
   n INT := 0;
@@ -74,6 +74,7 @@ BEGIN
   INSERT INTO ai_knowledge_gaps (account_id, question) VALUES (a_acct, 'Can I open an account without a trade licence?') RETURNING id INTO g1;
   INSERT INTO ai_knowledge_gaps (account_id, question) VALUES (a_acct, 'Account without trade licence possible?') RETURNING id INTO g2;
   INSERT INTO ai_knowledge_gaps (account_id, question) VALUES (a_acct, 'What documents for a POS machine?') RETURNING id INTO g3;
+  INSERT INTO ai_knowledge_gaps (account_id, question, created_at) VALUES (a_acct, 'POS fees?', now() + interval '1 minute') RETURNING id INTO g4;
   INSERT INTO ai_knowledge_gaps (account_id, question) VALUES (b_acct, 'Other workspace question') RETURNING id INTO g_other;
 
   -- ---------- off by default: nothing ----------
@@ -142,6 +143,17 @@ BEGIN
 
   res := kb_learn_record_draft(a_acct, NULL, 'a customer''s own words', ARRAY[g3], 'LRN-DDDDDD', 'q', 'a', NULL, NULL, 1);
   IF res->>'status' <> 'invalid' THEN failed := failed || ('a label stored as the key: ' || res::text); END IF; n := n + 1;
+
+  -- ---------- open topics: the covered and the drafted are left out ----------
+  PERFORM kb_gap_topics_replace(a_acct, jsonb_build_array(
+    jsonb_build_object('label', 'drafted', 'question_count', 9, 'first_seen_at', now(), 'last_seen_at', now(), 'gap_ids', jsonb_build_array(g1, g2)),
+    jsonb_build_object('label', 'covered', 'question_count', 8, 'first_seen_at', now(), 'last_seen_at', now(), 'coverage', 'full', 'gap_ids', jsonb_build_array(g3)),
+    jsonb_build_object('label', 'open', 'question_count', 1, 'first_seen_at', now(), 'last_seen_at', now(), 'gap_ids', jsonb_build_array(g3, g4))), '{}');
+  SELECT string_agg(t.label || ':' || (t.gap_ids = ARRAY[g4, g3])::text, '|') INTO r FROM kb_learn_open_topics(a_acct, 1) t;
+  IF r IS DISTINCT FROM 'open:true' THEN failed := failed || ('open topics: ' || coalesce(r, 'null')); END IF; n := n + 1;
+  PERFORM kb_learn_record_discard(a_acct, NULL, encode(sha256(convert_to(a_acct::text || E'\n' || 'open', 'UTF8')), 'hex'), ARRAY[g4], 2);
+  IF EXISTS (SELECT 1 FROM kb_learn_open_topics(a_acct)) THEN failed := failed || 'a backed-off topic is still offered'::text; END IF; n := n + 1;
+  DELETE FROM kb_learned_drafts WHERE account_id = a_acct AND gap_ids = ARRAY[g4];
 
   -- ---------- discarded: not again for 28 days ----------
   r := kb_learn_record_discard(a_acct, NULL, repeat('b', 64), ARRAY[g3], 2)::text;
@@ -212,6 +224,7 @@ BEGIN
      OR has_function_privilege('authenticated', 'public.kb_learn_claim_run(uuid,interval)', 'EXECUTE')
      OR has_function_privilege('authenticated', 'public.kb_learn_finish_run(uuid,integer)', 'EXECUTE')
      OR has_function_privilege('authenticated', 'public.kb_learn_topic_drafted(uuid,uuid[],text)', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public.kb_learn_open_topics(uuid,integer)', 'EXECUTE')
      OR has_function_privilege('authenticated', 'public.kb_learn_record_discard(uuid,uuid,text,uuid[],integer)', 'EXECUTE')
      OR NOT has_function_privilege('service_role', 'public.kb_learn_record_discard(uuid,uuid,text,uuid[],integer)', 'EXECUTE')
      OR has_function_privilege('anon', 'public.kb_learn_set_enabled(boolean)', 'EXECUTE')
@@ -220,12 +233,16 @@ BEGIN
      OR has_table_privilege('authenticated', 'public.kb_learn_settings', 'UPDATE') THEN
     failed := failed || 'grants'::text; END IF; n := n + 1;
 
+  IF pg_get_constraintdef((SELECT oid FROM pg_constraint WHERE conname = 'ai_usage_log_mode_check')) !~ 'auto_reply.*draft.*translate.*hr_agent.*kb_learn'
+     OR NOT (SELECT convalidated FROM pg_constraint WHERE conname = 'ai_usage_log_mode_check') THEN
+    failed := failed || 'usage mode check'::text; END IF; n := n + 1;
+
   RAISE EXCEPTION 'KL_ROLLBACK';
   EXCEPTION WHEN raise_exception THEN
     IF SQLERRM <> 'KL_ROLLBACK' THEN RAISE; END IF;
   END;
 
-  IF n <> 37 THEN RAISE EXCEPTION 'verify-kb-learn: only % checks ran', n; END IF;
+  IF n <> 40 THEN RAISE EXCEPTION 'verify-kb-learn: only % checks ran', n; END IF;
   IF cardinality(failed) > 0 THEN
     RAISE EXCEPTION 'verify-kb-learn: % failed: %', cardinality(failed), array_to_string(failed, '; ');
   END IF;

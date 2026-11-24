@@ -49,6 +49,10 @@ superuser or BYPASSRLS role; after 152 and 202).
   drafts one general answer with the workspace's own AI key. "Let me
   check" and greetings are not answers; an answer sent in several
   bubbles is read as one. A topic needs answers from at least two chats.
+  AI-written, forwarded and failed messages are left out, and so is a
+  reply given after the customer asked something else (unless it quotes
+  the question). It runs only while the AI assistant is on. A topic the
+  AI could not answer is left for 28 days, so the others get their turn.
   The switch shows when it last ran and how many drafts it wrote.
 - Before anything is sent, phone numbers, e-mails, IBANs, IDs, card and
   account numbers, case numbers, any run of five or more digits, and the

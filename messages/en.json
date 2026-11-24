@@ -13595,7 +13595,7 @@
   },
   "KbLearn": {
     "title": "Learn from team answers",
-    "description": "Once a week, draft an answer for open topics from how your team replied in chat. Drafts only: nothing is sent until an admin approves it.",
+    "description": "Once a week, draft an answer for open topics from how your team replied in chat. Drafts only: nothing is sent until an admin approves it. Runs only while the AI assistant is on.",
     "notApplied": "Not available yet: apply database migration 290.",
     "lastRun": "Last run {when}.",
     "lastRunDrafts": "Last run {when}. New drafts: {count}.",

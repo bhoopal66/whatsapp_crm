@@ -251,7 +251,7 @@ recorded as `replied`, "Sensitive-data warning sent".
 
 Off by default. An owner or admin switches it on under the
 **Unanswered questions** card (Knowledge tab): **Learn from team
-answers**.
+answers**. It runs only while the AI assistant's own switch is on.
 
 Once a week per workspace (checked hourly by the automations cron, and
 `kb_learn_claim_run` stamps the account first, so two crons never both
@@ -312,6 +312,15 @@ and how many new drafts it wrote.
 A topic is drafted once (`kb_learned_drafts`): the same gaps (half or
 more) or the same label (kept as a SHA-256 only) under a new topic id count as the same topic.
 It is drafted again only if its draft was deleted or set to **Remove**.
+A topic the AI declined, answered malformed or was cut off on is left for
+28 days, like a discarded one; covered, drafted and waiting topics are not
+read at all. The newest 25 questions of a topic are looked at.
+
+A message the AI wrote, a forwarded one and one that failed to send are
+not answers. Once the customer asks something else, only a reply that
+quotes the original question counts. A holding line is a short message
+made of nothing but holding words ("please wait 3 working days" is an
+answer).
 
 ## Translate (migration 154)
 

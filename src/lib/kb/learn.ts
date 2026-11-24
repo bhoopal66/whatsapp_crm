@@ -59,12 +59,19 @@ export interface ThreadMessage {
   created_at: string;
   /** The number it was sent or received on (HR lines are left out). */
   channel_id?: string | null;
+  id?: string;
+  status?: string | null;
+  ai_generated?: boolean | null;
+  is_forwarded?: boolean | null;
+  /** The message it quotes (messages.id). */
+  reply_to_message_id?: string | null;
 }
 
 /**
  * A message a person on the team typed: an agent row with a sender (the
  * same test as 077's pause trigger), plain text, not a template send.
- * Bot, automation (no sender) and template messages are not answers.
+ * Bot, automation (no sender) and template messages are not answers, nor
+ * is a text the AI wrote, a forwarded one, or one that was not sent.
  */
 export function isPersonReply(m: ThreadMessage): boolean {
   return (
@@ -73,6 +80,9 @@ export function isPersonReply(m: ThreadMessage): boolean {
     m.sender_id !== '' &&
     (m.content_type ?? 'text') === 'text' &&
     !m.template_name &&
+    m.ai_generated !== true &&
+    m.is_forwarded !== true &&
+    m.status !== 'failed' &&
     typeof m.content_text === 'string' &&
     m.content_text.trim() !== ''
   );
@@ -84,26 +94,35 @@ export const BURST_GAP_MS = 10 * 60_000;
 /** At most this many bubbles make one answer. */
 export const MAX_BURST_MESSAGES = 4;
 
-// "Let me check", "one moment", "thanks", "شكرا", "لحظة": a holding or
-// courtesy line, not an answer. Only a short message is judged this way:
-// a long reply that starts "Thanks!" is still an answer.
+// "Let me check", "one moment", "لحظة": a holding line, not an answer.
+// The whole message must be made of these pieces and nothing else:
+// "checking account needs 3000" and "please wait 3 working days" are
+// answers that only begin like one.
+const HOLDING_PIECES = [
+  '(?:just )?let me (?:just )?(?:check|see|confirm|find out|ask|verify)',
+  '(?:just )?(?:one|a|1) (?:moment|minute|min|second|sec)',
+  '(?:please |kindly )?(?:wait|hold)(?: on)?',
+  "(?:i|we)(?:(?: wi|['’ ]?)ll)",
+  "(?:i am|i['’]?m|am|we are|we['’]?re)(?= (?:just )?(?:checking|on it|working))",
+  '(?:get back|revert|check|update|confirm|let you know|let u know|ask|see)',
+  'checking',
+  'working on it',
+  'on it',
+  'bear with (?:me|us)',
+  'give me (?:a|one|1|two|2|a few) (?:moment|minute|min|second|sec)s?',
+  '(?:with|and ask) (?:my |our |the )?(?:team|bank|manager|colleague|department|management)s?',
+  '(?:and|then|just|please|kindly|now|soon|shortly|asap|today|tomorrow)',
+  '(?:right away|for you|to you|you|u|this|that|it|sir|madam)',
+  'in (?:a |one |a few )?(?:moment|minute|second|while)s?',
+  '(?:hi|hello|hey|dear|ok|okay|sure|thanks|thank you|noted)',
+  '(?:لحظة|لحظه|لحظات|دقيقة|دقيقه|ثواني)',
+  '(?:من فضلك|لو سمحت|شوي|الآن|الان|واحدة|لك|عليك|مع الفريق|من الفريق)',
+  '(?:سأتحقق|سوف أتحقق|سوف اتحقق|بشيك|انتظر|انتظرني)',
+  'خليني (?:أشوف|اشوف|أتأكد|اتأكد|أسأل|اسأل|أشيك|اشيك|أتحقق|اتحقق)',
+  '(?:وأرد|وارد|وبرجع|تمام|حاضر|شكرا|شكراً|مرحبا)',
+];
 const HOLDING = new RegExp(
-  [
-    'let me (check|see|confirm|find out|ask)',
-    '(one|a|just a) (moment|minute|sec|second)',
-    'please (wait|hold)',
-    '(will|i.?ll|we.?ll) (get back|revert|check|update|confirm|let you know)',
-    'checking',
-    'noted',
-    'on it',
-    'لحظة',
-    'دقيقة',
-    'سأتحقق',
-    'سوف أتحقق',
-    'خليني',
-    'بشيك',
-    'انتظر',
-  ].join('|'),
+  `^(?:(?:${HOLDING_PIECES.join('|')})(?![\\p{L}\\p{N}])[\\s,.!…،-]*)+$`,
   'iu'
 );
 const COURTESY_ONLY =
@@ -124,18 +143,34 @@ export function isHoldingReply(text: string): boolean {
   return words <= MAX_HOLDING_WORDS && HOLDING.test(t);
 }
 
+const QUESTION_START =
+  /^(?:(?:and|also|ok|so|then)\s+)?(?:can|could|what|how|when|where|which|who|why|is|are|do|does|did|will|would|should|may|هل|كم|كيف|متى|وين|أين|اين|ما|ماذا|شو|ليش|لماذا|من)(?![\p{L}\p{N}])/iu;
+
+/** A customer's message that asks something (a voice note may). "Hello?"
+ *  and "any update?" are nudges. */
+export function isCustomerQuestion(m: ThreadMessage): boolean {
+  if (m.sender_type !== 'customer') return false;
+  if (m.content_type === 'audio') return true;
+  const t = (m.content_text ?? '').trim();
+  if (t.split(/\s+/u).length < 3) return false;
+  return /[?؟]/u.test(t) || QUESTION_START.test(t);
+}
+
 /**
  * The team's answer to a gap: the first substantive message a person
  * wrote in the chat after the question, within ANSWER_WINDOW_MS, joined
  * with the same person's next bubbles (each within BURST_GAP_MS, before
  * the customer writes again, at most MAX_BURST_MESSAGES). Customer
- * follow-ups, the bot's hand-off, automation sends and holding lines
- * ("let me check") in between are passed over. The answer carries the
- * first bubble's sender and time.
+ * nudges, the bot's hand-off, automation sends and holding lines ("let
+ * me check") in between are passed over; from the customer's next
+ * question on, only a reply that quotes the gap's own message
+ * (`questionIds`) counts. The answer carries the first bubble's sender
+ * and time.
  */
 export function pickTeamAnswer(
   gapAt: string,
-  messages: readonly ThreadMessage[]
+  messages: readonly ThreadMessage[],
+  questionIds: readonly string[] = []
 ): ThreadMessage | null {
   const from = Date.parse(gapAt);
   if (!Number.isFinite(from)) return null;
@@ -146,8 +181,15 @@ export function pickTeamAnswer(
       return Number.isFinite(at) && at > from && at <= until;
     })
     .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
+  const next = inWindow.findIndex(isCustomerQuestion);
   const start = inWindow.findIndex(
-    (m) => isPersonReply(m) && !isHoldingReply(m.content_text!)
+    (m, i) =>
+      isPersonReply(m) &&
+      !isHoldingReply(m.content_text!) &&
+      (next < 0 ||
+        i < next ||
+        (!!m.reply_to_message_id &&
+          questionIds.includes(m.reply_to_message_id)))
   );
   if (start < 0) return null;
   const first = inWindow[start]!;

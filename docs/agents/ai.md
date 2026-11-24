@@ -95,7 +95,9 @@ joined, `pickTeamAnswer`); a topic needs `MIN_ANSWERS_PER_TOPIC` (2). Drafts are
 `learned`, ref `LRN-…`; it refuses while the switch is off and when the
 topic has a live draft (`kb_learned_drafts`: same gaps ≥ half, or same
 `topic_key`, a SHA-256 of the label; a deleted or `remove` draft frees the topic). A discarded
-one (`kb_learn_record_discard`) holds it for 28 days. The label is a
+one (`kb_learn_record_discard`) holds it for 28 days, as does a declined, malformed or cut-off answer;
+`kb_learn_open_topics` leaves all of these out and orders each topic's
+gaps newest first. `loadConfig` requires the AI master switch on. The label is a
 customer's message: never sent or stored. Chats pass `notSalesChat`
 (`lib/ai/not-sales-chat.ts`, shared with auto-reply; `readOnly` here) for
 the chat and every message's number; every read throws. Evidence is
@@ -105,5 +107,7 @@ per run; `kb_learn_case_names` for tables the service role may not read) before 
 (purpose `kb_learn`, so `assertAiTransfer` runs), fail closed; the
 model's question and both answers are screened with the same
 (`screenText`). Usage mode
-`kb_learn`: 290 restates 202's CHECK list, so apply in order, once.
+`kb_learn`: 290 adds it to the CHECK list it finds in the catalog; a
+re-run of 202 drops it, so apply in order, once. A failed call that was
+billed is logged too (`AiError.usage`).
 The bot's reply path and `kb_shortlist` are unchanged.

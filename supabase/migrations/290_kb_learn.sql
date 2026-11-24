@@ -9,8 +9,8 @@
 -- by the bot until an admin edits and approves it on the existing path
 -- (PATCH /api/ai/kb/[id], 081's trigger and CHECK unchanged).
 --
---  1. ai_usage_log_mode_check gains 'kb_learn' (the whole list from
---     202, restated). LogAiUsageArgs.mode and the usage route's byMode
+--  1. ai_usage_log_mode_check gains 'kb_learn' (the list as it stands,
+--     read from the catalog). LogAiUsageArgs.mode and the usage route's byMode
 --     change with it.
 --  2. kb_learn_settings: the switch (OFF by default) and the last run,
 --     one row per account. Admin+ reads; the switch is set only through
@@ -24,8 +24,8 @@
 --     carry-over idea; the label is a customer's message, so only a
 --     SHA-256 of it is kept). A topic is drafted again only when its
 --     draft was deleted or set to 'remove', and one whose draft was
---     discarded (the model's text carried a name or an identifier) only
---     after 28 days. Admin+ reads; service role writes.
+--     discarded (the model's text carried a name or an identifier), or
+--     that the model declined or answered malformed, only after 28 days. Admin+ reads; service role writes.
 --  4. kb_learn_record_draft(): the one writer of a learned entry, service
 --     role only. Refuses when the switch is off or the topic already has
 --     a live draft, and always writes status 'draft', source 'learned'.
@@ -36,32 +36,65 @@
 -- guards: hence the BYPASSRLS check below. Re-runnable: IF NOT EXISTS,
 -- guarded constraints, CREATE OR REPLACE, DROP POLICY IF EXISTS.
 -- Apply after 202 and 152, in order, once: re-running 202 afterwards
--- would drop 'kb_learn' from the usage CHECK again.
+-- would drop 'kb_learn' from the usage CHECK again. Every refusal comes
+-- before the first DDL and turns the session read-only, so a plain
+-- `psql -f`, which goes on after an error, applies nothing either.
 -- Asserted by supabase/ci/verify-kb-learn.sql.
 -- ============================================================
 
 SET lock_timeout = '5s';
 
-DO $$ BEGIN
+DO $$
+DECLARE
+  v_refusal text := '';
+BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = current_user AND (rolsuper OR rolbypassrls)) THEN
-    RAISE EXCEPTION '290 must be applied by a superuser or BYPASSRLS role (its functions write kb_entries, which RLS guards)';
+    v_refusal := '290 must be applied by a superuser or BYPASSRLS role (its functions write kb_entries, which RLS guards)';
+  ELSIF to_regclass('public.kb_gap_topics') IS NULL THEN
+    v_refusal := '290: apply 152_kb_gap_topics.sql first';
+  ELSIF to_regclass('public.hr_agent_settings') IS NULL THEN
+    v_refusal := '290: apply 202_hr_agents.sql first';
+  ELSIF (SELECT count(*) FROM pg_constraint
+          WHERE conrelid = 'public.ai_usage_log'::regclass
+            AND conname = 'ai_usage_log_mode_check' AND contype = 'c'
+            AND pg_get_constraintdef(oid) LIKE '%hr_agent%') <> 1 THEN
+    v_refusal := '290: ai_usage_log_mode_check is not the list 202 leaves; look at it first';
   END IF;
-  IF to_regclass('public.kb_gap_topics') IS NULL THEN
-    RAISE EXCEPTION '290: apply 152_kb_gap_topics.sql first';
+  PERFORM set_config('kb290.refusal', v_refusal, false);
+  IF v_refusal <> '' THEN
+    -- Outlives the error below: what follows cannot half-apply (130's way).
+    PERFORM set_config('default_transaction_read_only', 'on', false);
   END IF;
-  IF to_regclass('public.hr_agent_settings') IS NULL THEN
-    RAISE EXCEPTION '290: apply 202_hr_agents.sql first';
+END $$;
+
+DO $$ BEGIN
+  IF coalesce(current_setting('kb290.refusal', true), '') <> '' THEN
+    RAISE EXCEPTION '%', current_setting('kb290.refusal');
   END IF;
 END $$;
 
 -- ------------------------------------------------------------
 -- 1. Usage log mode
 -- ------------------------------------------------------------
-ALTER TABLE public.ai_usage_log
-  DROP CONSTRAINT IF EXISTS ai_usage_log_mode_check;
-ALTER TABLE public.ai_usage_log
-  ADD CONSTRAINT ai_usage_log_mode_check
-  CHECK (mode IN ('auto_reply', 'draft', 'translate', 'hr_agent', 'kb_learn'));
+-- One statement, so the table is never without the CHECK; every value the
+-- constraint has now is kept. NOT VALID, then VALIDATE (no long lock).
+DO $$
+DECLARE
+  v_def text := (SELECT pg_get_constraintdef(oid) FROM pg_constraint
+                  WHERE conrelid = 'public.ai_usage_log'::regclass
+                    AND conname = 'ai_usage_log_mode_check');
+  v_modes text;
+BEGIN
+  SELECT string_agg(quote_literal(x.mode), ', ' ORDER BY x.n) INTO v_modes
+    FROM (SELECT m[1] AS mode, n
+            FROM regexp_matches(v_def, '''([^'']+)''', 'g') WITH ORDINALITY AS r(m, n)
+          UNION ALL SELECT 'kb_learn', 1000000) x
+   WHERE x.n = 1000000 OR x.mode <> 'kb_learn';
+  EXECUTE format('ALTER TABLE public.ai_usage_log
+    DROP CONSTRAINT ai_usage_log_mode_check,
+    ADD CONSTRAINT ai_usage_log_mode_check CHECK (mode IN (%s)) NOT VALID', v_modes);
+END $$;
+ALTER TABLE public.ai_usage_log VALIDATE CONSTRAINT ai_usage_log_mode_check;
 
 -- ------------------------------------------------------------
 -- 2. The switch
@@ -101,7 +134,8 @@ CREATE TABLE IF NOT EXISTS public.kb_learned_drafts (
   gap_ids        uuid[] NOT NULL DEFAULT '{}',
   entry_id       uuid NULL,
   evidence_count integer NOT NULL,
-  -- The model's text was thrown away: no entry, not asked again at once.
+  -- The model's text was thrown away, or it declined: no entry, not asked
+  -- again for 28 days.
   discarded_at   timestamptz NULL,
   created_at     timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT kb_learned_drafts_key_check CHECK (topic_key ~ '^[0-9a-f]{64}$'),
@@ -240,6 +274,41 @@ $$;
 REVOKE ALL ON FUNCTION public.kb_learn_topic_drafted(uuid, uuid[], text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.kb_learn_topic_drafted(uuid, uuid[], text) TO service_role;
 
+-- The open topics worth asking about, most asked first, each with its gap
+-- ids newest first. Covered, drafted and backed-off topics are left out
+-- here, so they never use up the limit. The key is topicKey() of
+-- learn-run.ts; the run checks its own again.
+CREATE OR REPLACE FUNCTION public.kb_learn_open_topics(
+  p_account uuid,
+  p_limit   integer DEFAULT 200
+)
+RETURNS TABLE (id uuid, label text, coverage text, gap_ids uuid[])
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT t.id, t.label, t.coverage, g.ids
+    FROM public.kb_gap_topics t
+    CROSS JOIN LATERAL (
+      SELECT array_agg(k.id ORDER BY k.created_at DESC, k.id) AS ids
+        FROM public.kb_gap_topic_members m
+        JOIN public.ai_knowledge_gaps k ON k.id = m.gap_id AND k.account_id = m.account_id
+       WHERE m.topic_id = t.id AND m.account_id = t.account_id) g
+   WHERE t.account_id = p_account
+     AND t.status = 'open'
+     AND t.coverage NOT IN ('full', 'partial')
+     AND g.ids IS NOT NULL
+     AND NOT public.kb_learn_topic_drafted(p_account, g.ids,
+           encode(sha256(convert_to(p_account::text || E'\n'
+             || lower(btrim(regexp_replace(t.label, '\s+', ' ', 'g'))), 'UTF8')), 'hex'))
+   ORDER BY t.question_count DESC, t.id
+   LIMIT least(greatest(coalesce(p_limit, 200), 1), 500);
+$$;
+
+REVOKE ALL ON FUNCTION public.kb_learn_open_topics(uuid, integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.kb_learn_open_topics(uuid, integer) TO service_role;
+
 -- The one writer. Answers {status}: 'drafted' (with entry_id), or the
 -- refusal: 'disabled', 'already', 'invalid', 'ref_taken'. The entry is
 -- always status 'draft': a person approves it, never this function.
@@ -321,8 +390,9 @@ REVOKE ALL ON FUNCTION public.kb_learn_record_draft(uuid, uuid, text, uuid[], te
 GRANT EXECUTE ON FUNCTION public.kb_learn_record_draft(uuid, uuid, text, uuid[], text, text, text, text, text, integer)
   TO service_role;
 
--- The model's text carried a name or an identifier: remember the topic
--- (gap ids and hash only), so it is not asked again at once. Nothing is
+-- The model's text carried a name or an identifier, or it declined or
+-- answered malformed: remember the topic (gap ids and hash only), so it is
+-- not asked again for 28 days. Nothing is
 -- written while the switch is off.
 CREATE OR REPLACE FUNCTION public.kb_learn_record_discard(
   p_account        uuid,

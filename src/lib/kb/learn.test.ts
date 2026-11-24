@@ -367,3 +367,73 @@ describe('learnedReviewerNotes', () => {
     );
   });
 });
+
+describe('what counts as the answer', () => {
+  const T0 = '2026-11-10T10:00:00.000Z';
+  const msg = (min: number, over: Partial<ThreadMessage>): ThreadMessage => ({
+    sender_type: 'agent',
+    sender_id: 'a1',
+    content_type: 'text',
+    content_text: 'Yes, a freelance permit works.',
+    template_name: null,
+    created_at: new Date(Date.parse(T0) + min * 60_000).toISOString(),
+    ...over,
+  });
+  const customer = (min: number, text: string) =>
+    msg(min, { sender_type: 'customer', sender_id: null, content_text: text });
+
+  it('is not AI-written, forwarded or failed', () => {
+    for (const over of [
+      { ai_generated: true },
+      { is_forwarded: true },
+      { status: 'failed' },
+    ])
+      expect(pickTeamAnswer(T0, [msg(5, over)])).toBeNull();
+    expect(
+      pickTeamAnswer(T0, [
+        msg(5, { ai_generated: false, is_forwarded: false, status: 'read' }),
+      ])
+    ).not.toBeNull();
+  });
+
+  it('stops at the customer’s next question unless the reply quotes the gap', () => {
+    for (const q of [
+      'And how much is a POS machine?',
+      'what is the fee for cards',
+      'كم رسوم بطاقة الائتمان؟',
+    ])
+      expect(
+        pickTeamAnswer(T0, [customer(5, q), msg(10, {})], ['m1'])
+      ).toBeNull();
+    const quoting = [
+      customer(5, 'And how much is a POS machine?'),
+      msg(8, { content_text: 'It is 100 a month.' }),
+      msg(10, { reply_to_message_id: 'm1' }),
+    ];
+    expect(pickTeamAnswer(T0, quoting, ['m1'])?.content_text).toBe(
+      'Yes, a freelance permit works.'
+    );
+    for (const nudge of ['Hello?', 'any update?', 'ok I will wait'])
+      expect(
+        pickTeamAnswer(T0, [customer(5, nudge), msg(10, {})])
+      ).not.toBeNull();
+  });
+
+  it('a holding line is nothing but holding words', () => {
+    for (const t of [
+      'checking account needs 3000',
+      'charged on items',
+      'please wait 3 working days',
+    ])
+      expect(isHoldingReply(t), t).toBe(false);
+    for (const t of [
+      'let me check',
+      'Let me check with the team and get back to you',
+      'one moment please',
+      'I will check and update you shortly',
+      'لحظة من فضلك',
+      'خليني أتأكد وأرد عليك',
+    ])
+      expect(isHoldingReply(t), t).toBe(true);
+  });
+});

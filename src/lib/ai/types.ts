@@ -158,10 +158,16 @@ export interface GenerateResult {
 export class AiError extends Error {
   readonly code: string;
   readonly status: number;
-  constructor(message: string, opts: { code?: string; status?: number } = {}) {
+  /** Tokens the provider billed for the failed call, when it said. */
+  readonly usage: AiUsage | null;
+  constructor(
+    message: string,
+    opts: { code?: string; status?: number; usage?: AiUsage | null } = {}
+  ) {
     super(message);
     this.name = 'AiError';
     this.code = opts.code ?? 'ai_error';
     this.status = opts.status ?? 502;
+    this.usage = opts.usage ?? null;
   }
 }
