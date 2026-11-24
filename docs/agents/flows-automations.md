@@ -20,6 +20,10 @@ Two independent engines, deliberately kept apart:
   a resumed run starts from happens before its first step; only those are
   retried. A step runs at most once per run.
 
+Only `flow_save` (300) writes an existing flow's nodes: one transaction, the
+caller's own rights, a version of `edited_at ?? created_at` (a counted run or a
+status change is nobody's edit). A live flow is validated before it is saved.
+
 A flow's `fallback_policy.on_unknown_reply` (JSONB, resolved in
 `lib/flows/fallback.ts`) decides what an off-script reply does: reprompt,
 hand off, end, ignore — or `ai`, which answers with the AI agent while
