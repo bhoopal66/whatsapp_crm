@@ -30,8 +30,13 @@ export function useThread(
   useEffect(() => {
     // Listening first: an event during the read is replayed over it.
     const off = listen((e) => {
-      if (e.kind === 'resync') store.resync();
-      else if (e.kind === 'message')
+      if (e.kind === 'resync') {
+        // Rejecting is what has the workspace's catch-up try again.
+        return store.resync().then((ok) => {
+          if (!ok) throw new Error('The thread was not read');
+        });
+      }
+      if (e.kind === 'message')
         store.record({ kind: 'message', event: e.event });
       else if (e.kind === 'reaction')
         store.record({ kind: 'reaction', event: e.event });

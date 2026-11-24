@@ -42,6 +42,24 @@ interface JournalItem {
   event: TimelineEvent;
 }
 
+/** What a message row does not carry, each read apart from it. */
+export interface TimelineDetails {
+  attachments: Record<string, ChatAttachment[]>;
+  reactions: Record<string, ReactionSummary[]>;
+  threads: Record<string, ThreadSummary>;
+  cards: readonly SharedCard[];
+  callCards: readonly SharedCallCard[];
+}
+export type DetailKind = keyof TimelineDetails;
+
+export const DETAIL_KINDS: readonly DetailKind[] = [
+  'attachments',
+  'reactions',
+  'threads',
+  'cards',
+  'callCards',
+];
+
 export interface CachedTimeline {
   timeline: TimelineState;
   cards: Record<string, SharedCard>;
@@ -67,6 +85,10 @@ export interface CachedTimeline {
    * keeps its realtime-patched state and the next show revalidates.
    */
   overflowed: readonly number[];
+  /** The messages whose latest read of a kind failed, to be read again. */
+  missing: Partial<Record<DetailKind, readonly string[]>>;
+  /** The messages whose files were read, with or without any. */
+  filesRead: ReadonlySet<string>;
 }
 
 /** The most events the journal holds; older ones overflow their fetch. */
@@ -101,6 +123,8 @@ export function placeholderTimeline(
     journal: [],
     flights: [],
     overflowed: [],
+    missing: {},
+    filesRead: new Set(),
   };
 }
 
@@ -317,41 +341,74 @@ export function applyOlderPage(
  * the flight, the viewer's own toggle included, is not in the answer).
  * They are the whole answer for those ids: one with no attachments,
  * reactions or replies in the result has none (a reaction removed while
- * the channel was closed must go). Cards are added.
+ * the channel was closed must go). Cards are added. A kind that is
+ * `wanted` and not in `details` is one whose read failed: what is held
+ * of it stays, and the ids are `missing` until an answer comes.
  */
 export function applyTimelineDetails(
   entry: CachedTimeline,
   ids: readonly string[],
-  details: {
-    attachments: Record<string, ChatAttachment[]>;
-    reactions: Record<string, ReactionSummary[]>;
-    threads: Record<string, ThreadSummary>;
-    cards: readonly SharedCard[];
-    callCards: readonly SharedCallCard[];
-  },
-  mark: number
+  details: Partial<TimelineDetails>,
+  mark: number,
+  wanted: readonly DetailKind[] = DETAIL_KINDS
 ): CachedTimeline {
   if (isOverflowed(entry, mark)) return endTimelineFetch(entry, mark);
   const asked = new Set(ids);
+  const { attachments, reactions, threads } = details;
   const messages = entry.timeline.messages.map((m): ChatMessage => {
     if (!asked.has(m.id) || m.deletedAt) return m;
     return {
       ...m,
-      attachments: details.attachments[m.id] ?? [],
-      reactions: details.reactions[m.id] ?? [],
-      thread: details.threads[m.id] ?? null,
+      ...(attachments && { attachments: attachments[m.id] ?? [] }),
+      ...(reactions && { reactions: reactions[m.id] ?? [] }),
+      ...(threads && { thread: threads[m.id] ?? null }),
     };
   });
+  const held = messages.map((m) => m.id);
+  const missing = { ...entry.missing };
+  for (const kind of wanted) {
+    const failed = new Set(missing[kind]);
+    for (const id of asked)
+      if (details[kind]) failed.delete(id);
+      else failed.add(id);
+    missing[kind] = held.filter((id) => failed.has(id));
+  }
+  const filesRead = attachments
+    ? new Set(held.filter((id) => asked.has(id) || entry.filesRead.has(id)))
+    : entry.filesRead;
   const cards = { ...entry.cards };
-  for (const c of details.cards) cards[c.messageId] = c;
+  for (const c of details.cards ?? []) cards[c.messageId] = c;
   const callCards = { ...entry.callCards };
-  for (const c of details.callCards) callCards[c.messageId] = c;
+  for (const c of details.callCards ?? []) callCards[c.messageId] = c;
   return {
     ...endTimelineFetch(entry, mark),
     timeline: replaySince({ ...entry.timeline, messages }, entry.journal, mark),
     cards,
     callCards,
+    missing,
+    filesRead,
   };
+}
+
+/**
+ * The live messages whose files could not be read and never were: one
+ * read before keeps what it shows through a failed re-read. A system
+ * message has no files.
+ */
+export function missingFiles(entry: CachedTimeline): ReadonlySet<string> {
+  const failed = new Set(entry.missing.attachments);
+  return new Set(
+    entry.timeline.messages
+      .filter(
+        (m) =>
+          failed.has(m.id) &&
+          !entry.filesRead.has(m.id) &&
+          !m.deletedAt &&
+          !m.erasedAt &&
+          m.authorKind !== 'system'
+      )
+      .map((m) => m.id)
+  );
 }
 
 /**

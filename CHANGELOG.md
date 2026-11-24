@@ -42,6 +42,32 @@ and polish.
   translations now record the tokens of a call that ended in an error, so
   Settings -> AI usage no longer under-reports spend. The answer to the
   agent or customer is unchanged.
+- **Team chat no longer marks messages read that were not shown.** Opening a
+  channel seen before showed what was held and marked it read "up to now",
+  so a message that was still being read in, or that came and went while
+  offline, lost its badge. A channel is now marked up to its newest message
+  on screen, once its messages were read again, and a mark never goes back.
+  Opening a channel therefore no longer clears the badge of a mention in a
+  thread that is newer than the channel's own last message: read the thread
+  (or a newer message in the channel). No migration.
+- **Reading a mention in a thread clears its badge.** A mention in a reply
+  counted until someone posted in the channel itself and that was read.
+  Reading a thread to its end now marks it, once nothing in the channel
+  itself is unread. No migration.
+- **A team chat message no longer shows, or is forwarded, without its file.**
+  The files, reactions, reply counts and cards of a message were read
+  together, so one failed read dropped them all without a word. Each is now
+  read by itself and tried again after 2, 5 and 15 seconds and on the next
+  catch-up; until then the message says "Could not load the file. Retry".
+  Forward reads the files first and does not send when it cannot.
+- **Team chat tries again when it could not catch up.** After sleep or a
+  lost connection, the channel list, the unread counts, the open channel and
+  the open thread were read once, and a read that failed was not tried again:
+  what had been posted meanwhile stayed missing until the next gap. They are
+  now read again after 2, 5, 15 and 30 seconds, without an error message.
+- **A submission group whose case cannot be opened no longer holds up the
+  others.** The cron took the newest 20 each run; it now tries the ones
+  that have not failed first, and starts from another failed one each run.
 - **A candidate's message is no longer read as a sales lead.** Smart
   insights, automatic chat tags, the attention pin and campaign reply
   sorting now leave HR chats, other departments' chats and HR lines alone

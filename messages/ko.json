@@ -5823,7 +5823,9 @@
       "react": "{emoji}(으)로 반응",
       "replies": "답글 {count}개 · 마지막 {time}",
       "newMessages": "새 메시지",
-      "removed": "관리자가 삭제한 메시지입니다."
+      "removed": "관리자가 삭제한 메시지입니다.",
+      "fileFailed": "파일을 불러오지 못했습니다.",
+      "fileRetry": "다시 시도"
     },
     "receipts": {
       "seen": "읽음",
@@ -6531,7 +6533,8 @@
       "cancel": "취소",
       "submit": "전달",
       "done": "{count, plural, other {채팅 #곳에 전달했습니다}}",
-      "failed": "{name}(으)로 전달하지 못했습니다: {reason}"
+      "failed": "{name}(으)로 전달하지 못했습니다: {reason}",
+      "filesFailed": "전달하지 못했습니다: 이 메시지의 파일을 읽을 수 없습니다. 다시 시도해 주세요."
     },
     "moderation": {
       "remove": "메시지 삭제…",

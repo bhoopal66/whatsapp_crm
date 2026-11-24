@@ -27,6 +27,9 @@ export interface MessageTimelineProps {
   messages: ChatMessage[];
   cards: Record<string, SharedCard>;
   callCards: Record<string, SharedCallCard>;
+  /** The messages whose files could not be read, and a Retry of them. */
+  missingFiles?: ReadonlySet<string>;
+  onRetryFiles?: () => void;
   hasMoreOlder: boolean;
   loading: boolean;
   /** The first read failed: nothing to show, and a Retry. */
@@ -254,6 +257,9 @@ export function MessageTimeline(p: MessageTimelineProps) {
                 }
                 card={p.cards[m.id]}
                 callCard={p.callCards[m.id]}
+                onRetryFiles={
+                  p.missingFiles?.has(m.id) ? p.onRetryFiles : undefined
+                }
                 actions={p.actions}
                 onToggleReaction={p.onToggleReaction}
                 onOpenThread={p.onOpenThread}

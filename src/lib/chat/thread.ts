@@ -32,8 +32,11 @@ import {
   revalidateTimeline,
   timelineMark,
   type CachedTimeline,
+  type DetailKind,
+  type TimelineDetails,
   type TimelineEvent,
 } from './timeline-cache';
+import { createDetailLoader, type ReadDetail } from './timeline-details';
 import { toChatMessage, type ChatMessage, type MessagePage } from './types';
 
 /** Replies read at once; a longer thread opens on its latest ones. */
@@ -42,7 +45,7 @@ export const REPLY_LIMIT = 200;
 /** How long after a failed catch-up read the thread tries once more. */
 export const CATCH_UP_RETRY_MS = 4000;
 
-export type ThreadDetails = Parameters<typeof applyTimelineDetails>[2];
+export type ThreadDetails = TimelineDetails;
 type Cursor = Pick<ChatMessage, 'createdAt' | 'id'>;
 
 export interface ThreadView {
@@ -58,8 +61,12 @@ export interface ThreadReads {
   root(): Promise<ChatMessage | null>;
   /** The newest page, or the one before `before`. */
   page(before?: Cursor): Promise<MessagePage>;
-  /** Summaries and cards are the root's only. */
-  details(ids: string[], rootIds: string[]): Promise<ThreadDetails>;
+  /** Summaries and cards are the root's only. With `only`, that kind. */
+  details(
+    ids: string[],
+    rootIds: string[],
+    only?: DetailKind
+  ): Promise<ThreadDetails>;
 }
 
 export function threadReads(
@@ -83,15 +90,20 @@ export function threadReads(
         limit: REPLY_LIMIT,
         before: before && { createdAt: before.createdAt, id: before.id },
       }),
-    async details(ids, rootIds) {
+    async details(ids, rootIds, only) {
+      const asked = (kind: DetailKind) => !only || only === kind;
       // The ids go in the URL: no more of them at once than a page.
       const chunks: string[][] = [];
       for (let i = 0; i < ids.length; i += REPLY_LIMIT)
         chunks.push(ids.slice(i, i + REPLY_LIMIT));
       const [attachments, reactions, threads, cards, callCards] =
         await Promise.all([
-          Promise.all(chunks.map((c) => attachmentsFor(sb, c))),
-          Promise.all(chunks.map((c) => reactionsFor(sb, c))),
+          asked('attachments')
+            ? Promise.all(chunks.map((c) => attachmentsFor(sb, c)))
+            : [],
+          asked('reactions')
+            ? Promise.all(chunks.map((c) => reactionsFor(sb, c)))
+            : [],
           threadSummaries(sb, rootIds),
           sharedCards(sb, rootIds),
           sharedCallCards(sb, rootIds),
@@ -286,17 +298,14 @@ export function createThreadStore(
     set({ ...view, root: fn(view.root), replies: fn(view.replies) });
 
   /** What a row event does not carry: a new reply's files and reactions. */
-  async function fillIn(ids: string[]) {
-    if (ids.length === 0) return;
-    const mark = timelineMark();
-    patchReplies((e) => beginTimelineFetch(e, mark));
-    try {
-      const details = await reads.details(ids, []);
-      patchReplies((e) => applyTimelineDetails(e, ids, details, mark));
-    } catch {
-      patchReplies((e) => endTimelineFetch(e, mark));
-    }
-  }
+  const replyDetails = createDetailLoader({
+    read: (async (kind, ids) =>
+      (await reads.details(ids, [], kind))[kind]) as ReadDetail,
+    get: () => view.replies,
+    patch: patchReplies,
+    kinds: ['attachments', 'reactions'],
+  });
+  const fillIn = replyDetails.load;
 
   /** A failed catch-up read, once more, unless one begun after it has landed. */
   function readAgain(me: NonNullable<typeof shown>, mark: number) {
@@ -308,10 +317,14 @@ export function createThreadStore(
     }, CATCH_UP_RETRY_MS);
   }
 
-  /** The whole thread, again. Once it shows, a failure is quiet and tried once more. */
-  async function load(retry = false) {
+  /**
+   * The whole thread, again. Once it shows, a failure is quiet and tried
+   * once more. False when it is still to be read: the read failed, and
+   * none begun after it has landed.
+   */
+  async function load(retry = false): Promise<boolean> {
     const me = shown;
-    if (!me) return;
+    if (!me) return true;
     const marks = openMarks();
     patchBoth((e) => begin(e, marks));
     me.pending += 1;
@@ -327,7 +340,7 @@ export function createThreadStore(
       // Left meanwhile, or a read begun after this one has landed.
       if (me !== shown || marks.rows < me.landed) {
         patchBoth((e) => end(e, marks));
-        return;
+        return true;
       }
       me.landed = marks.rows;
       set(mergeThread(view, root, page, details, marks));
@@ -335,16 +348,18 @@ export function createThreadStore(
       const known = new Set([...read, ...held.map((m) => m.id)]);
       const { messages } = view.replies.timeline;
       void fillIn(messages.map((m) => m.id).filter((id) => !known.has(id)));
+      return true;
     } catch (err) {
       patchBoth((e) => end(e, marks));
-      if (me !== shown) return;
+      if (me !== shown || marks.rows < me.landed) return true;
       // Another read under way may still show it.
       if (view.phase !== 'loading' || me.pending > 1) {
         if (!retry) readAgain(me, marks.rows);
-        return;
+        return false;
       }
       set({ ...view, phase: 'failed' });
       me.fail(err);
+      return false;
     } finally {
       me.pending -= 1;
     }
@@ -367,14 +382,18 @@ export function createThreadStore(
         missed: 0,
       };
       shown = me;
+      const stopDetails = replyDetails.show();
       void load();
       return () => {
+        stopDetails();
         if (shown === me) shown = null;
         clearTimeout(me.again);
       };
     },
-    /** Events were missed. */
-    resync: () => void load(),
+    /** Events were missed. False when the read failed. */
+    resync: () => load(),
+    /** Read the replies' missing files (`missingFiles`) again. */
+    retryFiles: () => replyDetails.retry(),
     /** Try again, after a failed first read. */
     retry() {
       set({ ...view, phase: 'loading' });

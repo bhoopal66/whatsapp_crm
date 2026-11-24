@@ -13,7 +13,12 @@ import {
 import { countsAsChannelAdmin } from './composer-gating';
 import { normalizeDigits } from './search-view';
 import { channelDisplayName, dmOthers } from './view';
-import type { ChannelWithMembership, ChatMessage, ChatPerson } from './types';
+import type {
+  ChannelWithMembership,
+  ChatAttachment,
+  ChatMessage,
+  ChatPerson,
+} from './types';
 
 /** How many channels one forward may go to. */
 export const FORWARD_MAX_TARGETS = 5;
@@ -114,6 +119,38 @@ export function toggleForwardTarget(
 ): string[] {
   if (picked.includes(id)) return picked.filter((p) => p !== id);
   return picked.length >= FORWARD_MAX_TARGETS ? [...picked] : [...picked, id];
+}
+
+/**
+ * One forward per target, in the order picked: each copies the files
+ * into its own channel's prefix. The files are read first, whatever the
+ * row shows (it may not hold them yet), and nothing is sent when that
+ * fails, so a message never goes without its file.
+ */
+export async function forwardToAll(
+  picked: readonly string[],
+  calls: {
+    files: () => Promise<ChatAttachment[]>;
+    send: (channelId: string, files: ChatAttachment[]) => Promise<unknown>;
+    failed: (channelId: string, err: unknown) => void;
+  }
+): Promise<{ read: false } | { read: true; done: number }> {
+  let files: ChatAttachment[];
+  try {
+    files = await calls.files();
+  } catch {
+    return { read: false };
+  }
+  let done = 0;
+  for (const id of picked) {
+    try {
+      await calls.send(id, files);
+      done++;
+    } catch (err) {
+      calls.failed(id, err);
+    }
+  }
+  return { read: true, done };
 }
 
 /** What the preview line names: the first line of text, else the files. */

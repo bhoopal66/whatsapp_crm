@@ -25,6 +25,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { useAuth } from '@/hooks/use-auth';
 import {
+  attachmentsFor,
   channelsWithGuests,
   forwardMessage,
   type ChatMessage,
@@ -33,6 +34,7 @@ import {
   FORWARD_MAX_TARGETS,
   forwardPreview,
   forwardTargets,
+  forwardToAll,
   toggleForwardTarget,
 } from '@/lib/chat/forward';
 import { plainText } from '@/lib/chat/message-actions';
@@ -132,27 +134,29 @@ export function ForwardDialog({
   const submit = async () => {
     if (!accountId || !picked.length || sending) return;
     setSending(true);
-    let done = 0;
-    // One at a time: each copies the files into its own channel's prefix.
-    for (const id of picked) {
-      try {
-        await forwardMessage(sb, {
+    const sent = await forwardToAll(picked, {
+      files: async () => (await attachmentsFor(sb, [m.id]))[m.id] ?? [],
+      send: (id, attachments) =>
+        forwardMessage(sb, {
           accountId,
           messageId: m.id,
           targetChannelId: id,
-          attachments: m.attachments,
-        });
-        done++;
-      } catch (err) {
-        const name = all.find((c) => c.id === id)?.name ?? '';
+          attachments,
+        }),
+      failed: (id, err) =>
         toast.error(
           t('forward.failed', {
-            name,
+            name: all.find((c) => c.id === id)?.name ?? '',
             reason: t(`errors.${chatErrorKey(err)}`),
           })
-        );
-      }
+        ),
+    });
+    if (!sent.read) {
+      toast.error(t('forward.filesFailed'));
+      setSending(false);
+      return;
     }
+    const { done } = sent;
     if (done) toast.success(t('forward.done', { count: done }));
     onClose();
   };
