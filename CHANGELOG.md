@@ -22,6 +22,13 @@ and polish.
 
 ### Fixed
 
+- **A candidate's STOP is never lost.** A STOP on an HR chat or an HR line
+  is recorded on the contact whatever the HR switches say, even before the
+  chat is in Recruitment; a database error at that moment makes the
+  delivery be retried for that record alone.
+- **HR automated messages: a brief database error is tried again.** A chat
+  or contact that could not be read was taken for a missing one and the
+  message failed for good.
 - **An open tab notices what changed elsewhere.** When you switch workspace
   on another device, or your access to this workspace is deactivated while
   you have another, a bar above the page says so and offers Reload; nothing

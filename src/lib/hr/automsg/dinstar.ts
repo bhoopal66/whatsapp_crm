@@ -179,7 +179,7 @@ export function createDinstarSmsSendPort(
       const to = await recipientNumber(
         db,
         req,
-        (reason) => new DinstarSendError(reason, false)
+        (reason, retryable) => new DinstarSendError(reason, retryable)
       );
       const bucket = refill(base, cap, now());
       if (bucket.tokens < 1) throw new DinstarSendError('rate_limited', true);
