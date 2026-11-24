@@ -51,6 +51,7 @@ export async function runDeliveredEvents(
       const outcome = await processInboundEvent(event, {
         config: event.config,
         later,
+        attempt,
       });
       // Awaited only after every event: an early rejection must not count
       // as unhandled meanwhile.

@@ -244,6 +244,20 @@ describe('message', () => {
     });
   });
 
+  it('says it is a retry from the second attempt on', async () => {
+    h.processMessage.mockResolvedValue(undefined);
+    for (const attempt of [1, 2]) {
+      await processInboundEvent(
+        event('meta', 'message', messagePayload(MESSAGE)),
+        { config: row(), attempt }
+      );
+    }
+    expect(h.processMessage.mock.calls.map((c) => c[5])).toEqual([
+      { onPersistFailure: 'throw' },
+      { onPersistFailure: 'throw', retry: true },
+    ]);
+  });
+
   it('a message that was not stored is failed, quoting nothing', async () => {
     h.processMessage.mockRejectedValueOnce(
       new InboundPersistError('message', '57014')

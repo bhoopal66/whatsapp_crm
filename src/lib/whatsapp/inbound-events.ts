@@ -113,6 +113,8 @@ export interface InboundEventDeps {
    * awaits it after its loop. Without it, it is awaited here.
    */
   later?: Promise<unknown>[];
+  /** The queue's attempt counter: above 1 this event already ran once. */
+  attempt?: number;
 }
 
 const DONE: InboundOutcome = { outcome: 'done' };
@@ -238,6 +240,7 @@ async function runMessage(
       onPersistFailure: 'throw',
       // Over the sender's limit: kept in the inbox, answered by nothing.
       ...(payload.fanOut === false ? { fanOut: false } : {}),
+      ...((deps.attempt ?? 1) > 1 ? { retry: true } : {}),
     }
   );
   return DONE;
