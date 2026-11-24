@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 
 import { ConfirmDialog } from '@/components/ui-ext/confirm-dialog';
@@ -10,7 +10,8 @@ import { assignChangeKind } from '@/lib/inbox/assign-confirm';
  * The question before a chat changes hands, for every screen that offers
  * Assign. It is worded from the assignee the screen shows NOW
  * (`currentId`), so a realtime change while it is open rewords it, and
- * one that already did what was asked closes it.
+ * one that already did what was asked closes it. While it closes it keeps
+ * its last wording: the screen has moved on to the answer by then.
  */
 export function AssignConfirmDialog({
   open,
@@ -45,13 +46,17 @@ export function AssignConfirmDialog({
 
   let title = t('confirmAssignTitle');
   let description = meanwhile
-    ? tRows('meanwhileAssign', { name: nextName })
+    ? tRows('meanwhileAssign', { customer, name: nextName })
     : t('confirmAssignBody', { customer, name: nextName });
   let confirmLabel = t('assign');
   if (kind === 'reassign') {
     title = t('confirmReassignTitle');
     description = meanwhile
-      ? tRows('meanwhileReassign', { current: currentName, name: nextName })
+      ? tRows('meanwhileReassign', {
+          customer,
+          current: currentName,
+          name: nextName,
+        })
       : t('confirmReassignBody', {
           customer,
           from: currentName,
@@ -61,21 +66,33 @@ export function AssignConfirmDialog({
   } else if (kind === 'unassign') {
     title = t('confirmUnassignTitle');
     description = meanwhile
-      ? tRows('meanwhileUnassign', { current: currentName })
+      ? tRows('meanwhileUnassign', { customer, current: currentName })
       : t('confirmUnassignBody', { customer, name: currentName });
     confirmLabel = t('unassign');
   }
 
+  const asking = open && kind !== null;
+  const words = { title, description, confirmLabel };
+  const [held, setHeld] = useState(words);
+  if (
+    asking &&
+    (held.title !== title ||
+      held.description !== description ||
+      held.confirmLabel !== confirmLabel)
+  )
+    setHeld(words);
+  const shown = asking ? words : held;
+
   return (
     <ConfirmDialog
-      open={open && kind !== null}
+      open={asking}
       onOpenChange={(next) => {
         if (!next) onCancel();
       }}
-      title={title}
-      description={description}
+      title={shown.title}
+      description={shown.description}
       cancelLabel={t('confirmAssignCancel')}
-      confirmLabel={confirmLabel}
+      confirmLabel={shown.confirmLabel}
       onConfirm={onConfirm}
     />
   );

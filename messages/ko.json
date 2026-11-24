@@ -13816,9 +13816,10 @@
     "unknownAgent": "Unknown agent",
     "assignFailed": "Couldn't assign this chat. Try again.",
     "assignMoved": "이 대화는 다른 곳으로 옮겨졌습니다. 페이지를 새로고침하세요.",
-    "meanwhileReassign": "그 사이 {current} 님이 담당자로 지정되었습니다. 대신 {name} 님을 지정할까요?",
-    "meanwhileAssign": "그 사이 이 대화의 담당자가 해제되었습니다. {name} 님을 지정할까요?",
-    "meanwhileUnassign": "그 사이 {current} 님이 담당자로 지정되었습니다. 그래도 담당자를 해제할까요?"
+    "assignChanged": "변경되지 않았습니다. 다른 사람이 {customer} 님의 대화 담당자를 바꾸었습니다.",
+    "meanwhileReassign": "그 사이 {customer} 님의 대화 담당자로 {current} 님이 지정되었습니다. 대신 {name} 님을 지정할까요?",
+    "meanwhileAssign": "그 사이 {customer} 님의 대화 담당자가 해제되었습니다. {name} 님을 지정할까요?",
+    "meanwhileUnassign": "그 사이 {customer} 님의 대화 담당자로 {current} 님이 지정되었습니다. 그래도 담당자를 해제할까요?"
   },
   "KbLearn": {
     "title": "팀 답변에서 학습",

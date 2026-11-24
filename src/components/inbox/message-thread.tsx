@@ -2110,12 +2110,11 @@ export function MessageThread({
     async (
       agentId: string | null,
       expected: string | null,
-      askAgain: () => void
+      askAgain: () => boolean,
+      customer: string
     ) => {
       if (!conversation) return;
       const id = conversation.id;
-      const fail = (key: 'assignFailed' | 'assignMoved') =>
-        toast.error(tRows(key));
       await assignFromScreen(
         createClient(),
         { conversationId: id, expected, userId: agentId },
@@ -2123,11 +2122,8 @@ export function MessageThread({
           patch: onAssignChange,
           // The question is about the chat it was asked on: once the
           // agent has opened another, say it did not happen instead.
-          askAgain: () =>
-            openConversationIdRef.current === id
-              ? askAgain()
-              : fail('assignFailed'),
-          fail,
+          askAgain: () => openConversationIdRef.current === id && askAgain(),
+          fail: (key) => toast.error(tRows(key, { customer })),
         }
       );
     },

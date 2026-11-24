@@ -157,11 +157,12 @@ describe('assignFromScreen', () => {
   const run = async (
     opts: Parameters<typeof fakeClient>[0],
     expected: string | null,
-    userId: string | null
+    userId: string | null,
+    canAsk = true
   ) => {
     const screen = {
       patch: vi.fn(),
-      askAgain: vi.fn(),
+      askAgain: vi.fn(() => canAsk),
       fail: vi.fn(),
     } satisfies AssignScreen;
     await assignFromScreen(
@@ -192,6 +193,17 @@ describe('assignFromScreen', () => {
     expect(screen.patch.mock.calls).toEqual([['conv-1', 'sara']]);
     expect(screen.askAgain).toHaveBeenCalledWith('sara');
     expect(screen.fail).not.toHaveBeenCalled();
+  });
+
+  it('says so instead while another question is open', async () => {
+    const screen = await run(
+      { row: { id: 'conv-1', assigned_agent_id: 'sara' } },
+      null,
+      'omar',
+      false
+    );
+    expect(screen.patch.mock.calls).toEqual([['conv-1', 'sara']]);
+    expect(screen.fail).toHaveBeenCalledWith('assignChanged');
   });
 
   it('patches nothing when the chat moved, was refused or failed', async () => {
