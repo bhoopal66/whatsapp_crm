@@ -24,6 +24,9 @@ export type ApiErrorCode =
   | 'rate_limited' // per-key budget exhausted
   | 'bad_request' // malformed input
   | 'not_found'
+  | 'idempotency_key_reused' // 409: the key was used for another request
+  | 'in_progress' // 409: the key's first request is still running
+  | 'delivery_unconfirmed' // 409: it may have reached the customer
   | 'unavailable' // the database did not answer; try again
   | 'internal';
 

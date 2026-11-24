@@ -25,6 +25,20 @@ describe('the MCP client', () => {
     expect(fetchMock.mock.calls[0][1].signal).toBe(spy.mock.results[0].value);
   });
 
+  it('sends each message with an Idempotency-Key of its own', async () => {
+    fetchMock.mockImplementation(async () => new Response('{"data":1}'));
+    await send();
+    await send();
+    await get();
+    const keys = fetchMock.mock.calls.map(
+      ([, init]) => init.headers['Idempotency-Key']
+    );
+    expect(keys[0]).toMatch(/^[0-9a-f-]{36}$/);
+    expect(keys[1]).toMatch(/^[0-9a-f-]{36}$/);
+    expect(keys[1]).not.toBe(keys[0]);
+    expect(keys[2]).toBeUndefined();
+  });
+
   it('says a write that timed out may have gone through', async () => {
     fetchMock.mockRejectedValue(timeout());
     expect(await send()).toMatchObject({

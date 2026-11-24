@@ -323,6 +323,13 @@ export const PERSONAL: Readonly<Record<string, PersonalTable>> = {
     erase: 'anonymise',
     exported: true,
   },
+  // 305: ids and a hash of the request, 30 days; also goes with its message.
+  v1_message_keys: {
+    link: 'contact',
+    class: 'identifier',
+    erase: 'delete',
+    exported: true,
+  },
   personal_history_import_chats: {
     link: 'phone',
     class: 'identifier',

@@ -31,6 +31,7 @@ import { memoryStore } from '@/lib/memory/server'
 import { runKbGapRecomputePass } from '@/lib/kb/gap-recompute'
 import { runKbLearning } from '@/lib/kb/learn-run'
 import { drainWebhookOutbox, purgeWebhookOutbox } from '@/lib/webhooks/outbox'
+import { purgeMessageKeys } from '@/lib/api/v1/message-keys'
 import { runInboundQueueTick } from '@/lib/whatsapp/inbound-drain'
 import { runPbxCron } from '@/lib/pbx/housekeeping'
 import { runChatFileSweep } from '@/lib/chat/file-cleanup'
@@ -665,6 +666,7 @@ function scheduleWebhookInbox() {
  * (case.stage_changed, submission_group.*, …) are claimed and sent at
  * most once a minute per process, and delivered rows older than 7 days
  * are purged once a day, both inside after(). A failure is only logged.
+ * The daily purge also forgets the public API's message keys (305).
  */
 const webhookOutboxDue = everyInterval(60_000)
 const webhookOutboxPurgeDue = everyInterval(24 * 60 * 60_000)
@@ -691,6 +693,14 @@ function scheduleWebhookOutbox() {
         } catch (err) {
           console.error(
             '[automations-cron] webhook outbox purge failed:',
+            err instanceof Error ? err.message : err,
+          )
+        }
+        try {
+          await purgeMessageKeys(supabaseAdmin())
+        } catch (err) {
+          console.error(
+            '[automations-cron] message key purge failed:',
             err instanceof Error ? err.message : err,
           )
         }

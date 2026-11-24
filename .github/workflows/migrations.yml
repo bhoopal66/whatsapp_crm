@@ -1567,3 +1567,6 @@ jobs:
 
       - name: Verify campaign stop (301)
         run: supabase db query --local --file supabase/ci/verify-campaign-stop.sql
+
+      - name: Verify v1 message keys (305)
+        run: supabase db query --local --file supabase/ci/verify-v1-message-keys.sql

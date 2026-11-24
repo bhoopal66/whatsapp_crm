@@ -14,6 +14,14 @@ and polish.
 
 ### Added
 
+- **An integration can send a message without the risk of sending it
+  twice.** `POST /api/v1/messages` takes an `Idempotency-Key` header (or
+  `idempotency_key` field): a repeat is answered as the first request was,
+  and one whose outcome is unknown is never sent again by itself. Without a
+  key nothing changes. The MCP server sends one with every message. See
+  `docs/public-api.md`. **Migration required: 305** (before that, a request
+  with a key answers 503 and sends nothing; apply it before updating the
+  MCP server).
 - **A campaign can be stopped.** Stop on the page of a running or scheduled
   campaign ends it after the message being sent now; everyone who got it
   stays recorded, the rest stay pending, and Resume sends to them later.
@@ -26,6 +34,14 @@ and polish.
 
 ### Fixed
 
+- **Public API:** a message WhatsApp took but the CRM could not save
+  answers 201 with `warning: "not_recorded"` instead of a 500 that clients
+  retry; a contact or conversation that could not be read answers 503
+  instead of 404, and a created contact is answered even when it cannot be
+  read again; `?limit=0.5` is 1 instead of a 500.
+- **One bad character no longer fails a whole Compass contact batch.** A NUL
+  or half a surrogate pair is taken out of text and attributes; in a
+  `compass_id` it rejects that record by index.
 - **A candidate's STOP is never lost.** A STOP on an HR chat or an HR line
   is recorded on the contact whatever the HR switches say, even before the
   chat is in Recruitment; a database error at that moment makes the
