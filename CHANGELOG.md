@@ -26,6 +26,14 @@ and polish.
 
 ### Fixed
 
+- **Compass updates: a status update is never posted twice into a
+  submission group, and never lost to short failures.** A timeout or a
+  restart mid-post answers `delivery_unconfirmed` and is not posted again
+  (WhatsApp's later confirmation settles it); a refusal or a failed read
+  uses nothing up, so the same key works again later, one try a minute,
+  instead of ending for good after three. A brief database error answers a
+  retryable 503 instead of "not found" or "no template". See
+  `docs/compass.md` for the codes. No migration.
 - **A candidate's STOP is never lost.** A STOP on an HR chat or an HR line
   is recorded on the contact whatever the HR switches say, even before the
   chat is in Recruitment; a database error at that moment makes the
