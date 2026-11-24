@@ -1,18 +1,24 @@
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
-import { sessionFetch } from '@/lib/supabase/session-fetch'
+import {
+  createServerRefresh,
+  REFRESH_UNANSWERED_COOKIE,
+} from '@/lib/supabase/session-fetch'
 import { AUTH_COOKIE_NAME, serverSupabaseUrl } from '@/lib/supabase/urls'
 
 export async function createClient() {
   const cookieStore = await cookies()
 
-  return createServerClient(
+  const refresh = createServerRefresh(() =>
+    cookieStore.has(REFRESH_UNANSWERED_COOKIE)
+  )
+  const supabase = createServerClient(
     serverSupabaseUrl(),
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       // Must match the browser's cookie name — see urls.ts.
       cookieOptions: { name: AUTH_COOKIE_NAME },
-      global: { fetch: sessionFetch },
+      global: { fetch: refresh.fetch },
       cookies: {
         getAll() {
           return cookieStore.getAll()
@@ -30,4 +36,5 @@ export async function createClient() {
       },
     }
   )
+  return refresh.bound(supabase)
 }
