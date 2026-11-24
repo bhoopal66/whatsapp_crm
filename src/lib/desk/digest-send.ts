@@ -69,22 +69,26 @@ export async function sendDeskDigest(
   db: SupabaseClient,
   claim: DigestClaim
 ): Promise<{ providerMessageId: string | null; messageId: string | null }> {
-  const { data: conv } = await db
+  const { data: conv, error: convError } = await db
     .from('conversations')
     .select('id, contact_id, channel_id, send_channel_id, personal_owner_id')
     .eq('id', claim.conversationId)
     .eq('account_id', claim.accountId)
     .maybeSingle();
+  // A read of ours that failed says nothing about the chat: 316's enqueue
+  // does not count it towards gap_days.
+  if (convError) throw new DigestRefusal('read_failed');
   if (!conv || conv.contact_id !== claim.contactId)
     throw new DigestRefusal('conversation_missing');
   if (conv.personal_owner_id) throw new DigestRefusal('personal_number');
 
-  const { data: contact } = await db
+  const { data: contact, error: contactError } = await db
     .from('contacts')
     .select('id, phone, opted_out_at, do_not_contact_at')
     .eq('id', claim.contactId)
     .eq('account_id', claim.accountId)
     .maybeSingle();
+  if (contactError) throw new DigestRefusal('read_failed');
   // The claim checked this once for its whole batch; a STOP may have
   // arrived since.
   if (contact?.opted_out_at || contact?.do_not_contact_at)
@@ -102,12 +106,13 @@ export async function sendDeskDigest(
   );
   if (channel.isPersonal) throw new DigestRefusal('personal_number');
 
-  const { row } = await resolveTemplateRow(
+  const { row, readFailed } = await resolveTemplateRow(
     db,
     claim.accountId,
     claim.templateName,
     claim.language
   );
+  if (readFailed) throw new DigestRefusal('read_failed');
   if (!row) throw new DigestRefusal('template_not_found');
   if (
     String(row.status ?? '').toLowerCase() !== 'approved' ||
@@ -166,7 +171,7 @@ export async function sendDeskDigest(
 
   // The gateway has the message: nothing below may turn it into a failure.
   try {
-    const { data: msg } = await db
+    const { data: msg, error: msgError } = await db
       .from('messages')
       .insert({
         conversation_id: claim.conversationId,
@@ -181,6 +186,10 @@ export async function sendDeskDigest(
       })
       .select('id')
       .single();
+    if (msgError)
+      console.error(
+        `[desk] digest ${claim.id} was sent but not recorded (${msgError.code ?? '-'})`
+      );
     const now = new Date().toISOString();
     await db
       .from('conversations')
