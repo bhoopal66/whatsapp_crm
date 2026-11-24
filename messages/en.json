@@ -13828,6 +13828,7 @@
     "cancel": "Cancel",
     "saveEdit": "Save",
     "editFailed": "Couldn't save your change",
+    "changedMeanwhile": "This note was changed meanwhile. Saving replaces: {body}",
     "deleteFailed": "Couldn't delete the note",
     "deleteTitle": "Delete this note?",
     "deleteBody": "Your team will no longer see it. This can't be undone.",

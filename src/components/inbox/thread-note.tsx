@@ -61,11 +61,13 @@ export function ThreadNote({
   // after Escape; Save and Cancel end it. Only its author has one.
   const draftKey = noteEditKey(note.id);
   const readParked = () =>
-    isMine ? (noteDrafts.read(note.author_id, draftKey)?.text ?? null) : null;
+    isMine ? noteDrafts.read(note.author_id, draftKey) : null;
   const [parked] = useState(readParked);
   const [editing, setEditing] = useState(parked !== null);
   const [focusEdit, setFocusEdit] = useState(false);
-  const [draft, setDraft] = useState(parked ?? note.body);
+  const [draft, setDraft] = useState(parked?.text ?? note.body);
+  // What the edit started from: the note can change on another device.
+  const [base, setBase] = useState(parked?.base ?? note.body);
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
 
@@ -81,7 +83,7 @@ export function ThreadNote({
   const typeEdit = (text: string) => {
     setDraft(text);
     if (text === note.body) noteDrafts.clear(note.author_id, draftKey);
-    else noteDrafts.write(note.author_id, draftKey, { text, picked: [] });
+    else noteDrafts.write(note.author_id, draftKey, { text, picked: [], base });
   };
 
   const cancelEdit = () => {
@@ -101,7 +103,11 @@ export function ThreadNote({
     const ok = await onEdit(note.id, draft);
     setBusy(false);
     if (!ok) {
-      noteDrafts.restore(note.author_id, draftKey, { text: draft, picked: [] });
+      noteDrafts.restore(note.author_id, draftKey, {
+        text: draft,
+        picked: [],
+        base,
+      });
       toast.error(t('editFailed'));
       return;
     }
@@ -146,7 +152,9 @@ export function ThreadNote({
                 <DropdownMenuItem
                   className="gap-2"
                   onClick={() => {
-                    setDraft(readParked() ?? note.body);
+                    const kept = readParked();
+                    setDraft(kept?.text ?? note.body);
+                    setBase(kept?.base ?? note.body);
                     setFocusEdit(true);
                     setEditing(true);
                   }}
@@ -191,6 +199,11 @@ export function ThreadNote({
               autoFocus={focusEdit}
               className="min-h-16 text-sm"
             />
+            {base !== note.body && (
+              <p className="text-warning text-xs" role="alert">
+                {t('changedMeanwhile', { body: note.body })}
+              </p>
+            )}
             {draft.length > NOTE_MAX_LENGTH && (
               <p className="text-destructive text-xs" role="alert">
                 {t('tooLong', { max: NOTE_MAX_LENGTH })}

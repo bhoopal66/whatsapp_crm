@@ -13,6 +13,8 @@ export interface NoteDraft {
   text: string;
   /** The people picked with "@". */
   picked: MentionCandidate[];
+  /** An edit: the note as it was when the edit began. */
+  base?: string;
 }
 
 export const MAX_PARKED_NOTES = 50;
