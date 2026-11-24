@@ -1,5 +1,6 @@
 -- Migration 295: the push of a message that could not be processed, of a
--- personal number and of handed-over work opens the screen its bell opens
+-- personal number, of handed-over work, of a meeting, a calendar event, a
+-- group's join request and a task opens the screen its bell opens
 -- (lib/notifications/target.ts). Fixtures (pli-) are rolled back.
 
 DO $verify$
@@ -30,7 +31,21 @@ BEGIN
     (u_agent, 'work_handed_over',       '{}'::jsonb,                '/inbox'),
     (u_owner, 'meta_number_alert',      '{"personal": true}'::jsonb,  '/settings?tab=whatsapp'),
     (u_owner, 'retention_failed',       '{}'::jsonb,                '/settings?tab=privacy'),
-    (u_owner, 'webhook_disabled',       '{}'::jsonb,                '/settings?tab=api')
+    (u_owner, 'webhook_disabled',       '{}'::jsonb,                '/settings?tab=api'),
+    (u_agent, 'meeting_reminder',  '{"meeting_id": "00000000-0000-4000-8000-000000295010"}'::jsonb, '/meetings/00000000-0000-4000-8000-000000295010'),
+    (u_agent, 'meeting_invite',    '{"meeting_id": "00000000-0000-4000-8000-000000295010"}'::jsonb, '/meetings/00000000-0000-4000-8000-000000295010'),
+    (u_agent, 'meeting_reminder',  '{"meeting_id": "../x"}'::jsonb,   '/notifications'),
+    (u_agent, 'event_reminder',    '{"event_id": "00000000-0000-4000-8000-000000295011"}'::jsonb, '/calendar?event=00000000-0000-4000-8000-000000295011'),
+    (u_agent, 'calendar_invite',   '{"event_id": "00000000-0000-4000-8000-000000295011"}'::jsonb, '/calendar?event=00000000-0000-4000-8000-000000295011'),
+    (u_agent, 'calendar_update',   '{"event_id": "00000000-0000-4000-8000-000000295011"}'::jsonb, '/calendar?event=00000000-0000-4000-8000-000000295011'),
+    (u_agent, 'calendar_cancelled', '{"event_id": "00000000-0000-4000-8000-000000295011"}'::jsonb, '/calendar?event=00000000-0000-4000-8000-000000295011'),
+    (u_agent, 'calendar_response', '{}'::jsonb,                     '/notifications'),
+    (u_agent, 'group_join_request', '{"group_id": "00000000-0000-4000-8000-000000295012"}'::jsonb, '/groups/00000000-0000-4000-8000-000000295012?tab=requests'),
+    (u_agent, 'submission_group_message', '{"group_id": "00000000-0000-4000-8000-000000295012"}'::jsonb, '/submission-groups/00000000-0000-4000-8000-000000295012'),
+    (u_agent, 'task_due',          '{}'::jsonb,                     '/calendar'),
+    (u_agent, 'task_assigned',     '{}'::jsonb,                     '/calls'),
+    (u_owner, 'team_activity_unlock_request', '{}'::jsonb,          '/team-activity?tab=unlocks'),
+    (u_agent, 'team_activity_unlock_request', '{}'::jsonb,          '/notifications')
   ) v(who, kind, meta, want)
   LOOP
     INSERT INTO notifications (account_id, user_id, type, title, meta)
@@ -47,8 +62,8 @@ BEGIN
   RAISE EXCEPTION USING ERRCODE = 'ZP295', MESSAGE = 'rollback';
   EXCEPTION WHEN SQLSTATE 'ZP295' THEN NULL;
   END;
-  IF n <> 11 OR cardinality(failed) > 0 THEN
-    RAISE EXCEPTION 'verify-push-link-inbound: % of 11 checks ran, failed: %', n, array_to_string(failed, '; ');
+  IF n <> 25 OR cardinality(failed) > 0 THEN
+    RAISE EXCEPTION 'verify-push-link-inbound: % of 25 checks ran, failed: %', n, array_to_string(failed, '; ');
   END IF;
   RAISE NOTICE 'verify-push-link-inbound: % checks passed', n;
 END

@@ -1518,7 +1518,7 @@ jobs:
       - name: Verify call notes
         run: supabase db query --local --file supabase/ci/verify-call-notes.sql
 
-      # Migration 295: three pushes open the screen their bell opens.
+      # Migration 295: pushes open the screen their bell opens.
       - name: Verify push link inbound
         run: supabase db query --local --file supabase/ci/verify-push-link-inbound.sql
 

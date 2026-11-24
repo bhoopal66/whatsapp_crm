@@ -90,10 +90,12 @@ and polish.
 - **A video call no longer ends on two refusals with a dropped network in
   between**: only two in a row end it, and a failed account read is "try
   again" (503), not a refusal. No migration.
-- **Three push notifications open the right screen**: a message that could
-  not be processed opens Settings -> WhatsApp, a personal number's alert
-  opens Settings -> Profile, handed-over work opens the inbox; they opened
-  the notifications list (an admin's personal number: the company numbers).
+- **Push notifications open the right screen**: a meeting reminder opens the
+  meeting, a calendar invite or reminder the event, a group's join request
+  its requests tab, a message that could not be processed Settings ->
+  WhatsApp, a personal number's alert Settings -> Profile, handed-over work
+  the inbox, a task without a customer the calendar. They opened the
+  notifications list (an admin's personal number: the company numbers).
   **Migration required: 295** (after 294, any build).
 - **A colleague who was only consulted during a call is not counted as
   having answered it**, so they do not see the call or its recording and
