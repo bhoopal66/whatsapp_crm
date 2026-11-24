@@ -263,6 +263,10 @@ export interface FlowRow {
   last_executed_at: string | null;
   created_at: string;
   updated_at: string;
+  /** The last save of the content (`flow_save`, 300); null before the
+   *  first one, absent before 300. Counted runs do not move it. */
+  edited_at?: string | null;
+  edited_by?: string | null;
 }
 
 export interface FlowNodeRow {

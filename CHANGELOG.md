@@ -22,6 +22,13 @@ and polish.
 
 ### Fixed
 
+- **Saving a flow is safe while customers use it.** The flow and its steps
+  are saved at once or not at all (a refused step used to leave a live flow
+  empty, and a message arriving mid-save ended the customer's run); a live
+  flow that would not pass activation is not saved, with the same list of
+  problems; and a flow somebody else saved since you opened it asks first,
+  with who and when: Reload, or Keep mine. Your changes stay in the editor.
+  **Migration required: 300.**
 - **Two people pressing "Request documents" no longer send the customer the
   same request twice.** A request made within 10 minutes of the case's last
   one asks first: "Requested by … at …. Send again?".
