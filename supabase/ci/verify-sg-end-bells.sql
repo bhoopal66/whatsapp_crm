@@ -1,7 +1,7 @@
 -- Migration 313: at the end of a submission group the unread bell of an
 -- agent who loses it opens the customer (who may see them) or is read (who
--- may not); a coordinator's stays with the group. Rolled back.
-BEGIN;
+-- may not); a coordinator's stays with the group. One statement; rolled back
+-- by the sentinel at its end.
 DO $$
 DECLARE
   u_owner uuid := '00000000-0000-4000-8000-000000313001';
@@ -10,6 +10,7 @@ DECLARE
   u_coord uuid := '00000000-0000-4000-8000-000000313004';
   a uuid; w uuid; c uuid; g uuid; g2 uuid; acc jsonb; r text;
 BEGIN
+  BEGIN
   INSERT INTO auth.users (id, email) VALUES
     (u_owner, 'seb-owner@example.invalid'), (u_sees, 'seb-sees@example.invalid'),
     (u_blind, 'seb-blind@example.invalid'), (u_coord, 'seb-coord@example.invalid');
@@ -49,5 +50,8 @@ BEGIN
   ASSERT NOT has_function_privilege('authenticated', 'public.sg_end(uuid, text)', 'EXECUTE')
      AND NOT has_function_privilege('anon', 'public.sg_end(uuid, text)', 'EXECUTE')
      AND has_function_privilege('service_role', 'public.sg_end(uuid, text)', 'EXECUTE'), 'grants';
+  RAISE EXCEPTION USING ERRCODE = 'ZT313', MESSAGE = 'verify-sg-end-bells rollback';
+  EXCEPTION WHEN SQLSTATE 'ZT313' THEN
+    NULL;
+  END;
 END $$;
-ROLLBACK;
