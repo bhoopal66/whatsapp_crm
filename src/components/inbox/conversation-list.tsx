@@ -89,6 +89,7 @@ import {
   createDeltaCatchUp,
   type DeltaCatchUp,
 } from '@/lib/inbox/delta-catch-up';
+import { createHeldCheck } from '@/lib/inbox/held-check';
 import {
   CONVERSATION_PAGE_SIZE,
   assigneeGroup,
@@ -220,7 +221,9 @@ import { NewChatButton } from './new-chat-button';
 export type ConversationListLoad =
   | { mode: 'replace'; cursor: ConversationCursor | null }
   | { mode: 'append'; cursor: ConversationCursor | null }
-  | { mode: 'delta' };
+  | { mode: 'delta' }
+  /** Held rows that are no longer ours to see. No rows come with it. */
+  | { mode: 'gone'; ids: string[] };
 
 interface ConversationListProps {
   activeConversationId: string | null;
@@ -1391,6 +1394,23 @@ export function ConversationList({
   // failed is retried, and its window kept for the next one
   // (lib/inbox/delta-catch-up.ts).
   useEffect(() => {
+    // A delta cannot say what left: the held ids are asked for again.
+    const heldCheck = createHeldCheck({
+      held: () => heldIdsRef.current,
+      read: async (ids) => {
+        const { data, error } = await createClient()
+          .from('conversations')
+          .select('id')
+          .in('id', ids);
+        if (error) {
+          logFetchError('Failed to check the held conversations:', error);
+          throw new Error('held conversations check failed');
+        }
+        return data.map((row) => row.id as string);
+      },
+      drop: (ids) =>
+        onConversationsLoadedRef.current([], { mode: 'gone', ids }),
+    });
     const catchUp = createDeltaCatchUp<ConversationListItem>({
       read: async (since) => {
         const generation = generationRef.current;
@@ -1409,8 +1429,10 @@ export function ConversationList({
         }
         return normalizeConversations(data ?? []);
       },
-      apply: (rows) =>
-        onConversationsLoadedRef.current(rows, { mode: 'delta' }),
+      apply: (rows) => {
+        onConversationsLoadedRef.current(rows, { mode: 'delta' });
+        void heldCheck.run();
+      },
       // Too much changed to merge piecemeal — start over.
       reload: () => setReloadNonce((n) => n + 1),
       limit: DELTA_LIMIT,
@@ -1419,6 +1441,7 @@ export function ConversationList({
     return () => {
       catchUpRef.current = null;
       catchUp.stop();
+      heldCheck.stop();
     };
   }, []);
 

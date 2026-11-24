@@ -34,6 +34,10 @@ and polish.
 
 ### Fixed
 
+- **A chat handed to someone else leaves the old holder's Inbox.** It stayed
+  in the list with its last message, and opened as "No messages yet", until
+  the page was reloaded. Opening it now says it is no longer yours, and the
+  list drops such chats by itself when it catches up.
 - **An edit of a team note survives switching chats.** It comes back with the
   chat, and after Escape with Edit, until it is saved or cancelled (or the
   app is closed or reloaded).
@@ -45,7 +49,7 @@ and polish.
 - **A voice note or file a group refuses is kept, also after the group was
   left.** It was deleted when its send failed with another group open; it now
   waits in its own group (until the app is closed or reloaded) and the notice
-  names that group. Both kinds of group chat.
+  names that group. Both kinds of group chat, and a case's conversation.
 - **A chat that arrived while the Inbox was out of touch is not missed.**
   When the read that catches the list up after a lost connection or a long
   absence failed, its window was dropped and a new customer chat stayed

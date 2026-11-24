@@ -493,6 +493,7 @@
   },
   "Inbox": {
     "page": {
+      "chatGone": "لم تعد هذه المحادثة من محادثاتك.",
       "whatsappNotConnected": "WhatsApp® غير متصل. انتقل إلى الإعدادات لربط حسابك."
     },
     "reminderSuggestion": {
@@ -8800,7 +8801,7 @@
         "uploadFailed": "فشل الرفع.",
         "fileTooLarge": "حجم هذا الملف {size} MB؛ والحد الأقصى لهذا النوع {limit} MB.",
         "fileTypeNotAllowed": "لا يمكن إرسال هذا النوع من الملفات.",
-        "notSentIn": "لم يُرسل في {group}. هو محفوظ هناك: افتح المجموعة لإرساله مرة أخرى."
+        "notSentIn": "لم يُرسل في {group}. هو محفوظ هناك: افتح المحادثة لإرساله مرة أخرى."
       },
       "reasons": {
         "not_allowed": "ليس لديك صلاحية للقيام بذلك.",

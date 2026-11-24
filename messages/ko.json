@@ -493,6 +493,7 @@
   },
   "Inbox": {
     "page": {
+      "chatGone": "이 채팅은 더 이상 회원님의 채팅이 아닙니다.",
       "whatsappNotConnected": "WhatsApp®이 연결되어 있지 않습니다. 설정으로 이동해 계정을 연결하세요."
     },
     "reminderSuggestion": {
@@ -8800,7 +8801,7 @@
         "uploadFailed": "업로드하지 못했습니다.",
         "fileTooLarge": "이 파일은 {size}MB입니다. 이 종류의 한도는 {limit}MB입니다.",
         "fileTypeNotAllowed": "이 종류의 파일은 보낼 수 없습니다.",
-        "notSentIn": "{group}에 전송되지 않았습니다. 그룹에 보관되어 있으니 열어서 다시 보내세요."
+        "notSentIn": "{group}에 전송되지 않았습니다. 그곳에 보관되어 있으니 열어서 다시 보내세요."
       },
       "reasons": {
         "not_allowed": "이 작업을 할 권한이 없습니다.",

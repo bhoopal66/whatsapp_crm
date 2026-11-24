@@ -64,12 +64,22 @@ export type ThreadView = 'loading' | 'error' | 'empty' | 'messages';
 export function threadView(
   load: ThreadLoad,
   conversationId: string | null | undefined,
-  { loading, hasContent }: { loading: boolean; hasContent: boolean }
+  {
+    loading,
+    hasContent,
+    unconfirmed = false,
+  }: {
+    loading: boolean;
+    hasContent: boolean;
+    /** The chat's own row is still being read: is it still ours? */
+    unconfirmed?: boolean;
+  }
 ): ThreadView {
   if (loading) return 'loading';
   if (hasContent) return 'messages';
   if (isFailed(load, conversationId)) return 'error';
-  return isKnown(load, conversationId) ? 'empty' : 'loading';
+  // A chat handed away answers without messages too.
+  return isKnown(load, conversationId) && !unconfirmed ? 'empty' : 'loading';
 }
 
 /**

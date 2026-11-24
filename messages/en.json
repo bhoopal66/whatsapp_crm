@@ -493,6 +493,7 @@
   },
   "Inbox": {
     "page": {
+      "chatGone": "This chat is no longer yours.",
       "whatsappNotConnected": "WhatsApp® is not connected. Go to Settings to connect your account."
     },
     "reminderSuggestion": {
@@ -8800,7 +8801,7 @@
         "uploadFailed": "Upload failed.",
         "fileTooLarge": "This file is {size} MB; the limit for this kind is {limit} MB.",
         "fileTypeNotAllowed": "This kind of file cannot be sent.",
-        "notSentIn": "Not sent in {group}. It is kept there: open the group to send it again."
+        "notSentIn": "Not sent in {group}. It is kept there: open it to send it again."
       },
       "reasons": {
         "not_allowed": "You don't have permission to do that.",

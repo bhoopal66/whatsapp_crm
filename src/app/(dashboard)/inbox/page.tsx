@@ -892,6 +892,8 @@ export function InboxPageInner({
   // (this ?c= case) the chat opens on the full row, unless another chat
   // was asked for in the meantime (`openingIdRef`).
   const openingIdRef = useRef<OpenTicket | null>(null);
+  // Chats no longer ours (handed away); see dropGone below.
+  const dropGoneRef = useRef<(ids: readonly string[]) => void>(() => {});
   const openDeps = useMemo<OpenConversationDeps>(
     () => ({
       latest: openingIdRef,
@@ -917,9 +919,10 @@ export function InboxPageInner({
           });
           return null;
         }
-        return data ? normalizeConversation(data) : null;
+        return data ? normalizeConversation(data) : 'gone';
       },
       failed: (id) => setFullRowFailedId(id),
+      gone: (id) => dropGoneRef.current([id]),
     }),
     []
   );
@@ -1024,6 +1027,10 @@ export function InboxPageInner({
       if (load.mode === 'append') {
         listCursorRef.current = load.cursor;
         setConversations((prev) => appendConversationPage(prev, loaded));
+        return;
+      }
+      if (load.mode === 'gone') {
+        dropGoneRef.current(load.ids);
         return;
       }
       if (load.mode === 'delta') {
@@ -1187,6 +1194,26 @@ export function InboxPageInner({
     autoSelectedForDeepLinkRef.current = null;
     window.history.replaceState(null, '', selectionUrl(null));
   }, [selectionUrl]);
+
+  // Out of the list and the caches; the open one closes and says why,
+  // rather than standing there without its messages.
+  useEffect(() => {
+    dropGoneRef.current = (ids) => {
+      const gone = new Set(ids);
+      setConversations((prev) =>
+        prev.some((c) => gone.has(c.id))
+          ? prev.filter((c) => !gone.has(c.id))
+          : prev
+      );
+      for (const id of gone) {
+        forgetFailedChat(sessionCache, accountId, user?.id, id);
+      }
+      if (openChatId && gone.has(openChatId)) {
+        handleCloseConversation();
+        toast.info(t('chatGone'));
+      }
+    };
+  });
 
   // Accepts an updater too: the thread prepends older pages and merges
   // resyncs against the freshest state, not a render-time snapshot.
