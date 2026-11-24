@@ -35,8 +35,10 @@
 // them all, `my_live_account_ids`); `accountId` lets the card tell them
 // apart. The queue does not filter by workspace.
 
+import { addDaysToKey } from '@/lib/calendar/ui/mini-month';
 import type { NotificationChange } from '@/lib/notifications/store';
 import { isUuid } from '@/lib/meetings/requests';
+import { zonedParts, zonedWallTimeToInstant } from '@/lib/meetings/schedule';
 import type { Notification } from '@/types';
 
 export const ALARM_TYPES = [
@@ -290,23 +292,25 @@ export class AlarmQueue {
 export const SNOOZE_OPTIONS = ['10m', '1h', 'tomorrow'] as const;
 export type SnoozeOption = (typeof SNOOZE_OPTIONS)[number];
 
-/** When a snoozed alarm comes back. Tomorrow is 09:00 local time. */
-export function snoozeUntil(option: SnoozeOption, now: Date): Date {
+/**
+ * When a snoozed alarm comes back. Tomorrow is 09:00 in the account's
+ * zone, whatever the laptop's clock is set to.
+ */
+export function snoozeUntil(
+  option: SnoozeOption,
+  now: Date,
+  timeZone = 'Asia/Dubai'
+): Date {
   switch (option) {
     case '10m':
       return new Date(now.getTime() + 10 * 60 * 1000);
     case '1h':
       return new Date(now.getTime() + 60 * 60 * 1000);
-    case 'tomorrow':
-      return new Date(
-        now.getFullYear(),
-        now.getMonth(),
-        now.getDate() + 1,
-        9,
-        0,
-        0,
-        0
-      );
+    case 'tomorrow': {
+      const today = zonedParts(now.toISOString(), timeZone).date;
+      // 09:00 exists on every date in the zones accounts use.
+      return zonedWallTimeToInstant(addDaysToKey(today, 1), '09:00', timeZone)!;
+    }
     default: {
       const never: never = option;
       throw new Error(`Unknown snooze option: ${String(never)}`);

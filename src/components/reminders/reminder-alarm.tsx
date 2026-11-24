@@ -9,6 +9,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useNotifications } from '@/components/notifications/notifications-provider';
 import { useCalls } from '@/components/pbx/call-provider';
 import { useActiveCall } from '@/components/meetings/session/meeting-session-provider';
+import { useMeetingTimeZone } from '@/components/meetings/use-workspace-members';
 import { isRingerBusy, meetingRoomPath } from '@/lib/meetings/invite-ring';
 import {
   notificationRow,
@@ -136,6 +137,8 @@ export interface AlarmActionDeps {
   remove: (id: string) => void;
   t: (key: string, values?: Record<string, string | number>) => string;
   formatWhen: (when: Date) => string;
+  /** The account's zone: "tomorrow" is its 09:00. */
+  timeZone: string;
   now?: () => Date;
 }
 
@@ -188,7 +191,11 @@ export function alarmActions(deps: AlarmActionDeps): AlarmActions {
     dismiss: close,
     snooze: async (option) => {
       if (!alarm.taskId) return;
-      const until = snoozeUntil(option, deps.now?.() ?? new Date());
+      const until = snoozeUntil(
+        option,
+        deps.now?.() ?? new Date(),
+        deps.timeZone
+      );
       if (!(await patchTask(alarm.taskId, { dueAt: until.toISOString() }))) {
         toast.error(t('failed'));
         return;
@@ -469,6 +476,7 @@ export function ConnectedAlarmCard({
     activeRole: accountRole,
     workspaces,
   });
+  const timeZone = useMeetingTimeZone();
   const actions = alarmActions({
     alarm,
     plan,
@@ -476,8 +484,10 @@ export function ConnectedAlarmCard({
     openNotification,
     remove,
     t,
+    timeZone,
     formatWhen: (when) =>
       format.dateTime(when, {
+        timeZone,
         weekday: 'short',
         hour: 'numeric',
         minute: '2-digit',

@@ -214,8 +214,7 @@ function rrule(v: unknown): string | null {
 }
 
 /** The refusal of a rule that does not name its series' start date. */
-export const RULE_MISSES_START =
-  'The first date is not one of the repeat days';
+export const RULE_MISSES_START = 'The first date is not one of the repeat days';
 
 /**
  * Checks a create body (`partial` false: title, start, end, allDay,

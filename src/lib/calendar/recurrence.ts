@@ -344,10 +344,7 @@ export function rruleSanity(body: string, anchor: SeriesAnchor): string | null {
  * never shows a start the rule does not name, so a weekly BYDAY=TU that
  * starts on a Thursday loses its first date.
  */
-export function ruleIncludesStart(
-  body: string,
-  anchor: SeriesAnchor
-): boolean {
+export function ruleIncludesStart(body: string, anchor: SeriesAnchor): boolean {
   const startFloat = toFloating(Date.parse(anchor.start_at), anchor.time_zone);
   const day = Math.floor(startFloat / DAY_MS) * DAY_MS;
   const end = day + DAY_MS - 1;

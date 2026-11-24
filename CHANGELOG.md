@@ -45,6 +45,8 @@ and polish.
   date changed on its own, to another day (and showed the changed ones twice).
   They now stay on their day and follow only the time, unless the whole series
   moves: a drag of all events, or repeat days moved with the start.
+- **Reminders: "Snooze until tomorrow" is 09:00 in the workspace's time
+  zone**, not on the laptop's clock.
 - **Compass updates: a status update is never posted twice into a
   submission group, and never lost to short failures.** A timeout or a
   restart mid-post answers `delivery_unconfirmed` and is not posted again
