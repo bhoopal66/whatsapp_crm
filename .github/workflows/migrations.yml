@@ -1534,3 +1534,10 @@ jobs:
       # currency; a deal created without one takes its account's.
       - name: Verify home figures
         run: supabase db query --local --file supabase/ci/verify-home-figures.sql
+
+      # Migration 299: the WhatsApp mirror of a submission group, ACTIVE
+      # or ENDED, is visible to and managed by nobody through the Groups
+      # module, whichever came first, webhook or attach; staff numbers
+      # grant nothing in it; staff_removal_phone has no live filter.
+      - name: Verify submission groups are not groups
+        run: supabase db query --local --file supabase/ci/verify-submission-groups-not-groups.sql
