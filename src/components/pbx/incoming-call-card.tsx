@@ -8,7 +8,7 @@
 // phone, so Answer only says where to pick up and Decline hangs up the
 // person's own ringing leg; a registered softphone does both itself.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Circle, GripHorizontal, Phone, PhoneOff } from 'lucide-react';
 import { useTranslations } from 'next-intl';
@@ -27,12 +27,7 @@ import {
   ringElapsedMs,
   type HeldFacts,
 } from '@/lib/pbx/call-ui';
-import {
-  UNKNOWN_FACTS,
-  loadVisibleFacts,
-  parseCallFacts,
-  type CallFacts,
-} from '@/lib/pbx/call-facts';
+import { keepFacts, loadCallFacts, type CallFacts } from '@/lib/pbx/call-facts';
 import { RING_CARD_DEFAULT, type Rect } from '@/lib/pbx/call-window';
 import { customerHref } from '@/lib/pbx/timeline';
 import { createClient } from '@/lib/supabase/client';
@@ -46,47 +41,63 @@ export type { CallFacts };
 /**
  * What the card and the panel show of a call's customer, held with the
  * contact and the call it was loaded for (factsFor): the card stays
- * mounted from one call to the next. For a live call of mine, the facts route (a contact
- * my own reads hide still shows its name, owner and consent); otherwise,
- * or when the route refuses, my own reads, where a hidden contact shows
- * nothing and its consent as unknown.
+ * mounted from one call to the next. Loaded by loadCallFacts; `ended` is
+ * read when a load starts and starts none itself, so what was shown during
+ * the call stays (keepFacts).
  */
 export function useCallFacts(
   contactId: string | null,
-  live: { connectionId: string; pbxCallId: string } | null = null
-): CallFacts | null {
+  live: { connectionId: string; pbxCallId: string } | null,
+  ended = false
+): { facts: CallFacts | null; retry: () => void } {
   const [held, setHeld] = useState<HeldFacts<CallFacts> | null>(null);
+  const [tries, setTries] = useState(0);
   const connectionId = live?.connectionId ?? null;
   const pbxCallId = live?.pbxCallId ?? null;
   const callKey =
     connectionId && pbxCallId
       ? liveKey({ connection_id: connectionId, pbx_call_id: pbxCallId })
       : null;
+  // Declared before the load, so a load of the same render reads it.
+  const over = useRef(ended);
+  useEffect(() => {
+    over.current = ended;
+  }, [ended]);
   useEffect(() => {
     if (!contactId) return;
     let on = true;
-    void (async () => {
-      let facts: CallFacts | null = null;
-      if (connectionId && pbxCallId) {
-        const res = await fetch(
-          `/api/pbx/calls/facts?${new URLSearchParams({
-            connectionId,
-            pbxCallId,
-            contactId,
-          })}`
-        ).catch(() => null);
-        if (res?.ok) facts = parseCallFacts(await res.json().catch(() => null));
-      }
-      facts ??=
-        (await loadVisibleFacts(createClient(), contactId).catch(() => null)) ??
-        UNKNOWN_FACTS;
-      if (on) setHeld({ contactId, callKey, facts });
-    })();
+    void loadCallFacts(
+      createClient(),
+      contactId,
+      connectionId && pbxCallId
+        ? { connectionId, pbxCallId, ended: over.current }
+        : null
+    ).then((facts) => {
+      if (on) setHeld((was) => keepFacts(was, { contactId, callKey, facts }));
+    });
     return () => {
       on = false;
     };
-  }, [contactId, connectionId, pbxCallId, callKey]);
-  return factsFor(held, contactId, callKey);
+  }, [contactId, connectionId, pbxCallId, callKey, tries]);
+  const retry = useCallback(() => setTries((n) => n + 1), []);
+  return { facts: factsFor(held, contactId, callKey), retry };
+}
+
+/** The card's and the panel's "Some details could not be loaded". */
+export function FactsIncomplete({ onRetry }: { onRetry: () => void }) {
+  const t = useTranslations('PbxCall');
+  return (
+    <p className="col-span-2 mt-1 flex flex-wrap items-center gap-x-2">
+      <span>{t('factsIncomplete')}</span>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="font-medium underline underline-offset-2"
+      >
+        {t('retry')}
+      </button>
+    </p>
+  );
 }
 
 /** "Which customer?" for a number that matched several contacts. */
@@ -191,7 +202,7 @@ export function IncomingCallCard() {
   });
   const now = useNow(Boolean(call));
   const pickedId = key ? (calls?.picks[key] ?? null) : null;
-  const facts = useCallFacts(
+  const { facts, retry: retryFacts } = useCallFacts(
     call?.contact_id ?? pickedId,
     call
       ? { connectionId: call.connection_id, pbxCallId: call.pbx_call_id }
@@ -243,6 +254,8 @@ export function IncomingCallCard() {
       failed(err);
     }
   };
+  // "None" only when it was read.
+  const none = facts?.incomplete ? '—' : t('none');
   const fact = (label: string, value: string) => (
     <>
       <dt className="text-white/70">{label}</dt>
@@ -263,7 +276,7 @@ export function IncomingCallCard() {
         // Placed by useFloatingWindow (left/top); below `sm` it is
         // pinned under the header, full width.
         ref={attach}
-        className="fixed z-[60] w-[380px] max-w-[calc(100vw-24px)] rounded-[18px] bg-[#0f1b2d] p-4 text-white shadow-[0_12px_40px_rgba(0,0,0,0.35)] max-sm:top-[68px] max-sm:end-3 max-sm:start-3 max-sm:w-auto max-sm:max-w-none dark:ring-1 dark:ring-white/10"
+        className="fixed z-[60] w-[380px] max-w-[calc(100vw-24px)] rounded-[18px] bg-[#0f1b2d] p-4 text-white shadow-[0_12px_40px_rgba(0,0,0,0.35)] max-sm:start-3 max-sm:end-3 max-sm:top-[68px] max-sm:w-auto max-sm:max-w-none dark:ring-1 dark:ring-white/10"
       >
         {/* The drag handle: the status row and the title, not the buttons. */}
         <div
@@ -305,13 +318,13 @@ export function IncomingCallCard() {
         {facts && (
           <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-xl bg-white/[0.07] p-3 text-xs">
             {fact(t('owner'), owner)}
-            {!facts.hidden && fact(t('openDeal'), facts.deal ?? t('none'))}
+            {!facts.hidden && fact(t('openDeal'), facts.deal ?? none)}
             {!facts.hidden &&
               fact(
                 t('lastWhatsApp'),
                 facts.last
                   ? `${messageWhen(facts.last.at, now)} — “${facts.last.text}”`
-                  : t('none')
+                  : none
               )}
             {fact(
               t('consent'),
@@ -324,7 +337,8 @@ export function IncomingCallCard() {
                 marketingOff: t('marketingOff'),
               })
             )}
-            {facts.hidden && (
+            {facts.incomplete && <FactsIncomplete onRetry={retryFacts} />}
+            {facts.hidden && !facts.incomplete && (
               <p className="col-span-2 mt-1 text-white/70">
                 {t('detailsHidden')}
               </p>

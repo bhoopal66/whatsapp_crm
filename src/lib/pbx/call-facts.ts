@@ -15,13 +15,15 @@
 // ============================================================
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { clip, type ConsentFields } from './call-ui';
+import { clip, type ConsentFields, type HeldFacts } from './call-ui';
 
 export interface CallFacts extends ConsentFields {
   /** Only name, owner and consent: the person cannot see this contact. */
   hidden: boolean;
   /** False when nothing about consent could be read. */
   consentKnown: boolean;
+  /** A read failed: what is missing here may exist. */
+  incomplete: boolean;
   name: string | null;
   company: string | null;
   phone: string | null;
@@ -52,6 +54,7 @@ export const UNKNOWN_FACTS: CallFacts = {
   ...EMPTY,
   hidden: true,
   consentKnown: false,
+  incomplete: false,
   name: null,
   ownerId: null,
 };
@@ -79,6 +82,7 @@ export function hiddenFacts(
     do_not_contact_reason: null,
     hidden: true,
     consentKnown: true,
+    incomplete: false,
     name: text(row.name),
     ownerId: text(row.user_id),
     ownerName,
@@ -87,7 +91,8 @@ export function hiddenFacts(
 
 /**
  * The full facts as `sb`'s own RLS shows them (deal, chat and last
- * message included), or null when it does not show the contact.
+ * message included), or null when it does not show the contact. A deal,
+ * chat or message read that fails is `incomplete`, not "none".
  */
 export async function loadVisibleFacts(
   sb: SupabaseClient,
@@ -122,6 +127,7 @@ export async function loadVisibleFacts(
   } | null;
   const convId = (conv.data?.[0] as { id: string } | undefined)?.id ?? null;
   let last: CallFacts['last'] = null;
+  let incomplete = Boolean(d.error || conv.error);
   if (convId) {
     const m = await sb
       .from('messages')
@@ -129,6 +135,7 @@ export async function loadVisibleFacts(
       .eq('conversation_id', convId)
       .order('created_at', { ascending: false })
       .limit(1);
+    if (m.error) incomplete = true;
     const msg = m.data?.[0] as
       | {
           content_text: string | null;
@@ -146,6 +153,7 @@ export async function loadVisibleFacts(
     ...consentOf(row),
     hidden: false,
     consentKnown: true,
+    incomplete,
     name: text(row.name),
     company: text(row.company),
     phone: text(row.phone),
@@ -169,6 +177,7 @@ export function parseCallFacts(body: unknown): CallFacts | null {
     ...consentOf(b),
     hidden: b.hidden,
     consentKnown: b.consentKnown === true,
+    incomplete: b.incomplete === true,
     name: text(b.name),
     company: text(b.company),
     phone: text(b.phone),
@@ -190,4 +199,60 @@ export function parseCallFacts(body: unknown): CallFacts | null {
         do_not_contact_reason: null,
       }
     : facts;
+}
+
+/**
+ * A call's facts for the card and the panel: the facts route for a live
+ * call of mine (a contact my own reads hide still shows its name, owner
+ * and consent); otherwise, or when the route refuses, my own reads, where
+ * a hidden contact shows nothing and its consent as unknown. The route
+ * answers from the live row, which goes with the call, so once the call
+ * has ended it is not asked: it could only refuse. A read that failed is
+ * `incomplete`, for a Retry. Never throws.
+ */
+export async function loadCallFacts(
+  sb: SupabaseClient,
+  contactId: string,
+  live: { connectionId: string; pbxCallId: string; ended: boolean } | null
+): Promise<CallFacts> {
+  let failed = false;
+  if (live && !live.ended) {
+    const res = await fetch(
+      `/api/pbx/calls/facts?${new URLSearchParams({
+        connectionId: live.connectionId,
+        pbxCallId: live.pbxCallId,
+        contactId,
+      })}`
+    ).catch(() => null);
+    const facts = res?.ok
+      ? parseCallFacts(await res.json().catch(() => null))
+      : null;
+    if (facts) return facts;
+    failed = !res || res.status >= 500;
+  }
+  try {
+    const own = await loadVisibleFacts(sb, contactId);
+    return own ?? { ...UNKNOWN_FACTS, incomplete: failed };
+  } catch {
+    return { ...UNKNOWN_FACTS, incomplete: true };
+  }
+}
+
+const worth = (f: CallFacts) => (f.consentKnown ? (f.incomplete ? 1 : 2) : 0);
+
+/**
+ * What to hold once `next` was loaded: it, unless the facts held for the
+ * same contact on the same call say more. A read after the call ended, or
+ * one that failed, must not take away what the person was already shown.
+ */
+export function keepFacts(
+  held: HeldFacts<CallFacts> | null,
+  next: HeldFacts<CallFacts>
+): HeldFacts<CallFacts> {
+  return held &&
+    held.contactId === next.contactId &&
+    held.callKey === next.callKey &&
+    worth(held.facts) > worth(next.facts)
+    ? held
+    : next;
 }

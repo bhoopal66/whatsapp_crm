@@ -88,6 +88,7 @@ import { CallHistoryList, useCallHistory } from './call-history';
 import { OpenTasks } from './call-tasks';
 import {
   CandidatePicker,
+  FactsIncomplete,
   useCallFacts,
   useNow,
   type CallFacts,
@@ -160,12 +161,13 @@ function Panel() {
   const now = useNow(true);
   const wrapLeft = p.endedAt === null ? null : wrapUpLeftMs(p.endedAt, now);
   const pickedId = calls.picks[p.key];
-  const facts = useCallFacts(
+  const { facts, retry: retryFacts } = useCallFacts(
     row?.contact_id ?? p.contactId ?? pickedId ?? null,
     {
       connectionId: p.connectionId,
       pbxCallId: p.pbxCallId,
-    }
+    },
+    ended
   );
   const ref = { pbxCallId: p.pbxCallId, remoteNumber: p.remoteNumber };
   const owner = otherOwner(facts?.ownerId, calls.userId);
@@ -613,6 +615,7 @@ function Panel() {
       panel: (
         <CustomerTab
           facts={facts}
+          onRetryFacts={retryFacts}
           contactId={contactId}
           now={now}
           onCreate={
@@ -1074,11 +1077,13 @@ function Panel() {
 /** The Customer tab: what useCallFacts knows, and where to go next. */
 function CustomerTab({
   facts,
+  onRetryFacts,
   contactId,
   onCreate,
   now,
 }: {
   facts: CallFacts | null;
+  onRetryFacts: () => void;
   contactId: string | null;
   /** Create contact for an unknown caller; null without send-messages. */
   onCreate: (() => void) | null;
@@ -1087,6 +1092,8 @@ function CustomerTab({
   const calls = useCalls()!;
   const t = useTranslations('PbxCall');
   const ownedBy = otherOwner(facts?.ownerId, calls.userId);
+  // "None" only when it was read.
+  const none = facts?.incomplete ? '—' : t('none');
   const owner = facts?.ownerId
     ? facts.ownerId === calls.userId
       ? t('you', { name: calls.names[facts.ownerId] ?? '' })
@@ -1126,13 +1133,13 @@ function CustomerTab({
       {facts && (
         <dl className="bg-card-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 rounded-lg border p-3 text-xs">
           {fact(t('owner'), owner)}
-          {!facts.hidden && fact(t('openDeal'), facts.deal ?? t('none'))}
+          {!facts.hidden && fact(t('openDeal'), facts.deal ?? none)}
           {!facts.hidden &&
             fact(
               t('lastWhatsApp'),
               facts.last
                 ? `${messageWhen(facts.last.at, now)} — “${facts.last.text}”`
-                : t('none')
+                : none
             )}
           {fact(
             t('consent'),
@@ -1145,7 +1152,8 @@ function CustomerTab({
               marketingOff: t('marketingOff'),
             })
           )}
-          {facts.hidden && (
+          {facts.incomplete && <FactsIncomplete onRetry={onRetryFacts} />}
+          {facts.hidden && !facts.incomplete && (
             <p className="text-muted-foreground col-span-2 mt-1">
               {t('detailsHidden')}
             </p>

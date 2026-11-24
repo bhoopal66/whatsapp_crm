@@ -7237,6 +7237,7 @@
     "marketingOff": "marketing off",
     "optedOut": "Opted out",
     "consentUnknown": "Unknown",
+    "factsIncomplete": "Some details could not be loaded",
     "detailsHidden": "This customer is outside your view: only their name, owner and consent are shown.",
     "recordedNotice": "Recorded call. The caller has heard the English and Arabic notice.",
     "decline": "Decline",

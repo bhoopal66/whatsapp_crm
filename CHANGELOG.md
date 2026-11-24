@@ -22,6 +22,10 @@ and polish.
 
 ### Fixed
 
+- **The call card and window say when some details could not be loaded**,
+  with Retry, instead of showing "None" for a deal or last message that
+  failed to load. And they stop asking for a call's customer after it has
+  ended, so what was shown during the call stays. No migration.
 - **A call that was picked up, then sent on to someone who did not take
   it, is on the Missed list.** Both call reports counted it as missed while
   the list, the customer page and its month figures did not. No migration.
