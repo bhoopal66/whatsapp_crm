@@ -1440,7 +1440,8 @@
       "delivered": "تم التسليم",
       "read": "تمت القراءة",
       "replied": "تم الرد",
-      "unknown": "غير معروف"
+      "unknown": "غير معروف",
+      "stopped": "متوقفة"
     },
     "detail": {
       "backToBroadcasts": "العودة إلى الحملات",
@@ -1494,7 +1495,13 @@
       "toastResumeStarted": "جارٍ إرسال الرسالة إلى {count} من المستلمين في الخلفية.",
       "toastResumeStartedCapped": "جارٍ إرسال الرسالة إلى {count} من المستلمين في الخلفية. سيحتاج {remaining} آخرون إلى تشغيل إضافي.",
       "toastResumeFailed": "تعذر الاستئناف: {error}",
-      "followUpFlow": "تبدأ الردود المسار <link>{name}</link>."
+      "followUpFlow": "تبدأ الردود المسار <link>{name}</link>.",
+      "stop": "إيقاف",
+      "stopPrompt": "تتوقف الحملة بعد الرسالة الجاري إرسالها الآن. من استلمها تبقى لديه. يمكنك الاستئناف لاحقًا.",
+      "toastStopped": "تم إيقاف الحملة: أُرسلت إلى {sent}، ولم تُرسل إلى {remaining}",
+      "toastFailedStop": "تعذّر إيقاف الحملة: {error}",
+      "stoppedTitle": "هذه الحملة متوقفة",
+      "stoppedHint": "{count, plural, one {لم يستلمها شخص واحد (#).} other {لم يستلمها # من الأشخاص.}} يؤدي الاستئناف إلى إرسالها إليهم الآن."
     },
     "new": {
       "title": "حملة جديدة",

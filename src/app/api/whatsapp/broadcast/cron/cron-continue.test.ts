@@ -181,6 +181,35 @@ describe('continuing a scheduled campaign', () => {
     expect(await tick()).toMatchObject({ started: 0, skipped: 0 });
   });
 
+  it('never picks up a stopped campaign, nor one stopped as it is claimed', async () => {
+    for (const status of ['sending', 'scheduled']) {
+      const w = use(world([2], { status: 'stopped' }));
+      expect(await tick()).toMatchObject({ started: 0, skipped: 0 });
+
+      // Stopped between the read and the claim.
+      w.broadcasts[0].status = status;
+      const db = h.db as { from: (t: string) => { update: unknown } };
+      const from = db.from;
+      db.from = (t: string) => {
+        const b = from(t) as { update: (p: Row) => unknown };
+        const update = b.update;
+        b.update = (p: Row) => {
+          if (p.delivery_locked_at) w.broadcasts[0].status = 'stopped';
+          return update(p);
+        };
+        return b;
+      };
+      expect(await tick()).toMatchObject({ started: 0 });
+      await runPasses();
+      expect(h.send).not.toHaveBeenCalled();
+      expect(w.broadcasts[0]).toMatchObject({
+        status: 'stopped',
+        delivery_locked_at: null,
+      });
+      expect(w.broadcast_recipients[0].error_message).toBeNull();
+    }
+  });
+
   it('leaves one whose lock is fresh, and takes one whose lock is stale', async () => {
     const w = use(world([2], { delivery_locked_at: ago(29 * MIN) }));
     expect(await tick()).toMatchObject({ started: 0, skipped: 0 });

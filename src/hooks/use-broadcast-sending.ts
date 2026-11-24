@@ -415,6 +415,8 @@ export async function deliverOnServer(
         // campaign's status from the rows.
         return;
       }
+      // Someone stopped it: its page resumes it.
+      if (data.code === 'campaign_stopped') return;
       // The window began between two passes: a pause, not a failure. The
       // rest stay pending for Resume.
       if (data.code === 'quiet_hours' && pass > 0) return;

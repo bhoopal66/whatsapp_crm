@@ -292,12 +292,13 @@ export async function planBroadcastResume(
   db: SupabaseClient,
   accountId: string,
   broadcastId: string,
-  scope: ResumeScope
+  scope: ResumeScope,
+  opts: { resumeStopped?: boolean } = {}
 ): Promise<ResumePlan> {
   const { data: broadcast, error: bcError } = await db
     .from('broadcasts')
     .select(
-      'id, template_name, template_language, header_media_url, quiet_hours'
+      'id, status, template_name, template_language, header_media_url, quiet_hours'
     )
     .eq('id', broadcastId)
     .eq('account_id', accountId)
@@ -309,6 +310,10 @@ export async function planBroadcastResume(
   }
   if (!broadcast) {
     throw new BroadcastError('not_found', 'Broadcast not found', 404);
+  }
+
+  if (broadcast.status === 'stopped' && !opts.resumeStopped) {
+    throw campaignStopped();
   }
 
   // Never 409 here: the wizard reads that as "a pass is running" and
@@ -542,14 +547,34 @@ export async function planBroadcastResume(
 /**
  * Put the broadcast back into `sending` for the duration of the pass,
  * so the detail page reads as in-flight rather than as a finished
- * campaign that is quietly still working.
+ * campaign that is quietly still working. Conditional: a Stop that came
+ * while the pass was planned stands, and this throws.
  */
 export async function markBroadcastSending(
   db: SupabaseClient,
-  broadcastId: string
+  broadcastId: string,
+  opts: { resumeStopped?: boolean } = {}
 ): Promise<void> {
-  await db
+  const from = ['scheduled', 'sending', 'sent', 'failed'];
+  if (opts.resumeStopped) from.push('stopped');
+  const { data, error } = await db
     .from('broadcasts')
     .update({ status: 'sending', updated_at: new Date().toISOString() })
-    .eq('id', broadcastId);
+    .eq('id', broadcastId)
+    .in('status', from)
+    .select('id');
+  if (error) {
+    console.error('[broadcast-resume] mark sending failed:', error.message);
+    throw new BroadcastError('internal', 'Failed to start the broadcast', 500);
+  }
+  if (!data?.length) throw campaignStopped();
+}
+
+/** Never a 409: the wizard reads that as "a pass is running". */
+function campaignStopped(): BroadcastError {
+  return new BroadcastError(
+    'campaign_stopped',
+    'This campaign was stopped. Resume it from its page.',
+    400
+  );
 }

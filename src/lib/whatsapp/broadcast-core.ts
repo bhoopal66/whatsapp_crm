@@ -643,7 +643,8 @@ export async function deliverBroadcast(
     // Write-ahead: the row says "may have been sent" BEFORE the gateway is
     // asked, so a pass that dies mid-send leaves a row the next plan fails
     // instead of sending again. Conditional, so a row another pass already
-    // sent or is sending matches nothing and is skipped.
+    // sent or is sending matches nothing and is skipped, and so is every
+    // row of a campaign that is not 'sending' (migration 301).
     const { data: marked, error: markError } = await db
       .from('broadcast_recipients')
       .update({ error_message: SEND_UNCONFIRMED_REASON })
@@ -655,7 +656,15 @@ export async function deliverBroadcast(
       stopped = `the next send could not be recorded: ${markError.message}`;
       break;
     }
-    if (!marked || marked.length === 0) continue;
+    if (!marked || marked.length === 0) {
+      // Nothing is marked either once the campaign is no longer 'sending'
+      // (the trigger of migration 301): then the whole pass ends.
+      if (await wasStopped(db, plan.broadcastId)) {
+        stopped = 'the campaign was stopped';
+        break;
+      }
+      continue;
+    }
 
     const variants = phoneVariants(recipient.phone);
     let sentMessageId: string | null = null;
@@ -766,6 +775,18 @@ export async function deliverBroadcast(
   // Receipts that beat a wamid stamp above were matched to nothing.
   await reconcileBroadcastStatuses({ broadcastId: plan.broadcastId });
   if (!lockLost) await finalizeBroadcastStatus(db, plan.broadcastId);
+}
+
+async function wasStopped(
+  db: SupabaseClient,
+  broadcastId: string
+): Promise<boolean> {
+  const { data } = await db
+    .from('broadcasts')
+    .select('status')
+    .eq('id', broadcastId)
+    .maybeSingle();
+  return data?.status === 'stopped';
 }
 
 /**

@@ -14,6 +14,10 @@ and polish.
 
 ### Added
 
+- **A campaign can be stopped.** Stop on the page of a running or scheduled
+  campaign ends it after the message being sent now; everyone who got it
+  stays recorded, the rest stay pending, and Resume sends to them later.
+  **Migration required: 301** (before the build).
 - **A screen that breaks in someone's browser reaches the server log**
   (`[client-error]`), with the screen and the place in the code and nothing
   typed on it; and the browser's reports of what the Content-Security-Policy

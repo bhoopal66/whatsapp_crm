@@ -4,6 +4,8 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+import { SEND_UNCONFIRMED_REASON } from '@/lib/broadcasts/unconfirmed-send';
+
 export type Row = Record<string, unknown>;
 
 const MAX_ROWS = 1000;
@@ -63,6 +65,17 @@ export function fakeDb(
         let rows = (tables[table] ?? []).filter((r) =>
           filters.every((f) => f(r))
         );
+        // broadcast_recipients_stopped_guard (migration 301).
+        if (patch?.error_message === SEND_UNCONFIRMED_REASON && !patch.status) {
+          rows = rows.filter((r) =>
+            (tables.broadcasts ?? []).every(
+              (b) =>
+                b.id !== r.broadcast_id ||
+                b.status === undefined ||
+                b.status === 'sending'
+            )
+          );
+        }
         if (patch) {
           for (const r of rows) Object.assign(r, patch);
           if (rows.length) opts.onUpdate?.(table, patch, rows);

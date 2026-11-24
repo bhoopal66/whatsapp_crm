@@ -1440,7 +1440,8 @@
       "delivered": "Delivered",
       "read": "Read",
       "replied": "Replied",
-      "unknown": "Unknown"
+      "unknown": "Unknown",
+      "stopped": "Stopped"
     },
     "detail": {
       "backToBroadcasts": "Back to Broadcasts",
@@ -1494,7 +1495,13 @@
       "toastResumeStarted": "Sending {count} recipients in the background.",
       "toastResumeStartedCapped": "Sending {count} recipients in the background. {remaining} more will need another run.",
       "toastResumeFailed": "Could not resume: {error}",
-      "followUpFlow": "Replies start the flow <link>{name}</link>."
+      "followUpFlow": "Replies start the flow <link>{name}</link>.",
+      "stop": "Stop",
+      "stopPrompt": "Stops after the message being sent now. People who already got it keep it. You can resume later.",
+      "toastStopped": "Campaign stopped: {sent} sent, {remaining} not sent",
+      "toastFailedStop": "Could not stop the campaign: {error}",
+      "stoppedTitle": "This campaign is stopped",
+      "stoppedHint": "{count, plural, one {# person has not received it.} other {# people have not received it.}} Resume sends to them now."
     },
     "new": {
       "title": "New Broadcast",
