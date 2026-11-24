@@ -22,6 +22,12 @@ and polish.
 
 ### Fixed
 
+- **After a transfer, the other person can name the customer too.** The
+  contact picked on the incoming-call card (or just created) was refused
+  for everyone but the call's one person; anyone who answered may now fill
+  a call's empty customer. Changing the customer of a call that has one
+  stays with its person and team leaders. "My calls" also lists the calls
+  you answered after a transfer. **Migration required: 294** (extended).
 - **Speaking to a customer closes their missed-call task.** When a later
   call with them is answered (they ring again, or a call back they pick
   up), the open missed-call tasks of that contact or number close with a

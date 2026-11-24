@@ -3,7 +3,9 @@
 -- (calls.meta.answered_user_ids) may see it and write its note, in their
 -- active account; nobody else gains anything, a leader of one of them
 -- included. And pbx_save_call_note: the same people, only the fields sent,
--- a note only over the text its writer last saw. Leaves nothing behind (everything in one rolled-back block).
+-- a note only over the text its writer last saw. And pbx_link_call_contact:
+-- the same people, but only the call's person and a team leader move a
+-- call off the contact it has. Leaves nothing behind (everything in one rolled-back block).
 -- ============================================================
 DO $verify$
 DECLARE
@@ -17,6 +19,7 @@ DECLARE
   a_acct uuid; a_x uuid; t_team uuid; k uuid; k_bad uuid; k_json text;
   failed text[] := '{}'; n int := 0; r text;
   what text; who uuid; want text; seen text;
+  k_co uuid; k_co2 uuid; k_co_x uuid; k_int uuid; k_call uuid; k_was uuid; k_pick uuid;
   fields jsonb; stored text; by_now uuid; row_now text; said jsonb;
 BEGIN
   BEGIN
@@ -169,11 +172,50 @@ BEGIN
       failed := array_append(failed, format('%s: the wrong stamp', what));
     END IF;
   END LOOP;
+  -- Who may name the call's customer. Two contacts of everyone's here and
+  -- one of the other account.
+  INSERT INTO contacts (account_id, user_id, phone, name) VALUES (a_acct, u_b, '971500294001', 'pcn one') RETURNING id INTO k_co;
+  INSERT INTO contacts (account_id, user_id, phone, name) VALUES (a_acct, u_b, '971500294002', 'pcn two') RETURNING id INTO k_co2;
+  INSERT INTO contacts (account_id, user_id, phone, name) VALUES (a_x, u_x, '971500294003', 'pcn other') RETURNING id INTO k_co_x;
+  INSERT INTO calls (account_id, pbx_call_id, direction, user_id, status, meta)
+  VALUES (a_acct, 'pcn-3', 'internal', u_a, 'answered',
+          jsonb_build_object('answered_user_ids', jsonb_build_array(u_b)))
+  RETURNING id INTO k_int;
+  UPDATE contacts SET user_id = u_a WHERE id = k_co2;
+  FOR what, who, k_call, k_was, k_pick, want IN VALUES
+    ('the one it was transferred to, no contact yet', u_b, k, NULL::uuid, k_co, 'ok'),
+    ('the same pick again', u_b, k, k_co, k_co, 'ok'),
+    ('the one it was transferred to, over a contact', u_b, k, k_co2, k_co, '42501'),
+    ('the call''s person, over a contact', u_a, k, k_co, k_co2, 'ok'),
+    ('the owner, over a contact', u_own, k, k_co, k_co2, 'ok'),
+    ('a viewer in the list', u_view, k, NULL, k_co, '42501'),
+    ('a colleague who did not answer', u_c, k, NULL, k_co, 'P0002'),
+    ('the leader of one who answered', u_lead, k, NULL, k_co, 'P0002'),
+    ('another account''s person in the list', u_x, k, NULL, k_co_x, 'P0002'),
+    ('a contact of another account', u_b, k, NULL, k_co_x, 'P0002'),
+    ('a contact the caller cannot see', u_b, k, NULL, k_co2, 'P0002'),
+    ('an internal call', u_b, k_int, NULL, k_co, '22023'),
+    ('through a list that is an object', u_b, k_bad, NULL, k_co, 'P0002')
+  LOOP
+    UPDATE calls SET contact_id = k_was WHERE id = k_call;
+    r := pg_temp.pcn_try(who, format('SELECT pbx_link_call_contact(%L, %L)', k_call, k_pick));
+    n := n + 1;
+    IF r <> want THEN failed := array_append(failed, format('%s links: %s, not %s', what, r, want)); END IF;
+    n := n + 1;
+    IF (SELECT c.contact_id FROM calls c WHERE c.id = k_call)
+       IS DISTINCT FROM (CASE WHEN want = 'ok' THEN k_pick ELSE k_was END) THEN
+      failed := array_append(failed, format('%s links: the wrong contact stored', what));
+    END IF;
+  END LOOP;
+  UPDATE calls SET contact_id = NULL WHERE id = k;
   -- An erased call is an error, never a conflict.
   UPDATE calls SET erased_at = now(), recording_state = 'erased', disposition = NULL, notes = NULL WHERE id = k;
   r := pg_temp.pcn_try(u_a, format('SELECT pbx_save_call_note(%L, ''{"notes": "x"}'')', k));
   n := n + 1;
   IF r <> '55000' THEN failed := array_append(failed, ('a note on an erased call: ' || r)::text); END IF;
+  r := pg_temp.pcn_try(u_own, format('SELECT pbx_link_call_contact(%L, %L)', k, k_co));
+  n := n + 1;
+  IF r <> '55000' THEN failed := array_append(failed, ('a contact on an erased call: ' || r)::text); END IF;
   r := pg_temp.pcn_try(u_b, format('SELECT pbx_save_call_note(%L, ''{"notes": "x"}'')', k_bad));
   n := n + 1;
   IF r <> 'P0002' THEN failed := array_append(failed, ('a note through a list that is an object: ' || r)::text); END IF;
@@ -197,6 +239,8 @@ BEGIN
      OR has_function_privilege('anon', 'public.pbx_set_disposition(uuid, text, text)', 'EXECUTE')
      OR has_function_privilege('anon', 'public.pbx_can_view_call(public.calls)', 'EXECUTE')
      OR has_function_privilege('anon', 'public.pbx_save_call_note(uuid, jsonb)', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.pbx_link_call_contact(uuid, uuid)', 'EXECUTE')
+     OR NOT has_function_privilege('authenticated', 'public.pbx_link_call_contact(uuid, uuid)', 'EXECUTE')
      OR NOT has_function_privilege('authenticated', 'public.pbx_save_call_note(uuid, jsonb)', 'EXECUTE')
      OR NOT has_function_privilege('authenticated', 'public.pbx_set_disposition(uuid, text, text)', 'EXECUTE')
      OR NOT has_function_privilege('authenticated', 'public.pbx_can_view_call(public.calls)', 'EXECUTE') THEN

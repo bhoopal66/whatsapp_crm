@@ -405,15 +405,17 @@ export const CALL_LIST_MAX = 200;
  */
 /**
  * PostgREST `or` terms for "my calls": calls `userId` took or placed
- * (user_id), was the other party to (peer_user_id), or that rang their
+ * (user_id), was the other party to (peer_user_id), that rang their
  * phone (calls.meta.rang_user_ids, a jsonb array the PBX processor
- * keeps). The last is a jsonb containment, so its value is JSON text,
- * not the `{…}` array literal postgrest-js's contains() writes for a
- * Postgres array. `userId` is the session's auth uid, never request
- * input.
+ * keeps), or that they answered a leg of (meta.answered_user_ids, 294:
+ * user_id names one person of a transferred call). The last two are
+ * jsonb containments, so the value is JSON text, not the `{…}` array
+ * literal postgrest-js's contains() writes for a Postgres array.
+ * `userId` is the session's auth uid, never request input.
  */
 export function myCallsFilter(userId: string): string {
-  return `user_id.eq.${userId},peer_user_id.eq.${userId},meta->rang_user_ids.cs.${JSON.stringify([userId])}`;
+  const listed = JSON.stringify([userId]);
+  return `user_id.eq.${userId},peer_user_id.eq.${userId},meta->rang_user_ids.cs.${listed},meta->answered_user_ids.cs.${listed}`;
 }
 
 /**
