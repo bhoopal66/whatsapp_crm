@@ -462,6 +462,14 @@ export function EventDialog({
             })}
           </ul>
         )}
+        {item?.kind === 'event' &&
+          item.recurring &&
+          !occurrenceOnly &&
+          initial?.attendees.some((id) => !values.attendees.includes(id)) && (
+            <p className="text-muted-foreground text-xs">
+              {t('form.editedDatesKeepGuests')}
+            </p>
+          )}
         <AttendeeSearch
           search={search}
           setSearch={setSearch}

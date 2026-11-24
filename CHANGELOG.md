@@ -53,6 +53,8 @@ and polish.
 - **Calendar: a save conflict keeps what was typed.** When the event changed
   meanwhile, the form keeps the person's own changes, takes the rest, and
   names what changed on the other side.
+- **Calendar: deleting all events, or taking a guest off a series, says that
+  dates changed on their own are not touched.**
 - **Compass updates: a status update is never posted twice into a
   submission group, and never lost to short failures.** A timeout or a
   restart mid-post answers `delivery_unconfirmed` and is not posted again
