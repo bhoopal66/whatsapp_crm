@@ -51,6 +51,7 @@ import type {
   TemplateSampleValues,
 } from '@/types';
 import { templateStatusConfig } from '@/lib/template-status';
+import { useAccountNumbers } from '@/hooks/use-whatsapp-numbers';
 import {
   extractVariableIndices,
   TEMPLATE_LIMITS,
@@ -139,6 +140,8 @@ export function TemplateManager() {
   const tForm = useTranslations('Flows.builder.form');
   const supabase = createClient();
   const { user, loading: authLoading } = useAuth();
+  const numbers = useAccountNumbers();
+  const hasMetaNumber = (numbers ?? []).some((n) => n.provider === 'meta');
 
   const [loading, setLoading] = useState(true);
   const [templates, setTemplates] = useState<MessageTemplate[]>([]);
@@ -550,6 +553,16 @@ export function TemplateManager() {
                       <Badge className={`border text-xs ${status.classes}`}>
                         {status.label}
                       </Badge>
+                      {/* A refused one says why below instead: Sync would
+                          not bring it. */}
+                      {hasMetaNumber &&
+                        !template.meta_template_id &&
+                        !template.submission_error &&
+                        !template.rejection_reason && (
+                          <Badge className="bg-warning-soft text-warning border-warning/30 border text-xs">
+                            {t('notLinkedToMeta')}
+                          </Badge>
+                        )}
                       {template.language && (
                         <span className="text-muted-foreground text-xs uppercase">
                           {template.language}

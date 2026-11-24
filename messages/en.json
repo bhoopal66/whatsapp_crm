@@ -2631,6 +2631,7 @@
       "title": "Message templates",
       "description": "Create templates and submit them to Meta for approval. Use \"Sync from Meta\" to pull templates approved elsewhere.",
       "syncFromMeta": "Sync from Meta",
+      "notLinkedToMeta": "Not linked to Meta yet, press Sync",
       "syncing": "Syncing…",
       "syncTitle": "Pull approved templates from your Meta WhatsApp Business Account",
       "newTemplate": "New Template",

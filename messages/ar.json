@@ -2631,6 +2631,7 @@
       "title": "قوالب الرسائل",
       "description": "أنشئ قوالب وأرسلها إلى Meta للاعتماد. استخدم «مزامنة من Meta» لجلب القوالب المعتمدة من مكان آخر.",
       "syncFromMeta": "مزامنة من Meta",
+      "notLinkedToMeta": "غير مرتبط بـ Meta بعد، اضغط «مزامنة»",
       "syncing": "جارٍ المزامنة…",
       "syncTitle": "جلب القوالب المعتمدة من حساب WhatsApp Business الخاص بك في Meta",
       "newTemplate": "قالب جديد",

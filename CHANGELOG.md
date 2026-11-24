@@ -22,6 +22,9 @@ and polish.
 
 ### Fixed
 
+- **Settings → Templates says which templates Meta does not know yet**
+  ("Not linked to Meta yet, press Sync"), when a Meta number is connected. A
+  refused one keeps showing its reason. No migration.
 - **A template Meta refused is not used where only its status was looked
   at.** The campaign wizard shows it with the reason and it cannot be chosen
   when campaigns go out on the Meta number, and a Compass update never uses

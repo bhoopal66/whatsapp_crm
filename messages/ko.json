@@ -2631,6 +2631,7 @@
       "title": "메시지 템플릿",
       "description": "템플릿을 만들어 Meta에 승인을 요청하세요. 다른 곳에서 승인된 템플릿을 가져오려면 \"Meta에서 동기화\"를 사용하세요.",
       "syncFromMeta": "Meta에서 동기화",
+      "notLinkedToMeta": "아직 Meta와 연결되지 않음, 동기화를 누르세요",
       "syncing": "동기화 중…",
       "syncTitle": "Meta WhatsApp 비즈니스 계정에서 승인된 템플릿 가져오기",
       "newTemplate": "새 템플릿",
