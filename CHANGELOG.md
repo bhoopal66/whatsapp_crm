@@ -39,6 +39,9 @@ and polish.
 - **A failed search or list no longer looks empty.** The inbox search and
   the command bar say when contacts could not be searched; quick replies
   that did not load offer Retry.
+- **Two admins no longer undo each other's coordinator banks.** A save from
+  a Members screen read before a colleague's change is refused and shows
+  theirs. **Migration required: 310** (before the build).
 - **A template Meta refuses says why.** Meta's answer is "Invalid
   parameter" with the reason in a second text that was dropped; both are
   shown now.

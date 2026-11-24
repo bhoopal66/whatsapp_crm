@@ -11242,6 +11242,7 @@
       "cancel": "Cancel",
       "saved": "Coordinator banks saved.",
       "saveError": "Could not save coordinator banks.",
+      "changedMeanwhile": "Another admin changed these banks. Their change is shown now; make yours again.",
       "phoneLabel": "WhatsApp number",
       "phoneHelp": "Added to the WhatsApp group of every submission for this person's banks.",
       "phoneInvalid": "Enter a valid phone number with country code, e.g. +971 50 123 4567.",

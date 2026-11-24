@@ -1586,3 +1586,8 @@ jobs:
       # bells end with the read access, file names are guarded.
       - name: Verify chat forward once
         run: supabase db query --local --file supabase/ci/verify-chat-forward-once.sql
+
+      # Migration 310: a coordinator's banks are replaced only when the ones
+      # stored are the ones the page showed.
+      - name: Verify coordinator banks expected
+        run: supabase db query --local --file supabase/ci/verify-coordinator-banks-expected.sql
