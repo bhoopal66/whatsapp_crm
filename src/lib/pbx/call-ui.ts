@@ -1182,28 +1182,18 @@ export function shownCallsTab(
 }
 
 /**
- * What a list tab asks for: the /api/pbx/calls scope and, on Missed
- * calls, the /api/tasks scope of the missed-call tasks beside them.
- * Missed calls are the caller's own (`my_missed`, and the tasks
- * assigned to them) unless `wide` (the Team / All toggle, offered only
- * where callsReach is past `mine`), which is every missed call RLS shows
- * them and every task. Null for the tabs that load their own.
+ * The /api/pbx/calls scope a list tab asks for. Missed calls are the
+ * caller's own (`my_missed`) unless `wide` (the Team / All toggle,
+ * offered only where callsReach is past `mine`), which is every missed
+ * call RLS shows them. Null for the tabs that load their own.
  */
-export function callsListScopes(
+export function callsListScope(
   tab: CallsTab,
   wide = false
-): {
-  calls: 'mine' | 'my_missed' | 'missed' | 'all' | 'unrouted';
-  tasks: 'mine' | 'all' | null;
-} | null {
-  if (tab === 'mine') return { calls: 'mine', tasks: null };
-  if (tab === 'missed')
-    return wide
-      ? { calls: 'missed', tasks: 'all' }
-      : { calls: 'my_missed', tasks: 'mine' };
-  if (tab === 'log') return { calls: 'all', tasks: null };
-  if (tab === 'unrouted') return { calls: 'unrouted', tasks: null };
-  return null;
+): 'mine' | 'my_missed' | 'missed' | 'all' | 'unrouted' | null {
+  if (tab === 'mine' || tab === 'unrouted') return tab;
+  if (tab === 'missed') return wide ? 'missed' : 'my_missed';
+  return tab === 'log' ? 'all' : null;
 }
 
 /**

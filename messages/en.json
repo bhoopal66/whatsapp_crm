@@ -7097,7 +7097,6 @@
     },
     "mineHint": "Calls you made, took or that rang your phone, newest first",
     "missedHint": "Missed in the last 7 days, newest first",
-    "tasksTruncated": "Showing the first {count, number} missed-call tasks. A call without a label may still have one.",
     "missedWho": {
       "label": "Whose missed calls",
       "mine": "Mine",
@@ -7113,8 +7112,14 @@
     "colleagueExtension": "Ext {extension}",
     "colleaguePair": "{from} → {to}",
     "taskOpen": "Task open",
+    "taskOpenBy": "Open: {name}",
     "taskDone": "Task done",
+    "taskDoneBy": "Done by {name}",
     "loadFailed": "Couldn't load calls",
+    "loadOlder": "Load older",
+    "loadingOlder": "Loading older calls…",
+    "loadOlderFailed": "Couldn’t load older calls",
+    "refreshFailed": "Couldn’t refresh. The list may be a little behind.",
     "playRecording": "Play recording",
     "hideRecording": "Hide recording",
     "unrouted": {

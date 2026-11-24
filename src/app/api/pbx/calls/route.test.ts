@@ -45,7 +45,11 @@ const call = (p: Row): Row => ({
   account_id: A,
   direction: 'inbound',
   status: 'answered',
-  started_at: '2026-10-12T08:00:00.000Z',
+  // Each a millisecond older than the one before it, so the list keeps
+  // the order they were added in.
+  started_at: new Date(
+    Date.parse('2026-10-12T08:00:00.000Z') - n
+  ).toISOString(),
   answered_at: null,
   ended_at: null,
   ring_seconds: 5,
@@ -519,6 +523,147 @@ describe('GET /api/pbx/calls', () => {
       as('team_leader');
       visible = [];
       expect((await get('scope=all')).body).toEqual({ calls: [] });
+    });
+  });
+
+  describe('paging past a full list', () => {
+    const uuid = (k: number) =>
+      `00000000-0000-4000-8000-0000000001${String(k).padStart(2, '0')}`;
+    beforeEach(() => {
+      // Five calls of one instant, then one a microsecond-trimmed second
+      // earlier: the id alone orders the five.
+      for (let k = 1; k <= 5; k++)
+        rls.tables.calls.push(
+          call({ id: uuid(k), started_at: '2026-10-12T08:00:00.123456+00:00' })
+        );
+      rls.tables.calls.push(
+        call({ id: uuid(9), started_at: '2026-10-12T07:59:59+00:00' })
+      );
+    });
+
+    it('says when more exist, and continues without skipping or doubling one', async () => {
+      const seen: string[] = [];
+      let next = '';
+      const truncated: boolean[] = [];
+      for (let p = 0; p < 3; p++) {
+        const { body } = await get(`limit=2${next}`);
+        seen.push(...body.calls.map((c: { id: string }) => c.id));
+        truncated.push(body.truncated);
+        const last = body.calls.at(-1);
+        next = `&before=${encodeURIComponent(last.startedAt)}&beforeId=${last.id}`;
+      }
+      expect(seen).toEqual([5, 4, 3, 2, 1, 9].map(uuid));
+      expect(truncated).toEqual([true, true, false]);
+      expect((await get('limit=6')).body.truncated).toBe(false);
+    });
+
+    it('refuses half a cursor, or one it did not give', async () => {
+      const at = encodeURIComponent('2026-10-12T08:00:00.123456+00:00');
+      for (const qs of [
+        `before=${at}`,
+        `beforeId=${uuid(1)}`,
+        `before=yesterday&beforeId=${uuid(1)}`,
+        `before=${at},id.is.null&beforeId=${uuid(1)}`,
+        `before=${at}&beforeId=x`,
+      ])
+        expect((await get(qs)).status).toBe(400);
+    });
+  });
+
+  describe('a missed call’s task', () => {
+    const missed = (p: Row = {}) =>
+      call({
+        status: 'no_answer',
+        user_id: null,
+        meta: { rang_user_ids: ['sara', 'me'] },
+        ...p,
+      });
+    const task = (p: Row): Row => ({
+      account_id: A,
+      source: 'pbx',
+      kind: 'missed_call',
+      status: 'open',
+      assigned_to: null,
+      completed_by: null,
+      updated_at: '2026-10-12T08:05:00.000Z',
+      source_ref: null,
+      meta: {},
+      ...p,
+    });
+    const tasksOf = async (qs: string) =>
+      ((await get(qs)).body.calls as { id: string; task?: unknown }[]).map(
+        (c) => [c.id, c.task]
+      );
+    let service: FakeDb;
+    beforeEach(() => {
+      service = createFakeDb({
+        profiles: [
+          { user_id: 'sara', account_id: A, full_name: 'Sara' },
+          { user_id: 'omar', account_id: A, full_name: 'Omar' },
+          { user_id: 'sara', account_id: 'elsewhere', full_name: 'S. Other' },
+        ],
+        tasks: [],
+      });
+      mocks.service = service.db;
+    });
+
+    it('says who holds it, whose it is not, on my own missed calls', async () => {
+      // RLS shows the caller no task of Sara's.
+      rls.tables.calls.push(missed(), missed(), missed(), missed(), missed());
+      service.tables.tasks.push(
+        task({ source_ref: 'call:call-1', assigned_to: 'sara' }),
+        // A repeat call, folded into the open task.
+        task({
+          source_ref: 'call:older',
+          assigned_to: 'sara',
+          meta: { call_ids: ['older', 'call-2'] },
+        }),
+        task({
+          source_ref: 'call:call-3',
+          status: 'done',
+          assigned_to: 'sara',
+          completed_by: 'omar',
+        }),
+        // A call closed it (process.ts): no one completed it by hand.
+        task({
+          source_ref: 'call:call-4',
+          status: 'done',
+          assigned_to: 'sara',
+          meta: { spoke_user_id: 'omar' },
+        })
+      );
+      const want = [
+        ['call-1', { status: 'open', name: 'Sara' }],
+        ['call-2', { status: 'open', name: 'Sara' }],
+        ['call-3', { status: 'done', name: 'Omar' }],
+        ['call-4', { status: 'done', name: 'Omar' }],
+        ['call-5', null],
+      ];
+      expect((await tasksOf('scope=my_missed')).sort()).toEqual(want);
+      as('admin');
+      expect((await tasksOf('scope=missed')).sort()).toEqual(want);
+      // Other lists have no badge, and read no task.
+      service.log.length = 0;
+      expect((await tasksOf('scope=mine'))[0][1]).toBeUndefined();
+      expect(service.log).toEqual([]);
+    });
+
+    it('is this account’s PBX task only, and nothing of a call the caller cannot see', async () => {
+      rls.tables.calls.push(missed(), missed({ meta: {}, id: 'hidden' }));
+      service.tables.tasks.push(
+        task({ source_ref: 'call:call-1', account_id: 'elsewhere' }),
+        task({ source_ref: 'call:call-1', source: 'automation' }),
+        task({ source_ref: 'call:hidden', assigned_to: 'sara' })
+      );
+      const { body } = await get('scope=my_missed');
+      expect(await tasksOf('scope=my_missed')).toEqual([['call-1', null]]);
+      expect(JSON.stringify(body)).not.toContain('hidden');
+    });
+
+    it('fails the list, rather than list calls without badges, when the read fails', async () => {
+      rls.tables.calls.push(missed());
+      service.fail('tasks', 'select', { message: 'down' });
+      expect((await get('scope=my_missed')).status).toBe(403); // toErrorResponse
     });
   });
 

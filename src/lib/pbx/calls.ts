@@ -500,10 +500,16 @@ export interface CallListQuery {
   /** ISO instants: started_at >= from, < to. */
   from: string | null;
   to: string | null;
+  /** The page that continues past this call (started_at, id). */
+  before: { startedAt: string; id: string } | null;
   limit: number;
 }
 
-/** `?contactId=&userId=&userIds=&direction=&scope=&from=&to=&limit=`, checked; a string is the 400. */
+/** A timestamp as PostgREST writes it, microseconds and all. */
+const DB_INSTANT =
+  /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d{1,6})?(Z|[+-]\d\d:\d\d)$/;
+
+/** `?contactId=&userId=&userIds=&direction=&scope=&from=&to=&before=&beforeId=&limit=`, checked; a string is the 400. */
 export function parseCallListQuery(q: URLSearchParams): CallListQuery | string {
   const contactId = q.get('contactId') || null;
   if (contactId && !UUID.test(contactId)) return 'contactId must be an id';
@@ -535,6 +541,17 @@ export function parseCallListQuery(q: URLSearchParams): CallListQuery | string {
   const to = instant('to');
   if (from === undefined || to === undefined)
     return 'from and to must be dates';
+  // Kept as sent: a Date drops the microseconds, and with them skips or
+  // repeats a call.
+  const startedAt = q.get('before');
+  const beforeId = q.get('beforeId');
+  if (!startedAt !== !beforeId) return 'before and beforeId go together';
+  if (
+    startedAt &&
+    (!DB_INSTANT.test(startedAt) || !Number.isFinite(Date.parse(startedAt)))
+  )
+    return 'before must be a call’s startedAt';
+  if (beforeId && !UUID.test(beforeId)) return 'beforeId must be an id';
   const limit = q.get('limit') ? Number(q.get('limit')) : CALL_LIST_LIMIT;
   if (!Number.isInteger(limit) || limit < 1 || limit > CALL_LIST_MAX)
     return `limit must be a whole number from 1 to ${CALL_LIST_MAX}`;
@@ -546,6 +563,7 @@ export function parseCallListQuery(q: URLSearchParams): CallListQuery | string {
     scope: scope as CallScope,
     from,
     to,
+    before: startedAt && beforeId ? { startedAt, id: beforeId } : null,
     limit,
   };
 }

@@ -22,6 +22,21 @@ and polish.
 
 ### Fixed
 
+- **Speaking to a customer closes their missed-call task.** When a later
+  call with them is answered (they ring again, or a call back they pick
+  up), the open missed-call tasks of that contact or number close with a
+  note such as "Spoke at 14:05 (Sara)". **Small change of behaviour: any
+  colleague's call counts, not only the task holder's.** A task opened
+  after that call began, or one holding a call missed since, stays open.
+  No migration.
+- **The Calls screen no longer stops at 200 calls or goes stale.** "Load
+  older" brings the rest, and the list refreshes when the tab is shown
+  again, when one of your calls ends, and every minute while it is on
+  screen. A refresh that fails keeps the list and says so. No migration.
+- **A missed call shows its callback task whoever holds it.** When a ring
+  group rang two people, only the one holding the task saw a badge on
+  "My missed calls", and the other rang the customer again. Every missed
+  call now says "Open: Sara" or "Done by Sara". No migration.
 - **Someone deactivated or removed leaves the video meeting they are in.**
   Their seat is closed and their media cut as the admin does it (a check
   every minute catches what that misses), and their own window ends with

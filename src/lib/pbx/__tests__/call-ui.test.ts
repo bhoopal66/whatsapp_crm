@@ -40,7 +40,7 @@ import {
   loadsPbxMe,
   callBackFor,
   callsTab,
-  callsListScopes,
+  callsListScope,
   callsReach,
   callsTabLabel,
   shownCallsTab,
@@ -812,22 +812,13 @@ describe('the Calls screen tabs', () => {
   });
 
   it('asks for my own missed calls and tasks unless the toggle widens them', () => {
-    expect(callsListScopes('mine')).toEqual({ calls: 'mine', tasks: null });
-    expect(callsListScopes('missed')).toEqual({
-      calls: 'my_missed',
-      tasks: 'mine',
-    });
-    expect(callsListScopes('missed', true)).toEqual({
-      calls: 'missed',
-      tasks: 'all',
-    });
-    expect(callsListScopes('log')).toEqual({ calls: 'all', tasks: null });
-    expect(callsListScopes('unrouted')).toEqual({
-      calls: 'unrouted',
-      tasks: null,
-    });
-    expect(callsListScopes('people')).toBeNull();
-    expect(callsListScopes('keypad')).toBeNull();
+    expect(callsListScope('mine')).toBe('mine');
+    expect(callsListScope('missed')).toBe('my_missed');
+    expect(callsListScope('missed', true)).toBe('missed');
+    expect(callsListScope('log')).toBe('all');
+    expect(callsListScope('unrouted')).toBe('unrouted');
+    expect(callsListScope('people')).toBeNull();
+    expect(callsListScope('keypad')).toBeNull();
   });
 });
 
