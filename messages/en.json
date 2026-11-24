@@ -630,7 +630,9 @@
       "copyFailed": "Could not copy. Select the text and copy it yourself.",
       "discardMaybeTitle": "Remove this message from the list",
       "offline": "You are offline.",
-      "noAnswer": "The connection was lost before an answer came back."
+      "noAnswer": "The connection was lost before an answer came back.",
+      "toast": "Failed to send: {reason}",
+      "toastTemplate": "Failed to send template: {reason}"
     },
     "composer": {
       "templates": "Templates",

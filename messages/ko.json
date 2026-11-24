@@ -630,7 +630,9 @@
       "copyFailed": "복사하지 못했습니다. 텍스트를 선택해 직접 복사하세요.",
       "discardMaybeTitle": "이 메시지를 목록에서 제거",
       "offline": "오프라인 상태입니다.",
-      "noAnswer": "응답을 받기 전에 연결이 끊어졌습니다."
+      "noAnswer": "응답을 받기 전에 연결이 끊어졌습니다.",
+      "toast": "보내지 못했습니다: {reason}",
+      "toastTemplate": "템플릿을 보내지 못했습니다: {reason}"
     },
     "composer": {
       "templates": "템플릿",

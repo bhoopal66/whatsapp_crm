@@ -22,6 +22,8 @@ and polish.
 
 ### Fixed
 
+- **"Failed to send" and "Failed to send template" are in the app's
+  language**, with the reason after them. No migration.
 - **Editing a template no longer shows it as approved again** when Meta
   had rejected, paused or not yet reviewed it. No migration.
 - **A chat offers the templates it can send.** The list showed every
