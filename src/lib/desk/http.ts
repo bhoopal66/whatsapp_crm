@@ -87,6 +87,10 @@ export const DESK_REFUSAL_HTTP: Readonly<
     status: 403,
     text: 'This company or customer is with a colleague. A sorter will file it',
   },
+  SETTINGS_CHANGED: {
+    status: 409,
+    text: 'Someone else changed these settings meanwhile. Reload to see them',
+  },
   CONFIRM_COMPANY: {
     status: 422,
     text: "Type the company's legal name to confirm this case",
@@ -176,6 +180,24 @@ export function requireText(v: unknown, max: number, name: string): string {
 }
 
 export { text as optionalText };
+
+/**
+ * The settings version a card loaded: `expectedUpdatedAt`, a timestamp, or
+ * null when nothing was stored. A body without the key is a tab from before
+ * 316: it cannot say what it showed, so it is refused like a stale one.
+ */
+export function expectedVersion(body: Record<string, unknown>): string | null {
+  const v = body.expectedUpdatedAt;
+  if (v === undefined) throw new DeskRefusedError('SETTINGS_CHANGED');
+  if (v === null) return null;
+  if (
+    typeof v !== 'string' ||
+    !/^\d{4}-\d{2}-\d{2}T[\d:.]+(Z|[+-]\d{2}:\d{2})$/.test(v) ||
+    Number.isNaN(Date.parse(v))
+  )
+    throw new DeskBadRequest('expectedUpdatedAt is not a date');
+  return v;
+}
 
 export async function readJson(
   request: Request

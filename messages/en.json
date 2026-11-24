@@ -12391,7 +12391,9 @@
     "showFewer": "Show fewer",
     "sidebarLabel": "Documents",
     "sidebarCount": "{count, plural, one {# file} other {# files}}",
-    "sidebarLink": "Open this customer's documents"
+    "sidebarLink": "Open this customer's documents",
+    "showNewest": "Show the newest {count}",
+    "newestOnly": "Only the newest {count} documents are listed here."
   },
   "CaseFiles": {
     "useAgain": "Use this one again",
@@ -12472,7 +12474,8 @@
       "BUILD_TOO_LARGE": "The case file would be too large to store (over 50 MB). Replace the largest documents with smaller copies, or assemble an index only.",
       "FILE_NOT_FOUND": "This file could not be found.",
       "NOT_CONFIGURED": "Downloads are not set up on this server.",
-      "generic": "Something went wrong. Try again."
+      "generic": "Something went wrong. Try again.",
+      "FORM_NOT_FLATTENED": "The form in “{document}” could not be read in full, so the case file was not assembled. Print that form to a new PDF, upload it, and try again."
     },
     "checks": {
       "detail": {
@@ -13468,7 +13471,8 @@
         "pro": "PRO",
         "accountant": "Accountant",
         "other": "Other"
-      }
+      },
+      "capped": "Only the first {count} are shown. Type more of the name or licence to find others."
     },
     "tray": {
       "intro": "Customer documents from WhatsApp that could not be filed with certainty. Nothing is pre-selected: choose the case yourself.",
@@ -13533,7 +13537,8 @@
       "noNumbers": "No company WhatsApp numbers are connected.",
       "escalate": "Escalate a waiting document after (minutes)",
       "save": "Save",
-      "saved": "Routing saved"
+      "saved": "Routing saved",
+      "storedNow": "Stored now: {enabled, select, yes {routing on} other {routing off}}; desk numbers: {numbers}; escalate after {minutes} minutes."
     },
     "banks": {
       "title": "Banks and documents",
@@ -13602,7 +13607,8 @@
       "sendHour": "Send from (hour, Dubai)",
       "gapDays": "Days between reminders",
       "save": "Save",
-      "saved": "Reminders saved"
+      "saved": "Reminders saved",
+      "storedNow": "Stored now: {enabled, select, yes {reminders on} other {reminders off}}; template {template} ({language}); from {hour}:00; days between reminders: {days}."
     },
     "worklist": {
       "title": "Case desk",
@@ -13612,7 +13618,8 @@
       "tasks": "{count, plural, one {# desk follow-up} other {# desk follow-ups}} for you",
       "oldest": "oldest {age}",
       "open": "Open the case desk"
-    }
+    },
+    "settingsChanged": "Someone else changed these settings since you opened them. Yours were not saved."
   },
   "DeskPreview": {
     "title": "File: {name}",

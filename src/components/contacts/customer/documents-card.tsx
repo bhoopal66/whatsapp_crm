@@ -14,6 +14,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { useCan } from '@/hooks/use-can';
 import {
+  DOCUMENTS_LIST_MAX,
   DOCUMENTS_SHOWN_FIRST,
   documentStatusView,
   formatDocumentSize,
@@ -216,8 +217,17 @@ export function DocumentsCard({ contactId }: { contactId: string }) {
               className="w-full"
               onClick={() => setShowAll((v) => !v)}
             >
-              {showAll ? t('showFewer') : t('showAll', { count: docs.length })}
+              {showAll
+                ? t('showFewer')
+                : docs.length >= DOCUMENTS_LIST_MAX
+                  ? t('showNewest', { count: docs.length })
+                  : t('showAll', { count: docs.length })}
             </Button>
+          )}
+          {docs.length >= DOCUMENTS_LIST_MAX && (
+            <p className="text-muted-foreground text-xs">
+              {t('newestOnly', { count: DOCUMENTS_LIST_MAX })}
+            </p>
           )}
         </div>
       )}

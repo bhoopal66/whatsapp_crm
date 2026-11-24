@@ -63,6 +63,10 @@ export const CASE_FILES_REFUSAL_HTTP: Readonly<
     status: 422,
     text: 'The case file would be too large to store',
   },
+  FORM_NOT_FLATTENED: {
+    status: 422,
+    text: 'The values of a fillable form could not be drawn',
+  },
   DOC_NOT_REQUIRED: {
     status: 422,
     text: 'That document is not on this case’s list',
@@ -124,7 +128,8 @@ const RECORD_REFUSAL_HTTP: Readonly<
 export function refusalResponse(
   code: CaseFilesRefusal,
   filedAs?: string,
-  failedChecks?: readonly Check[]
+  failedChecks?: readonly Check[],
+  document?: string
 ): NextResponse {
   const { status, text } = CASE_FILES_REFUSAL_HTTP[code];
   return NextResponse.json(
@@ -133,6 +138,7 @@ export function refusalResponse(
       code,
       ...(filedAs !== undefined ? { filedAs } : {}),
       ...(failedChecks !== undefined ? { failedChecks } : {}),
+      ...(document !== undefined ? { document } : {}),
     },
     { status }
   );
@@ -144,7 +150,12 @@ export function caseFilesErrorResponse(
   route: string
 ): NextResponse {
   if (err instanceof CaseFilesRefusedError)
-    return refusalResponse(err.reason, err.filedAs, err.failedChecks);
+    return refusalResponse(
+      err.reason,
+      err.filedAs,
+      err.failedChecks,
+      err.document
+    );
   if (err instanceof CustomerDocumentRecordError) {
     const r = err.hint ? RECORD_REFUSAL_HTTP[err.hint] : undefined;
     if (r)

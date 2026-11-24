@@ -2,42 +2,68 @@
 
 /**
  * The desk reminder digest settings (migration 234), owners and admins:
- * off by default; an approved utility template; send hour and gap.
+ * off by default; an approved utility template; send hour and gap. Saved
+ * against the version loaded (316): over another admin's save the card
+ * shows what is stored and keeps what was typed until Reload.
  */
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 
+import { ChangedNotice } from '@/components/settings/case-files-settings';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
 import { deskApi, type DigestSettings as Settings } from './desk-api';
+import { LoadFailed } from './load-failed';
 
 export function DigestSettings() {
   const t = useTranslations('Desk');
   const [s, setS] = useState<Settings | null>(null);
   const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [changed, setChanged] = useState<{ stored: Settings | null } | null>(
+    null
+  );
+  const load = useCallback(
+    () =>
+      deskApi.digest().then((r) => {
+        setFailed(!r.ok);
+        if (!r.ok) {
+          toast.error(r.error);
+          return;
+        }
+        setS(r.data);
+        setChanged(null);
+      }),
+    []
+  );
   useEffect(() => {
-    let live = true;
-    void deskApi.digest().then((r) => {
-      if (!live) return;
-      if (r.ok) setS(r.data);
-      else toast.error(r.error);
-    });
-    return () => {
-      live = false;
-    };
-  }, []);
-  if (!s) return null;
+    void load();
+  }, [load]);
+  if (!s)
+    return failed ? (
+      <Card>
+        <CardContent>
+          <LoadFailed title={t('digest.title')} onRetry={load} />
+        </CardContent>
+      </Card>
+    ) : null;
   const save = async () => {
     setBusy(true);
     const r = await deskApi.saveDigest(s);
+    if (r.ok) {
+      toast.success(t('digest.saved'));
+      setS((cur) => cur && { ...cur, updatedAt: r.data });
+    } else if (r.code === 'SETTINGS_CHANGED') {
+      const now = await deskApi.digest();
+      setChanged({ stored: now.ok ? now.data : null });
+    } else toast.error(r.error);
     setBusy(false);
-    if (r.ok) toast.success(t('digest.saved'));
-    else toast.error(r.error);
   };
+  const stored = changed?.stored;
   return (
     <Card>
       <CardContent className="space-y-4 text-sm">
@@ -101,7 +127,25 @@ export function DigestSettings() {
             />
           </div>
         </div>
-        <Button disabled={busy} onClick={save}>
+        {changed && (
+          <ChangedNotice
+            text={[
+              t('settingsChanged'),
+              stored
+                ? t('digest.storedNow', {
+                    enabled: stored.enabled ? 'yes' : 'no',
+                    template: stored.templateName ?? '-',
+                    language: stored.language,
+                    hour: stored.sendHour,
+                    days: stored.gapDays,
+                  })
+                : '',
+            ].join(' ')}
+            busy={busy}
+            onReload={load}
+          />
+        )}
+        <Button disabled={busy || changed !== null} onClick={save}>
           {t('digest.save')}
         </Button>
       </CardContent>

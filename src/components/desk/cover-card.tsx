@@ -7,7 +7,7 @@
  * `CoverRolesEditor` is the owners' and admins' half, in Settings -> Case
  * desk: it names the primary and second coordinator of each bank.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 
@@ -19,12 +19,15 @@ import type { BankCover, CoverHolder } from '@/lib/desk/cover';
 
 import { deskApi } from './desk-api';
 import { DeskSelect } from './desk-select';
+import { LoadFailed } from './load-failed';
 
 function useCover() {
   const [banks, setBanks] = useState<BankCover[] | null>(null);
+  const [failed, setFailed] = useState(false);
   const load = useCallback(
     () =>
       deskApi.cover().then((r) => {
+        setFailed(!r.ok);
         if (r.ok) setBanks(r.data);
         else toast.error(r.error);
       }),
@@ -33,12 +36,12 @@ function useCover() {
   useEffect(() => {
     void load();
   }, [load]);
-  return { banks, load };
+  return { banks, failed, load };
 }
 
 export function CoverCard() {
   const t = useTranslations('Desk');
-  const { banks, load } = useCover();
+  const { banks, failed, load } = useCover();
 
   const done = async (r: { ok: boolean; error?: string }) => {
     if (!r.ok) toast.error(r.error ?? '');
@@ -46,7 +49,7 @@ export function CoverCard() {
     await load();
   };
 
-  if (!banks) return null;
+  if (!banks) return <CoverMissing failed={failed} onRetry={load} />;
   return (
     <Card>
       <CardContent className="space-y-4 text-sm">
@@ -93,7 +96,25 @@ export function CoverCard() {
   );
 }
 
-function HolderLeave({
+function CoverMissing({
+  failed,
+  onRetry,
+}: {
+  failed: boolean;
+  onRetry: () => unknown;
+}) {
+  const t = useTranslations('Desk');
+  if (!failed) return null;
+  return (
+    <Card>
+      <CardContent>
+        <LoadFailed title={t('cover.title')} onRetry={onRetry} />
+      </CardContent>
+    </Card>
+  );
+}
+
+export function HolderLeave({
   holder,
   onDone,
 }: {
@@ -103,6 +124,26 @@ function HolderLeave({
   const t = useTranslations('Desk');
   const [first, setFirst] = useState('');
   const [last, setLast] = useState('');
+  const [busy, setBusy] = useState(false);
+  // A ref too: a second click can arrive before the disabled render.
+  const adding = useRef(false);
+  const add = async () => {
+    if (adding.current) return;
+    adding.current = true;
+    setBusy(true);
+    const r = await deskApi.addLeave({
+      userId: holder.userId,
+      firstDay: first,
+      lastDay: last,
+    });
+    if (r.ok) {
+      setFirst('');
+      setLast('');
+    }
+    await onDone(r);
+    adding.current = false;
+    setBusy(false);
+  };
   return (
     <li className="flex flex-wrap items-center gap-2">
       <span className="min-w-32">{holder.name}</span>
@@ -142,18 +183,8 @@ function HolderLeave({
         <Button
           size="sm"
           variant="outline"
-          disabled={!first || !last}
-          onClick={async () => {
-            await onDone(
-              await deskApi.addLeave({
-                userId: holder.userId,
-                firstDay: first,
-                lastDay: last,
-              })
-            );
-            setFirst('');
-            setLast('');
-          }}
+          disabled={busy || !first || !last}
+          onClick={() => void add()}
         >
           {t('cover.addLeave')}
         </Button>
@@ -165,8 +196,8 @@ function HolderLeave({
 export function CoverRolesEditor() {
   const t = useTranslations('Desk');
   const ts = useTranslations('CaseDeskSettings');
-  const { banks, load } = useCover();
-  if (!banks) return null;
+  const { banks, failed, load } = useCover();
+  if (!banks) return <CoverMissing failed={failed} onRetry={load} />;
   const set = async (
     bankCode: string,
     role: 'primary' | 'second',

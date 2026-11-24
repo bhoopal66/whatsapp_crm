@@ -461,7 +461,13 @@ function BuildCard({
     const r = await sendCaseRequest(`/api/cases/${caseId}/build`, 'POST');
     setBusy(false);
     if (!r.ok) {
-      toast.error(t(buildErrorKey(r.status, codeOf(r.json))));
+      toast.error(
+        t(buildErrorKey(r.status, codeOf(r.json)), {
+          document: String(
+            (r.json as { document?: unknown } | null)?.document ?? ''
+          ),
+        })
+      );
       return;
     }
     toast.success(t('buildDone'));

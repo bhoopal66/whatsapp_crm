@@ -55,7 +55,7 @@ export type CaseFilesIntakeRefusal =
   | 'REUSE_WOULD_FAIL';
 
 /** Refused in TypeScript by the case-file assembly (assembly.ts). */
-export type CaseFilesBuildRefusal = 'BUILD_TOO_LARGE';
+export type CaseFilesBuildRefusal = 'BUILD_TOO_LARGE' | 'FORM_NOT_FLATTENED';
 
 export type CaseFilesRefusal =
   | (typeof CASE_FILES_REFUSALS)[number]
@@ -69,7 +69,9 @@ export class CaseFilesRefusedError extends Error {
     /** ALREADY_FILED_AS: the doc key the file is filed as. */
     readonly filedAs?: string,
     /** REUSE_WOULD_FAIL: the checks that failed. */
-    readonly failedChecks?: readonly Check[]
+    readonly failedChecks?: readonly Check[],
+    /** FORM_NOT_FLATTENED: the document's name in the case file. */
+    readonly document?: string
   ) {
     super(`case files refused: ${reason}`);
   }

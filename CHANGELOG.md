@@ -63,6 +63,21 @@ and polish.
   never was.
 - Deal rooms: a join request approved automatically but not accepted by
   WhatsApp goes back to the managers instead of waiting for ever.
+- **A settings page left open cannot switch customer reminders or WhatsApp
+  routing back on.** Settings → Case desk saves the reminder and routing
+  cards against the version they loaded: over another admin's save they show
+  what is stored and keep what was typed until Reload. A tab opened before
+  the update is refused until reloaded. **Migration required: 316** (before
+  the build).
+- **The assembled case file keeps what the customer filled in.** The values
+  of a fillable PDF are drawn into the bundle sent to the bank (a form that
+  cannot be drawn stops the build and is named), and a photo sent as a
+  document stands upright.
+- **A copy to the NAS that failed for good shows in `/api/metrics`**
+  (`wacrm_customer_documents_failed`, see `docs/monitoring.md`), and the
+  case desk says when a list could not be read or is cut instead of showing
+  it empty. A typed consent evidence can no longer become a revoke reason,
+  and a double click no longer records leave twice.
 - **API, smaller points.** A repeated submission call that names another
   number links only the group's own customer to Compass;
   `message.status_updated` no longer fires for chats on staff members' own

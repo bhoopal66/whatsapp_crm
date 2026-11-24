@@ -7,6 +7,9 @@
  * pins DESK_CONTACT_ROLES to 229's CHECK.
  */
 
+/** How many companies one search answers: 229's desk_customer_find default. */
+export const COMPANY_FIND_LIMIT = 20;
+
 export const DESK_CONTACT_ROLES = [
   'owner',
   'pro',

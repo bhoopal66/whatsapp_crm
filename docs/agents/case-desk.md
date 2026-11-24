@@ -145,3 +145,18 @@ package 035a-c. `docs/case-desk.md` is the contract.
   `desk_digest_stop` also covers `sending` digests and CSAT requests; the
   digest template is checked in its language
   (`desk_digest_template_ok/3`); `desk_doc_tasks_due` skips tasked files.
+- **316 (the rest of the desk audit).** `desk_settings_set` /
+  `desk_digest_settings_set` with `p_expected` refuse `SETTINGS_CHANGED`
+  when the stored `updated_at` is another (NULL expected = nothing was
+  stored when the card loaded); the routes take it as `expectedUpdatedAt`,
+  and a body without the key is a 409 too (a tab from before 316). Pass the
+  string PostgREST gave: a JS Date drops the microseconds and every save
+  would be stale. A duty change moves `desk_settings.updated_at`, so it also
+  makes an open routing card stale. `desk_digest_settings_read` exists only
+  to return `updated_at` (234's `_get` cannot gain a column). The cards keep
+  what was typed until Reload and disable Save meanwhile
+  (`desk-cards.test.tsx`). `customer_documents_stats()` is read only by
+  `/api/metrics`. In the bundle, `flattenForm` draws a form's values before
+  `copyPages` (which drops them) and refuses the build
+  (`FORM_NOT_FLATTENED`, with the document's name) rather than send a blank;
+  hidden fields stay undrawn. `exif.ts` gives the rotation pdf-lib ignores.

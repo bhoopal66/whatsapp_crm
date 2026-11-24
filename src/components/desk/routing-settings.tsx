@@ -3,17 +3,22 @@
 /**
  * Desk WhatsApp routing settings (migration 230), owners and admins:
  * the switch (off by default), the desk numbers and the escalation delay.
+ * Saved against the version loaded (316), as the digest card.
  */
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 
+import { ChangedNotice } from '@/components/settings/case-files-settings';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
+import type { DeskSettings } from '@/lib/desk/tray';
+
 import { deskApi } from './desk-api';
+import { LoadFailed } from './load-failed';
 
 export function RoutingSettings() {
   const t = useTranslations('Desk');
@@ -22,26 +27,34 @@ export function RoutingSettings() {
   const [ids, setIds] = useState<string[]>([]);
   const [minutes, setMinutes] = useState('120');
   const [numbers, setNumbers] = useState<{ id: string; label: string }[]>([]);
+  const [version, setVersion] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [changed, setChanged] = useState<{
+    stored: DeskSettings | null;
+  } | null>(null);
 
+  const load = useCallback(
+    () =>
+      deskApi.settings().then((r) => {
+        setFailed(!r.ok);
+        if (!r.ok) {
+          toast.error(r.error);
+          return;
+        }
+        setEnabled(r.data.settings.routingEnabled);
+        setIds(r.data.settings.deskChannelIds);
+        setMinutes(String(r.data.settings.escalateMinutes));
+        setVersion(r.data.settings.updatedAt);
+        setNumbers(r.data.numbers);
+        setChanged(null);
+        setLoaded(true);
+      }),
+    []
+  );
   useEffect(() => {
-    let live = true;
-    void deskApi.settings().then((r) => {
-      if (!live) return;
-      if (!r.ok) {
-        toast.error(r.error);
-        return;
-      }
-      setEnabled(r.data.settings.routingEnabled);
-      setIds(r.data.settings.deskChannelIds);
-      setMinutes(String(r.data.settings.escalateMinutes));
-      setNumbers(r.data.numbers);
-      setLoaded(true);
-    });
-    return () => {
-      live = false;
-    };
-  }, []);
+    void load();
+  }, [load]);
 
   const save = async () => {
     setBusy(true);
@@ -49,16 +62,28 @@ export function RoutingSettings() {
       routingEnabled: enabled,
       deskChannelIds: ids,
       escalateMinutes: Number(minutes),
+      expectedUpdatedAt: version,
     });
+    if (r.ok) {
+      toast.success(t('routing.saved'));
+      setVersion(r.data);
+    } else if (r.code === 'SETTINGS_CHANGED') {
+      const now = await deskApi.settings();
+      setChanged({ stored: now.ok ? now.data.settings : null });
+      if (now.ok) setNumbers(now.data.numbers);
+    } else toast.error(r.error);
     setBusy(false);
-    if (!r.ok) {
-      toast.error(r.error);
-      return;
-    }
-    toast.success(t('routing.saved'));
   };
 
-  if (!loaded) return null;
+  if (!loaded)
+    return failed ? (
+      <Card>
+        <CardContent>
+          <LoadFailed title={t('routing.title')} onRetry={load} />
+        </CardContent>
+      </Card>
+    ) : null;
+  const stored = changed?.stored;
   return (
     <Card>
       <CardContent className="space-y-4 text-sm">
@@ -111,7 +136,28 @@ export function RoutingSettings() {
             onChange={(e) => setMinutes(e.target.value)}
           />
         </div>
-        <Button disabled={busy} onClick={save}>
+        {changed && (
+          <ChangedNotice
+            text={[
+              t('settingsChanged'),
+              stored
+                ? t('routing.storedNow', {
+                    enabled: stored.routingEnabled ? 'yes' : 'no',
+                    numbers:
+                      stored.deskChannelIds
+                        .map(
+                          (id) => numbers.find((n) => n.id === id)?.label ?? id
+                        )
+                        .join(', ') || '-',
+                    minutes: stored.escalateMinutes,
+                  })
+                : '',
+            ].join(' ')}
+            busy={busy}
+            onReload={load}
+          />
+        )}
+        <Button disabled={busy || changed !== null} onClick={save}>
           {t('routing.save')}
         </Button>
       </CardContent>

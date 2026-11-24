@@ -70,6 +70,9 @@ not_configured` (a shorter one is logged once, without its value).
 | `wacrm_inbound_queue_pending`            | gauge   | inbound WhatsApp events recorded and not processed yet                                        |
 | `wacrm_inbound_queue_dead`               | gauge   | inbound WhatsApp events given up on after every retry (kept 14 days)                          |
 | `wacrm_inbound_queue_oldest_pending_age_seconds` | gauge   | age of the oldest unprocessed inbound event (0 when none)                                     |
+| `wacrm_customer_documents_stats_up`      | gauge   | 1 when the customer document copies could be read for this scrape, else 0                     |
+| `wacrm_customer_documents_failed`        | gauge   | customer documents whose copy to the NAS failed for good                                      |
+| `wacrm_customer_documents_oldest_pending_age_seconds` | gauge   | age of the oldest document waiting for its copy (0 when none)                                 |
 | `wacrm_integration_configured{name}`     | gauge   | 1 when an optional integration is configured                                                  |
 | `wacrm_integration_unverified{name}`     | gauge   | 1 when a configured integration runs on an untested wire format (RCS, SMS)                    |
 
@@ -93,6 +96,11 @@ page still answers.
 The inbound queue figures come from `webhook_inbox_stats()` (migration 264)
 under the same rules; `wacrm_inbound_queue_stats_up 0` also means 264 is not
 applied, so inbound messages are not durable.
+
+The customer document figures come from `customer_documents_stats()`
+(migration 316) under the same rules: a copy to the NAS that failed for good
+tells nobody else. `wacrm_customer_documents_stats_up 0` also means 316 is
+not applied.
 
 ### Prometheus
 
@@ -118,6 +126,8 @@ Suggested alerts (starting points; tune to your traffic):
 | Inbound not durable       | `wacrm_inbound_queue_stats_up == 0` for 10m                           |
 | Inbound stuck             | `wacrm_inbound_queue_oldest_pending_age_seconds > 900`                |
 | Inbound lost              | `wacrm_inbound_queue_dead > 0`                                        |
+| Document copy failed      | `wacrm_customer_documents_failed > 0`                                 |
+| Document copies stuck     | `wacrm_customer_documents_oldest_pending_age_seconds > 3600`          |
 | Sign-in attack            | `increase(wacrm_edge_refusals_total{kind="signin_locked"}[15m]) > 10` |
 | Untested integration live | `wacrm_integration_unverified == 1`                                   |
 | Event loop stalls         | `nodejs_eventloop_lag_p99_seconds > 0.5` for 5m                       |

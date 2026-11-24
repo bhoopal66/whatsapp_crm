@@ -71,6 +71,8 @@ export const DESK_REFUSALS = [
   'TEMPLATE_INVALID',
   // 289: an upload only a sorter may attach
   'COMPANY_RESTRICTED',
+  // 316: a settings card opened before another admin's save
+  'SETTINGS_CHANGED',
 ] as const;
 export type DeskRefusal = (typeof DESK_REFUSALS)[number];
 const REFUSALS: ReadonlySet<string> = new Set(DESK_REFUSALS);
@@ -789,6 +791,10 @@ export class DeskStore {
     };
   }
 
+  /**
+   * `expectedUpdatedAt` is the version the card loaded (null: nothing was
+   * stored); another is SETTINGS_CHANGED (316). Returns the version saved.
+   */
   async setSettings(
     actor: string,
     account: string,
@@ -796,16 +802,20 @@ export class DeskStore {
       routingEnabled: boolean;
       deskChannelIds: string[];
       escalateMinutes: number;
+      expectedUpdatedAt: string | null;
     }
-  ): Promise<void> {
+  ): Promise<string> {
+    const now = this.now();
     await this.rpc('desk_settings_set', {
       p_actor: actor,
       p_account: account,
       p_routing_enabled: input.routingEnabled,
       p_desk_channel_ids: input.deskChannelIds,
       p_escalate_minutes: input.escalateMinutes,
-      p_now: this.now(),
+      p_expected: input.expectedUpdatedAt,
+      p_now: now,
     });
+    return now;
   }
 
   async setDuty(
@@ -1064,9 +1074,10 @@ export class DeskStore {
     language: string;
     sendHour: number;
     gapDays: number;
+    updatedAt: string | null;
   }> {
     const r = (
-      await this.rpc('desk_digest_settings_get', {
+      await this.rpc('desk_digest_settings_read', {
         p_actor: actor,
         p_account: account,
       })
@@ -1077,9 +1088,12 @@ export class DeskStore {
       language: str(r?.language) ?? 'en',
       sendHour: num(r?.send_hour) ?? 10,
       gapDays: num(r?.gap_days) ?? 2,
+      // As PostgREST gives it: a Date would drop the microseconds.
+      updatedAt: str(r?.updated_at),
     };
   }
 
+  /** As `setSettings`: `expectedUpdatedAt` in, the version saved out. */
   async setDigestSettings(
     actor: string,
     account: string,
@@ -1089,8 +1103,10 @@ export class DeskStore {
       language: string;
       sendHour: number;
       gapDays: number;
+      expectedUpdatedAt: string | null;
     }
-  ): Promise<void> {
+  ): Promise<string> {
+    const now = this.now();
     await this.rpc('desk_digest_settings_set', {
       p_actor: actor,
       p_account: account,
@@ -1099,8 +1115,10 @@ export class DeskStore {
       p_language: input.language,
       p_send_hour: input.sendHour,
       p_gap_days: input.gapDays,
-      p_now: this.now(),
+      p_expected: input.expectedUpdatedAt,
+      p_now: now,
     });
+    return now;
   }
   // ---------- the desk in My worklist (migration 235) ----------
 

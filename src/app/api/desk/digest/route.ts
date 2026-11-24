@@ -1,7 +1,10 @@
 // GET /api/desk/digest — the reminder digest settings (migration 234):
 // `{ settings }`. Staff.
-// PUT — `{ enabled, templateName, language, sendHour, gapDays }`, owners
-// and admins. Switching on needs an approved utility template whose body
+// PUT — `{ enabled, templateName, language, sendHour, gapDays,
+// expectedUpdatedAt }`, owners and admins; answers `{ ok, updatedAt }`.
+// `expectedUpdatedAt` is the `updatedAt` the card loaded (null: nothing
+// stored); another stored version, or no key, is 409 SETTINGS_CHANGED
+// (316). Switching on needs an approved utility template whose body
 // has {{1}} (application number) and {{2}} (what is missing)
 // (TEMPLATE_INVALID); switching off cancels the queued digests.
 import { NextResponse } from 'next/server';
@@ -10,6 +13,7 @@ import { assertSalesAccess, getCurrentAccount } from '@/lib/auth/account';
 import {
   DeskBadRequest,
   deskErrorResponse,
+  expectedVersion,
   optionalText,
   readJson,
 } from '@/lib/desk/http';
@@ -42,7 +46,7 @@ export async function PUT(request: Request) {
     if (typeof body.enabled !== 'boolean')
       throw new DeskBadRequest('enabled must be true or false');
     const language = optionalText(body.language, 5, 'language') ?? 'en';
-    await new DeskStore(supabaseAdmin()).setDigestSettings(
+    const updatedAt = await new DeskStore(supabaseAdmin()).setDigestSettings(
       ctx.userId,
       ctx.accountId,
       {
@@ -51,9 +55,10 @@ export async function PUT(request: Request) {
         language,
         sendHour: int(body.sendHour, 8, 20, 'sendHour'),
         gapDays: int(body.gapDays, 1, 14, 'gapDays'),
+        expectedUpdatedAt: expectedVersion(body),
       }
     );
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, updatedAt });
   } catch (err) {
     return deskErrorResponse(err, 'digest settings save');
   }
