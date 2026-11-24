@@ -77,6 +77,20 @@ export async function PATCH(
       ? [...new Set<string>(body.member_ids.filter((v: unknown): v is string => typeof v === 'string'))]
       : null;
 
+    // What the editor showed (314): compared in the transaction, so a
+    // colleague's change meanwhile is refused rather than undone.
+    let expected: string[] | null = null;
+    if (memberIds && 'expected_member_ids' in body) {
+      const result = validateIdList(
+        body.expected_member_ids,
+        'expected_member_ids',
+      );
+      if (!result.ok) {
+        return NextResponse.json({ error: result.error }, { status: 400 });
+      }
+      expected = result.ids;
+    }
+
     // One transaction (migration 071): name, leader, members and numbers
     // are saved together or not at all. As separate requests, a refused
     // member list used to leave the team EMPTY — which strips its
@@ -89,6 +103,7 @@ export async function PATCH(
       p_leader_user_id: leaderUserId,
       p_member_ids: memberIds,
       p_config_ids: channelIds,
+      ...(expected ? { p_expected_member_ids: expected } : {}),
     });
 
     if (error) {
@@ -105,6 +120,15 @@ export async function PATCH(
               error.hint === 'team_name_taken'
                 ? 'A team with that name already exists'
                 : 'Someone you selected is already in another team. A person can only belong to one team.',
+          },
+          { status: 409 },
+        );
+      }
+      if (error.code === '22023' && error.hint === 'members_changed') {
+        return NextResponse.json(
+          {
+            error: 'The members of this team were changed meanwhile',
+            code: 'members_changed',
           },
           { status: 409 },
         );

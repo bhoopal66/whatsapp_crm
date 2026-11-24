@@ -6,7 +6,8 @@
 // people ticked by hand, `team_ids` the teams allocated to the number,
 // and `team_member_ids` the people who have it through one of those
 // teams (members and leaders, kept current by triggers). A number is
-// shared only when both people lists are empty.
+// shared only when both people lists are empty and `access_restricted`
+// (314) is false.
 //
 // Admin-only, like the rest of the WhatsApp settings. Credentials are
 // never selected, let alone returned — this is also why it reads the
@@ -31,6 +32,8 @@ interface ChannelListRow {
   /** A person's own number (migration 190); `user_id` is its owner. */
   is_personal: boolean;
   user_id: string | null;
+  /** Limited by an admin (314): nobody allocated = owners and admins. */
+  access_restricted: boolean;
   status: string;
   registered_at: string | null;
   created_at: string | null;
@@ -51,7 +54,7 @@ export async function GET() {
       supabase
         .from('whatsapp_config')
         .select(
-          'id, provider, label, phone_number_id, waba_id, is_primary, is_personal, user_id, status, registered_at, created_at'
+          'id, provider, label, phone_number_id, waba_id, is_primary, is_personal, user_id, access_restricted, status, registered_at, created_at'
         )
         .eq('account_id', accountId)
         .order('created_at', { ascending: true }),

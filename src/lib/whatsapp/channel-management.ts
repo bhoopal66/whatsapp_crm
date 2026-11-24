@@ -135,7 +135,8 @@ export function channelNameWithPhone(c: {
  * The numbers `userId` may send from — what the thread's number picker
  * offers (migration 061). Mirrors the SQL `can_use_channel`: an admin
  * may use every number; anyone else the numbers they are allocated to,
- * plus shared numbers (nobody allocated). The database enforces it;
+ * plus shared numbers (nobody allocated and never limited: 314's
+ * `access_restricted`). The database enforces it;
  * this only decides what to show.
  *
  * A personal number (190) has no allocation rows but is NOT shared: it
@@ -144,7 +145,12 @@ export function channelNameWithPhone(c: {
  * does not offer it to them; the database decides if they try.
  */
 export function usableNumbers<
-  T extends { id: string; is_personal?: boolean; user_id?: string | null },
+  T extends {
+    id: string;
+    is_personal?: boolean;
+    user_id?: string | null;
+    access_restricted?: boolean;
+  },
 >(
   numbers: readonly T[],
   allocations: ReadonlyArray<{ config_id: string; user_id: string }>,
@@ -156,6 +162,7 @@ export function usableNumbers<
   return numbers.filter((n) => {
     if (n.is_personal) return n.user_id === userId;
     const onIt = allocations.filter((a) => a.config_id === n.id);
-    return onIt.length === 0 || onIt.some((a) => a.user_id === userId);
+    if (onIt.length === 0) return !n.access_restricted;
+    return onIt.some((a) => a.user_id === userId);
   });
 }

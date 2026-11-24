@@ -104,6 +104,25 @@ describe('PATCH /api/account/teams/[id]', () => {
     expect(mocks.rpc).not.toHaveBeenCalled();
   });
 
+  it('sends the lists the screen showed, and answers 409 when they differ (314)', async () => {
+    mocks.rpc.mockResolvedValueOnce({
+      error: { code: '22023', hint: 'members_changed', message: 'x' },
+    });
+    const res = await PATCH(
+      request({ member_ids: ['ana'], expected_member_ids: ['bo'] }),
+      params
+    );
+    expect(mocks.rpc).toHaveBeenCalledWith(
+      'update_team',
+      expect.objectContaining({
+        p_member_ids: ['ana'],
+        p_expected_member_ids: ['bo'],
+      })
+    );
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe('members_changed');
+  });
+
   it('maps the RPC refusals by code and hint', async () => {
     const other =
       'Someone you selected is already in another team. A person can only belong to one team.';

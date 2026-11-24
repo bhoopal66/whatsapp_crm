@@ -541,3 +541,22 @@ describe('coordinatorPhoneList (142)', () => {
     );
   });
 });
+
+describe('chooseHostingNumber: a limited number nobody is left on (314)', () => {
+  it('is not shared with an agent; an admin may use it', () => {
+    const channels = [
+      { ...ch('w-limited', 'whapi', true), accessRestricted: true },
+    ];
+    const pick = (agentRole: string, requestedId: string | null) =>
+      chooseHostingNumber({
+        channels,
+        members: [],
+        agentUserId: 'u1',
+        agentRole,
+        requestedId,
+      }).ok;
+    expect(pick('agent', null)).toBe(false);
+    expect(pick('agent', 'w-limited')).toBe(false);
+    expect(pick('admin', 'w-limited')).toBe(true);
+  });
+});

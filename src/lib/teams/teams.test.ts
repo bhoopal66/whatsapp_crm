@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   TEAM_NAME_MAX,
-  allocationStaysShared,
+  allocationReachesNobody,
   buildTeamPatch,
   draftOf,
   initialsOf,
@@ -72,7 +72,10 @@ describe('buildTeamPatch', () => {
       member_ids: ['a'],
       channel_ids: ['n1', 'n2'],
     } as TeamDraft;
-    expect(buildTeamPatch(original, draft)).toEqual({ member_ids: ['a'] });
+    expect(buildTeamPatch(original, draft)).toEqual({
+      member_ids: ['a'],
+      expected_member_ids: original.member_ids,
+    });
     expect(buildTeamPatch(stale, draftOf(original))).toEqual({});
     expect('channel_ids' in draftOf(original)).toBe(false);
   });
@@ -81,6 +84,7 @@ describe('buildTeamPatch', () => {
     const draft = { ...draftOf(original), member_ids: ['a', 'c', 'c'] };
     expect(buildTeamPatch(original, draft)).toEqual({
       member_ids: ['a', 'c'],
+      expected_member_ids: original.member_ids,
     });
   });
 
@@ -104,7 +108,10 @@ describe('buildTeamPatch', () => {
       leader_user_id: 'b',
       member_ids: ['a'],
     };
-    expect(buildTeamPatch(original, draft)).toEqual(draft);
+    expect(buildTeamPatch(original, draft)).toEqual({
+      ...draft,
+      expected_member_ids: original.member_ids,
+    });
   });
 
   it('does not alias the original team through draftOf', () => {
@@ -123,20 +130,20 @@ describe('teamNameProblem', () => {
   });
 });
 
-describe('allocationStaysShared', () => {
+describe('allocationReachesNobody', () => {
   const base = { name: 'T', leader_user_id: null, member_ids: [] };
 
   it('warns only when a team with numbers has nobody in it', () => {
-    expect(allocationStaysShared(['n1'], base)).toBe(true);
-    expect(allocationStaysShared([], base)).toBe(false);
-    expect(allocationStaysShared(['n1'], { ...base, member_ids: ['a'] })).toBe(
-      false
-    );
+    expect(allocationReachesNobody(['n1'], base)).toBe(true);
+    expect(allocationReachesNobody([], base)).toBe(false);
+    expect(
+      allocationReachesNobody(['n1'], { ...base, member_ids: ['a'] })
+    ).toBe(false);
   });
 
   it('counts the leader as someone in the team', () => {
     expect(
-      allocationStaysShared(['n1'], { ...base, leader_user_id: 'lead' })
+      allocationReachesNobody(['n1'], { ...base, leader_user_id: 'lead' })
     ).toBe(false);
   });
 });
@@ -246,5 +253,25 @@ describe('initialsOf', () => {
     expect(initialsOf('sara')).toBe('S');
     expect(initialsOf('  ')).toBe('?');
     expect(initialsOf('김 민수')).toBe('김민');
+  });
+});
+
+describe('buildTeamPatch: the members the editor showed (314)', () => {
+  it('go with a changed member list, and only with one', () => {
+    const original: Team = {
+      id: 't',
+      name: 'T',
+      leader_user_id: null,
+      created_at: '',
+      member_ids: ['a'],
+      channel_ids: [],
+    };
+    const draft = draftOf(original);
+    expect(
+      buildTeamPatch(original, { ...draft, member_ids: ['a', 'b'] })
+    ).toEqual({ member_ids: ['a', 'b'], expected_member_ids: ['a'] });
+    expect(buildTeamPatch(original, { ...draft, name: 'X' })).toEqual({
+      name: 'X',
+    });
   });
 });

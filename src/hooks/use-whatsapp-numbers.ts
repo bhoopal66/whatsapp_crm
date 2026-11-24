@@ -31,6 +31,8 @@ export interface AccountNumber {
   is_personal: boolean;
   /** The personal number's owner; null on company numbers. */
   user_id: string | null;
+  /** Limited by an admin (314): nobody allocated = owners and admins. */
+  access_restricted: boolean;
 }
 
 /**
@@ -58,7 +60,7 @@ export function useAccountNumbers(
       const { data } = await createClient()
         .from('whatsapp_config')
         .select(
-          'id, provider, label, waba_id, phone_number_id, is_primary, status, is_personal, user_id'
+          'id, provider, label, waba_id, phone_number_id, is_primary, status, is_personal, user_id, access_restricted'
         )
         .eq('account_id', accountId)
         .order('created_at', { ascending: true });

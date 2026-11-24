@@ -1625,3 +1625,7 @@ jobs:
       # Migration 316: the rest of the case desk findings.
       - name: Verify the rest of the case desk
         run: supabase db query --local --file supabase/ci/verify-desk-rest.sql
+      # 314: a restricted number stays restricted when its last person leaves,
+      # and two admins cannot overwrite each other. Rolled back.
+      - name: Assert number access and expected lists (314)
+        run: supabase db query --local --file supabase/ci/verify-number-access.sql
