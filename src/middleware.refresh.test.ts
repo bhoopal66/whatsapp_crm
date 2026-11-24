@@ -22,15 +22,15 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-async function open(response: () => Response) {
-  const fetched = vi.fn(async () => response());
+async function open(response: (url: string) => Response, expiresIn = -60) {
+  const fetched = vi.fn(async (url: string) => response(url));
   vi.stubGlobal('fetch', fetched);
   const session = JSON.stringify({
     access_token: 'a.b.c',
     refresh_token: 'r',
     token_type: 'bearer',
     expires_in: 3600,
-    expires_at: Math.floor(Date.now() / 1000) - 60,
+    expires_at: Math.floor(Date.now() / 1000) + expiresIn,
     user: { id: 'u1' },
   });
   const startedAt = Date.now();
@@ -84,6 +84,20 @@ describe('middleware — a token refresh that was not answered', () => {
         { status: 400 }
       );
     const { to, cookies, told } = await open(refused);
+    expect(told).toBe(false);
+    expect(to).toContain('/login');
+    expect(cookies).toBeGreaterThan(0);
+  });
+
+  it('ends a session found ended by a token still valid', async () => {
+    const response = (url: string) =>
+      url.includes('/auth/v1/token')
+        ? Response.json({ msg: 'x' }, { status: 429 })
+        : Response.json(
+            { error_code: 'session_not_found', msg: 'x' },
+            { status: 403 }
+          );
+    const { to, cookies, told } = await open(response, 30);
     expect(told).toBe(false);
     expect(to).toContain('/login');
     expect(cookies).toBeGreaterThan(0);

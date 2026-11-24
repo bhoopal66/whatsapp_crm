@@ -91,8 +91,9 @@ export function createServerRefresh(alreadyUnanswered = () => false) {
       ...init,
       signal: inFlight.signal,
     });
-    if (res.status < 500) stopWaiting();
-    else if (wait && throttled.pausedUntil() >= wait.until) giveUp();
+    if (res.status >= 500 && wait && throttled.pausedUntil() >= wait.until) {
+      giveUp();
+    }
     return res;
   };
 
@@ -108,7 +109,8 @@ export function createServerRefresh(alreadyUnanswered = () => false) {
       if (!refresh) return client;
       auth._refreshAccessToken = (refreshToken) =>
         Promise.race([
-          refresh(refreshToken),
+          // Not once fetch answers: the answer's body may stall too.
+          refresh(refreshToken).finally(stopWaiting),
           givenUp.then(() => ({
             data: { session: null, user: null },
             error: new AuthRetryableFetchError('No answer', 503),
