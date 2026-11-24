@@ -40,8 +40,12 @@ BEGIN
     WHEN n.type = ''work_handed_over'' THEN
       RETURN ''/inbox'';
     WHEN n.type = ''retention_failed'' THEN'),
-    (2, '''meeting_reminder''', 'WHEN n.type IN (''meeting_invite'', ''meeting_update'', ''meeting_cancelled'') THEN',
-     'WHEN n.type IN (''meeting_invite'', ''meeting_update'', ''meeting_cancelled'', ''meeting_reminder'') THEN'),
+    -- A branch of its own: 278 looks for the list as it wrote it.
+    (2, '''meeting_reminder''', 'WHEN n.type = ''submission_group_message'' THEN',
+     'WHEN n.type = ''meeting_reminder'' THEN
+      RETURN CASE WHEN public.push_is_uuid(n.meta ->> ''meeting_id'')
+                  THEN ''/meetings/'' || (n.meta ->> ''meeting_id'') ELSE ''/notifications'' END;
+    WHEN n.type = ''submission_group_message'' THEN'),
     (3, '/calendar?event=', 'WHEN n.type = ''submission_group_message'' THEN',
      'WHEN n.type IN (''calendar_invite'', ''calendar_update'', ''calendar_cancelled'', ''calendar_response'', ''event_reminder'') THEN
       RETURN CASE WHEN public.push_is_uuid(n.meta ->> ''event_id'')
