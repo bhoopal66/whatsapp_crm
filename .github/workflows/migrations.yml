@@ -1567,3 +1567,8 @@ jobs:
 
       - name: Verify campaign stop (301)
         run: supabase db query --local --file supabase/ci/verify-campaign-stop.sql
+
+      # Migration 306: leaving a workspace takes the extension; a removed
+      # person is added back only by the workspace that removed them.
+      - name: Verify leaving and coming back
+        run: supabase db query --local --file supabase/ci/verify-member-leaving.sql
