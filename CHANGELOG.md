@@ -47,6 +47,9 @@ and polish.
   moves: a drag of all events, or repeat days moved with the start.
 - **Reminders: "Snooze until tomorrow" is 09:00 in the workspace's time
   zone**, not on the laptop's clock.
+- **Calendar: "Last day of the month" is a repeat choice** when the start is
+  one, and monthly on the 29th, 30th or 31st says it is skipped in shorter
+  months.
 - **Compass updates: a status update is never posted twice into a
   submission group, and never lost to short failures.** A timeout or a
   restart mid-post answers `delivery_unconfirmed` and is not posted again

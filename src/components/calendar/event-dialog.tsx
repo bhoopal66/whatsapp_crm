@@ -48,6 +48,7 @@ import {
   repeatChoiceOf,
   repeatChoices,
   repeatPreview,
+  skipsShortMonths,
   timeZoneChoices,
   withRepeatChoice,
   type RepeatChoice,
@@ -815,6 +816,11 @@ function RepeatPicker({
           ))}
         </SelectContent>
       </Select>
+      {skipsShortMonths(values) && (
+        <p className="text-muted-foreground text-xs">
+          {t('form.repeatSkipsShort')}
+        </p>
+      )}
 
       {showDetails && (
         <div className="bg-muted/40 space-y-3 rounded-md border p-3">

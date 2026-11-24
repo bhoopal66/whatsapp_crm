@@ -8,10 +8,18 @@ import {
   repeatChoiceOf,
   repeatChoices,
   repeatPreview,
+  skipsShortMonths,
   timeZoneChoices,
   withRepeatChoice,
 } from './event-dialog';
-import { formFromEvent, formFromSelection, type EventRow } from './event-form';
+import { rruleToForm } from '../rrule-form';
+import {
+  createBody,
+  defaultEventForm,
+  formFromEvent,
+  formFromSelection,
+  type EventRow,
+} from './event-form';
 
 const DUBAI = 'Asia/Dubai';
 
@@ -40,6 +48,41 @@ describe('time zone choices', () => {
     expect(list).toContain('Asia/Seoul');
     expect(list).toContain('UTC');
     expect(new Set(list).size).toBe(list.length);
+  });
+});
+
+describe('the last day of the month', () => {
+  const on = (date: string) => ({
+    ...defaultEventForm(new Date('2026-11-24T05:10:00Z'), 'Asia/Dubai'),
+    title: 'Close the month',
+    startDate: date,
+    endDate: date,
+  });
+
+  it('is offered on a last day, saved as BYMONTHDAY=-1 and read back', () => {
+    expect(repeatChoices(on('2026-11-30'))).toContain('monthlyLastDay');
+    expect(repeatChoices(on('2026-12-30'))).not.toContain('monthlyLastDay');
+    const v = withRepeatChoice(on('2026-11-30'), 'monthlyLastDay');
+    const saved = createBody(v);
+    expect(saved).toMatchObject({
+      ok: true,
+      body: { rrule: 'FREQ=MONTHLY;BYMONTHDAY=-1' },
+    });
+    const anchor = { date: '2026-11-30', timeZone: 'Asia/Dubai' };
+    const form = rruleToForm('FREQ=MONTHLY;BYMONTHDAY=-1', anchor);
+    expect(form).toMatchObject({ freq: 'monthly', monthly: 'lastDay' });
+    expect(repeatChoiceOf({ ...v, repeat: form! })).toBe('monthlyLastDay');
+    expect(choiceDescription(v, 'monthlyLastDay')?.key).toBe('monthlyLastDay');
+  });
+
+  it('a date some months do not have says it is skipped there', () => {
+    const monthly = (date: string) => withRepeatChoice(on(date), 'monthlyDate');
+    expect(skipsShortMonths(monthly('2026-12-29'))).toBe(true);
+    expect(skipsShortMonths(monthly('2026-12-28'))).toBe(false);
+    expect(skipsShortMonths(on('2026-12-31'))).toBe(false);
+    expect(
+      skipsShortMonths(withRepeatChoice(on('2026-12-31'), 'monthlyLastDay'))
+    ).toBe(false);
   });
 });
 

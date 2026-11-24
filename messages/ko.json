@@ -8487,6 +8487,7 @@
       "monthlyDate": "{interval, plural, =1 {매월 {day}일} other {#개월마다 {day}일}}",
       "monthlyNth": "{interval, plural, =1 {매월 {nth}번째 {weekday}} other {#개월마다 {nth}번째 {weekday}}}",
       "monthlyLast": "{interval, plural, =1 {매월 마지막 {weekday}} other {#개월마다 마지막 {weekday}}}",
+      "monthlyLastDay": "{interval, plural, =1 {매월 말일} other {#개월마다 말일}}",
       "yearly": "{interval, plural, =1 {매년 {date}} other {#년마다 {date}}}",
       "custom": "사용자 지정 반복",
       "endsOn": "{rule}, {until}까지",
@@ -8513,10 +8514,12 @@
         "monthlyDate": "매월 같은 날",
         "monthlyNth": "매월 같은 요일",
         "monthlyLast": "매월 마지막 요일",
+        "monthlyLastDay": "매월 말일",
         "yearly": "매년",
         "custom": "사용자 지정 반복 규칙"
       },
       "repeatPreviewInvalid": "현재 설정으로는 반복을 저장할 수 없습니다.",
+      "repeatSkipsShort": "날짜가 없는 짧은 달은 건너뜁니다",
       "every": "간격",
       "intervalUnit": {
         "days": "{count, plural, other {일마다}}",

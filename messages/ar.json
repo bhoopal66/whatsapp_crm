@@ -8487,6 +8487,7 @@
       "monthlyDate": "{interval, plural, =1 {شهريًا في اليوم {day}} other {كل # أشهر في اليوم {day}}}",
       "monthlyNth": "{interval, plural, =1 {شهريًا في {weekday} رقم {nth, selectordinal, other {#}}} other {كل # أشهر في {weekday} رقم {nth, selectordinal, other {#}}}}",
       "monthlyLast": "{interval, plural, =1 {شهريًا في آخر {weekday}} other {كل # أشهر في آخر {weekday}}}",
+      "monthlyLastDay": "{interval, plural, =1 {شهريًا في آخر يوم من الشهر} other {كل # أشهر في آخر يوم من الشهر}}",
       "yearly": "{interval, plural, =1 {كل سنة في {date}} other {كل # سنوات في {date}}}",
       "custom": "يتكرر وفق جدول مخصص",
       "endsOn": "{rule}، حتى {until}",
@@ -8513,10 +8514,12 @@
         "monthlyDate": "شهريًا في اليوم نفسه",
         "monthlyNth": "شهريًا في يوم الأسبوع نفسه",
         "monthlyLast": "شهريًا في آخر يوم أسبوع",
+        "monthlyLastDay": "آخر يوم من الشهر",
         "yearly": "سنويًا",
         "custom": "قاعدة تكرار مخصصة"
       },
       "repeatPreviewInvalid": "لا يمكن حفظ هذا التكرار كما هو مضبوط.",
+      "repeatSkipsShort": "يتم تخطيه في الأشهر الأقصر",
       "every": "كل",
       "intervalUnit": {
         "days": "{count, plural, =1 {يوم} other {أيام}}",

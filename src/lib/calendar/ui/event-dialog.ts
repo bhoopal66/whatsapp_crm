@@ -10,6 +10,7 @@ import {
   type RepeatDescription,
 } from '../rrule-form';
 import { formRrule, type EventFormValues } from './event-form';
+import { addDaysToKey } from './mini-month';
 
 /** The zones offered before the account's and the event's own. */
 export const COMMON_TIME_ZONES = [
@@ -37,6 +38,7 @@ export type RepeatChoice =
   | 'monthlyDate'
   | 'monthlyNth'
   | 'monthlyLast'
+  | 'monthlyLastDay'
   | 'yearly'
   | 'custom';
 
@@ -60,7 +62,9 @@ export function repeatChoiceOf(v: EventFormValues): RepeatChoice {
       ? 'monthlyDate'
       : r.monthly === 'nth'
         ? 'monthlyNth'
-        : 'monthlyLast';
+        : r.monthly === 'lastDay'
+          ? 'monthlyLastDay'
+          : 'monthlyLast';
   }
   return r.freq;
 }
@@ -68,7 +72,7 @@ export function repeatChoiceOf(v: EventFormValues): RepeatChoice {
 /**
  * The options offered: "the nth weekday" only up to the 4th (a 5th is
  * better said as "the last"), "the last weekday" only when the start is
- * one, a custom rule only while the event still has it; the current
+ * one, "the last day of the month" likewise, a custom rule only while the event still has it; the current
  * choice is always offered.
  */
 export function repeatChoices(v: EventFormValues): RepeatChoice[] {
@@ -82,6 +86,7 @@ export function repeatChoices(v: EventFormValues): RepeatChoice[] {
     'monthlyDate',
     'monthlyNth',
     'monthlyLast',
+    'monthlyLastDay',
     'yearly',
     'custom',
   ];
@@ -90,6 +95,9 @@ export function repeatChoices(v: EventFormValues): RepeatChoice[] {
     if (c === 'custom') return false;
     if (c === 'monthlyNth') return !!facts && facts.nth <= 4;
     if (c === 'monthlyLast') return !!facts && facts.isLast;
+    if (c === 'monthlyLastDay') {
+      return !!facts && addDaysToKey(v.startDate, 1).endsWith('-01');
+    }
     return true;
   });
 }
@@ -105,13 +113,16 @@ export function withRepeatChoice(
     case 'monthlyDate':
     case 'monthlyNth':
     case 'monthlyLast':
+    case 'monthlyLastDay':
       r.freq = 'monthly';
       r.monthly =
         choice === 'monthlyDate'
           ? 'date'
           : choice === 'monthlyNth'
             ? 'nth'
-            : 'last';
+            : choice === 'monthlyLast'
+              ? 'last'
+              : 'lastDay';
       break;
     case 'weekly': {
       r.freq = 'weekly';
@@ -168,6 +179,16 @@ export function repeatPreview(
   } catch {
     return 'invalid';
   }
+}
+
+/** Monthly on the 29th, 30th or 31st: a month without that day is skipped. */
+export function skipsShortMonths(v: EventFormValues): boolean {
+  const anchor = anchorOfForm(v);
+  return (
+    repeatChoiceOf(v) === 'monthlyDate' &&
+    !!anchor &&
+    anchorFacts(anchor).monthDay > 28
+  );
 }
 
 /** Unsaved changes: anything differs from the values the dialog opened with. */

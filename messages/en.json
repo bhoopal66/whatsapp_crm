@@ -8487,6 +8487,7 @@
       "monthlyDate": "{interval, plural, =1 {Monthly on day {day}} other {Every # months on day {day}}}",
       "monthlyNth": "{interval, plural, =1 {Monthly on the {nth, selectordinal, one {#st} two {#nd} few {#rd} other {#th}} {weekday}} other {Every # months on the {nth, selectordinal, one {#st} two {#nd} few {#rd} other {#th}} {weekday}}}",
       "monthlyLast": "{interval, plural, =1 {Monthly on the last {weekday}} other {Every # months on the last {weekday}}}",
+      "monthlyLastDay": "{interval, plural, =1 {Monthly on the last day of the month} other {Every # months on the last day of the month}}",
       "yearly": "{interval, plural, =1 {Every year on {date}} other {Every # years on {date}}}",
       "custom": "Repeats on a custom schedule",
       "endsOn": "{rule}, until {until}",
@@ -8513,10 +8514,12 @@
         "monthlyDate": "Monthly on the same day",
         "monthlyNth": "Monthly on the same weekday",
         "monthlyLast": "Monthly on the last weekday",
+        "monthlyLastDay": "Last day of the month",
         "yearly": "Yearly",
         "custom": "Custom repeat rule"
       },
       "repeatPreviewInvalid": "This repeat can't be saved as set.",
+      "repeatSkipsShort": "Skipped in shorter months",
       "every": "Every",
       "intervalUnit": {
         "days": "{count, plural, =1 {day} other {days}}",
