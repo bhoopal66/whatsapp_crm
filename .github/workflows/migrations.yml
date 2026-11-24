@@ -1574,3 +1574,5 @@ jobs:
       # connected by somebody in HR.
       - name: Verify HR fixes
         run: supabase db query --local --file supabase/ci/verify-hr-fixes.sql
+      - name: Verify v1 message keys (305)
+        run: supabase db query --local --file supabase/ci/verify-v1-message-keys.sql

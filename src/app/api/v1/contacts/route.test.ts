@@ -21,6 +21,8 @@ vi.mock('@/lib/api/v1/contacts', async (importOriginal) => {
   };
 });
 
+import { unavailable } from '@/lib/api/v1/respond';
+import { getContactById } from '@/lib/api/v1/contacts';
 import { GET, POST } from './route';
 
 const post = (body: unknown) =>
@@ -142,5 +144,28 @@ describe('GET /api/v1/contacts', () => {
       data: [],
       meta: { next_cursor: null },
     });
+  });
+});
+
+describe('POST /api/v1/contacts when the contact cannot be re-read', () => {
+  it('answers the row the insert returned', async () => {
+    vi.mocked(getContactById).mockRejectedValueOnce(unavailable());
+    findOrCreateContact.mockResolvedValue({
+      id: 'c1',
+      created: true,
+      contact: { id: 'c1', name: 'Ann' },
+    });
+    const res = await post({ phone: '971501234567' });
+    expect(res.status).toBe(201);
+    expect(await res.json()).toEqual({ data: { id: 'c1', name: 'Ann' } });
+    vi.mocked(getContactById).mockReset();
+  });
+
+  it('answers 503, never a null contact, for an existing one', async () => {
+    findOrCreateContact.mockResolvedValue({ id: 'c1', created: false });
+    vi.mocked(getContactById).mockRejectedValueOnce(unavailable());
+    expect((await post({ phone: '971501234567' })).status).toBe(503);
+    vi.mocked(getContactById).mockResolvedValueOnce(null);
+    expect((await post({ phone: '971501234567' })).status).toBe(503);
   });
 });

@@ -44,7 +44,7 @@ export function parseListParams(request: Request): ListParams {
   const rawLimit = Number(url.searchParams.get('limit'));
   const limit =
     Number.isFinite(rawLimit) && rawLimit > 0
-      ? Math.min(Math.floor(rawLimit), MAX_LIMIT)
+      ? Math.max(1, Math.min(Math.floor(rawLimit), MAX_LIMIT))
       : DEFAULT_LIMIT;
 
   return { limit, cursor: decodeCursor(url.searchParams.get('cursor')) };

@@ -77,7 +77,7 @@ when their guard is set.
 | `get_conversation`   | read      | `conversations:read` | Read one conversation                           |
 | `list_messages`      | read      | `messages:read`      | List a conversation's messages                  |
 | `get_broadcast`      | read      | `broadcasts:send`    | Poll a broadcast's delivery status              |
-| `send_message`       | write     | `messages:send`      | Send a WhatsApp message (text/template/media)   |
+| `send_message`       | write     | `messages:send`      | Send a WhatsApp message (text/template/media), once per call |
 | `create_contact`     | write     | `contacts:write`     | Create (find-or-create) a contact               |
 | `update_contact`     | write     | `contacts:write`     | Update a contact's name, email or company       |
 | `send_broadcast`     | broadcast | `broadcasts:send`    | Launch a template broadcast (requires `confirm`)|

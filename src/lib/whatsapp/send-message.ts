@@ -111,6 +111,8 @@ export class SendMessageError extends Error {
    * gateway had already accepted the send.
    */
   readonly definite: boolean;
+  /** On `db_error`: WhatsApp's id of the message that did go out. */
+  whatsappMessageId?: string;
   constructor(
     code: string,
     message: string,
@@ -1164,7 +1166,7 @@ export async function sendMessageToConversation(
 
   if (msgError) {
     console.error('[send-message] error inserting sent message:', msgError);
-    throw new SendMessageError(
+    const notRecorded = new SendMessageError(
       'db_error',
       // The raw database text stays in the log above: this message reaches
       // the public API and Compass's stored error, which must not carry
@@ -1175,6 +1177,8 @@ export async function sendMessageToConversation(
       // must be kept.
       false
     );
+    notRecorded.whatsappMessageId = waMessageId;
+    throw notRecorded;
   }
 
   const lastMessageText =

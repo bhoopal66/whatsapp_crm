@@ -86,6 +86,7 @@ may be reworded.
 | 429    | `number_daily_limit` | `POST /api/v1/messages` would start a new chat on a phone (Whapi or OpenWA) number that has reached its daily new-chat limit, with the workspace's hard restrictions on. Replies to existing chats still go out; new chats can start again tomorrow |
 | 400    | `bad_request`  | Malformed input                                                                     |
 | 404    | `not_found`    | No such resource                                                                    |
+| 409    | `idempotency_key_reused`, `in_progress`, `delivery_unconfirmed` | `POST /api/v1/messages` with an idempotency key, below |
 | 500    | `internal`     | Server error                                                                        |
 | 503    | `unavailable`  | The key could not be checked (the database did not answer). Says nothing about the key and is not counted as a bad one; nothing was done. Retry after `Retry-After` seconds |
 
@@ -202,6 +203,31 @@ send), `template_malformed` (500), `customer_opted_out` (422 — the
 customer opted out of messages or is marked do-not-contact, on this
 contact or another one with the same number; nothing was sent. Don't
 retry).
+
+**Sent but not saved.** When WhatsApp took the message and the CRM could
+not save it, the answer is still `201`: `message_id` is `null`,
+`whatsapp_message_id` is the sent message's and `data.warning` is
+`"not_recorded"`. Don't send it again.
+
+**Sending once.** Pass an `Idempotency-Key` header (or an
+`idempotency_key` field in the body; 1 to 200 printable ASCII characters,
+one per message) and a request that is repeated, because its answer was
+lost, never sends the message twice. Keys belong to the API key and are
+remembered for 30 days, or until the message or its contact is deleted.
+Without a key every request sends.
+
+| Repeat of                             | Answer                                                                                         |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| a message that was sent               | `200`, the first answer again with `"replayed": true`. Nothing is sent                         |
+| a request that certainly did not send | the message is sent now (a refusal such as `customer_opted_out` is asked again)                |
+| a request still running               | `409 in_progress` with `Retry-After`                                                           |
+| a request whose outcome is unknown    | `409 delivery_unconfirmed`. It may have reached the customer, so this key never sends it again |
+| another message with the same key     | `409 idempotency_key_reused`. Nothing is sent                                                  |
+
+With a key, a first request whose outcome is unknown (the gateway timed
+out, say) is answered `409 delivery_unconfirmed` too. `503 unavailable`
+means the key could not be recorded and nothing was sent: repeat it with
+the same key.
 
 ### `GET /api/v1/contacts`
 
