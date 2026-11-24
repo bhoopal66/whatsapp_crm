@@ -8,6 +8,7 @@ import {
 import {
   buildCreateBody,
   createErrorKey,
+  createFailureKind,
   contactSearchFilter,
   DEFAULT_TOGGLES,
   applyGroupFilter,
@@ -158,6 +159,22 @@ describe('buildCreateBody', () => {
     expect(body).not.toHaveProperty('description');
     expect(body).not.toHaveProperty('contactIds');
     expect(body).not.toHaveProperty('managerIds');
+  });
+});
+
+describe('createFailureKind', () => {
+  it('keeps every answer that leaves the group open apart from a refusal', () => {
+    expect(createFailureKind(502, 'create_unconfirmed')).toBe('unconfirmed');
+    expect(createFailureKind(504, undefined)).toBe('unconfirmed');
+    expect(createFailureKind(500, null)).toBe('unconfirmed');
+    expect(createFailureKind(409, 'create_repeat')).toBe('repeat');
+    expect(createFailureKind(502, 'gateway_unavailable')).toBe('refused');
+    expect(createFailureKind(400, undefined)).toBe('refused');
+  });
+
+  it('asks for another group only when told to', () => {
+    expect(buildCreateBody(values())).not.toHaveProperty('createAnother');
+    expect(buildCreateBody(values(), true).createAnother).toBe(true);
   });
 });
 

@@ -22,6 +22,11 @@ and polish.
 
 ### Fixed
 
+- **Creating a WhatsApp group whose answer was lost no longer invites a
+  second one.** The wizard keeps what was entered and says to check Groups;
+  the same name on the same number again within 5 minutes asks first
+  ("Create another"); and on a Whapi number a group that really was made is
+  given to the person who made it. No migration.
 - **Two people pressing "Request documents" no longer send the customer the
   same request twice.** A request made within 10 minutes of the case's last
   one asks first: "Requested by … at …. Send again?".
