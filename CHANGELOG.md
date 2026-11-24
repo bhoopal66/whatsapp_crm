@@ -40,6 +40,18 @@ and polish.
   "Couldn't load" with a Retry button. A failed HR-task read likewise no
   longer reads as "No open HR tasks". No migration.
 
+- **Add number says when nobody knows.** When WhatsApp gave no answer, a
+  submission group's Add number said the number could not be added, though
+  it may be in the group; it now asks to check the group first. No
+  migration.
+- **Load older in a WhatsApp group skips no message.** Photos of one album
+  share a second, and a page that ended inside it lost the rest of them. No
+  migration.
+- **Words typed to a group wait for you.** Opening another group, case or
+  tab no longer empties the box of a WhatsApp group, submission group or
+  case: the words are there on coming back (until the browser tab closes;
+  never for the next person to sign in), also when the send was refused
+  after you left. No migration.
 - **Erasing one customer no longer erases another's calls.** A call whose
   number fitted two customers stayed with both even after staff linked it
   to one: erasing the other deleted its recording and notes for good, and

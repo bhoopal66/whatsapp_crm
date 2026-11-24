@@ -217,17 +217,35 @@ export function checkIconUpload(file: unknown): {
 export const MESSAGES_PAGE_DEFAULT = 50;
 export const MESSAGES_PAGE_MAX = 100;
 
-/** GET messages: `?before=<ISO time>&limit=<1-100>`. */
+const ROW_TIME_RE =
+  /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}(:?\d{2})?)$/;
+
+/**
+ * GET messages: `?before=<ISO time>&before_id=<row id>&limit=<1-100>`.
+ * With `before_id` the page continues after that very row, and `before`
+ * is its `created_at` as it was answered: a Date would cut the
+ * microseconds off. Without it (a screen opened before this build), it
+ * continues before that time.
+ */
 export function parseMessagePage(params: URLSearchParams): {
   before: string | null;
+  beforeId: string | null;
   limit: number;
 } {
   const rawBefore = params.get('before');
+  const beforeId = params.get('before_id');
   let before: string | null = null;
   if (rawBefore) {
     const t = Date.parse(rawBefore);
     if (Number.isNaN(t)) throw bad('before must be a timestamp');
     before = new Date(t).toISOString();
+  }
+  if (beforeId !== null) {
+    if (!isUuid(beforeId)) throw bad('before_id must be a message id');
+    if (!rawBefore || !ROW_TIME_RE.test(rawBefore)) {
+      throw bad('before_id needs the created_at of its message');
+    }
+    before = rawBefore;
   }
   const rawLimit = params.get('limit');
   let limit = MESSAGES_PAGE_DEFAULT;
@@ -237,7 +255,7 @@ export function parseMessagePage(params: URLSearchParams): {
       throw bad(`limit must be 1-${MESSAGES_PAGE_MAX}`);
     }
   }
-  return { before, limit };
+  return { before, beforeId, limit };
 }
 
 /** POST messages: `{ text }` (text only for now). */

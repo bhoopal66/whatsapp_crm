@@ -37,6 +37,7 @@ import {
   type GroupOutboundMedia,
 } from '@/lib/groups/outbound-media';
 import { SEND_UNCONFIRMED } from '@/lib/groups/unconfirmed-sends';
+import { olderMessagesGroup } from '@/lib/inbox/pagination';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { publicSupabaseUrl } from '@/lib/supabase/urls';
 import {
@@ -74,7 +75,7 @@ export async function GET(request: Request, { params }: Params) {
   try {
     const ctx = assertSalesAccess(await getCurrentAccount());
     const { id } = await params;
-    const { before, limit } = parseMessagePage(
+    const { before, beforeId, limit } = parseMessagePage(
       new URL(request.url).searchParams
     );
     const group = await loadGroupForCaller(ctx, id);
@@ -83,9 +84,19 @@ export async function GET(request: Request, { params }: Params) {
       .select(MESSAGE_COLUMNS)
       .eq('account_id', ctx.accountId)
       .eq('group_id', group.id);
-    if (before) query = query.lt('created_at', before);
+    // Arrivals carry whole seconds, so an album shares one: the page
+    // continues after the row, not before its second. `lte` repeats the
+    // `or` for the index.
+    if (before && beforeId) {
+      query = query
+        .lte('created_at', before)
+        .or(olderMessagesGroup({ id: beforeId, created_at: before }));
+    } else if (before) {
+      query = query.lt('created_at', before);
+    }
     const { data, error } = await query
       .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
       .limit(limit + 1);
     if (error) {
       console.error('[groups] messages read failed', error);

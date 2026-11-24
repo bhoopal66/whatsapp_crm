@@ -59,6 +59,7 @@ import {
   type GroupPickerKind,
 } from '@/lib/groups/composer';
 import { shouldSendOnKey } from '@/lib/groups/group-page';
+import { groupTextDrafts, sendTyped } from '@/lib/groups/text-drafts';
 import { createUnsentQueue, sendOrKeep } from '@/lib/groups/unsent-media';
 import { createUnsentTakes } from '@/lib/inbox/unsent-takes';
 import {
@@ -142,7 +143,15 @@ export function GroupComposer({
   const t = useTranslations('Inbox.composer');
   const tv = useTranslations('Inbox.voice');
   const tg = useTranslations('Groups.page.chat');
-  const [text, setText] = useState('');
+  // The box's words live outside it, by chat (lib/groups/text-drafts).
+  const readText = () => groupTextDrafts.get(userId, chatKey);
+  const text = useSyncExternalStore(
+    groupTextDrafts.subscribe,
+    readText,
+    readText
+  );
+  const setText = (next: string) =>
+    groupTextDrafts.write(userId, chatKey, next);
   const [sending, setSending] = useState(false);
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState<StagedMedia | null>(null);
@@ -164,6 +173,7 @@ export function GroupComposer({
   useLayoutEffect(() => {
     unsentVoices.claim(userId);
     unsentMedia.claim(userId);
+    groupTextDrafts.claim(userId);
   }, [userId]);
   const unsentVoice = useSyncExternalStore(
     unsentVoices.subscribe,
@@ -417,15 +427,11 @@ export function GroupComposer({
   };
 
   const sendText = async () => {
-    const body = text.trim();
-    if (!body || sending || disabled) return;
+    if (!text.trim() || sending || disabled) return;
     setSending(true);
     lastSentAtRef.current = Date.now();
-    setText('');
     try {
-      const ok = await onSendText(body);
-      // Not sent: give the words back unless something was typed since.
-      if (!ok && mountedRef.current) setText((now) => now || body);
+      await sendTyped(groupTextDrafts, userId, chatKey, onSendText);
     } finally {
       if (mountedRef.current) setSending(false);
     }
@@ -453,9 +459,8 @@ export function GroupComposer({
     // Interactive snippets need the inbox's builder; groups take text.
     const body = qr.content_text ?? '';
     if (!body) return;
-    setText((prev) =>
-      prev && !/\s$/.test(prev) ? `${prev}\n${body}` : `${prev}${body}`
-    );
+    const now = readText();
+    setText(now && !/\s$/.test(now) ? `${now}\n${body}` : `${now}${body}`);
     requestAnimationFrame(() => {
       const el = textareaRef.current;
       if (el) {

@@ -9276,7 +9276,8 @@
       "copyLink": "Copy link",
       "copied": "Group link copied.",
       "copyFailed": "Could not copy the link.",
-      "failed": "Could not add the number. Try again."
+      "failed": "Could not add the number. Try again.",
+      "maybeAdded": "No answer: the number may have been added. Check the group before trying again."
     }
   },
   "CallStatsPage": {
