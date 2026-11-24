@@ -154,7 +154,7 @@ export function DeskView() {
     <div className="mx-auto w-full max-w-5xl space-y-4 p-4 sm:p-6">
       <p className="text-muted-foreground text-sm">{t('subtitle')}</p>
       <Tabs value={tab} onValueChange={changeTab}>
-        <div className="-mx-1 overflow-x-auto px-1 pb-1">
+        <div className="-mx-1 relative overflow-x-auto px-1 pb-1">
           <TabsList aria-label={t('title')}>
             {tabs.map((id) => {
               const count =
@@ -933,7 +933,7 @@ function OverviewTab() {
   };
   return (
     <Card>
-      <CardContent className="overflow-x-auto">
+      <CardContent className="relative overflow-x-auto">
         <Table>
           <TableHeader>
             <TableRow>

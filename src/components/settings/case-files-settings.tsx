@@ -633,7 +633,7 @@ export function FileSpecEditor({
           </p>
         ) : (
           <>
-            <div className="border-border overflow-x-auto rounded-lg border">
+            <div className="border-border relative overflow-x-auto rounded-lg border">
               <table className="w-full min-w-[56rem] text-sm">
                 <thead className="bg-card-2 text-muted-foreground text-xs">
                   <tr className="text-start">

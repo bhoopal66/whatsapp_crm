@@ -305,7 +305,7 @@ function Checklist({ list }: { list: ApplicationChecklist }) {
       <p className="text-muted-foreground text-xs">
         {t('banks.checklistIntro')}
       </p>
-      <div className="overflow-x-auto rounded-md border">
+      <div className="relative overflow-x-auto rounded-md border">
         <table className="w-full text-start text-xs">
           <thead className="bg-card-2">
             <tr>

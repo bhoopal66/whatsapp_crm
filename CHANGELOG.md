@@ -35,6 +35,10 @@ and polish.
   groups, campaigns and HR automated messages; the error text goes, the
   campaign's failed count falls, and "Retry failed" does not send it
   again. **Migration required: 291**, after 289.
+- **Phone screens.** Settings → Team chat no longer scrolls the whole page
+  sideways, wide tables everywhere scroll inside their own box, and the
+  small "how is this calculated" marks are big enough to tap and show the
+  keyboard focus. No migration.
 - **A failed message says why.** WhatsApp accepts a message and may fail it
   a moment later with a reason; a chat showed only a red mark. The reason
   (the person is not on WhatsApp, Meta could not charge, marketing limit,

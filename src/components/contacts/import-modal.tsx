@@ -466,7 +466,7 @@ export function ImportModal({
               </p>
 
               <div className="border-border ring-border/50 overflow-hidden rounded-xl border ring-1">
-                <div className="overflow-x-auto">
+                <div className="relative overflow-x-auto">
                   <table className="w-full min-w-[32rem] text-xs">
                     <thead>
                       <tr className="border-border bg-background/60 border-b">

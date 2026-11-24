@@ -84,7 +84,7 @@ export function AuditTab({ caseId }: CaseTabProps) {
           {t('audit.empty')}
         </p>
       ) : (
-        <div className="bg-card overflow-x-auto rounded-lg border">
+        <div className="bg-card relative overflow-x-auto rounded-lg border">
           <Table>
             <TableHeader>
               <TableRow>
