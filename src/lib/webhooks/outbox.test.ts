@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-const deliverSigned = vi.hoisted(() => vi.fn(async () => undefined));
+const deliverSigned = vi.hoisted(() => vi.fn(async () => true));
 vi.mock('@/lib/webhooks/deliver', () => ({ deliverSigned }));
 
 import { OUTBOX_EVENTS, WEBHOOK_EVENTS } from './events';
@@ -146,6 +146,28 @@ describe('drainWebhookOutbox', () => {
     deliverSigned.mockRejectedValueOnce(new Error('boom'));
     const res = await drainWebhookOutbox(db, { now: () => 0 });
     expect(res).toMatchObject({ claimed: 2, delivered: 1, failed: 1 });
+  });
+
+  it('gives a row back when its endpoints could not be read, and stops', async () => {
+    const ids: unknown[] = [];
+    rpc.mockImplementation(async (fn: string, args: { p_id?: unknown }) => {
+      if (fn === 'webhook_outbox_release') {
+        ids.push(args.p_id);
+        return { data: true, error: null };
+      }
+      return full(OUTBOX_BATCH_SIZE);
+    });
+    deliverSigned.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+    const res = await drainWebhookOutbox(db, { now: () => 0 });
+    // Only the row nothing was sent for; the delivered ones stay claimed.
+    expect(ids).toEqual([1]);
+    // One claim: the next would hand the same row out again.
+    expect(res).toEqual({
+      claimed: OUTBOX_BATCH_SIZE,
+      delivered: OUTBOX_BATCH_SIZE - 1,
+      failed: 1,
+      stoppedEarly: true,
+    });
   });
 
   it('throws when the claim fails, delivering nothing', async () => {

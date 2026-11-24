@@ -881,9 +881,10 @@ covers messages Taamul Connect stores (inbox + API sends), not broadcast-only
 sends, and — because providers re-send and re-order status callbacks —
 the same status may arrive more than once or out of order; **dedupe on
 `id` and don't assume ordering**. Each consecutive failure increments
-`failure_count`; after enough consecutive failures the endpoint is
-auto-disabled (`is_active: false`) — re-enable it with `PATCH` (which
-resets the counter). Durable retry-with-backoff (a delivery queue) is a
+`failure_count`; after enough consecutive failures spanning at least 30
+minutes the endpoint is auto-disabled (`is_active: false`) and the
+workspace's owners and admins are notified — re-enable it with `PATCH`
+(which resets the counter). Durable retry-with-backoff (a delivery queue) is a
 future enhancement; today, treat missed deliveries as possible and
 reconcile with the read endpoints when it matters.
 

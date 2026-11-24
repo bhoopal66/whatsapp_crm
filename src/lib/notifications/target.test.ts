@@ -454,6 +454,12 @@ describe('notificationRow', () => {
     });
   });
 
+  it('webhook_disabled opens API for owners and admins (293)', () => {
+    const n = { type: 'webhook_disabled' } as never;
+    expect(notificationTarget(n, 'admin')).toBe('/settings?tab=api');
+    expect(notificationTarget(n, 'agent')).toBeNull();
+  });
+
   it('retention_failed opens Privacy for owners and admins (282)', () => {
     const n = { type: 'retention_failed' } as never;
     expect(notificationTarget(n, 'owner')).toBe('/settings?tab=privacy');

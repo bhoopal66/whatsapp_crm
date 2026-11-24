@@ -134,6 +134,8 @@ function hrefFor(
       return role && canEditSettings(role) ? '/settings?tab=whatsapp' : null;
     case 'retention_failed':
       return role && canEditSettings(role) ? '/settings?tab=privacy' : null;
+    case 'webhook_disabled':
+      return role && canEditSettings(role) ? '/settings?tab=api' : null;
     case 'pbx_connection_silent':
     case 'pbx_connection_restored':
       return role && canEditSettings(role)

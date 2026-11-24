@@ -501,6 +501,10 @@ export type NotificationType =
   | 'meta_number_alert'
   // The daily retention sweep failed (282): the owners, once a day.
   | 'retention_failed'
+  // An outbound webhook endpoint failed for 30 minutes and was switched
+  // off (293, record_webhook_failure): the live owners and admins.
+  // meta = {endpoint_id}.
+  | 'webhook_disabled'
   // In-chat notes (241): someone mentioned you in a team note inside a
   // customer chat you can see. The row carries conversation_id and
   // contact_id; meta = {note_id, author}.

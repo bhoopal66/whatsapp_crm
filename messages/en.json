@@ -8236,6 +8236,7 @@
       "inbound_message_failed": "A WhatsApp message could not be saved",
       "meta_number_alert": "The Meta number's health gets worse",
       "retention_failed": "Automatic data removal (retention) fails",
+      "webhook_disabled": "A webhook is switched off after failing",
       "pbx_connection_silent": "The phone system goes quiet",
       "pbx_connection_restored": "The phone system is back",
       "team_activity_alert": "Team activity alerts",
