@@ -1826,6 +1826,47 @@ describe('sendCompassNotification into a submission group (170)', () => {
     expect(key.length).toBeLessThanOrEqual(240);
   });
 
+  it.each([
+    ['', group()],
+    [', the group since closed', group({ wa_closed_at: '2026-11-20' })],
+  ])(
+    'a try that was sent after all is delivered, not posted again%s',
+    async (_what, inGroup) => {
+      const { db, tables } = makeDb({ groups: [group()] });
+      await sendCompassNotification(db, 'acct', refReq(), {
+        groupSender: handsOver('41', refusedBy),
+      }).catch(() => undefined);
+      tables.submission_groups[0] = inGroup;
+      // The echo came, within the minute a retry would have to wait.
+      tables.submission_group_messages.push({
+        id: '41',
+        group_id: 'g-ref',
+        created_at: new Date().toISOString(),
+        send_status: 'sent',
+      });
+      const groupSender = vi.fn();
+      const { notification } = await sendCompassNotification(
+        db,
+        'acct',
+        refReq(),
+        { groupSender }
+      );
+      expect(notification).toMatchObject({
+        status: 'sent',
+        delivered_to: 'group',
+        submission_group_id: 'g-ref',
+        error: null,
+      });
+      expect(tables.compass_notifications[0]).toMatchObject({
+        status: 'sent',
+        group_message_id: '41',
+        contact_id: 'contact-g',
+      });
+      expect(groupSender).not.toHaveBeenCalled();
+      expect(sendMessageToConversation).not.toHaveBeenCalled();
+    }
+  );
+
   it('goes 1:1 when the group is gone after a try that sent nothing', async () => {
     findExistingContact.mockResolvedValue({ id: 'contact-1' });
     const { db, tables } = makeDb({
