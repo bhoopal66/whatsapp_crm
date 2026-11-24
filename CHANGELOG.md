@@ -22,6 +22,9 @@ and polish.
 
 ### Fixed
 
+- **Automations honour "Do not contact".** A customer marked so is sent no
+  automation message (text, buttons, list, template), not even right after
+  they wrote; before, only "opted out" was checked. No migration.
 - **Numbers typed in Arabic digits work.** Contact search, the inbox,
   groups and forward searches read Arabic-Indic and Persian digits as 0-9,
   and a number typed or imported with them keeps its digits.

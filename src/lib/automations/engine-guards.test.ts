@@ -314,7 +314,7 @@ describe('a contact who opted out', () => {
 
   it('is not messaged when the flag cannot be read', async () => {
     contact().opted_out_at = null;
-    h.refuse.add('contacts.select:opted_out_at');
+    h.refuse.add('contacts.select:opted_out_at, do_not_contact_at');
     steps(TEXT, CLOSE);
     await trigger('chat_tag_set');
     expect(sends()).toBe(0);
@@ -328,6 +328,45 @@ describe('a contact who opted out', () => {
     steps(TEXT);
     await trigger('chat_tag_set');
     expect(sends()).toBe(1);
+  });
+});
+
+describe('a contact marked do not contact', () => {
+  beforeEach(() => {
+    contact().do_not_contact_at = '2026-11-01T00:00:00Z';
+  });
+
+  it.each([
+    ['send_message', TEXT],
+    ['send_template', TEMPLATE],
+    ['send_buttons', BUTTONS],
+    ['send_list', LIST],
+  ])('%s is skipped, also right after they wrote', async (_type, step) => {
+    steps(step, CLOSE);
+    await trigger('new_message_received', { customerJustWrote: true });
+    await trigger('chat_tag_set');
+    expect(sends()).toBe(0);
+    expect(log().steps_executed[0]).toMatchObject({
+      status: 'skipped',
+      detail: 'skipped: the customer is marked do not contact',
+    });
+    expect(h.db.conversations[0].status).toBe('closed');
+  });
+
+  it('is sent nothing by a resumed wait', async () => {
+    park();
+    steps(TEXT);
+    await resume();
+    expect(sends()).toBe(0);
+  });
+
+  it('is sent nothing right after they wrote when the flags cannot be read', async () => {
+    contact().do_not_contact_at = null;
+    h.refuse.add('contacts.select:opted_out_at, do_not_contact_at');
+    steps(TEXT);
+    await trigger('new_message_received', { customerJustWrote: true });
+    expect(sends()).toBe(0);
+    expect(log().steps_executed[0]).toMatchObject({ status: 'skipped' });
   });
 });
 
