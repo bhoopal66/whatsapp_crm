@@ -3,9 +3,9 @@
 // A linked device (Whapi, OpenWA) renders the row here and sends an
 // ordinary message, so Meta's verdict on it does not matter. The Cloud
 // API number addresses an approved template in Meta's registry by name
-// and language, so a row Meta never took is refused there whatever its
-// `status` says: a save writes APPROVED before Meta answers, and a
-// refused submission keeps it (the submit route).
+// and language, so a row Meta refused fails there whatever its `status`
+// says: a save writes APPROVED before Meta answers, and a refused
+// submission keeps it (the submit route), with its `submission_error`.
 //
 // This informs the picker only; the server judges every send.
 
@@ -29,7 +29,10 @@ export interface TemplateOffer<T> {
   // Anything else is hidden.
 }
 
-type OfferRow = Pick<MessageTemplate, 'status' | 'meta_template_id'>;
+type OfferRow = Pick<
+  MessageTemplate,
+  'status' | 'meta_template_id' | 'submission_error'
+>;
 
 /**
  * Gone from Meta (or going), and a draft nobody finished: never shown.
@@ -43,8 +46,15 @@ function isHidden(row: OfferRow): boolean {
 }
 
 function metaBlock(row: OfferRow): TemplateBlock | null {
-  // Meta never took it, so no status on it is Meta's.
-  if (!row.meta_template_id) return 'not_approved';
+  if (!row.meta_template_id) {
+    // Refused when it was submitted: Meta does not know it. Without a
+    // refusal nobody here can tell: a template made in WhatsApp Manager and
+    // written here by hand is approved there and was never synced, so it
+    // stays on offer and Meta answers.
+    return row.status === 'APPROVED' && !row.submission_error
+      ? null
+      : 'not_approved';
+  }
   switch (row.status) {
     case 'APPROVED':
       return null;

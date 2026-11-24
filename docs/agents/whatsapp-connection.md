@@ -221,7 +221,8 @@ the same row is a hard rejection until it is submitted and approved. The
 review lifecycle (`template-webhook.ts`, `template-send-builder.ts`,
 `template-components.ts`) is live only for Meta sends; `status` is
 advisory on Whapi. APPROVED without a `meta_template_id` is ours, not
-Meta's: the picker decides with `lib/whatsapp/template-offer.ts`. An
+Meta's: the picker decides with `lib/whatsapp/template-offer.ts` (only one
+Meta refused is held back; an unsynced one is offered and Meta answers). An
 edit never writes `status` over a verdict of Meta's.
 
 **Message costs (migration 051)** are Meta-only: every raw `statuses[]`

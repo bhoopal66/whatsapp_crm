@@ -9,13 +9,20 @@ import {
   offerTemplates,
 } from './template-offer';
 
-const row = (id: string, status?: MessageTemplateStatus, metaId?: string) => ({
+const row = (
+  id: string,
+  status?: MessageTemplateStatus,
+  metaId?: string,
+  submissionError?: string
+) => ({
   id,
   status,
   meta_template_id: metaId,
+  submission_error: submissionError,
 });
 const rows = [
   row('local', 'APPROVED'),
+  row('refused', 'APPROVED', undefined, 'Invalid parameter'),
   row('approved', 'APPROVED', '1'),
   row('pending', 'PENDING', '2'),
   row('appeal', 'IN_APPEAL', '3'),
@@ -29,11 +36,13 @@ const rows = [
 const ids = (list: { id: string }[]) => list.map((r) => r.id);
 
 describe('offerTemplates', () => {
-  it('Meta: only what Meta took and approved, the rest with the reason', () => {
+  it('Meta: what Meta did not refuse and approved, the rest with the reason', () => {
     const { offered, blocked } = offerTemplates(rows, 'meta');
-    expect(ids(offered)).toEqual(['approved']);
+    // 'local' has no id and no refusal: it may be approved at Meta and
+    // never synced here, so it is offered and Meta answers.
+    expect(ids(offered)).toEqual(['local', 'approved']);
     expect(blocked.map((b) => [b.template.id, b.reason])).toEqual([
-      ['local', 'not_approved'],
+      ['refused', 'not_approved'],
       ['pending', 'waiting'],
       ['appeal', 'waiting'],
       ['rejected', 'not_approved'],
@@ -45,6 +54,7 @@ describe('offerTemplates', () => {
     const { offered, blocked } = offerTemplates(rows, 'linked');
     expect(ids(offered)).toEqual([
       'local',
+      'refused',
       'approved',
       'pending',
       'appeal',
@@ -56,7 +66,7 @@ describe('offerTemplates', () => {
 
   it('unknown: the approved ones, as before', () => {
     const { offered, blocked } = offerTemplates(rows, 'unknown');
-    expect(ids(offered)).toEqual(['local', 'approved']);
+    expect(ids(offered)).toEqual(['local', 'refused', 'approved']);
     expect(blocked).toEqual([]);
   });
 });
