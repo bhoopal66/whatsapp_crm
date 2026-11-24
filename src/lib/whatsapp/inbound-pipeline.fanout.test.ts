@@ -122,6 +122,10 @@ function fakeDb() {
       if (fn === 'customer_documents_record') return h.docRpc(args);
       if (fn === 'case_csat_capture') return h.csatRpc(args);
       if (fn === 'case_sla_event_system') return h.slaRpc(args);
+      // The router always answers a row; with routing off it says so.
+      if (fn === 'desk_route_customer_document') {
+        return Promise.resolve({ data: [{ action: 'off' }], error: null });
+      }
       return Promise.resolve({ data: null, error: null });
     },
     from(table: string) {
