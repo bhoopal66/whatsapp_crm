@@ -228,6 +228,31 @@ describe('parsePatchInput', () => {
     expect(parsePatchInput({ status: ' ', stage: 'Submitted' }).ok).toBe(false);
   });
 
+  it('refuses a changed_at with no zone or more than 10 minutes ahead', () => {
+    const parse = (changed_at: string) => parsePatchInput({ changed_at });
+    const ahead = (minutes: number) =>
+      new Date(Date.now() + minutes * 60_000).toISOString();
+    for (const ok of [
+      '2026-10-21T10:00:00Z',
+      '2026-10-21T10:00:00.123456Z',
+      '2026-10-21T10:00:00+04:00',
+      '2026-10-21T10:00:00.000+00:00',
+      ahead(9),
+    ])
+      expect(parse(ok).ok, ok).toBe(true);
+    for (const refused of [
+      '2026-10-21T10:00:00',
+      '2026-10-21T10:00',
+      '2026-10-21T10:00:00.000',
+      ahead(11),
+      '2062-10-21T10:00:00Z',
+    ])
+      expect(parse(refused), refused).toMatchObject({
+        ok: false,
+        code: 'changed_at_invalid',
+      });
+  });
+
   it('refuses malformed sync keys with a 400 message naming the field', () => {
     const msg = (body: Record<string, unknown>) => {
       const r = parsePatchInput(body);

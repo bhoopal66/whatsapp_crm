@@ -1,5 +1,6 @@
 // ============================================================
-// Idempotency-Key on POST /api/v1/messages (migration 305).
+// Idempotency-Key on POST /api/v1/messages and /api/v1/broadcasts
+// (migration 305).
 //
 // The row is claimed before anything is sent and settled after, every
 // step a compare-and-set, as in `lib/compass/notify.ts`:
@@ -13,6 +14,10 @@
 //
 // No claim, no send: a database that does not answer, or one without
 // migration 305, is a 503 and nothing goes out.
+//
+// A broadcast goes through the same steps; what must happen once is the
+// insert of the campaign, so "sent" there means created, and everything
+// after it is the delivery lock's and the cron's.
 // ============================================================
 
 import { createHash, randomUUID } from 'node:crypto';
@@ -31,6 +36,9 @@ const TABLE = 'v1_message_keys';
 /** A claim not settled by then belongs to a process that died. */
 export const STALE_CLAIM_MS = 2 * 60_000;
 
+/** A campaign first resolves up to 1000 recipients, one by one. */
+export const STALE_BROADCAST_CLAIM_MS = 15 * 60_000;
+
 /** A key is remembered this long, then removed by the automations cron. */
 export const MESSAGE_KEY_DAYS = 30;
 
@@ -45,6 +53,42 @@ export interface SentMessageAnswer {
   warning?: 'not_recorded';
 }
 
+export interface BroadcastAnswer {
+  broadcast_id: string;
+  status: 'sending';
+  total_recipients: number;
+  accepted: number;
+  rejected: number;
+}
+
+/** What one route's keys say and do differently. */
+interface KeyKind {
+  staleMs: number;
+  inProgress: string;
+  unconfirmed: string;
+  reused: string;
+}
+
+const MESSAGE: KeyKind = {
+  staleMs: STALE_CLAIM_MS,
+  inProgress:
+    'A request with this idempotency key is being sent. Retry later with the same key.',
+  unconfirmed:
+    'The message may have reached the customer. It is not sent again with this idempotency key.',
+  reused:
+    'This idempotency key was used for another message. Nothing was sent.',
+};
+
+const BROADCAST: KeyKind = {
+  staleMs: STALE_BROADCAST_CLAIM_MS,
+  inProgress:
+    'A request with this idempotency key is creating its broadcast. Retry later with the same key.',
+  unconfirmed:
+    'The broadcast may have been created. It is not created again with this idempotency key: check the broadcasts in the dashboard.',
+  reused:
+    'This idempotency key was used for another broadcast. Nothing was sent.',
+};
+
 const conflict = (
   code: Extract<
     ApiErrorCode,
@@ -54,18 +98,14 @@ const conflict = (
   headers?: Record<string, string>
 ) => new ApiError(code, message, 409, headers);
 
-const inProgress = () =>
-  conflict(
-    'in_progress',
-    'A request with this idempotency key is being sent. Retry later with the same key.',
-    { 'Retry-After': '5' }
-  );
+const inProgress = (kind: KeyKind) =>
+  conflict('in_progress', kind.inProgress, { 'Retry-After': '5' });
 
-export const deliveryUnconfirmed = () =>
-  conflict(
-    'delivery_unconfirmed',
-    'The message may have reached the customer. It is not sent again with this idempotency key.'
-  );
+const unconfirmed = (kind: KeyKind) =>
+  conflict('delivery_unconfirmed', kind.unconfirmed);
+
+export const deliveryUnconfirmed = () => unconfirmed(MESSAGE);
+export const broadcastUnconfirmed = () => unconfirmed(BROADCAST);
 
 /**
  * The request's key: the `Idempotency-Key` header or the body's
@@ -108,23 +148,26 @@ export function hashRequest(body: Record<string, unknown>): string {
   return createHash('sha256').update(canonical).digest('hex');
 }
 
-export interface MessageClaim {
+/** `Link` ties the row to the customer it is about; a broadcast has none. */
+interface KeyClaim<Link, Answer> {
   /** Whose claim it is; asked right before the gateway. Throws when lost. */
-  handOver(contactId: string): Promise<void>;
+  handOver(contactId: Link): Promise<void>;
   settle(
     outcome:
-      | { state: 'sent'; contactId: string; answer: SentMessageAnswer }
+      | { state: 'sent'; contactId: Link; answer: Answer }
       | { state: 'failed' | 'unconfirmed' }
   ): Promise<void>;
 }
+export type MessageClaim = KeyClaim<string, SentMessageAnswer>;
+export type BroadcastClaim = KeyClaim<null, BroadcastAnswer>;
 
-interface KeyRow {
+interface KeyRow<Answer> {
   id: string;
   state: 'claimed' | 'sent' | 'failed' | 'unconfirmed';
   request_hash: string;
   claim_token: string;
   claimed_at: string;
-  response: SentMessageAnswer | null;
+  response: Answer | null;
 }
 
 function unread(what: string, error: unknown): ApiError {
@@ -143,6 +186,45 @@ export async function claimMessageKey(
   key: string,
   requestHash: string
 ): Promise<{ claim: MessageClaim } | { replay: SentMessageAnswer }> {
+  return claimKey<string, SentMessageAnswer>(
+    MESSAGE,
+    db,
+    owner,
+    key,
+    requestHash
+  );
+}
+
+/**
+ * {@link claimMessageKey} for a broadcast: `replay` answers the campaign
+ * the first request created. Its keys are stored under a prefix no
+ * caller's key can hold (`readIdempotencyKey` takes ASCII only), so a key
+ * also used for a message is a key of its own; hashed, so the longest one
+ * still fits the column.
+ */
+export async function claimBroadcastKey(
+  db: SupabaseClient,
+  owner: { accountId: string; keyId: string },
+  key: string,
+  requestHash: string
+): Promise<{ claim: BroadcastClaim } | { replay: BroadcastAnswer }> {
+  const hashed = createHash('sha256').update(key).digest('hex');
+  return claimKey<null, BroadcastAnswer>(
+    BROADCAST,
+    db,
+    owner,
+    `broadcast§${hashed}`,
+    requestHash
+  );
+}
+
+async function claimKey<Link, Answer>(
+  kind: KeyKind,
+  db: SupabaseClient,
+  owner: { accountId: string; keyId: string },
+  key: string,
+  requestHash: string
+): Promise<{ claim: KeyClaim<Link, Answer> } | { replay: Answer }> {
   const token = randomUUID();
   const claimedAt = new Date().toISOString();
 
@@ -158,7 +240,7 @@ export async function claimMessageKey(
     })
     .select('id')
     .single();
-  if (inserted) return { claim: messageClaim(db, inserted.id, token) };
+  if (inserted) return { claim: keyClaim(kind, db, inserted.id, token) };
   if (!isUniqueViolation(error)) throw unread('claim', error);
 
   const { data, error: readError } = await db
@@ -169,16 +251,13 @@ export async function claimMessageKey(
     .eq('key', key)
     .maybeSingle();
   if (readError || !data) throw unread('read', readError);
-  const row = data as KeyRow;
+  const row = data as KeyRow<Answer>;
 
   if (row.request_hash !== requestHash) {
-    throw conflict(
-      'idempotency_key_reused',
-      'This idempotency key was used for another message. Nothing was sent.'
-    );
+    throw conflict('idempotency_key_reused', kind.reused);
   }
   if (row.state === 'sent' && row.response) return { replay: row.response };
-  if (row.state === 'unconfirmed') throw deliveryUnconfirmed();
+  if (row.state === 'unconfirmed') throw unconfirmed(kind);
 
   // Compare-and-set: of two requests that read the same row, one wins.
   const takeOver = async (fields: Record<string, unknown>) => {
@@ -202,26 +281,27 @@ export async function claimMessageKey(
         claimed_at: claimedAt,
       })
     ) {
-      return { claim: messageClaim(db, row.id, token) };
+      return { claim: keyClaim(kind, db, row.id, token) };
     }
-    throw inProgress();
+    throw inProgress(kind);
   }
 
   const age = Date.now() - new Date(row.claimed_at).getTime();
-  if (age > STALE_CLAIM_MS && (await takeOver({ state: 'unconfirmed' }))) {
-    throw deliveryUnconfirmed();
+  if (age > kind.staleMs && (await takeOver({ state: 'unconfirmed' }))) {
+    throw unconfirmed(kind);
   }
-  throw inProgress();
+  throw inProgress(kind);
 }
 
-function messageClaim(
+function keyClaim<Link, Answer>(
+  kind: KeyKind,
   db: SupabaseClient,
   id: string,
   token: string
-): MessageClaim {
+): KeyClaim<Link, Answer> {
   return {
     async handOver(contactId) {
-      // The two minutes run from here. A claim already called unconfirmed
+      // The stale time runs from here. A claim already called unconfirmed
       // is not sent after all: its caller may have sent it another way.
       const { data, error } = await db
         .from(TABLE)
@@ -231,7 +311,7 @@ function messageClaim(
         .eq('state', 'claimed')
         .select('id');
       if (error) throw unread('hand over', error);
-      if (!data || data.length === 0) throw deliveryUnconfirmed();
+      if (!data || data.length === 0) throw unconfirmed(kind);
     },
 
     async settle(outcome) {
@@ -240,7 +320,9 @@ function messageClaim(
           ? {
               state: 'sent',
               contact_id: outcome.contactId,
-              message_id: outcome.answer.message_id,
+              message_id:
+                (outcome.answer as { message_id?: string | null }).message_id ??
+                null,
               response: outcome.answer,
             }
           : { state: outcome.state };

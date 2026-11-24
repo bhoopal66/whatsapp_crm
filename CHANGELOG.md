@@ -22,6 +22,11 @@ and polish.
   `docs/public-api.md`. **Migration required: 305** (before that, a request
   with a key answers 503 and sends nothing; apply it before updating the
   MCP server).
+- **An integration can launch a broadcast without the risk of launching it
+  twice.** `POST /api/v1/broadcasts` takes an `Idempotency-Key` too: a
+  repeat is answered with the first campaign. The MCP server keeps one key
+  per broadcast until it is answered, so a call repeated after its 30-second
+  timeout creates no second campaign. Needs 305, as above.
 - **A campaign can be stopped.** Stop on the page of a running or scheduled
   campaign ends it after the message being sent now; everyone who got it
   stays recorded, the rest stay pending, and Resume sends to them later.
@@ -43,6 +48,16 @@ and polish.
 - **A candidate's chat is never assigned to sales.** The "Assign" step of an
   automation and the rotation of campaign replies leave chats of HR, and of
   any other department, alone: who holds a chat may read it.
+- **API: a number in a template's values keeps its place (contract
+  change).** `POST /api/v1/messages` and `/api/v1/broadcasts` left out a
+  value that was not text and moved the rest up, so `["Jane", 50000,
+  "5.9"]` went out as Jane, 5.9. A number is now sent as its text, and any
+  other value is `400 bad_request`. No migration.
+- **API: a case update dated in the future is refused (contract change).**
+  One `changed_at` ahead of time made every later Compass update of that
+  case stale. `PATCH /api/v1/submission-groups/{id}` now answers `422
+  changed_at_invalid` to one more than 10 minutes ahead, or without `Z` or
+  an offset. No migration.
 - **When a submission group ends, its bells follow.** The unread bell of an
   agent who loses the group opens the customer's page instead of "does not
   exist". **Migration required: 313**.

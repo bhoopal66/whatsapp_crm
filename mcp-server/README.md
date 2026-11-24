@@ -80,7 +80,7 @@ when their guard is set.
 | `send_message`       | write     | `messages:send`      | Send a WhatsApp message (text/template/media), once per call |
 | `create_contact`     | write     | `contacts:write`     | Create (find-or-create) a contact               |
 | `update_contact`     | write     | `contacts:write`     | Update a contact's name, email or company       |
-| `send_broadcast`     | broadcast | `broadcasts:send`    | Launch a template broadcast (requires `confirm`)|
+| `send_broadcast`     | broadcast | `broadcasts:send`    | Launch a template broadcast (requires `confirm`); the same call after a timeout never creates a second one |
 
 ## Safety model
 

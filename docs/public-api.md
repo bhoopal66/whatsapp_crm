@@ -86,7 +86,7 @@ may be reworded.
 | 429    | `number_daily_limit` | `POST /api/v1/messages` would start a new chat on a phone (Whapi or OpenWA) number that has reached its daily new-chat limit, with the workspace's hard restrictions on. Replies to existing chats still go out; new chats can start again tomorrow |
 | 400    | `bad_request`  | Malformed input                                                                     |
 | 404    | `not_found`    | No such resource                                                                    |
-| 409    | `idempotency_key_reused`, `in_progress`, `delivery_unconfirmed` | `POST /api/v1/messages` with an idempotency key, below |
+| 409    | `idempotency_key_reused`, `in_progress`, `delivery_unconfirmed` | `POST /api/v1/messages` or `/api/v1/broadcasts` with an idempotency key, below |
 | 500    | `internal`     | Server error                                                                        |
 | 503    | `unavailable`  | The key could not be checked (the database did not answer). Says nothing about the key and is not counted as a bad one; nothing was done. Retry after `Retry-After` seconds |
 
@@ -182,6 +182,11 @@ needs a `template` object:
   "reply_to_message_id": "<uuid>", // optional; must be in the same conversation
 }
 ```
+
+Every value in `params` must be a string or a number (a number is sent as
+its text), as must `body`, `headerText` and `buttonParams` in the structured
+object. Anything else (`null`, a boolean, an object) is `400 bad_request`
+naming the value, and nothing is sent.
 
 Response (201):
 
@@ -404,6 +409,10 @@ call is `400 bad_request` and the message names the first problem. A
 contact this call creates gets `lead_source` `broadcast`; an existing
 contact's is left as it is.
 
+Every value in a recipient's `params` must be a string or a number, as on
+`POST /api/v1/messages`. Anything else is `400 bad_request` naming the
+value; nothing is persisted or sent.
+
 A recipient whose contact opted out of messages (`opted_out_at` set) is
 skipped: it is not sent to and is counted in neither `accepted` nor
 `rejected`. If every recipient with a valid number has opted out, the
@@ -437,6 +446,25 @@ Response (202):
   }
 }
 ```
+
+**Creating once.** Every recipient is looked up before the answer, so a
+large request can outlast a client's timeout and still send. Pass an
+`Idempotency-Key` header (or an `idempotency_key` field), as on `POST
+/api/v1/messages`, and repeat the same request with the same key: it never
+creates a second campaign. Keys belong to the API key, are separate from
+those of messages, and are remembered for 30 days. Without a key every
+request creates a campaign.
+
+| Repeat of                                | Answer                                                                                                 |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| a request that created its campaign      | `200`, the first answer again with `"replayed": true`. Nothing is created; poll the broadcast          |
+| a request that certainly did not         | the campaign is created now                                                                            |
+| a request still running                  | `409 in_progress` with `Retry-After`                                                                   |
+| a request whose outcome is unknown       | `409 delivery_unconfirmed`. The campaign may exist (see the dashboard); this key never creates it again |
+| another broadcast with the same key      | `409 idempotency_key_reused`. Nothing is created                                                       |
+
+`503 unavailable` means the key could not be recorded and nothing was
+created: repeat it with the same key.
 
 ### `GET /api/v1/broadcasts/{id}`
 
@@ -669,6 +697,9 @@ active and ended groups alike, and the answer adds
   `presub_reentry`, `case_closed`, `final_stage`, `stage_not_in_bank`,
   `bank_invalid`, `product_invalid`, `amount_invalid`,
   `external_url_invalid`, `changed_at_invalid`) and writes nothing.
+  `changed_at_invalid` includes a `changed_at` without `Z` or an offset,
+  and one more than 10 minutes in the future (it would make every later
+  update stale).
   Refusals of one item (an outcome reason, a document) are listed in
   `sync.rejected` as `{ key, error }` and the rest still applies.
 - A move to `Approved`, `Declined`, `Withdrawn` or `Closed` ends the group

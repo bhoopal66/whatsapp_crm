@@ -152,3 +152,37 @@ describe('POST /api/v1/messages and the consent register', () => {
     expect(findMatchingContacts).not.toHaveBeenCalled();
   });
 });
+
+describe('POST /api/v1/messages template values', () => {
+  const template = (params: unknown) =>
+    post({
+      to: '+971501234567',
+      type: 'template',
+      template: { name: 'rate_offer', params },
+    });
+
+  it('sends a number as text, in its own place', async () => {
+    sendMessageToConversation.mockResolvedValue({
+      messageId: 'm-1',
+      whatsappMessageId: 'wamid-1',
+    });
+    expect((await template(['Jane', 50000, '5.9'])).status).toBe(201);
+    expect(sendMessageToConversation.mock.calls[0][2]).toMatchObject({
+      templateParams: ['Jane', '50000', '5.9'],
+    });
+    expect((await template({ body: ['Jane', 50000] })).status).toBe(201);
+    expect(sendMessageToConversation.mock.calls[1][2]).toMatchObject({
+      templateMessageParams: { body: ['Jane', '50000'] },
+    });
+  });
+
+  it('refuses any other value before anything is created or sent', async () => {
+    for (const params of [['Jane', null, '5.9'], { body: ['Jane', true] }]) {
+      const res = await template(params);
+      expect(res.status).toBe(400);
+      expect((await res.json()).error.code).toBe('bad_request');
+    }
+    expect(vi.mocked(resolveConversationByPhone)).not.toHaveBeenCalled();
+    expect(sendMessageToConversation).not.toHaveBeenCalled();
+  });
+});

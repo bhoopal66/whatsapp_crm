@@ -56,6 +56,7 @@ import {
   toApiErrorResponse,
   unavailable,
 } from '@/lib/api/v1/respond';
+import { readTemplateParams } from '@/lib/api/v1/template-params';
 import {
   ContactLookupError,
   findMatchingContacts,
@@ -113,20 +114,14 @@ export async function POST(request: Request) {
 
     // Unpack the optional `template` object into the flat params the
     // send core expects. `params` as an array → legacy positional body
-    // params; as an object → structured header/body/button params.
+    // params; as an object → structured header/body/button params. A value
+    // that is neither text nor a number is refused, never left out.
     const template =
       body.template && typeof body.template === 'object'
         ? (body.template as Record<string, unknown>)
         : null;
-    const templateParams = Array.isArray(template?.params)
-      ? (template.params as unknown[]).filter(
-          (p): p is string => typeof p === 'string'
-        )
-      : undefined;
-    const templateMessageParams =
-      template?.params && !Array.isArray(template.params)
-        ? template.params
-        : undefined;
+    const { templateParams, templateMessageParams } =
+      type === 'template' ? readTemplateParams(template?.params) : {};
 
     // Validate the message shape BEFORE resolveConversationByPhone
     // finds-or-creates a contact + conversation, so a bad payload 400s

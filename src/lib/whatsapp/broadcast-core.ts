@@ -124,7 +124,10 @@ export function templateReadFailed(): BroadcastError {
 export interface BroadcastRecipientInput {
   /** International phone with its country code (validateContactPhone). */
   to: string;
-  /** Positional body params for the template ({{1}}, {{2}}…). */
+  /**
+   * Positional body params for the template ({{1}}, {{2}}…). The caller
+   * has checked them: one left out here would move the rest up.
+   */
   params?: string[];
 }
 
@@ -139,6 +142,11 @@ export interface CreateBroadcastParams {
    * before anything is persisted.
    */
   flowId?: string | null;
+  /**
+   * Awaited right before the campaign is inserted; throwing creates
+   * nothing. An error after it does not prove that nothing was created.
+   */
+  beforeCreate?: () => Promise<void>;
 }
 
 interface PlannedRecipient {
@@ -402,9 +410,7 @@ export async function createBroadcast(
     resolved.push({
       contactId: id,
       phone: checked.normalized,
-      params: Array.isArray(r.params)
-        ? r.params.filter((p): p is string => typeof p === 'string')
-        : [],
+      params: r.params ?? [],
     });
   }
 
@@ -446,6 +452,8 @@ export async function createBroadcast(
       400
     );
   }
+
+  await params.beforeCreate?.();
 
   // Persist the broadcast + its recipients. The count columns
   // (sent/delivered/read/replied/failed) are owned by the DB aggregate

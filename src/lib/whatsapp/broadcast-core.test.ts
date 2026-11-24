@@ -250,6 +250,35 @@ describe('createBroadcast atomicity (#370)', () => {
     ]);
   });
 
+  it('asks beforeCreate right before the insert, and creates nothing when it throws', async () => {
+    const { db, calls } = makeDb({
+      data: [{ broadcast_id: 'b-1', recipient_id: 'r-1', contact_id: 'c1' }],
+      error: null,
+    });
+    const recipients = [{ to: '+14155550123' }];
+    const beforeCreate = vi.fn(async () => {
+      expect(calls.rpc).toHaveLength(0);
+    });
+    await createBroadcast(db, 'acc', 'user', {
+      templateName: 'promo',
+      recipients,
+      beforeCreate,
+    });
+    expect(beforeCreate).toHaveBeenCalledTimes(1);
+    expect(calls.rpc).toHaveLength(1);
+
+    await expect(
+      createBroadcast(db, 'acc', 'user', {
+        templateName: 'promo',
+        recipients,
+        beforeCreate: async () => {
+          throw new Error('claim lost');
+        },
+      })
+    ).rejects.toThrow('claim lost');
+    expect(calls.rpc).toHaveLength(1);
+  });
+
   it('throws and leaves no orphaned parent when the atomic create fails', async () => {
     const { db, calls } = makeDb({
       data: null,
