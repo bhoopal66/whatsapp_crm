@@ -108,7 +108,7 @@ export function savedAccess(
     people,
     shared: !restricted,
     adminsOnly: restricted && people.length === 0,
-    teamsEmpty: row.team_ids.length > 0 && row.team_member_ids.length === 0,
+    teamsEmpty: row.team_ids.length > 0 && !row.team_member_ids.some(isLive),
   };
 }
 
@@ -123,13 +123,13 @@ export interface AccessRow {
 
 /**
  * The numbers nobody but owners and admins may use once `leaving` is gone:
- * a person removed or deactivated, or a team deleted. Numbers already
- * without a live person, shared and personal numbers are not named.
+ * a person removed or deactivated, a team deleted, or a team saved with
+ * other people (`team`, as it would be saved). Numbers already without a live person, shared and personal numbers are not named.
  */
 export function numbersLeftToAdmins<N extends AccessRow>(
   numbers: readonly N[],
   teams: readonly TeamRoster[],
-  leaving: { userId: string } | { teamId: string },
+  leaving: { userId: string } | { teamId: string } | { team: TeamRoster },
   isLive: (userId: string) => boolean = () => true
 ): N[] {
   return numbers.filter((n) => {
@@ -142,10 +142,12 @@ export function numbersLeftToAdmins<N extends AccessRow>(
       before.delete(leaving.userId);
       return before.size === 0;
     }
-    if (!n.team_ids.includes(leaving.teamId)) return false;
+    const teamId = 'team' in leaving ? leaving.team.id : leaving.teamId;
+    if (!n.team_ids.includes(teamId)) return false;
     const kept = teams.filter(
-      (t) => t.id !== leaving.teamId && n.team_ids.includes(t.id)
+      (t) => t.id !== teamId && n.team_ids.includes(t.id)
     );
+    if ('team' in leaving) kept.push(leaving.team);
     return ![...n.member_ids, ...kept.flatMap(teamPeople)].some(isLive);
   });
 }

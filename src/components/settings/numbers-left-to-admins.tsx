@@ -1,8 +1,8 @@
 'use client';
 
 // Names the WhatsApp numbers only owners and admins can use once a person
-// or a team is gone (314). Read when the dialog opens; a failed read shows
-// nothing, the numbers screen still says it afterwards.
+// or a team is gone, or a team is saved with other people (314). Read once
+// per person or team; a failed read shows nothing, the numbers screen still says it afterwards.
 
 import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
@@ -14,7 +14,7 @@ import {
   type TeamRoster,
 } from '@/lib/whatsapp/team-allocation';
 
-type Leaving = { userId: string } | { teamId: string };
+type Leaving = { userId: string } | { teamId: string } | { team: TeamRoster };
 
 interface Row extends AccessRow {
   label: string | null;
@@ -22,7 +22,13 @@ interface Row extends AccessRow {
   phone_number_id: string;
 }
 
-async function readNames(leaving: Leaving): Promise<string[]> {
+interface Access {
+  numbers: Row[];
+  teams: TeamRoster[];
+  gone: Set<string>;
+}
+
+async function readAccess(): Promise<Access> {
   const [numbers, teams, members] = await Promise.all(
     [
       '/api/whatsapp/channels',
@@ -44,12 +50,7 @@ async function readNames(leaving: Leaving): Promise<string[]> {
       .filter((m) => m.deactivated_at)
       .map((m) => m.user_id)
   );
-  return numbersLeftToAdmins(
-    numbers.channels as Row[],
-    teams.teams as TeamRoster[],
-    leaving,
-    (id) => !gone.has(id)
-  ).map(channelDisplayName);
+  return { numbers: numbers.channels, teams: teams.teams, gone };
 }
 
 export function NumbersLeftToAdmins({
@@ -63,19 +64,18 @@ export function NumbersLeftToAdmins({
   const key = leaving
     ? 'userId' in leaving
       ? `u:${leaving.userId}`
-      : `t:${leaving.teamId}`
+      : `t:${'team' in leaving ? leaving.team.id : leaving.teamId}`
     : null;
-  const [found, setFound] = useState<{ key: string; names: string[] } | null>(
+  const [found, setFound] = useState<{ key: string; access: Access } | null>(
     null
   );
 
   useEffect(() => {
     if (!key) return;
     let cancelled = false;
-    const id = key.slice(2);
-    readNames(key.startsWith('u:') ? { userId: id } : { teamId: id })
-      .then((names) => {
-        if (!cancelled) setFound({ key, names });
+    readAccess()
+      .then((access) => {
+        if (!cancelled) setFound({ key, access });
       })
       .catch((err) => console.error('[numbers-left-to-admins]', err));
     return () => {
@@ -83,10 +83,18 @@ export function NumbersLeftToAdmins({
     };
   }, [key]);
 
-  if (!found || found.key !== key || found.names.length === 0) return null;
+  if (!leaving || !found || found.key !== key) return null;
+  const { numbers, teams, gone } = found.access;
+  const names = numbersLeftToAdmins(
+    numbers,
+    teams,
+    leaving,
+    (id) => !gone.has(id)
+  ).map(channelDisplayName);
+  if (names.length === 0) return null;
   return (
     <Tag className="text-warning text-sm">
-      {t('leftToAdmins', { names: found.names.join(', ') })}
+      {t('leftToAdmins', { names: names.join(', ') })}
     </Tag>
   );
 }
