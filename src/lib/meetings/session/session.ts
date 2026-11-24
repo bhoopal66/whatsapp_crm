@@ -227,7 +227,7 @@ function heldMeeting(engine: SessionEngine): HeldMeeting {
 }
 
 export type EndedNoticeKey =
-  'left' | 'ended' | 'removed' | 'elsewhere' | 'lost';
+  'left' | 'ended' | 'removed' | 'elsewhere' | 'noAccess' | 'lost';
 
 /** The toast for a call that finished off the room page. */
 export function endedNotice(ended: Pick<SessionEnded, 'phase' | 'error'>): {
@@ -239,6 +239,7 @@ export function endedNotice(ended: Pick<SessionEnded, 'phase' | 'error'>): {
   }
   if (ended.phase === 'removed') return { key: 'removed', rejoin: false };
   if (ended.error === 'seat_closed') return { key: 'elsewhere', rejoin: false };
+  if (ended.error === 'access_lost') return { key: 'noAccess', rejoin: false };
   if (ended.phase === 'left') return { key: 'left', rejoin: true };
   return { key: 'lost', rejoin: true };
 }

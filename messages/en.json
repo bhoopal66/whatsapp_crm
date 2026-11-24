@@ -7750,6 +7750,7 @@
       "elsewhere": "You joined from another tab or device",
       "rejoin": "Rejoin",
       "elsewhereBody": "This window was disconnected. You can carry on here instead.",
+      "noAccess": "You no longer have access to this meeting.",
       "rejoinHere": "Rejoin here",
       "backToMeetings": "Back to meetings"
     },
@@ -8167,6 +8168,7 @@
       "ended": "{title} has ended",
       "removed": "The host removed you from {title}",
       "elsewhere": "You joined {title} from another device or tab",
+      "noAccess": "You no longer have access to this meeting.",
       "lost": "Connection to {title} was lost",
       "rejoin": "Rejoin"
     },

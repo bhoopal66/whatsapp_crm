@@ -32,6 +32,7 @@ import {
 } from "@/lib/auth/account";
 import { isDepartment } from "@/lib/auth/departments";
 import { isAccountRole } from "@/lib/auth/roles";
+import { cutMemberSeats } from "@/lib/meetings/cut";
 import {
   checkRateLimit,
   rateLimitResponse,
@@ -298,6 +299,7 @@ async function setCallReview(
  * Last, once the deactivation stands, the person's personal WhatsApp
  * number of this workspace is disconnected (they can no longer do it). A
  * failure there only adds a `warning`. Reactivating reconnects nothing.
+ * The call they are in, if any, is cut with it (`cutMemberSeats`).
  */
 async function setActive(
   ctx: AccountContext,
@@ -335,7 +337,7 @@ async function setActive(
       return NextResponse.json({
         ok: true,
         active,
-        ...(await personalNumberWarning(admin, ctx.accountId, userId)),
+        ...(await departed(admin, ctx.accountId, userId)),
       });
     }
   }
@@ -357,8 +359,25 @@ async function setActive(
     active,
     ...(active
       ? {}
-      : await personalNumberWarning(admin, ctx.accountId, userId)),
+      : await departed(admin, ctx.accountId, userId)),
   });
+}
+
+/**
+ * What a departure that stands takes with it: the person's seat in any
+ * call they are in here, and their own number. The answer is what to tell
+ * the admin; a seat that could not be cut is left to the minute sweep.
+ */
+async function departed(
+  admin: SupabaseClient,
+  accountId: string,
+  userId: string,
+): Promise<{ warning?: "personal_number_not_disconnected" }> {
+  const [warning] = await Promise.all([
+    personalNumberWarning(admin, accountId, userId),
+    cutMemberSeats(admin, accountId, userId),
+  ]);
+  return warning;
 }
 
 /** Disconnect the departed person's own number; what to tell the admin. */
@@ -424,7 +443,7 @@ export async function DELETE(
     return NextResponse.json({
       ok: true,
       newPersonalAccountId: (data as string | null) ?? null,
-      ...(await personalNumberWarning(supabaseAdmin(), ctx.accountId, userId)),
+      ...(await departed(supabaseAdmin(), ctx.accountId, userId)),
     });
   } catch (err) {
     return toErrorResponse(err);

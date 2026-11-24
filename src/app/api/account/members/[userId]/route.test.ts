@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   updateUserById: vi.fn(),
   limit: vi.fn(),
   disconnectPersonal: vi.fn(),
+  cutMember: vi.fn(),
   filters: [] as unknown[][],
 }));
 
@@ -56,6 +57,8 @@ vi.mock('@/lib/rate-limit', () => ({
 vi.mock('@/lib/whatsapp/personal-offboarding', () => ({
   disconnectPersonalNumbersOf: mocks.disconnectPersonal,
 }));
+
+vi.mock('@/lib/meetings/cut', () => ({ cutMemberSeats: mocks.cutMember }));
 
 import { DELETE, PATCH } from './route';
 
@@ -116,6 +119,37 @@ describe('PATCH /api/account/members/[userId] { active }', () => {
       warning: 'personal_number_not_disconnected',
     });
     expect(mocks.rpc).toHaveBeenCalledTimes(1);
+  });
+
+  it('cuts the call they are in once the deactivation stands', async () => {
+    await PATCH(request({ active: false }), params);
+    expect(mocks.cutMember).toHaveBeenCalledTimes(1);
+    expect(mocks.cutMember.mock.calls[0].slice(1)).toEqual([
+      'account-1',
+      'user-2',
+    ]);
+    expect(mocks.updateUserById.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.cutMember.mock.invocationCallOrder[0]
+    );
+  });
+
+  it('cuts it when they keep another workspace too', async () => {
+    mocks.limit.mockResolvedValue({
+      data: [{ account_id: 'a2' }],
+      error: null,
+    });
+    await PATCH(request({ active: false }), params);
+    expect(mocks.cutMember).toHaveBeenCalledTimes(1);
+  });
+
+  it('cuts nobody on a failed deactivation, a reactivation or a role', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mocks.updateUserById.mockResolvedValueOnce({ error: { message: 'x' } });
+    await PATCH(request({ active: false }), params);
+    await PATCH(request({ active: true }), params);
+    await PATCH(request({ role: 'viewer' }), params);
+    expect(mocks.cutMember).not.toHaveBeenCalled();
+    spy.mockRestore();
   });
 
   it('leaves the number alone on a failed deactivation or a reactivation', async () => {
@@ -386,6 +420,21 @@ describe('DELETE /api/account/members/[userId]', () => {
       'account-1',
       'user-2',
     ]);
+  });
+
+  it('cuts the call the removed person is in, and only once removed', async () => {
+    mocks.cutMember.mockClear();
+    mocks.rpc.mockResolvedValue({ data: null, error: null });
+    await DELETE(request({}), params);
+    expect(mocks.cutMember.mock.calls.map((c) => c.slice(1))).toEqual([
+      ['account-1', 'user-2'],
+    ]);
+    mocks.cutMember.mockClear();
+    mocks.rpc.mockResolvedValue({
+      error: { code: '42501', message: 'no' },
+    });
+    await DELETE(request({}), params);
+    expect(mocks.cutMember).not.toHaveBeenCalled();
   });
 
   it('accepts NULL: the person keeps another membership', async () => {

@@ -129,6 +129,7 @@ import type { DeviceError } from '@/lib/meetings/room/devices';
 import {
   clockSkewMs,
   HEARTBEAT_INTERVAL_MS,
+  REFUSED_FOR_MS,
   liveSince,
   presentParticipants,
 } from '@/lib/meetings/room/presence';
@@ -374,6 +375,8 @@ export class MeetingCallEngine {
    * rather than restarting each time our own network drops.
    */
   private recordingMemo: RecordingMemo | null = null;
+  /** When the server began answering 401/403 about our seat. */
+  private refusedSince: number | null = null;
   /** The last recording we raised a notice for; kept across a rejoin. */
   private recordingAnnounced: RecordingFlag | null = null;
   /** Bumped per newer view of the row, so an older read cannot undo it. */
@@ -1048,6 +1051,7 @@ export class MeetingCallEngine {
     this.pc?.close();
     this.pc = null;
     this.participantId = null;
+    this.refusedSince = null;
     this.rows.clear();
     this.pulled.clear();
     this.pending.clear();
@@ -1447,6 +1451,9 @@ export class MeetingCallEngine {
   }
 
   private async onSeatAnswer(res: ApiAnswer) {
+    if (res.status === 401 || res.status === 403) return this.refused();
+    // No answer (0) and a server fault say nothing about our access.
+    if (res.status !== 0 && res.status < 500) this.refusedSince = null;
     if (res.status === 409) return this.ended();
     if (res.status !== 404 || !this.isLive()) return;
     // 404: the seat was closed under us — by the host (removed_at), or
@@ -1478,6 +1485,21 @@ export class MeetingCallEngine {
     this.teardown();
     this.stopMedia();
     this.emit({ phase: 'left', error: 'seat_closed' });
+  }
+
+  /**
+   * We may no longer be here (deactivated, removed from the workspace).
+   * Nothing else would stop the media: Cloudflare knows no members.
+   */
+  private refused() {
+    if (!this.isLive()) return;
+    const now = Date.now();
+    this.refusedSince ??= now;
+    if (now - this.refusedSince < REFUSED_FOR_MS) return;
+    this.session += 1;
+    this.teardown();
+    this.stopMedia();
+    this.emit({ phase: 'left', error: 'access_lost' });
   }
 
   // --- negotiation (always inside the queue) ---------------------------
