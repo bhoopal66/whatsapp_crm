@@ -22,6 +22,11 @@ and polish.
 
 ### Fixed
 
+- **A slow or lost connection no longer shows the sign-in page.** While the
+  app cannot find out whether you are signed in it says "Reconnecting…", with
+  a Retry button, and keeps trying. When a session really has ended, signing
+  in again returns you to the page you were on; "Sign out" does not. No
+  migration.
 - **"Sign out" ends this device only.** It used to sign the person out of
   every device; Settings → "Sign out of all devices" is the button for that.
   A sign-out that did not work says so and leaves you signed in. No

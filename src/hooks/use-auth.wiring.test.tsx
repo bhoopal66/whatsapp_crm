@@ -70,8 +70,12 @@ const db = vi.hoisted(() => ({
   profileReads: 0,
   restricted: { data: false, error: null } as unknown,
   emit: (() => {}) as (event: string, session: unknown) => void,
-  signOut: null as unknown as (...a: unknown[]) => Promise<unknown>,
-  getSession: null as unknown as (...a: unknown[]) => Promise<unknown>,
+  signOut: null as unknown as import('vitest').Mock<
+    (...a: unknown[]) => Promise<unknown>
+  >,
+  getSession: null as unknown as import('vitest').Mock<
+    (...a: unknown[]) => Promise<unknown>
+  >,
 }));
 vi.mock('@/lib/supabase/client', () => {
   const client = {
@@ -178,5 +182,52 @@ describe('signing out', () => {
     expect(toast.error).toHaveBeenCalledWith('signOutFailed');
     expect(location.href).toBe('');
     expect(auth()).toMatchObject({ user: { id: 'u1' }, signingOut: false });
+  });
+});
+
+describe('a session that cannot be read yet', () => {
+  it('is never nobody: it waits, says so after 3 s and asks again', async () => {
+    db.session = UNKNOWN;
+    await start();
+    db.emit('INITIAL_SESSION', null);
+    await tick(3_000);
+    expect(auth()).toMatchObject({
+      user: null,
+      loading: true,
+      sessionStalled: true,
+      profileLoading: true,
+    });
+    const asked = db.getSession.mock.calls.length;
+    db.session = IN;
+    await tick(30_000);
+    expect(db.getSession.mock.calls.length).toBe(asked + 1);
+    expect(auth()).toMatchObject({
+      user: { id: 'u1' },
+      loading: false,
+      sessionStalled: false,
+    });
+  });
+
+  it.each(['visibilitychange', 'online'])(
+    'asks at once on %s',
+    async (name) => {
+      db.session = UNKNOWN;
+      await start();
+      await tick(20_000);
+      db.session = IN;
+      fire(name);
+      await tick();
+      expect(auth()).toMatchObject({ user: { id: 'u1' }, loading: false });
+    }
+  );
+
+  it('is signed out once that is the answer, or the event', async () => {
+    db.session = NOBODY;
+    expect(await start()).toMatchObject({ user: null, loading: false });
+    react.slots = [];
+    db.session = UNKNOWN;
+    await start();
+    db.emit('SIGNED_OUT', null);
+    expect(auth()).toMatchObject({ user: null, loading: false });
   });
 });

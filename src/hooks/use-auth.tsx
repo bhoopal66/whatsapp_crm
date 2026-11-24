@@ -25,6 +25,15 @@ import {
   type AccountRole,
 } from "@/lib/auth/roles";
 import { pickActiveProfile } from "@/lib/auth/active-profile";
+import { listenForExplicitSignOut } from "@/lib/auth/explicit-sign-out";
+import {
+  forgetRefreshFailure,
+  recheckDelayMs,
+  retryAction,
+  statusFromAnswer,
+  statusFromEvent,
+  type SessionStatus,
+} from "@/lib/auth/session-state";
 import { signOutThisDevice } from "@/lib/auth/sign-out";
 import {
   fallbackWorkspace,
@@ -131,6 +140,13 @@ interface AuthContextValue {
    * Settings' own button (`sessions-card.tsx`).
    */
   signOut: () => Promise<void>;
+  /**
+   * Still `loading` after 3 s: whether anyone is signed in is not known
+   * (a refresh that failed or has not come back). Never a sign-out.
+   */
+  sessionStalled: boolean;
+  /** Ask again now. */
+  retrySession: () => void;
   /** `signOut()` is under way: it does the navigation to /login itself. */
   signingOut: boolean;
   /** Re-fetch the current user's profile row — call after a save from
@@ -327,6 +343,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [loading, setLoading] = useState(true);
   const [signingOut, setSigningOut] = useState(false);
+  const [sessionStalled, setSessionStalled] = useState(false);
+  const retrySessionRef = useRef<() => void>(() => {});
+  const retrySession = useCallback(() => retrySessionRef.current(), []);
   const t = useTranslations("AccountAccess");
   // Why the account/role couldn't be established, when it couldn't.
   // Null on the happy path.
@@ -679,56 +698,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const supabase = createClient();
     let mounted = true;
+    let status: SessionStatus = "unknown";
+    let attempts = 0;
+    let retries = 0;
+    let checkStartedAt: number | null = null;
+    let recheckTimer: ReturnType<typeof setTimeout> | undefined;
 
-    const safetyTimer = setTimeout(() => {
-      if (mounted) {
-        console.warn("[AuthProvider] getSession() timed out after 3s");
-        setLoading(false);
-        setProfileLoading(false);
-      }
+    // A slow or failed refresh is not "nobody is signed in": the shell
+    // says it is reconnecting and the tab keeps asking.
+    const stalledTimer = setTimeout(() => {
+      if (!mounted || status !== "unknown") return;
+      console.warn("[AuthProvider] session still unknown after 3s");
+      setSessionStalled(true);
     }, 3000);
 
-    const init = async () => {
-      try {
-        const {
-          data: { session },
-          error,
-        } = await supabase.auth.getSession();
-
-        if (error) console.error("[AuthProvider] getSession error:", error.message);
-
-        if (!mounted) return;
-        const currentUser = session?.user ?? null;
-        noteSessionUser(currentUser?.id ?? null);
-        setUser(currentUser);
-
-        if (currentUser) {
-          // Don't block session loading on profile fetch — chrome
-          // (header, sidebar) can render from the user object alone,
-          // profile enriches async. Callers that need to branch on
-          // profile data gate on `profileLoading` instead.
-          fetchProfile(currentUser.id);
-        } else {
-          // No user → no profile to load. Flip profileLoading off so
-          // pages that gate on it don't wait forever on the logged-out
-          // path (the route guard or redirect should fire instead).
-          setProfileLoading(false);
-        }
-      } catch (err) {
-        console.error("[AuthProvider] init threw:", err);
-      } finally {
-        if (mounted) setLoading(false);
-        clearTimeout(safetyTimer);
-      }
-    };
-
-    init();
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!mounted) return;
-      const currentUser = session?.user ?? null;
+    const settle = (
+      answer: "signed_in" | "signed_out",
+      currentUser: User | null,
+    ) => {
+      status = answer;
+      clearTimeout(stalledTimer);
+      clearTimeout(recheckTimer);
+      setSessionStalled(false);
       // Screen data is per user: a sign-out (here or in another tab) or
       // a different user signing in to this tab empties it.
       if (noteSessionUser(currentUser?.id ?? null)) {
@@ -741,10 +732,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(currentUser);
 
       if (currentUser) {
+        // Don't block session loading on profile fetch — chrome
+        // (header, sidebar) can render from the user object alone,
+        // profile enriches async. Callers that need to branch on
+        // profile data gate on `profileLoading` instead.
         if (currentUser.id !== lastFetchedUserIdRef.current) {
           fetchProfile(currentUser.id);
         }
       } else {
+        // No user → no profile to load. Flip profileLoading off so
+        // pages that gate on it don't wait forever on the logged-out
+        // path (the route guard or redirect should fire instead).
         lastFetchedUserIdRef.current = null;
         setProfile(null);
         setAccount(null);
@@ -753,11 +751,68 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       setLoading(false);
+    };
+
+    // Only while the session is unknown; once it is, the events say.
+    const check = async () => {
+      if (!mounted || status !== "unknown" || checkStartedAt !== null) return;
+      clearTimeout(recheckTimer);
+      checkStartedAt = Date.now();
+      let currentUser: User | null = null;
+      let error: unknown = null;
+      try {
+        const answer = await supabase.auth.getSession();
+        currentUser = answer.data.session?.user ?? null;
+        error = answer.error;
+      } catch (err) {
+        error = err;
+      }
+      checkStartedAt = null;
+      if (error) console.error("[AuthProvider] getSession error:", error);
+      if (!mounted || status !== "unknown") return;
+      const answer = statusFromAnswer(currentUser, error);
+      if (answer !== "unknown") return settle(answer, currentUser);
+      recheckTimer = setTimeout(recheck, recheckDelayMs(attempts++));
+    };
+    const recheck = () => {
+      if (!mounted || status !== "unknown" || checkStartedAt !== null) return;
+      // As auth-js itself: a hidden tab does not refresh. It asks at
+      // once when it is shown.
+      if (document.visibilityState === "hidden") return;
+      forgetRefreshFailure(supabase.auth);
+      void check();
+    };
+    retrySessionRef.current = () => {
+      const action = retryAction({
+        online: navigator.onLine !== false,
+        retries: retries++,
+        checkingForMs: checkStartedAt && Date.now() - checkStartedAt,
+      });
+      if (action === "reload") window.location.reload();
+      else recheck();
+    };
+    document.addEventListener("visibilitychange", recheck);
+    window.addEventListener("online", recheck);
+    const stopListening = listenForExplicitSignOut();
+
+    void check();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!mounted) return;
+      const currentUser = session?.user ?? null;
+      const answer = statusFromEvent(event, currentUser);
+      if (answer) settle(answer, currentUser);
     });
 
     return () => {
       mounted = false;
-      clearTimeout(safetyTimer);
+      clearTimeout(stalledTimer);
+      clearTimeout(recheckTimer);
+      document.removeEventListener("visibilitychange", recheck);
+      window.removeEventListener("online", recheck);
+      stopListening();
       subscription.unsubscribe();
     };
   }, [fetchProfile]);
@@ -854,6 +909,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       profileLoading,
       signOut,
       signingOut,
+      sessionStalled,
+      retrySession,
       refreshProfile,
       account,
       defaultCurrency,
@@ -872,6 +929,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       profileLoading,
       signOut,
       signingOut,
+      sessionStalled,
+      retrySession,
       refreshProfile,
       account,
       defaultCurrency,
@@ -908,6 +967,8 @@ export function useAuth(): AuthContextValue {
         window.location.href = "/login";
       },
       signingOut: false,
+      sessionStalled: false,
+      retrySession: () => {},
       refreshProfile: async () => {},
       account: null,
       defaultCurrency: DEFAULT_CURRENCY,

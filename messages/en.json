@@ -251,7 +251,8 @@
     "errorTitle": "Could not load your permissions",
     "errorBody": "Your account role did not load, so every action is treated as read-only and changes will not save. Check your connection and try again.",
     "retry": "Retry",
-    "signOutFailed": "Could not sign out, try again."
+    "signOutFailed": "Could not sign out, try again.",
+    "reconnecting": "Reconnecting…"
   },
   "Dashboard": {
     "home": {

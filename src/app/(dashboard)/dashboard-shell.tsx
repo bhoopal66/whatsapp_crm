@@ -7,6 +7,9 @@ import { guestRedirectPath } from "@/lib/auth/my-workspaces";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
 import { AccountAccessAlert } from "@/components/layout/account-access-alert";
+import { SessionReconnecting } from "@/components/layout/session-reconnecting";
+import { wasExplicitSignOut } from "@/lib/auth/explicit-sign-out";
+import { loginPathFor } from "@/lib/auth/session-state";
 import { PushPrompt } from "@/components/layout/push-prompt";
 import { PresenceHeartbeat } from "@/components/presence/presence-heartbeat";
 import { isFullBleedPath } from "@/lib/layout/full-bleed";
@@ -31,7 +34,15 @@ import { CommandBar } from "@/components/command/command-bar";
 
 
 function DashboardShellInner({ children }: { children: React.ReactNode }) {
-  const { user, loading, profileLoading, accountRole, signingOut } = useAuth();
+  const {
+    user,
+    loading,
+    profileLoading,
+    accountRole,
+    signingOut,
+    sessionStalled,
+    retrySession,
+  } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   // A bank guest (migrations 082/083) has team chat and nothing else, so
@@ -53,13 +64,23 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
     // server is answered, and then loads /login itself: going there now
     // would have that load wipe whatever was typed on it meanwhile.
     if (!loading && !user && !signingOut) {
-      router.push("/login");
+      router.push(
+        loginPathFor(
+          window.location.pathname + window.location.search,
+          wasExplicitSignOut(),
+        ),
+      );
     }
   }, [user, loading, signingOut, router]);
 
   useEffect(() => {
     if (guestRedirect) router.replace(guestRedirect);
   }, [guestRedirect, router]);
+
+  // The session could not be read yet: not an answer, so no /login.
+  if (loading && sessionStalled) {
+    return <SessionReconnecting onRetry={retrySession} />;
+  }
 
   if (loading || (!user && signingOut)) {
     return (
