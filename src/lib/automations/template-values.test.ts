@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { resolveTemplateValues } from './template-values';
+import { resolveTemplateValues, valuesByPlaceholder } from './template-values';
 
 const TWO = { body_text: 'Hi {{1}}, about your {{2}}' };
 const NAMED = { body_text: 'Hi {{customer}}, about your {{product}}' };
@@ -80,5 +80,39 @@ describe('resolveTemplateValues', () => {
       resolveTemplateValues(header, { header_text: 7 as never }).headerText
     ).toBe('7');
     expect(resolveTemplateValues(header, {}).missing).toEqual(['header {{1}}']);
+  });
+});
+
+describe('valuesByPlaceholder', () => {
+  it.each<[string, unknown]>([
+    ['placeholder keys', { '1': 'Ann', '2': 'loans' }],
+    ['other keys', { body_1: 'Ann', body_2: 'loans' }],
+    ['an array', ['Ann', 'loans']],
+    ['keys counted from 0', { '0': 'Ann', '1': 'loans' }],
+    ['half filled in', { '1': 'Ann' }],
+  ])('%s: the inputs show the preview, and an edit keeps the rest', (_, v) => {
+    const step = { variables: v };
+    const current = valuesByPlaceholder(TWO, step);
+    expect(Object.keys(current)).toEqual(['1', '2']);
+    expect(Object.values(current)).toEqual(params(v));
+    // What the builder saves when {{2}} is edited.
+    expect(params({ ...current, '2': 'cards' })).toEqual(['Ann', 'cards']);
+  });
+
+  it('is every placeholder, empty, for a step with no values', () => {
+    expect(valuesByPlaceholder(TWO, {})).toEqual({ '1': '', '2': '' });
+    expect(valuesByPlaceholder(TWO, { variables: 'Ann' })).toEqual({
+      '1': '',
+      '2': '',
+    });
+  });
+
+  it('a first value cleared by an edit stays cleared', () => {
+    const cleared = {
+      ...valuesByPlaceholder(TWO, { variables: ['Ann', 'x'] }),
+      '1': '',
+    };
+    expect(params(cleared)).toEqual(['', 'x']);
+    expect(missing(cleared)).toEqual(['{{1}}']);
   });
 });
