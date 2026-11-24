@@ -461,13 +461,13 @@ export async function handleGroupWebhook(
           p_join_request_id: joinRequestId,
           p_wa_id: waId,
         });
-        if (decision === 'auto_approved') {
-          await approveJoinRequests({
-            groupId,
-            accessToken: args.accessToken,
-            joinRequestIds: [joinRequestId],
-          });
-        } else if (decision === 'pending') {
+        // A request WhatsApp did not take goes to a person instead.
+        const undecided =
+          decision === 'pending' ||
+          (decision === 'auto_approved' &&
+            !(await approvedAtMeta(groupId, joinRequestId)) &&
+            (await backToPending(r, joinRequestId)));
+        if (undecided) {
           await notify(
             await managers(r),
             'deal_room_join_request',
@@ -532,6 +532,47 @@ export async function handleGroupWebhook(
 
   function arr(value: unknown): Json[] {
     return (Array.isArray(value) ? value : []).map(obj);
+  }
+
+  // Meta's success body is not documented: no list means accepted, unless
+  // the request is among the failures (as decideJoinRequests reads it).
+  async function approvedAtMeta(
+    groupId: string,
+    joinRequestId: string
+  ): Promise<boolean> {
+    try {
+      const { done, failed } = await approveJoinRequests({
+        groupId,
+        accessToken: args.accessToken,
+        joinRequestIds: [joinRequestId],
+      });
+      return done.length > 0
+        ? done.includes(joinRequestId)
+        : !failed.some((f) => f.joinRequestId === joinRequestId);
+    } catch (err) {
+      console.error('[deal-rooms] join request not approved at Meta:', err);
+      return false;
+    }
+  }
+
+  /**
+   * An auto-approval that never reached WhatsApp is undecided again, so the
+   * managers can finish it. False: the row moved on meanwhile. A failed
+   * write leaves `auto_approved`, which a redelivery approves again.
+   */
+  async function backToPending(
+    r: Room,
+    joinRequestId: string
+  ): Promise<boolean> {
+    const { data, error } = await db
+      .from('deal_room_join_requests')
+      .update({ decision: 'pending', decided_at: null })
+      .eq('room_id', r.id)
+      .eq('join_request_id', joinRequestId)
+      .eq('decision', 'auto_approved')
+      .select('id');
+    if (error) throw new Error(`join request not reopened: ${error.message}`);
+    return ((data ?? []) as unknown[]).length > 0;
   }
 
   async function participant(groupId: string, waId: string, event: string) {

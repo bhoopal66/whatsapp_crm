@@ -57,6 +57,13 @@ describe('inviteeIssues', () => {
     ]);
   });
 
+  it('refuses a second customer, whom the consent does not cover', () => {
+    const second: Invitee = { ...person(1), role: 'customer' };
+    expect(inviteeIssues([customer, second], banks)).toEqual([
+      { kind: 'many_customers' },
+    ]);
+  });
+
   it('names a phone listed twice, however it is written', () => {
     const twice = { ...person(1), phone: '971501234567' };
     expect(inviteeIssues([customer, twice], banks)).toEqual([

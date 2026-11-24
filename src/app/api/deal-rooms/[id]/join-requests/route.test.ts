@@ -140,3 +140,65 @@ describe('POST /api/deal-rooms/[id]/join-requests', () => {
     );
   });
 });
+
+describe('who a manager may let in', () => {
+  const ask = async (
+    participant: Record<string, unknown> | null,
+    rule: () => unknown = () => null
+  ) => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const base = mem.tables;
+    mem = memoryDb(
+      {
+        ...base,
+        deal_room_join_requests: [
+          { ...request('jr-1'), wa_id: '971501234567' },
+        ],
+        deal_room_participants: participant
+          ? [{ id: 'p-1', room_id: 'room-1', wa_id: null, ...participant }]
+          : [],
+      },
+      { rpc: (fn) => (fn === 'deal_room_admit_block' ? rule() : null) }
+    );
+    m.admin = mem.db;
+    const res = await post({ approve: ['jr-1'], reject: [] });
+    expect(res.status).toBe(200);
+    return res.json();
+  };
+  const listed = { phone: '971501234567', status: 'invited' };
+
+  it.each([
+    ['opted_out', listed, () => 'opted_out'],
+    ['no_consent', listed, () => 'no_consent'],
+    ['pending_approval', { ...listed, status: 'pending_approval' }, () => null],
+    ['rejected', { ...listed, status: 'rejected' }, () => null],
+    [
+      'check_failed',
+      listed,
+      () => {
+        throw { message: 'timeout' };
+      },
+    ],
+    ['check_failed', listed, () => 'a_rule_of_a_later_release'],
+  ])('asks WhatsApp nothing for %s', async (code, participant, rule) => {
+    const body = await ask(participant, rule);
+    expect(m.approveJoinRequests).not.toHaveBeenCalled();
+    expect(body.approved).toEqual([]);
+    expect(body.failed).toEqual([
+      expect.objectContaining({ joinRequestId: 'jr-1', code }),
+    ]);
+    expect(mem.tables.deal_room_join_requests[0].decision).toBe('pending');
+  });
+
+  it('asks the rule about the number that asked, and approves who passes', async () => {
+    expect((await ask(listed)).approved).toEqual(['jr-1']);
+    expect(mem.rpcCalls).toContainEqual([
+      'deal_room_admit_block',
+      { p_participant: 'p-1', p_wa_id: '971501234567' },
+    ]);
+  });
+
+  it('leaves a number nobody listed to the manager', async () => {
+    expect((await ask(null)).approved).toEqual(['jr-1']);
+  });
+});

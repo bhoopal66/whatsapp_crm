@@ -6352,6 +6352,7 @@
           "none": "Add at least the customer.",
           "too_many": "At most {max} people can be invited.",
           "no_customer": "Add the customer.",
+          "many_customers": "Only one customer can be in a room: the consent covers only them. Change the others to partner or remove them.",
           "name": "Each person needs a name of up to 120 characters.",
           "phone": "{name} has no valid phone number.",
           "duplicate": "{name} is listed twice (same phone number).",
@@ -6412,6 +6413,15 @@
         "pendingGuests": "Bank guests awaiting approval",
         "pendingHelp": "Only a team leader or an admin can approve a bank guest.",
         "decideFailed": "Couldn't save the decision: {error}",
+        "joinBlocks": {
+          "pending_approval": "A team leader has to let this person in first",
+          "rejected": "A team leader refused this person",
+          "opted_out": "This person opted out or is marked do-not-contact",
+          "no_consent": "This customer has no recorded consent",
+          "bank_guests_off": "Officers of this bank cannot join customer groups",
+          "room_not_open": "The room is not open",
+          "check_failed": "It could not be checked whether this person may join. Try again."
+        },
         "inviteLink": "Invite link",
         "showLink": "Show link",
         "copy": "Copy",
