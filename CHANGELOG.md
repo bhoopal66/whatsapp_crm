@@ -50,6 +50,24 @@ and polish.
   counted as the answer in "First response time" (the card and the owner's
   CSV) and was drawn as an outgoing message. Both figures can change for past
   days. **Migration required: 296** (`296_home_figures.sql`).
+- **Speaking to a customer closes their missed-call task also when the call
+  rang several extensions**: the one that did not pick up had counted the
+  call as still owed, so nothing closed the task. A number several contacts
+  share no longer closes another contact's task, and a task someone opened
+  again stays open. No migration.
+- **A video call no longer ends on two refusals with a dropped network in
+  between**: only two in a row end it, and a failed account read is "try
+  again" (503), not a refusal. No migration.
+- **Three push notifications open the right screen**: a message that could
+  not be processed opens Settings -> WhatsApp, a personal number's alert
+  opens Settings -> Profile, handed-over work opens the inbox; they opened
+  the notifications list (an admin's personal number: the company numbers).
+  **Migration required: 295** (after 294, any build).
+- **A colleague who was only consulted during a call is not counted as
+  having answered it**, so they do not see the call or its recording and
+  cannot write its note. The person it is handed to still can. No migration.
+- **"Today" and "Older" on the Calls screen are Dubai's days**, also for
+  someone whose computer is set to another time zone. No migration.
 - **The call reports start the day at midnight in Dubai**, also for
   someone whose computer is set to another time zone: their report days
   held other calls than everyone else's. No migration.

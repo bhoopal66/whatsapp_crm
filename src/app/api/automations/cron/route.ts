@@ -1077,7 +1077,7 @@ export async function GET(request: Request) {
   } finally {
     scheduleChannelHealthCheck()
     scheduleMeetingLapseSweep()
-  scheduleSeatAccessSweep()
+    scheduleSeatAccessSweep()
     scheduleTeamActivitySweep()
     scheduleResponseEscalation()
     scheduleEdgePurge()

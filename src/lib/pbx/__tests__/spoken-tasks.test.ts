@@ -188,6 +188,151 @@ describe('speaking to the customer closes their missed-call task', () => {
     expect(statusOf()).toBe('open');
   });
 
+  it('one holding a later call that was answered after all', async () => {
+    fake.tables.calls.push({
+      id: 'm2',
+      account_id: A,
+      status: 'answered',
+      started_at: '2026-10-12T10:05:30.000Z',
+    });
+    fake.tables.tasks = [task({ meta: { call_ids: ['m1', 'm2'] } })];
+    await ingest(end('call-1'));
+    expect(statusOf()).toBe('done');
+  });
+
+  // A ring group's legs: one extension did not pick up, the other did.
+  const missedLeg = () =>
+    end('call-1', inbound({ status: 'NO ANSWER', talk_duration: 0 }));
+  const answeredLeg = () => end('call-1', inbound({ call_to: '1009' }));
+
+  it('the NO ANSWER leg folded into the task first, then the ANSWERED leg', async () => {
+    await ingest(missedLeg());
+    expect(fake.tables.tasks).toHaveLength(1);
+    expect((fake.tables.tasks[0].meta as Row).call_ids).toHaveLength(2);
+    await ingest(answeredLeg());
+    expect(statusOf()).toBe('done');
+  });
+
+  it('the ANSWERED leg first: the NO ANSWER leg folds and opens nothing', async () => {
+    await ingest(answeredLeg());
+    await ingest(missedLeg());
+    expect(fake.tables.tasks).toHaveLength(1);
+    expect(fake.tables.tasks[0]).toMatchObject({
+      status: 'done',
+      meta: { call_ids: ['m1'] },
+    });
+  });
+
+  // updated_at moves on every write of a task, as tasks_guard stamps it.
+  const stampTasks = () => {
+    let n = 0;
+    const from = fake.db.from.bind(fake.db);
+    fake.db.from = ((table: string) => {
+      const q = from(table);
+      if (table !== 'tasks') return q;
+      const update = q.update.bind(q);
+      q.update = ((v: Row) =>
+        update({ ...v, updated_at: `w${++n}` })) as unknown as typeof q.update;
+      return q;
+    }) as typeof fake.db.from;
+  };
+  // `run` just before the first read `hit` picks.
+  const before = (
+    hit: (table: string, columns: string | undefined) => boolean,
+    run: () => Promise<unknown> | void
+  ) => {
+    const from = fake.db.from.bind(fake.db);
+    let done = false;
+    fake.db.from = ((table: string) => {
+      const q = from(table);
+      const select = q.select.bind(q);
+      q.select = ((columns?: string) => {
+        const s = select(columns as never);
+        if (done || !hit(table, columns)) return s;
+        done = true;
+        const then = s.then.bind(s);
+        s.then = ((ok: never, ko: never) =>
+          Promise.resolve(run()).then(() =>
+            then(ok, ko)
+          )) as unknown as typeof s.then;
+        return s;
+      }) as unknown as typeof q.select;
+      return q;
+    }) as typeof fake.db.from;
+    return () => done;
+  };
+
+  it('answered while its NO ANSWER leg reads the task to fold into', async () => {
+    // A call missed since the call began keeps the task open, so only the
+    // fold's own check keeps the answered call out of it.
+    fake.tables.calls.push({
+      id: 'm2',
+      account_id: A,
+      status: 'no_answer',
+      started_at: '2026-10-12T10:05:30.000Z',
+    });
+    fake.tables.tasks = [task({ meta: { call_ids: ['m1', 'm2'] } })];
+    stampTasks();
+    const raced = before(
+      (table, columns) =>
+        table === 'tasks' && columns === 'id, assigned_to, meta, updated_at',
+      () => ingest(answeredLeg())
+    );
+    await ingest(missedLeg());
+    expect(raced()).toBe(true);
+    expect(fake.tables.tasks).toHaveLength(1);
+    expect(fake.tables.tasks[0]).toMatchObject({
+      status: 'open',
+      meta: { call_ids: ['m1', 'm2'] },
+    });
+  });
+
+  it('closes the task again after the NO ANSWER leg folded in while it closed', async () => {
+    stampTasks();
+    const raced = before(
+      (table, columns) => table === 'profiles' && columns === 'full_name',
+      () => {
+        const row = fake.tables.calls.find((c) => c.pbx_call_id === 'call-1');
+        Object.assign(fake.tables.tasks[0], {
+          meta: { call_ids: ['m1', row?.id] },
+          updated_at: 'folded',
+        });
+      }
+    );
+    await ingest(end('call-1', inbound()));
+    expect(raced()).toBe(true);
+    expect(statusOf()).toBe('done');
+  });
+
+  it('a number several contacts share: only the task of no contact', async () => {
+    fake.tables.contacts.push({
+      id: 'k2',
+      account_id: A,
+      name: 'Aisha',
+      phone: '971501234567',
+      phone_normalized: '971501234567',
+      user_id: null,
+    });
+    fake.tables.tasks = [
+      task(),
+      task({ id: 't2', contact_id: 'k2', source_ref: 'call:m2' }),
+      task({ id: 't3', contact_id: null, source_ref: 'call:m3' }),
+    ];
+    await ingest(end('call-1'));
+    expect(['t1', 't2', 't3'].map(statusOf)).toEqual(['open', 'open', 'done']);
+  });
+
+  it('a task a person opened again stays open when the end comes again', async () => {
+    await ingest(end('call-1'));
+    expect(statusOf()).toBe('done');
+    fake.tables.tasks[0].status = 'open';
+    await ingest({ ...end('call-1'), sn: 'SN-again' });
+    expect(statusOf()).toBe('open');
+    // A later call closes it.
+    await ingest(end('call-2', { time_start: '2026-10-12 14:20:00' }));
+    expect(statusOf()).toBe('done');
+  });
+
   it.each([
     ['not picked up', { status: 'NO ANSWER', talk_duration: 0 }],
     ['between colleagues', { type: 'Internal', call_to: '1009' }],

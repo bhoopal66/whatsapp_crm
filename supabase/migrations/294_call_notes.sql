@@ -74,20 +74,24 @@ AS $$
   FROM (SELECT pbx_visible_user_ids() AS ppl) s
 $$;
 
-DROP POLICY IF EXISTS calls_select ON public.calls;
-CREATE POLICY calls_select ON public.calls
-  FOR SELECT TO authenticated
-  USING (
-    account_id = (SELECT public.current_account_id())
-    AND ((SELECT public.pbx_sees_all_calls())
-         OR user_id = ANY ((SELECT public.pbx_visible_user_ids())::uuid[])
-         OR peer_user_id = ANY ((SELECT public.pbx_visible_user_ids())::uuid[])
-         OR (jsonb_typeof(meta -> 'rang_user_ids') = 'array'
-             AND (meta -> 'rang_user_ids') ?| (SELECT public.pbx_visible_user_ids()::text[]))
-         OR (jsonb_typeof(meta -> 'answered_user_ids') = 'array'
-             AND (meta -> 'answered_user_ids') ? (SELECT auth.uid()::text))
-         OR contact_id IN (SELECT public.pbx_visible_contact_ids()))
-  );
+-- One block, so one transaction: committed apart, a CREATE that waits out
+-- the lock timeout would leave calls with no SELECT policy at all.
+DO $$ BEGIN
+  DROP POLICY IF EXISTS calls_select ON public.calls;
+  CREATE POLICY calls_select ON public.calls
+    FOR SELECT TO authenticated
+    USING (
+      account_id = (SELECT public.current_account_id())
+      AND ((SELECT public.pbx_sees_all_calls())
+           OR user_id = ANY ((SELECT public.pbx_visible_user_ids())::uuid[])
+           OR peer_user_id = ANY ((SELECT public.pbx_visible_user_ids())::uuid[])
+           OR (jsonb_typeof(meta -> 'rang_user_ids') = 'array'
+               AND (meta -> 'rang_user_ids') ?| (SELECT public.pbx_visible_user_ids()::text[]))
+           OR (jsonb_typeof(meta -> 'answered_user_ids') = 'array'
+               AND (meta -> 'answered_user_ids') ? (SELECT auth.uid()::text))
+           OR contact_id IN (SELECT public.pbx_visible_contact_ids()))
+    );
+END $$;
 
 CREATE OR REPLACE FUNCTION public.pbx_set_disposition(p_call_id uuid, p_disposition text, p_notes text)
 RETURNS void

@@ -81,9 +81,15 @@ describe('a seat the server refuses', () => {
     expect(s.error()).toBeNull();
   });
 
-  it('is not forgiven by a dropped network or a server fault in between', async () => {
-    const s = live([403, 0, 503, 403]);
-    for (let n = 0; n < 4; n += 1) await s.next();
-    expect(s.error()).toBe('access_lost');
-  });
+  it.each([0, 503])(
+    'is twice in a row: a %i in between starts it over',
+    async (other) => {
+      const s = live([403, other, 403, other, 403, 403]);
+      for (let n = 0; n < 5; n += 1) await s.next();
+      expect(s.error()).toBeNull();
+      expect(s.pc.close).not.toHaveBeenCalled();
+      await s.next();
+      expect(s.error()).toBe('access_lost');
+    }
+  );
 });

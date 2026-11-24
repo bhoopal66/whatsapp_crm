@@ -1031,6 +1031,44 @@ describe('ingestPbxEvent', () => {
       expect(answeredIds()).toEqual(['u2', 'u1']);
     });
 
+    it('a colleague who was only consulted is not on the list, live or after', async () => {
+      const answeredIds = () =>
+        (callRow('call-1').meta as Row).answered_user_ids;
+      await ingest(
+        ring('call-1', [inbound('ANSWERED'), ext('1001', 'ANSWERED')])
+      );
+      // 1001 asks 1002, the customer holding; then takes the call back.
+      await ingest(
+        ring('call-1', [
+          inbound('ANSWERED'),
+          ext('1002', 'ANSWERED'),
+          ext('1001', 'ANSWERED'),
+        ])
+      );
+      await ingest(
+        ring('call-1', [
+          inbound('HOLD'),
+          ext('1001', 'HOLD'),
+          ext('1002', 'ANSWERED'),
+        ])
+      );
+      expect(answeredIds()).toEqual(['u1']);
+      await ingest(
+        leg('call-1', 'call-1-t', 'ANSWERED', {
+          type: 'Internal',
+          from: '1001',
+          to: '1002',
+          start: '2026-10-12 14:00:20',
+          dur: 10,
+          talk: 8,
+        })
+      );
+      await ingest(
+        leg('call-1', 'call-1-c', 'ANSWERED', { to: '1001', dur: 60, talk: 55 })
+      );
+      expect(answeredIds()).toEqual(['u1']);
+    });
+
     it('a call between colleagues keeps no such list', async () => {
       await ingest(
         leg('call-1', 'call-1-i', 'ANSWERED', {

@@ -3,14 +3,7 @@
 import { EmptyState } from '@/components/dashboard/empty-state';
 import { ErrorState } from '@/components/dashboard/error-state';
 import { LoadingState } from '@/components/dashboard/loading-state';
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useReducer,
-  useRef,
-  useState,
-} from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { useLocale, useTranslations } from 'next-intl';
 import { AudioLines, BarChart3, Phone, PhoneMissed } from 'lucide-react';
@@ -21,6 +14,7 @@ import {
   CallRecordingToggle,
 } from '@/components/calls/call-recording';
 import { ShareCallButton } from '@/components/chat/share-to-chat-dialog';
+import { useCallsList, type CallRow } from '@/components/calls/use-calls-list';
 import { Colleagues } from '@/components/calls/colleagues';
 import { Keypad } from '@/components/calls/keypad';
 import { GroupsPanel } from '@/components/pbx/groups-panel';
@@ -32,6 +26,7 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/use-auth';
 import { canLeadTeam } from '@/lib/auth/roles';
 import { PBX_ROUTES_HREF } from '@/lib/pbx/admin-ui';
+import { DEFAULT_TIME_ZONE } from '@/lib/pbx/call-status';
 import {
   UNROUTED_SUMMARY_DAYS,
   callBackFor,
@@ -42,48 +37,25 @@ import {
   visibleCallTabs,
   callsListReady,
   internalCallParty,
-  liveKey,
   type CallsTab,
-  type CallSides,
   type InternalSide,
 } from '@/lib/pbx/call-ui';
-import {
-  callLeft,
-  listReducer,
-  loadCallsList,
-  startCallsRefresh,
-  type ListAction,
-  type ListView,
-} from '@/lib/pbx/calls-list';
 import { listPlayerOffered, nextOpenPlayer } from '@/lib/pbx/list-player';
 import {
   callHeading,
   callTone,
   splitCallLog,
   type Part,
-  type TimelineCall,
 } from '@/lib/pbx/timeline';
-import { missedBadge, type MissedCallTask } from '@/lib/pbx/missed-tasks';
+import { missedBadge } from '@/lib/pbx/missed-tasks';
 import { cn } from '@/lib/utils';
 
-type CallRow = TimelineCall & {
-  contactId: string | null;
-  contactName: string | null;
-  remoteNumber: string | null;
-  doNotContactAt: string | null;
-  doNotContactReason: string | null;
-  /** The number the customer dialled (calls.did_number). */
-  didNumber?: string | null;
-  /** Internal calls only: both extensions and their people. */
-  party?: CallSides;
-  /** Missed calls only: the callback task, whoever holds it. */
-  task?: MissedCallTask | null;
-};
-const getJson = (url: string) =>
-  fetch(url, { cache: 'no-store' }).then((r) => {
-    if (!r.ok) throw new Error(String(r.status));
-    return r.json();
-  });
+// The workspace's zone, as the call reports: a browser elsewhere must not
+// move "Today" / "Older". The clock is read when the list is drawn.
+const splitByDay = (calls: CallRow[]) =>
+  splitCallLog(calls, Date.now(), DEFAULT_TIME_ZONE);
+const lastCallAt = (at: string, locale: string) =>
+  messageWhen(at, Date.now(), { locale, timeZone: DEFAULT_TIME_ZONE });
 
 export function CallsView({ tab: requested }: { tab: CallsTab }) {
   const t = useTranslations('CallsPage');
@@ -108,77 +80,18 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
   );
   const [wideToggle, setWide] = useState(false);
   const wide = wideToggle && reach !== 'mine';
-  const timeZone = useMemo(
-    () => Intl.DateTimeFormat().resolvedOptions().timeZone,
-    []
-  );
-  const [view, dispatch] = useReducer(
-    listReducer as (
-      v: ListView<CallRow> | null,
-      a: ListAction<CallRow>
-    ) => ListView<CallRow> | null,
-    null
-  );
+  const { current, shown, loadOlder, refresh } = useCallsList({
+    tab,
+    wide,
+    listReady: callsListReady(tab, accountRole),
+  });
   // The one row whose recording player is open (lib/pbx/list-player).
   const [openPlayer, setOpenPlayer] = useState<string | null>(null);
 
-  const listReady = callsListReady(tab, accountRole);
-  const key = `${tab}:${wide}`;
-  // One count for every read of the screen (listReducer).
-  const seqRef = useRef(0);
-  const refresh = useCallback(() => {
-    // The report tab loads its own figures; Unrouted waits for the role.
-    if (!listReady) return;
-    const seq = ++seqRef.current;
-    loadCallsList<CallRow>(tab, wide, Date.now(), getJson)
-      .then((list) => list && dispatch({ type: 'loaded', key, seq, list }))
-      .catch(() => dispatch({ type: 'failed', key, seq }));
-  }, [key, listReady, tab, wide]);
-  const refresher = useRef<ReturnType<typeof startCallsRefresh> | null>(null);
-  useEffect(() => {
-    refresh();
-    const r = startCallsRefresh(refresh, document, window);
-    refresher.current = r;
-    return () => {
-      refresher.current = null;
-      r.stop();
-    };
-  }, [refresh]);
-
-  // The caller's calls in progress, as the call layer follows call_live:
-  // the one ringing and the panel's. Answering moves a call from the
-  // first to the second, so only one that ended leaves.
-  const ringing = phone?.ringing;
-  const panel = phone?.panel;
-  const liveKeys = [
-    ...(ringing ? [liveKey(ringing)] : []),
-    ...(panel && panel.endedAt === null ? [panel.key] : []),
-  ].join('\n');
-  const liveBefore = useRef(liveKeys);
-  useEffect(() => {
-    const split = (k: string) => (k ? k.split('\n') : []);
-    if (callLeft(split(liveBefore.current), split(liveKeys)))
-      refresher.current?.soon();
-    liveBefore.current = liveKeys;
-  }, [liveKeys]);
-
   const say = (p: Part) =>
     typeof p === 'string' ? p : tl(p.key as never, p.values as never);
-  const current = view?.key === key ? view : null;
-  const shown = current?.list ?? null;
-  const last = shown?.calls.at(-1);
-  const loadOlder = () => {
-    if (!last || current?.older === 'loading') return;
-    dispatch({ type: 'olderStarted', key });
-    loadCallsList<CallRow>(tab, wide, Date.now(), getJson, last)
-      .then(
-        (list) => list && dispatch({ type: 'older', key, after: last.id, list })
-      )
-      .catch(() => dispatch({ type: 'olderFailed', key, after: last.id }));
-  };
-
   const row = (c: CallRow) => {
-    const h = callHeading(c, { timeZone, locale });
+    const h = callHeading(c, { timeZone: DEFAULT_TIME_ZONE, locale });
     const badge = c.task ? missedBadge(c.task) : null;
     const missed = callTone(c) === 'missed';
     const Icon = missed ? PhoneMissed : Phone;
@@ -284,7 +197,7 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
 
   const split =
     shown && (tab === 'mine' || tab === 'log' || tab === 'unrouted')
-      ? splitCallLog(shown.calls, Date.now(), timeZone)
+      ? splitByDay(shown.calls)
       : null;
 
   // Which numbers want a route, with a way to add one (admins only see
@@ -308,10 +221,7 @@ export function CallsView({ tab: requested }: { tab: CallsTab }) {
               <p className="text-muted-foreground text-sm">
                 {t('unrouted.numberCalls', {
                   count: n.calls,
-                  last: messageWhen(n.lastAt, Date.now(), {
-                    locale,
-                    timeZone,
-                  }),
+                  last: lastCallAt(n.lastAt, locale),
                 })}
               </p>
             </div>
