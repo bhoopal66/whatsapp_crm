@@ -36,13 +36,11 @@ export interface EffectiveAccess {
    * order the teams are listed. Only people reached through a team.
    */
   viaTeams: Map<string, string[]>;
-  /** Nobody at all: the number stays shared with everyone. */
+  /** Nobody chosen at all: the number is shared with everyone. */
   shared: boolean;
-  /**
-   * Teams are selected but none of them has anybody in it, so the
-   * selection grants nothing yet and the number stays shared. Worth a
-   * warning: the admin meant to restrict it.
-   */
+  /** Limited, but nobody is left on it: owners and admins only (314). */
+  adminsOnly: boolean;
+  /** Teams are selected but none of them has anybody in it. */
   teamsEmpty: boolean;
 }
 
@@ -51,9 +49,8 @@ export interface EffectiveAccess {
  * team ticks.
  *
  * `currentMemberIds` limits the result to people still on the account
- * — a team roster or an old direct tick can name someone who has left,
- * and counting a ghost would call a number "allocated" that the
- * database (which checks membership first) treats as shared.
+ * — a team roster or an old direct tick can name someone who has left.
+ * Any tick limits the number (314), even one that reaches nobody yet.
  */
 export function effectiveAccess(
   directIds: readonly string[],
@@ -81,26 +78,74 @@ export function effectiveAccess(
   return {
     people: [...people],
     viaTeams,
-    shared: people.size === 0,
+    shared: directIds.length === 0 && selected.size === 0,
+    adminsOnly:
+      people.size === 0 && (directIds.length > 0 || selected.size > 0),
     teamsEmpty: selected.size > 0 && viaTeams.size === 0,
   };
 }
 
 /**
  * A saved number's access, as the channel list reports it: the direct
- * list plus the team-derived one, without repeats. A team allocation
- * alone makes a number allocated; teams with nobody in them leave it
- * shared, which is worth saying.
+ * list plus the team-derived one, without repeats. `isLive` leaves out
+ * people who can no longer sign in. With nobody left, a limited number is
+ * for owners and admins (314).
  */
-export function savedAccess(row: {
+export function savedAccess(
+  row: {
+    member_ids: readonly string[];
+    team_ids: readonly string[];
+    team_member_ids: readonly string[];
+    access_restricted?: boolean;
+  },
+  isLive: (userId: string) => boolean = () => true
+): Omit<EffectiveAccess, 'viaTeams'> {
+  const all = [...new Set([...row.member_ids, ...row.team_member_ids])];
+  const people = all.filter(isLive);
+  const restricted =
+    row.access_restricted === true || all.length > 0 || row.team_ids.length > 0;
+  return {
+    people,
+    shared: !restricted,
+    adminsOnly: restricted && people.length === 0,
+    teamsEmpty: row.team_ids.length > 0 && row.team_member_ids.length === 0,
+  };
+}
+
+/** A number as `GET /api/whatsapp/channels` lists it. */
+export interface AccessRow {
+  id: string;
+  is_personal?: boolean;
   member_ids: readonly string[];
   team_ids: readonly string[];
   team_member_ids: readonly string[];
-}): Omit<EffectiveAccess, 'viaTeams'> {
-  const people = [...new Set([...row.member_ids, ...row.team_member_ids])];
-  return {
-    people,
-    shared: people.length === 0,
-    teamsEmpty: row.team_ids.length > 0 && row.team_member_ids.length === 0,
-  };
+}
+
+/**
+ * The numbers nobody but owners and admins may use once `leaving` is gone:
+ * a person removed or deactivated, or a team deleted. Numbers already
+ * without a live person, shared and personal numbers are not named.
+ */
+export function numbersLeftToAdmins<N extends AccessRow>(
+  numbers: readonly N[],
+  teams: readonly TeamRoster[],
+  leaving: { userId: string } | { teamId: string },
+  isLive: (userId: string) => boolean = () => true
+): N[] {
+  return numbers.filter((n) => {
+    if (n.is_personal) return false;
+    const before = new Set(
+      [...n.member_ids, ...n.team_member_ids].filter(isLive)
+    );
+    if (before.size === 0) return false;
+    if ('userId' in leaving) {
+      before.delete(leaving.userId);
+      return before.size === 0;
+    }
+    if (!n.team_ids.includes(leaving.teamId)) return false;
+    const kept = teams.filter(
+      (t) => t.id !== leaving.teamId && n.team_ids.includes(t.id)
+    );
+    return ![...n.member_ids, ...kept.flatMap(teamPeople)].some(isLive);
+  });
 }

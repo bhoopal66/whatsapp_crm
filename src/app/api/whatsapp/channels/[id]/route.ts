@@ -4,7 +4,8 @@
 //
 // Body (every field optional):
 //   { label?: string, member_ids?: string[], team_ids?: string[],
-//     is_primary?: true }
+//     expected_member_ids?, expected_team_ids?: the lists the screen
+//     showed, is_primary?: true }
 //
 // Admin-only. Connecting and disconnecting stay on the provider routes
 // (`/api/whatsapp/config`, `/api/whatsapp/config/meta`), which own the
@@ -14,7 +15,8 @@
 // is the people ticked by hand and `team_ids` the teams whose members
 // and leaders get the number through the team (migration 071); each
 // list replaces only itself, and both are saved in one transaction
-// (set_channel_access). With both empty the number is shared again. What allocation MEANS is enforced in the database (migrations
+// (set_channel_access). With both sent
+// empty the number is shared again (314: nothing else reopens it). What allocation MEANS is enforced in the database (migrations
 // 060 and 071); this route only decides what to write.
 // ============================================================
 
@@ -134,6 +136,23 @@ export async function PATCH(
       teamIds = result.ids;
     }
 
+    // The lists the screen showed (314), compared under the lock.
+    const expected: { members: string[] | null; teams: string[] | null } = {
+      members: null,
+      teams: null,
+    };
+    for (const [key, field, sent] of [
+      ['members', 'expected_member_ids', memberIds],
+      ['teams', 'expected_team_ids', teamIds],
+    ] as const) {
+      if (!sent || !(field in body)) continue;
+      const result = validateIdList(body[field], field);
+      if (!result.ok) {
+        return NextResponse.json({ error: result.error }, { status: 400 });
+      }
+      expected[key] = result.ids;
+    }
+
     if (body.is_primary !== undefined && body.is_primary !== true) {
       return NextResponse.json(
         {
@@ -168,6 +187,12 @@ export async function PATCH(
         p_config_id: id,
         p_user_ids: memberIds ?? null,
         p_team_ids: teamIds ?? null,
+        ...(expected.members || expected.teams
+          ? {
+              p_expected_user_ids: expected.members,
+              p_expected_team_ids: expected.teams,
+            }
+          : {}),
       });
       if (error) {
         console.error('[whatsapp/channels] allocate failed:', error);
@@ -177,6 +202,15 @@ export async function PATCH(
           return NextResponse.json(
             { error: 'WhatsApp number not found' },
             { status: 404 }
+          );
+        }
+        if (error.code === '22023' && error.hint === 'access_changed') {
+          return NextResponse.json(
+            {
+              error: 'Who may use this number was changed meanwhile',
+              code: 'access_changed',
+            },
+            { status: 409 }
           );
         }
         if (error.code === '22023') {

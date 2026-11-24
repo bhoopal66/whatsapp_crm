@@ -81,6 +81,7 @@ import {
   NumberChip,
   RoleChip,
 } from './teams/people';
+import { NumbersLeftToAdmins } from './numbers-left-to-admins';
 import { TeamEditorSheet } from './teams/team-editor-sheet';
 
 /** Team membership and number allocation feed several caches. */
@@ -114,7 +115,7 @@ export function TeamsTab() {
   const [deleting, setDeleting] = useState<Team | null>(null);
   const [deletingBusy, setDeletingBusy] = useState(false);
 
-  const load = useCallback(async (quiet = false) => {
+  const load = useCallback(async (quiet = false): Promise<Team[] | null> => {
     if (!quiet) setState('loading');
     try {
       const [teamsRes, membersRes] = await Promise.all([
@@ -124,19 +125,18 @@ export function TeamsTab() {
       if (!teamsRes.ok || !membersRes.ok) throw new Error('load failed');
       const teamsBody = await teamsRes.json();
       const membersBody = await membersRes.json();
-      setTeams(
-        ((teamsBody?.teams ?? []) as Team[]).map((x) => ({
-          ...x,
-          member_ids: x.member_ids ?? [],
-          channel_ids: x.channel_ids ?? [],
-        }))
-      );
-      setMembers(
-        staffOnly((membersBody?.members ?? []) as AccountMember[])
-      );
+      const next = ((teamsBody?.teams ?? []) as Team[]).map((x) => ({
+        ...x,
+        member_ids: x.member_ids ?? [],
+        channel_ids: x.channel_ids ?? [],
+      }));
+      setTeams(next);
+      setMembers(staffOnly((membersBody?.members ?? []) as AccountMember[]));
       setState('ready');
+      return next;
     } catch {
       if (!quiet) setState('error');
+      return null;
     }
   }, []);
 
@@ -203,13 +203,28 @@ export function TeamsTab() {
         body: JSON.stringify(patch),
       });
       if (!res.ok) {
+        if (res.status === 409) {
+          const body = await res
+            .clone()
+            .json()
+            .catch(() => ({}));
+          if (body?.code === 'members_changed') {
+            // Another admin saved meanwhile: the editor reopens on what
+            // is stored and the change is made again.
+            toast.error(t('membersChanged'));
+            const stored = (await load(true))?.find((x) => x.id === team.id);
+            setEditing(stored ?? null);
+            return false;
+          }
+        }
         toast.error((await readError(res)) || t('saveFailed'));
         // The save is one transaction, so nothing changed — but another
         // admin may have; re-read so the overview tells the truth.
         void load(true);
         return false;
       }
-      const updated = { ...team, ...patch };
+      const { expected_member_ids: _expected, ...saved } = patch;
+      const updated = { ...team, ...saved };
       setTeams((prev) => prev.map((x) => (x.id === team.id ? updated : x)));
       invalidateTeamCaches();
       setNumbersKey((k) => k + 1);
@@ -442,6 +457,10 @@ export function TeamsTab() {
               })}
             </li>
             <li>{t('deleteNumbers')}</li>
+            <NumbersLeftToAdmins
+              as="li"
+              leaving={deleting ? { teamId: deleting.id } : null}
+            />
             <li>{t('deleteKeeps')}</li>
           </ul>
           <DialogFooter>

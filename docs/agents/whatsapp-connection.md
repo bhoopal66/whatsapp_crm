@@ -274,6 +274,13 @@ Inbound moves it to the number the customer last wrote to. Anyone else
 may only fill it in when it is NULL; moving a thread is admin-only
 (`conversations_channel_guard`).
 
+**A limited number stays limited (314).** `whatsapp_config.access_restricted`
+is set by a trigger on any `whatsapp_channel_members` / `whatsapp_channel_teams`
+row and cleared only by `set_channel_access` with BOTH lists empty; limited with
+nobody allocated = owners and admins (`can_use_channel` ↔ `usableNumbers`,
+`startFor`, `chooseHostingNumber`). Replacing a number's lists or a team's
+members sends what the screen showed (`p_expected_*` overloads, 409).
+
 **Number allocation (migration 060).** `whatsapp_channel_members` lists
 who works each number. With no rows the number is shared, which is the
 pre-060 behaviour. With rows, those members may send from it and

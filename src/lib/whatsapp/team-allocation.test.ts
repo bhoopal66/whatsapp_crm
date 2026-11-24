@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   effectiveAccess,
+  numbersLeftToAdmins,
   savedAccess,
   teamPeople,
   type TeamRoster,
@@ -94,7 +95,8 @@ describe('effectiveAccess', () => {
 
   it('warns when the ticked teams have nobody in them', () => {
     const access = effectiveAccess([], ['team-empty'], TEAMS, MEMBERS);
-    expect(access.shared).toBe(true);
+    expect(access.shared).toBe(false);
+    expect(access.adminsOnly).toBe(true);
     expect(access.teamsEmpty).toBe(true);
   });
 
@@ -112,12 +114,61 @@ describe('effectiveAccess', () => {
       MEMBERS
     );
     expect(access.people).toEqual([]);
-    expect(access.shared).toBe(true);
+    expect(access.adminsOnly).toBe(true);
     expect(access.teamsEmpty).toBe(true);
   });
 });
 
+describe('numbersLeftToAdmins (314)', () => {
+  const row = (id: string, member_ids: string[], team_ids: string[] = []) => ({
+    id,
+    member_ids,
+    team_ids,
+    team_member_ids: team_ids.length ? ['t1'] : [],
+  });
+  const teams = [
+    { id: 'x', name: 'X', leader_user_id: null, member_ids: ['t1'] },
+    { id: 'y', name: 'Y', leader_user_id: null, member_ids: ['t1'] },
+  ];
+  const ids = (rows: Array<{ id: string }>) => rows.map((r) => r.id);
+
+  it('names the numbers a person is the last one on', () => {
+    const numbers = [
+      row('only', ['a']),
+      row('two', ['a', 'b']),
+      row('gone', ['a', 'dead']),
+      row('open', []),
+      { ...row('own', ['a']), is_personal: true },
+    ];
+    expect(
+      ids(
+        numbersLeftToAdmins(numbers, [], { userId: 'a' }, (u) => u !== 'dead')
+      )
+    ).toEqual(['only', 'gone']);
+  });
+
+  it('names the numbers a team is the last one on', () => {
+    const numbers = [
+      row('only', [], ['x']),
+      row('both', [], ['x', 'y']),
+      row('ticked', ['a'], ['x']),
+      row('other', [], ['y']),
+    ];
+    expect(ids(numbersLeftToAdmins(numbers, teams, { teamId: 'x' }))).toEqual([
+      'only',
+    ]);
+  });
+});
+
 describe('savedAccess', () => {
+  it('a limited number whose last person left is for admins (314)', () => {
+    const row = { member_ids: ['gone'], team_ids: [], team_member_ids: [] };
+    const empty = { ...row, member_ids: [], access_restricted: true };
+    expect(savedAccess(empty).adminsOnly).toBe(true);
+    expect(savedAccess(empty).shared).toBe(false);
+    expect(savedAccess(row, () => false).adminsOnly).toBe(true);
+  });
+
   it('is the direct list plus the team list, once each', () => {
     expect(
       savedAccess({
@@ -125,7 +176,12 @@ describe('savedAccess', () => {
         team_ids: ['t'],
         team_member_ids: ['b', 'c'],
       })
-    ).toEqual({ people: ['a', 'b', 'c'], shared: false, teamsEmpty: false });
+    ).toEqual({
+      people: ['a', 'b', 'c'],
+      shared: false,
+      adminsOnly: false,
+      teamsEmpty: false,
+    });
   });
 
   it('counts a team-only allocation as allocated', () => {
@@ -135,15 +191,25 @@ describe('savedAccess', () => {
     ).toBe(false);
   });
 
-  it('flags teams that grant nobody, and stays shared', () => {
+  it('flags teams that grant nobody, and is for admins', () => {
     expect(
       savedAccess({ member_ids: [], team_ids: ['t'], team_member_ids: [] })
-    ).toEqual({ people: [], shared: true, teamsEmpty: true });
+    ).toEqual({
+      people: [],
+      shared: false,
+      adminsOnly: true,
+      teamsEmpty: true,
+    });
   });
 
   it('with nothing allocated is plainly shared', () => {
     expect(
       savedAccess({ member_ids: [], team_ids: [], team_member_ids: [] })
-    ).toEqual({ people: [], shared: true, teamsEmpty: false });
+    ).toEqual({
+      people: [],
+      shared: true,
+      adminsOnly: false,
+      teamsEmpty: false,
+    });
   });
 });

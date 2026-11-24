@@ -82,6 +82,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useTranslations } from 'next-intl';
+import { NumbersLeftToAdmins } from './numbers-left-to-admins';
 import {
   DEPARTMENTS,
   toDepartment,
@@ -1427,6 +1428,11 @@ export function MembersTab() {
               })}
             </DialogDescription>
           </DialogHeader>
+          <NumbersLeftToAdmins
+            leaving={
+              deactivatingMember ? { userId: deactivatingMember.user_id } : null
+            }
+          />
           <DialogFooter className="bg-popover border-border">
             <Button
               variant="outline"
@@ -1474,6 +1480,9 @@ export function MembersTab() {
               })}
             </DialogDescription>
           </DialogHeader>
+          <NumbersLeftToAdmins
+            leaving={removingMember ? { userId: removingMember.user_id } : null}
+          />
           {removingMember &&
             removingWork &&
             (workTotal(removingWork.counts) > 0 ||

@@ -42,7 +42,7 @@ import {
 import { canLeadTeam } from '@/lib/auth/roles';
 import {
   TEAM_NAME_MAX,
-  allocationStaysShared,
+  allocationReachesNobody,
   buildTeamPatch,
   displayName,
   draftOf,
@@ -84,7 +84,8 @@ export function TeamEditorSheet({
   // draft rather than the last one.
   return team ? (
     <EditorBody
-      key={team.id}
+      // The stored members too: after a 409 the draft starts again from them.
+      key={`${team.id}:${team.member_ids.join()}`}
       team={team}
       teams={teams}
       members={members}
@@ -295,7 +296,7 @@ function EditorBody({
                 </span>
               </div>
               <div className="relative">
-                <Search className="text-muted-foreground pointer-events-none absolute top-1/2 start-2.5 size-4 -translate-y-1/2" />
+                <Search className="text-muted-foreground pointer-events-none absolute start-2.5 top-1/2 size-4 -translate-y-1/2" />
                 <Input
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
@@ -401,7 +402,7 @@ function EditorBody({
                   ))}
                 </ul>
               )}
-              {allocationStaysShared(team.channel_ids, draft) ? (
+              {allocationReachesNobody(team.channel_ids, draft) ? (
                 <div className="border-warning/30 bg-warning-soft text-warning flex gap-2 rounded-lg border px-3 py-2 text-xs">
                   <AlertTriangle className="mt-px size-3.5 shrink-0" />
                   <span>{t('emptyTeamShared')}</span>

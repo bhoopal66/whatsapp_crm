@@ -150,6 +150,30 @@ describe('PATCH /api/whatsapp/channels/[id] { team_ids }', () => {
     expect(mocks.rpc).not.toHaveBeenCalled();
   });
 
+  it('sends the lists the screen showed, and answers 409 when they differ (314)', async () => {
+    mocks.rpc.mockResolvedValueOnce({
+      error: { code: '22023', hint: 'access_changed', message: 'x' },
+    });
+    const res = await PATCH(
+      request({
+        member_ids: ['ana'],
+        team_ids: [],
+        expected_member_ids: ['bo'],
+        expected_team_ids: ['team-a'],
+      }),
+      params
+    );
+    expect(mocks.rpc).toHaveBeenCalledWith('set_channel_access', {
+      p_config_id: 'cfg-1',
+      p_user_ids: ['ana'],
+      p_team_ids: [],
+      p_expected_user_ids: ['bo'],
+      p_expected_team_ids: ['team-a'],
+    });
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe('access_changed');
+  });
+
   it('maps the RPC refusals by code and hint', async () => {
     const cases: Array<[string, string | undefined, number, string]> = [
       ['P0002', undefined, 404, 'WhatsApp number not found'],

@@ -190,3 +190,16 @@ describe('browser-safe provider mirrors', () => {
     expect(providerLabel('openwa')).toBe('OpenWA');
   });
 });
+
+describe('usableNumbers: a limited number nobody is left on (314)', () => {
+  it('is for admins, not for everyone', () => {
+    const numbers = [
+      { id: 'open' },
+      { id: 'limited', access_restricted: true },
+    ];
+    const ids = (admin: boolean) =>
+      usableNumbers(numbers, [], 'u1', admin).map((n) => n.id);
+    expect(ids(false)).toEqual(['open']);
+    expect(ids(true)).toEqual(['open', 'limited']);
+  });
+});

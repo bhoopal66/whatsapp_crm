@@ -7,8 +7,9 @@
 // which one is the default, who works it, and — for a second or third
 // Whapi number — connecting it in the first place (migration 060).
 //
-// "Who works it" is the allocation list. A number with nobody on it is
-// shared, exactly as before 060. A number with people on it becomes
+// "Who works it" is the allocation list. A number nobody was ever put on
+// is shared, exactly as before 060; one whose people all left is for
+// owners and admins until both lists are saved empty (314). A number with people on it becomes
 // the numbers they send from, and their new chats start from it.
 // Allocation grants no visibility (migration 072): they still see only
 // their own and assigned chats (leaders also their team's); admins see
@@ -92,6 +93,8 @@ interface NumberRow {
   member_ids: string[];
   /** Teams allocated to the number. */
   team_ids: string[];
+  /** Limited by an admin (314). */
+  access_restricted?: boolean;
   /** People who have the number through one of those teams. */
   team_member_ids: string[];
   /** Null when it could not be counted. */
@@ -164,7 +167,7 @@ export function WhatsAppNumbers() {
   const [teams, setTeams] = useState<TeamRoster[]>([]);
   const [teamsLoaded, setTeamsLoaded] = useState(false);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (): Promise<NumberRow[] | null> => {
     try {
       const [numbersRes, membersRes, teamsRes] = await Promise.all([
         fetch('/api/whatsapp/channels', { cache: 'no-store' }),
@@ -183,8 +186,10 @@ export function WhatsAppNumbers() {
       setTeams(teamsBody?.teams ?? []);
       setTeamsLoaded(teamsRes.ok && Array.isArray(teamsBody?.teams));
       void checkHealth(rows);
+      return rows;
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t('loadFailed'));
+      return null;
     } finally {
       setLoading(false);
     }
@@ -284,12 +289,18 @@ export function WhatsAppNumbers() {
     [accessDraft, accessTeamsDraft, teams, memberIds]
   );
 
+  /** A deactivated person on a list cannot use the number. */
+  const isLiveMember = (userId: string) =>
+    !members.some((m) => m.user_id === userId && m.deactivated_at);
+
   async function patchNumber(
     row: NumberRow,
     patch: {
       label?: string;
       member_ids?: string[];
       team_ids?: string[];
+      expected_member_ids?: string[];
+      expected_team_ids?: string[];
       is_primary?: true;
     },
     /** Fields only the server derives, to show without a reload. */
@@ -303,6 +314,16 @@ export function WhatsAppNumbers() {
         body: JSON.stringify(patch),
       });
       const body = await res.json().catch(() => ({}));
+      if (res.status === 409 && body?.code === 'access_changed') {
+        // Another admin saved meanwhile: show what is stored and ask
+        // for the change again.
+        toast.error(t('accessChanged'));
+        invalidateNumberCaches();
+        const stored = (await load())?.find((n) => n.id === row.id);
+        if (stored) openAccess(stored);
+        else setAccessFor(null);
+        return false;
+      }
       if (!res.ok) {
         toast.error(body?.error || t('saveFailed'));
         // Re-read rather than trust what the card held: the server may
@@ -370,9 +391,22 @@ export function WhatsAppNumbers() {
     const saved = await patchNumber(
       accessFor,
       teamsLoaded
-        ? { member_ids: accessDraft, team_ids: accessTeamsDraft }
-        : { member_ids: accessDraft },
-      teamsLoaded ? { team_member_ids: [...access.viaTeams.keys()] } : {}
+        ? {
+            member_ids: accessDraft,
+            team_ids: accessTeamsDraft,
+            expected_member_ids: accessFor.member_ids,
+            expected_team_ids: accessFor.team_ids,
+          }
+        : {
+            member_ids: accessDraft,
+            expected_member_ids: accessFor.member_ids,
+          },
+      teamsLoaded
+        ? {
+            team_member_ids: [...access.viaTeams.keys()],
+            access_restricted: !access.shared,
+          }
+        : {}
     );
     if (saved) {
       toast.success(
@@ -553,7 +587,7 @@ export function WhatsAppNumbers() {
               ? row.waba_id || rowHealth?.phone
               : rowHealth?.phone;
             const isPersonal = row.is_personal === true;
-            const access = savedAccess(row);
+            const access = savedAccess(row, isLiveMember);
             const teamNames = row.team_ids
               .map((id) => teamById.get(id)?.name)
               .filter((name): name is string => !!name);
@@ -760,11 +794,13 @@ export function WhatsAppNumbers() {
                   <div className="border-border bg-muted/30 mt-4 flex flex-wrap items-center justify-between gap-3 rounded-md border px-3 py-2.5">
                     <div className="min-w-0 text-sm">
                       <p className="text-foreground font-medium">
-                        {access.shared
-                          ? t('sharedTitle')
-                          : t('allocatedTitle', {
-                              count: access.people.length,
-                            })}
+                        {access.adminsOnly
+                          ? t('adminsOnlyTitle')
+                          : access.shared
+                            ? t('sharedTitle')
+                            : t('allocatedTitle', {
+                                count: access.people.length,
+                              })}
                       </p>
                       {teamNames.length > 0 && (
                         <p className="text-muted-foreground mt-0.5 truncate text-xs">
@@ -773,16 +809,18 @@ export function WhatsAppNumbers() {
                       )}
                       <p
                         className={
-                          access.teamsEmpty && access.shared
+                          access.adminsOnly
                             ? 'text-warning mt-0.5 text-xs'
                             : 'text-muted-foreground mt-0.5 truncate text-xs'
                         }
                       >
-                        {access.shared
+                        {access.adminsOnly
                           ? access.teamsEmpty
                             ? t('teamsEmptyShared')
-                            : t('sharedBody')
-                          : access.people.map(nameOf).join(', ')}
+                            : t('adminsOnlyBody')
+                          : access.shared
+                            ? t('sharedBody')
+                            : access.people.map(nameOf).join(', ')}
                       </p>
                     </div>
                     <Button
@@ -934,12 +972,12 @@ export function WhatsAppNumbers() {
 
           {draftAccess.teamsEmpty && (
             <p className="border-warning/30 bg-warning-soft text-warning rounded-md border px-3 py-2 text-xs">
-              {draftAccess.shared
+              {draftAccess.adminsOnly
                 ? t('draftTeamsEmptyShared')
                 : t('draftTeamsEmpty')}
             </p>
           )}
-          {!(draftAccess.teamsEmpty && draftAccess.shared) && (
+          {!draftAccess.adminsOnly && (
             <p className="text-muted-foreground text-xs">
               {draftAccess.shared
                 ? t('draftShared')

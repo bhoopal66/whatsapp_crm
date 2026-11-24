@@ -34,6 +34,17 @@ and polish.
 
 ### Fixed
 
+- **A restricted WhatsApp number no longer opens to all staff by itself.**
+  When the last person allocated to a number left, was deactivated, or its
+  only team was deleted or emptied, the number counted as shared and everyone
+  could send from it. It is now for owners and admins until someone is
+  allocated or an admin saves both lists empty; the numbers screen says so,
+  and the remove, deactivate and delete-team dialogs name such numbers. A
+  number allocated only to a team with nobody in it is also for admins now.
+- **Two admins no longer overwrite each other** on who may use a number or
+  who is in a team: a save made on an out-of-date list is refused, and the
+  screen shows what is stored. **Migration required: 314** (before the build).
+
 - **When a submission group ends, its bells follow.** The unread bell of an
   agent who loses the group opens the customer's page instead of "does not
   exist". **Migration required: 313**.
