@@ -1,6 +1,9 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
-import { sessionFetch } from '@/lib/supabase/session-fetch'
+import {
+  createServerRefresh,
+  REFRESH_UNANSWERED_COOKIE,
+} from '@/lib/supabase/session-fetch'
 import { AUTH_COOKIE_NAME, serverSupabaseUrl } from '@/lib/supabase/urls'
 import {
   authUnavailableResponse,
@@ -47,6 +50,7 @@ async function webFormFrameHeaders(pathname: string) {
 export async function middleware(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
 
+  const refresh = createServerRefresh()
   const supabase = createServerClient(
     serverSupabaseUrl(),
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -55,7 +59,7 @@ export async function middleware(request: NextRequest) {
       // this the middleware cannot see the session and redirects every
       // signed-in request straight back to /login.
       cookieOptions: { name: AUTH_COOKIE_NAME },
-      global: { fetch: sessionFetch },
+      global: { fetch: refresh.fetch },
       cookies: {
         getAll() {
           return request.cookies.getAll()
@@ -71,7 +75,14 @@ export async function middleware(request: NextRequest) {
     }
   )
 
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  const { data: { user }, error: authError } =
+    await refresh.bound(supabase).auth.getUser()
+
+  // This request has waited once: what it reaches does not ask again.
+  if (refresh.gaveUp()) {
+    request.cookies.set(REFRESH_UNANSWERED_COOKIE, '1')
+    supabaseResponse = NextResponse.next({ request })
+  }
 
   // The auth service did not answer, for someone who holds a session
   // cookie: that is not a sign-out, so neither the redirect to /login nor

@@ -804,6 +804,48 @@ async function groupCandidate(
   return (data as GroupCandidate[] | null)?.[0] ?? null;
 }
 
+function groupSendFailed(): NotifyError {
+  return new NotifyError(
+    'group_send_failed',
+    "The update could not be sent into the customer's submission group. Nothing was sent — retry later with the same idempotency_key.",
+    502
+  );
+}
+
+/** The group message of the last try that sent nothing, and when that was. */
+type LastTry = { messageId: string | null; triedAt?: string };
+
+/**
+ * Reads the last try again: when it was, and the group WhatsApp's echo has
+ * since shown it in after all, if any.
+ */
+async function sentAfterAll(
+  db: SupabaseClient,
+  last: LastTry
+): Promise<GroupCandidate | null> {
+  if (!last.messageId) return null;
+  const { data, error } = await db
+    .from('submission_group_messages')
+    .select('group_id, created_at, send_status')
+    .eq('id', last.messageId)
+    .maybeSingle();
+  if (error) throw lookupFailed();
+  const message = data as {
+    group_id: string;
+    created_at: string;
+    send_status: string | null;
+  } | null;
+  last.triedAt = message?.created_at;
+  if (message?.send_status !== 'sent') return null;
+  const { data: group, error: groupError } = await db
+    .from('submission_groups')
+    .select('id, contact_id')
+    .eq('id', message.group_id)
+    .maybeSingle();
+  if (groupError) throw lookupFailed();
+  return (group as GroupCandidate | null) ?? null;
+}
+
 /**
  * Posts the update into the group. Returns where it went, or null when it
  * should go 1:1 instead: the group refused it (no WhatsApp group, closed,
@@ -825,7 +867,7 @@ async function sendToGroup(
   group: GroupCandidate,
   baseKey: string,
   text: string,
-  last: { messageId: string | null },
+  last: LastTry,
   gateway: {
     handOver: (messageId: string) => Promise<void>;
     /** Nothing was sent after all. */
@@ -841,21 +883,12 @@ async function sendToGroup(
     contactId: group.contact_id,
     messageId,
   });
-  if (last.messageId) {
-    const { data, error } = await db
-      .from('submission_group_messages')
-      .select('created_at')
-      .eq('id', last.messageId)
-      .maybeSingle();
-    if (error) throw lookupFailed();
-    const triedAt = (data as { created_at?: string } | null)?.created_at;
-    if (triedAt && Date.now() - Date.parse(triedAt) < GROUP_RETRY_MS) {
-      throw new NotifyError(
-        'group_retry_too_soon',
-        "The last try to post this update into the customer's submission group was less than a minute ago. Nothing was sent — retry with the same idempotency_key after a minute.",
-        503
-      );
-    }
+  if (last.triedAt && Date.now() - Date.parse(last.triedAt) < GROUP_RETRY_MS) {
+    throw new NotifyError(
+      'group_retry_too_soon',
+      "The last try to post this update into the customer's submission group was less than a minute ago. Nothing was sent — retry with the same idempotency_key after a minute.",
+      503
+    );
   }
   let result: SystemSendResult;
   try {
@@ -879,11 +912,7 @@ async function sendToGroup(
       gateway.refused();
       if (err.cause instanceof NotifyError) throw err.cause;
     }
-    throw new NotifyError(
-      'group_send_failed',
-      "The update could not be sent into the customer's submission group. Nothing was sent — retry later with the same idempotency_key.",
-      502
-    );
+    throw groupSendFailed();
   }
   switch (result.status) {
     case 'sent':
@@ -891,6 +920,8 @@ async function sendToGroup(
     case 'blocked':
       throw customerOptedOut();
     case 'refused':
+      // About this call, not about the group, which may be alive.
+      if (result.code === 'BAD_INPUT') throw groupSendFailed();
       last.messageId = result.messageId ?? last.messageId;
       return null;
     case 'duplicate':
@@ -1007,7 +1038,7 @@ export async function sendCompassNotification(
   let accepted = false;
   // The group message of the last try that sent nothing; kept on the row
   // (without the group, which only a marked row names) for the next one.
-  const lastTry = { messageId: claimed.lastGroupMessage };
+  const lastTry: LastTry = { messageId: claimed.lastGroupMessage };
   try {
     let phone = req.to;
     let name = req.name;
@@ -1066,30 +1097,38 @@ export async function sendCompassNotification(
     // so this runs before the Meta number check. Media stays 1:1 (the
     // group send is text-only).
     if (deps.groupSender && req.type === 'text' && req.text) {
-      const group = await groupCandidate(db, accountId, req.reference, phone);
-      const inGroup = group
-        ? await sendToGroup(
-            db,
-            deps.groupSender,
-            group,
-            `compass:${req.idempotencyKey}`,
-            req.text,
-            lastTry,
-            {
-              handOver: async (messageId) => {
-                await markHandedToGateway({
-                  submission_group_id: group.id,
-                  group_message_id: messageId,
-                  contact_id: group.contact_id,
-                });
-                handedToGateway = true;
-              },
-              refused: () => {
-                handedToGateway = false;
-              },
-            }
-          )
-        : null;
+      const already = await sentAfterAll(db, lastTry);
+      const group =
+        already ?? (await groupCandidate(db, accountId, req.reference, phone));
+      const inGroup = already
+        ? {
+            groupId: already.id,
+            contactId: already.contact_id,
+            messageId: lastTry.messageId,
+          }
+        : group
+          ? await sendToGroup(
+              db,
+              deps.groupSender,
+              group,
+              `compass:${req.idempotencyKey}`,
+              req.text,
+              lastTry,
+              {
+                handOver: async (messageId) => {
+                  await markHandedToGateway({
+                    submission_group_id: group.id,
+                    group_message_id: messageId,
+                    contact_id: group.contact_id,
+                  });
+                  handedToGateway = true;
+                },
+                refused: () => {
+                  handedToGateway = false;
+                },
+              }
+            )
+          : null;
       if (inGroup) {
         accepted = true;
         const outcome = {

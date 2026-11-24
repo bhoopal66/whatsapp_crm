@@ -1793,6 +1793,80 @@ describe('sendCompassNotification into a submission group (170)', () => {
     expect(groupSender).toHaveBeenCalledTimes(1);
   });
 
+  it('input the group send cannot take is an error, never sent 1:1', async () => {
+    const { db, tables } = makeDb({ groups: [group()] });
+    await expect(
+      sendCompassNotification(db, 'acct', refReq(), {
+        groupSender: async () => ({ status: 'refused', code: 'BAD_INPUT' }),
+      })
+    ).rejects.toMatchObject({ code: 'group_send_failed', status: 502 });
+    expect(sendMessageToConversation).not.toHaveBeenCalled();
+    expect(tables.compass_notifications[0].status).toBe('failed');
+  });
+
+  it("the longest key's retry fits 170's system_key", async () => {
+    // submission_group_messages.id is a bigint.
+    const id = '9223372036854775807';
+    const { db } = makeDb({
+      groups: [group()],
+      groupMessages: [{ id, created_at: aWhileAgo() }],
+    });
+    const idempotency_key = 'k'.repeat(200);
+    expect(() =>
+      baseRequest({ idempotency_key: `${idempotency_key}k` })
+    ).toThrow(/200/);
+    const request = baseRequest({ idempotency_key, reference: 'sub-1' });
+    await sendCompassNotification(db, 'acct', request, {
+      groupSender: handsOver(id, refusedBy),
+    }).catch(() => undefined);
+    const groupSender = vi.fn(handsOver('42', sent));
+    await sendCompassNotification(db, 'acct', request, { groupSender });
+    const { key } = groupSender.mock.calls[0][0] as unknown as { key: string };
+    expect(key).toBe(`compass:${idempotency_key}#r${id}`);
+    expect(key.length).toBeLessThanOrEqual(240);
+  });
+
+  it.each([
+    ['', group()],
+    [', the group since closed', group({ wa_closed_at: '2026-11-20' })],
+  ])(
+    'a try that was sent after all is delivered, not posted again%s',
+    async (_what, inGroup) => {
+      const { db, tables } = makeDb({ groups: [group()] });
+      await sendCompassNotification(db, 'acct', refReq(), {
+        groupSender: handsOver('41', refusedBy),
+      }).catch(() => undefined);
+      tables.submission_groups[0] = inGroup;
+      // The echo came, within the minute a retry would have to wait.
+      tables.submission_group_messages.push({
+        id: '41',
+        group_id: 'g-ref',
+        created_at: new Date().toISOString(),
+        send_status: 'sent',
+      });
+      const groupSender = vi.fn();
+      const { notification } = await sendCompassNotification(
+        db,
+        'acct',
+        refReq(),
+        { groupSender }
+      );
+      expect(notification).toMatchObject({
+        status: 'sent',
+        delivered_to: 'group',
+        submission_group_id: 'g-ref',
+        error: null,
+      });
+      expect(tables.compass_notifications[0]).toMatchObject({
+        status: 'sent',
+        group_message_id: '41',
+        contact_id: 'contact-g',
+      });
+      expect(groupSender).not.toHaveBeenCalled();
+      expect(sendMessageToConversation).not.toHaveBeenCalled();
+    }
+  );
+
   it('goes 1:1 when the group is gone after a try that sent nothing', async () => {
     findExistingContact.mockResolvedValue({ id: 'contact-1' });
     const { db, tables } = makeDb({

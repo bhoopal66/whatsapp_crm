@@ -43,7 +43,8 @@ and polish.
 - **Compass updates: a status update is never posted twice into a
   submission group, and never lost to short failures.** A timeout or a
   restart mid-post answers `delivery_unconfirmed` and is not posted again
-  (WhatsApp's later confirmation settles it); a refusal or a failed read
+  (WhatsApp's later confirmation settles it, also for a post first taken
+  for not sent); a refusal or a failed read
   uses nothing up, so the same key works again later, one try a minute,
   instead of ending for good after three. A brief database error answers a
   retryable 503 instead of "not found" or "no template". See
@@ -106,8 +107,11 @@ and polish.
   app cannot find out whether you are signed in it says "Reconnecting…", with
   a Retry button, and keeps trying. Too many requests, or a page put in
   between (a Cloudflare challenge), no longer count as the auth service's
-  answer and sign nobody out. When a session really has ended, signing
-  in again returns you to the page you were on; "Sign out" does not. No
+  answer and sign nobody out; the app then asks again only after the time
+  it was told to wait (5 seconds if none), and no page waits longer than
+  about 3 seconds for the auth service to renew a session (it was 25). When
+  a session really has ended, signing in again returns you to the page you
+  were on; "Sign out" does not. No
   migration.
 - **"Sign out" ends this device only.** It used to sign the person out of
   every device; Settings → "Sign out of all devices" is the button for that.

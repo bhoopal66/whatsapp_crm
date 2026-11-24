@@ -1,7 +1,7 @@
 import { createBrowserClient } from '@supabase/ssr'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-import { sessionFetch } from './session-fetch'
+import { createSessionFetch } from './session-fetch'
 import { AUTH_COOKIE_NAME, publicSupabaseUrl } from './urls'
 
 // Singleton instance — one client shared across the whole browser session.
@@ -22,7 +22,7 @@ export function createClient() {
     // URL, which differs between browser and server here. See urls.ts.
     {
       cookieOptions: { name: AUTH_COOKIE_NAME },
-      global: { fetch: sessionFetch },
+      global: { fetch: createSessionFetch() },
     }
   )
 
