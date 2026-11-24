@@ -180,9 +180,9 @@ describe('the details of messages', () => {
 describe('an answer dropped for a full journal', () => {
   it('is read again', async () => {
     const { loader, read, change, asked, entry, leave } = loaderOf([msg('m1')]);
-    let answer: (v: unknown) => void = () => {};
+    let answer: (v: never) => void = () => {};
     read.mockImplementationOnce(
-      () => new Promise((r) => (answer = r)) as Promise<never>
+      () => new Promise<never>((r) => (answer = r as typeof answer))
     );
     const loading = loader.load(['m1']);
     change((e) => {
@@ -193,7 +193,7 @@ describe('an answer dropped for a full journal', () => {
         });
       return e;
     });
-    answer({ m1: [file] });
+    answer({ m1: [file] } as never);
     await loading;
     expect([...missingFiles(entry())]).toContain('m1');
     const before = asked('attachments').length;
