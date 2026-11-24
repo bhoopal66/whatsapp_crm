@@ -7,7 +7,12 @@
 // midnight in the event's zone; timed values must carry an offset.
 // ============================================================
 
-import { fromFloating, rruleError, rruleSanity } from './recurrence';
+import {
+  fromFloating,
+  rruleError,
+  rruleSanity,
+  ruleIncludesStart,
+} from './recurrence';
 
 export const EVENT_COLORS = [
   'blue',
@@ -208,6 +213,10 @@ function rrule(v: unknown): string | null {
   return err ? fail(err) : body;
 }
 
+/** The refusal of a rule that does not name its series' start date. */
+export const RULE_MISSES_START =
+  'The first date is not one of the repeat days';
+
 /**
  * Checks a create body (`partial` false: title, start, end, allDay,
  * timeZone, color, visibility and reminders required) or a patch body
@@ -273,6 +282,13 @@ export function parseEventInput(
     if (value.rrule && value.start_at) {
       const err = rruleSanity(value.rrule, value as Required<EventInput>);
       if (err) fail(err);
+      // A patch's caller checks it against what the event already was.
+      if (
+        !partial &&
+        !ruleIncludesStart(value.rrule, value as Required<EventInput>)
+      ) {
+        fail(RULE_MISSES_START);
+      }
     }
     if (value.scope === 'this' && !value.occurrenceStart) {
       fail('occurrenceStart is required to change one occurrence');

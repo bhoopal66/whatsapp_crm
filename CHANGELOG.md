@@ -34,6 +34,12 @@ and polish.
 
 ### Fixed
 
+- **Calendar: a repeating event starts on the date that was chosen.** The
+  weekly day now follows the start date until someone picks the days, and a
+  save whose first date is not one of its repeat days is refused ("The first
+  date is not one of the repeat days"); it used to be saved and the first
+  date never showed or rang. An event already saved that way can still be
+  edited in its other fields. No migration.
 - **Compass updates: a status update is never posted twice into a
   submission group, and never lost to short failures.** A timeout or a
   restart mid-post answers `delivery_unconfirmed` and is not posted again

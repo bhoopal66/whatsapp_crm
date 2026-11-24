@@ -115,6 +115,7 @@ export function withRepeatChoice(
       break;
     case 'weekly': {
       r.freq = 'weekly';
+      // Untouched, the days already are the start's (withStart moves them).
       const anchor = anchorOfForm(v);
       if (!r.weekdays.length && anchor) {
         r.weekdays = [anchorFacts(anchor).weekday];

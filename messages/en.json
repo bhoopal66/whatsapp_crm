@@ -8594,6 +8594,7 @@
         "descriptionTooLong": "The description is too long (5,000 characters at most).",
         "locationTooLong": "The location is too long (300 characters at most).",
         "repeatInvalid": "Check the repeat: it can't be saved as set.",
+        "repeatMissesStart": "The first date is not one of the repeat days.",
         "tooManyReminders": "Up to 5 reminders."
       }
     }

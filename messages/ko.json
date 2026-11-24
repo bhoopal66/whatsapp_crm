@@ -8594,6 +8594,7 @@
         "descriptionTooLong": "설명이 너무 깁니다(최대 5,000자).",
         "locationTooLong": "장소가 너무 깁니다(최대 300자).",
         "repeatInvalid": "반복 설정을 확인하세요. 현재 설정으로는 저장할 수 없습니다.",
+        "repeatMissesStart": "첫 날짜가 반복 요일에 포함되지 않습니다.",
         "tooManyReminders": "알림은 최대 5개입니다."
       }
     }

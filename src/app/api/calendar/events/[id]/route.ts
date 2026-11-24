@@ -21,6 +21,7 @@ import {
   expandEvent,
   fromFloating,
   isOccurrence,
+  ruleIncludesStart,
   rruleSanity,
   seriesEndAt,
   toFloating,
@@ -33,6 +34,7 @@ import {
 import {
   expectedStamp,
   parseEventInput,
+  RULE_MISSES_START,
   type EventInput,
 } from '@/lib/calendar/validate';
 import { isUuid } from '@/lib/meetings/requests';
@@ -177,6 +179,24 @@ function shiftExdates(ev: EventRow, startAt: string, timeZone: string) {
   );
 }
 
+/** The whole day of an instant on the zone's calendar. */
+const dayOf = (iso: string, timeZone: string) =>
+  Math.floor(toFloating(Date.parse(iso), timeZone) / 86_400_000);
+
+/**
+ * Whether the edit leaves a series whose rule does not name its start
+ * date. Only an edit of the start date or of the rule is judged: a series
+ * stored that way before the check existed keeps its other fields (and
+ * its time of day) editable.
+ */
+function missesStart(ev: EventRow, next: EventRow): boolean {
+  if (!next.rrule) return false;
+  const moved =
+    next.rrule !== ev.rrule ||
+    dayOf(next.start_at, next.time_zone) !== dayOf(ev.start_at, ev.time_zone);
+  return moved && !ruleIncludesStart(next.rrule, next);
+}
+
 /** The checked occurrence (original start and end), or null. */
 function findOccurrence(ev: EventRow, startIso: string) {
   const start = Date.parse(startIso);
@@ -264,15 +284,17 @@ export async function PATCH(request: Request, { params }: Params) {
       const err = rruleSanity(v.rrule, ev);
       if (err) return jsonError(err, 400);
     }
+    const next: EventRow = {
+      ...ev,
+      start_at: v.start_at ?? ev.start_at,
+      end_at: v.end_at ?? ev.end_at,
+      all_day: v.all_day ?? ev.all_day,
+      time_zone: v.time_zone ?? ev.time_zone,
+      rrule: v.rrule !== undefined ? v.rrule : ev.rrule,
+    };
+    if (missesStart(ev, next)) return jsonError(RULE_MISSES_START, 400);
     if (v.start_at !== undefined || v.rrule !== undefined) {
-      changes.series_end_at =
-        seriesEndAt({
-          start_at: v.start_at ?? ev.start_at,
-          end_at: v.end_at ?? ev.end_at,
-          all_day: v.all_day ?? ev.all_day,
-          time_zone: v.time_zone ?? ev.time_zone,
-          rrule: v.rrule !== undefined ? v.rrule : ev.rrule,
-        })?.toISOString() ?? null;
+      changes.series_end_at = seriesEndAt(next)?.toISOString() ?? null;
     }
     if (
       ev.rrule &&

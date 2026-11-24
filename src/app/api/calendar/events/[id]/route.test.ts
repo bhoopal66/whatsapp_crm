@@ -296,6 +296,47 @@ describe('/api/calendar/events/[id]', () => {
       expect(rpcCalls()).toEqual([]);
     });
 
+    describe('a rule that does not name the first date', () => {
+      const times = (day: string, hour = '05') => ({
+        start: `2026-10-${day}T${hour}:00:00Z`,
+        end: `2026-10-${day}T${hour}:30:00Z`,
+        allDay: false,
+        timeZone: 'Asia/Dubai',
+        scope: 'all',
+      });
+
+      it('is refused when the rule or the first date changes', async () => {
+        const rule = await patch(
+          { rrule: 'FREQ=WEEKLY;BYDAY=TU', scope: 'all' },
+          SERIES
+        );
+        expect(rule.status).toBe(400);
+        expect((await rule.json()).error).toBe(
+          'The first date is not one of the repeat days'
+        );
+        find(SERIES).rrule = 'FREQ=WEEKLY;BYDAY=MO';
+        expect((await patch(times('06'), SERIES)).status).toBe(400);
+        expect(rpcCalls()).toEqual([]);
+      });
+
+      it('leaves the other fields of one already stored editable', async () => {
+        find(SERIES).rrule = 'FREQ=WEEKLY;BYDAY=TU';
+        expect((await patch({ title: 'x' }, SERIES)).status).toBe(200);
+        expect((await patch({ attendees: [U1] }, SERIES)).status).toBe(200);
+        // The same date at another time of day.
+        expect((await patch(times('05', '07'), SERIES)).status).toBe(200);
+        // Both moved so that they agree.
+        expect(
+          (
+            await patch(
+              { ...times('06'), rrule: 'FREQ=WEEKLY;BYDAY=TU' },
+              SERIES
+            )
+          ).status
+        ).toBe(200);
+      });
+    });
+
     it('leaves the exdates and the end alone when the series keeps its times and rule', async () => {
       const res = await patch({ title: 'Daily', scope: 'all' }, SERIES);
       expect(res.status).toBe(200);
