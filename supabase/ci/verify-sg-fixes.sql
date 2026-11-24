@@ -78,6 +78,10 @@ BEGIN
   PERFORM case_open(ga, 'SGF', 'Bank SGF', NULL, NULL, NULL);
   PERFORM case_open(gn, 'SGF', 'Bank SGF', NULL, NULL, NULL);
   kase := (SELECT c.id FROM cases c WHERE c.group_id = ga);
+  -- The agent's own chat with the customer: 308 rings an agent after the end
+  -- only if they may see the customer.
+  INSERT INTO conversations (account_id, user_id, contact_id, channel_id, assigned_agent_id)
+  VALUES (a_acct, u_owner, c1, w1, u_agent);
   tok := sg_claim_create(ga, 60000);
   PERFORM sg_attach_wa_group(ga, '120363000000267001@g.us', NULL, tok);
   tok := sg_claim_create(gn, 60000);
@@ -208,15 +212,17 @@ BEGIN
   failed := array_append(failed, pg_temp.sgf_ok((SELECT count(*) FROM notifications
     WHERE account_id = a_acct AND type = 'submission_group_message') = 2, 'bell: one while unread')); n := n + 1;
   failed := array_append(failed, pg_temp.sgf_ok(
-    pg_temp.sgf_as(u_agent, format('SELECT unread FROM sg_unread_by_group() WHERE group_id = %L', ga)) = '2'
-    AND pg_temp.sgf_as(u_agent, 'SELECT sg_unread_count()') = '2'
+    pg_temp.sgf_as(u_coord, format('SELECT unread FROM sg_unread_by_group() WHERE group_id = %L', ga)) = '2'
+    AND pg_temp.sgf_as(u_coord, 'SELECT sg_unread_count()') = '2'
+    -- The agent cannot open the ended group (308): rung, not counted.
+    AND pg_temp.sgf_as(u_agent, 'SELECT sg_unread_count()') = '0'
     AND pg_temp.sgf_as(u_left, format('SELECT unread FROM sg_unread_by_group() WHERE group_id = %L', ga)) = 'NULL',
     'unread: the customer''s messages since the bell')); n := n + 1;
   -- Rung after the end (which is stamped with the clock; this transaction's
   -- now() is older).
   UPDATE notifications SET read_at = now(), created_at = clock_timestamp() WHERE account_id = a_acct;
   failed := array_append(failed, pg_temp.sgf_ok(
-    pg_temp.sgf_as(u_agent, format('SELECT unread FROM sg_unread_by_group() WHERE group_id = %L', ga)) = 'NULL',
+    pg_temp.sgf_as(u_coord, format('SELECT unread FROM sg_unread_by_group() WHERE group_id = %L', ga)) = 'NULL',
     'unread: gone once the bell is read')); n := n + 1;
   PERFORM sg_record_inbound(ga, 'IN-5', '971500267001', 'customer', 'text', 'q', NULL, now());
   failed := array_append(failed, pg_temp.sgf_ok((SELECT count(*) FROM notifications
@@ -226,15 +232,16 @@ BEGIN
   failed := array_append(failed, pg_temp.sgf_ok((SELECT count(*) FROM notifications
     WHERE account_id = a_acct AND type = 'submission_group_message') = 4, 'bell: again after 30 minutes')); n := n + 1;
 
-  -- Nobody left on the list: the case's agent; then the owner and admins.
+  -- Nobody left on the list: the case's agent, who cannot open the group, and
+  -- the owner and admins (308); then the owner and admins alone.
   DELETE FROM notifications WHERE account_id = a_acct;
   PERFORM sg_access_remove(gn, u_agent);
   PERFORM sg_access_remove(gn, u_coord);
   PERFORM sg_access_remove(gn, u_left);
   PERFORM sg_end(gn, 'test');
   PERFORM sg_record_inbound(gn, 'IN-1', '971500267001', 'customer', 'text', 'q', NULL, now());
-  failed := array_append(failed, pg_temp.sgf_ok((SELECT array_agg(user_id) FROM notifications
-    WHERE account_id = a_acct AND type = 'submission_group_message') = ARRAY[u_agent],
+  failed := array_append(failed, pg_temp.sgf_ok((SELECT array_agg(user_id ORDER BY user_id) FROM notifications
+    WHERE account_id = a_acct AND type = 'submission_group_message') = ARRAY[u_owner, u_agent, u_admin],
     'bell: the case''s agent when nobody is left')); n := n + 1;
   DELETE FROM notifications WHERE account_id = a_acct;
   UPDATE profiles SET deactivated_at = now() WHERE user_id = u_agent;

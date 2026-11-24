@@ -25,10 +25,12 @@ import {
   canRetryCreate,
   clearUnread,
   endReasonView,
+  endToastKey,
   groupBanners,
   listUrl,
   parseSgList,
   waModeOf,
+  retryToastKey,
   sendErrorKey,
   sendStatusOf,
   sentAsPreview,
@@ -78,6 +80,17 @@ describe('parseSgList', () => {
     ).toEqual({
       groups: [{ ...item(), wa_mode: 'group' }],
       next_cursor: 'abc',
+    });
+  });
+
+  it('reads the ended groups with new messages (308)', () => {
+    const ended = item({ id: 'g9', status: 'ENDED', unread: 2 });
+    expect(
+      parseSgList({ groups: [], ended_unread: [ended, 'x'], next_cursor: null })
+    ).toEqual({
+      groups: [],
+      ended_unread: [{ ...ended, wa_mode: 'group' }],
+      next_cursor: null,
     });
   });
 
@@ -229,7 +242,46 @@ describe('ownSendStored', () => {
   });
 });
 
+describe('the end and retry toasts', () => {
+  it('never says ended while the WhatsApp group is open', () => {
+    expect(endToastKey({ closed: true })).toBe('endDone');
+    expect(endToastKey({ closed: false })).toBe('endDone');
+    expect(endToastKey({ closed: false, closeDeferred: true })).toBe(
+      'endCloseDeferred'
+    );
+    expect(endToastKey({ closed: false, closeError: 'x' })).toBe(
+      'endCloseFailed'
+    );
+  });
+  it('says what a retry did', () => {
+    expect(retryToastKey(200, { pending: false })).toBe('retryDone');
+    expect(retryToastKey(200, { pending: true })).toBe('retryPending');
+    expect(retryToastKey(409, { code: 'number_removed' })).toBe(
+      'banners.numberRemoved'
+    );
+    expect(retryToastKey(409, { code: 'contact_removed' })).toBe(
+      'banners.contactRemoved'
+    );
+    expect(retryToastKey(409, null)).toBe('retryFailed');
+  });
+  it('shows an ended group whose WhatsApp group is open', () => {
+    const ended = { status: 'ENDED', wa_group_id: 'g@g.us' } as const;
+    expect(
+      groupBanners(
+        group({ ...ended, wa_closed_at: null, wa_close_error: null })
+      )
+    ).toEqual(['stillOpen']);
+    expect(
+      groupBanners(group({ ...ended, wa_closed_at: '2026-11-01T00:00:00Z' }))
+    ).not.toContain('stillOpen');
+  });
+});
+
 describe('sendErrorKey', () => {
+  it('an unconfirmed send is not a refusal', () => {
+    expect(sendErrorKey(502, null, 'send_unconfirmed')).toBe('maybeSent');
+    expect(sendErrorKey(502)).toBe('gateway');
+  });
   it('maps the API refusals', () => {
     expect(sendErrorKey(409, 'opted_out')).toBe('optedOut');
     expect(sendErrorKey(409, 'do_not_contact')).toBe('doNotContact');

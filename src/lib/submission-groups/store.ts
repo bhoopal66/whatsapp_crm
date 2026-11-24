@@ -18,7 +18,11 @@ export type CustomerMembership = 'unknown' | 'joined' | 'absent';
  * stored: the list was read and holds a hidden number, so a stored 'absent'
  * falls back to 'unknown'. 'unknown' only stamps the check.
  */
-export type CustomerMembershipNote = CustomerMembership | 'unsure';
+export type CustomerMembershipNote =
+  | CustomerMembership
+  | 'unsure'
+  /** A hidden number left (308): 'joined' becomes 'unknown' and is due a read. */
+  | 'left_unsure';
 
 export interface SubmissionGroup {
   id: string;
@@ -428,13 +432,17 @@ export class SubmissionGroupStore {
     }));
   }
 
-  /** ENDED groups with a WhatsApp group whose close is not recorded yet (the cron's close retry list). */
+  /**
+   * ENDED groups with a WhatsApp group whose close is not recorded yet (the cron's close retry list).
+   * Connected numbers only: a close on any other is deferred, and a dead number's groups must not fill the limit.
+   */
   async listUnclosedEnded(
     opts: { accountId?: string; limit?: number } = {}
   ): Promise<SubmissionGroup[]> {
     let q = this.db
       .from('submission_groups')
-      .select(GROUP_COLUMNS)
+      .select(`${GROUP_COLUMNS}, whatsapp_config!inner(status)`)
+      .eq('whatsapp_config.status', 'connected')
       .eq('status', 'ENDED')
       .not('wa_group_id', 'is', null)
       .not('channel_id', 'is', null)

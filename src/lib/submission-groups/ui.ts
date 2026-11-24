@@ -3,6 +3,7 @@
  * /submission-groups and /submission-groups/[id]. Client-safe: it imports
  * only the pure rules, never the store or the gateway.
  */
+import { SEND_UNCONFIRMED } from '@/lib/groups/unconfirmed-sends';
 import { canSendMessages, isAccountRole } from '@/lib/auth/roles';
 import { caseStatusView, contactPersonLine } from '@/lib/cases/ui';
 
@@ -132,6 +133,8 @@ export interface SgOlderPage extends Pick<
 
 export interface SgListPage {
   groups: SgListItem[];
+  /** 308: ENDED groups with a customer's new message; absent for none. */
+  ended_unread?: SgListItem[];
   next_cursor: string | null;
 }
 
@@ -141,18 +144,25 @@ const isObj = (v: unknown): v is Record<string, unknown> =>
 /** The list response, tolerant of a missing or malformed body. */
 export function parseSgList(json: unknown): SgListPage {
   if (!isObj(json)) return { groups: [], next_cursor: null };
-  const groups = Array.isArray(json.groups)
-    ? (
-        json.groups.filter(
-          (g) => isObj(g) && typeof g.id === 'string'
-        ) as SgListItem[]
-      ).map((g) => ({ ...g, wa_mode: waModeOf(g) }))
-    : [];
+  const items = (list: unknown) =>
+    Array.isArray(list)
+      ? (
+          list.filter(
+            (g) => isObj(g) && typeof g.id === 'string'
+          ) as SgListItem[]
+        ).map((g) => ({ ...g, wa_mode: waModeOf(g) }))
+      : [];
+  const groups = items(json.groups);
+  const endedUnread = items(json.ended_unread);
   const next =
     typeof json.next_cursor === 'string' && json.next_cursor
       ? json.next_cursor
       : null;
-  return { groups, next_cursor: next };
+  return {
+    groups,
+    ...(endedUnread.length ? { ended_unread: endedUnread } : {}),
+    next_cursor: next,
+  };
 }
 
 /** The list URL for one tab, search, bank filter and page. */
@@ -272,13 +282,15 @@ export type SendErrorKey =
   | 'notFound'
   | 'rateLimited'
   | 'gateway'
+  | 'maybeSent'
   | 'tooLong'
   | 'unknown';
 
 /** A failed POST /messages, as the toast's message key. */
 export function sendErrorKey(
   status: number,
-  reason?: string | null
+  reason?: string | null,
+  code?: string | null
 ): SendErrorKey {
   if (status === 409) {
     if (reason === 'opted_out') return 'optedOut';
@@ -286,7 +298,8 @@ export function sendErrorKey(
     return reason ? 'blocked' : 'notReady';
   }
   if (status === 429) return 'rateLimited';
-  if (status === 502) return 'gateway';
+  if (status === 502)
+    return code === SEND_UNCONFIRMED ? 'maybeSent' : 'gateway';
   if (status === 403) return 'notAllowed';
   if (status === 404) return 'notFound';
   if (status === 400 || status === 413) return 'tooLong';
@@ -313,11 +326,39 @@ export function ownSendStored(
   );
 }
 
+/** What an admin's End answers, as the toast's message key (the service's EndResult). */
+export function endToastKey(
+  r: { closed?: boolean; closeDeferred?: boolean; closeError?: unknown } | null
+): 'endDone' | 'endCloseDeferred' | 'endCloseFailed' {
+  if (r?.closed) return 'endDone';
+  if (r?.closeError) return 'endCloseFailed';
+  return r?.closeDeferred ? 'endCloseDeferred' : 'endDone';
+}
+
+/** What an admin's Retry answers, as the toast's message key. */
+export function retryToastKey(
+  status: number,
+  r: { pending?: boolean; code?: unknown } | null
+):
+  | 'retryDone'
+  | 'retryPending'
+  | 'retryFailed'
+  | 'banners.numberRemoved'
+  | 'banners.contactRemoved' {
+  if (status === 409 && r?.code === 'number_removed')
+    return 'banners.numberRemoved';
+  if (status === 409 && r?.code === 'contact_removed')
+    return 'banners.contactRemoved';
+  if (status < 200 || status > 299) return 'retryFailed';
+  return r?.pending ? 'retryPending' : 'retryDone';
+}
+
 export type BannerKey =
   | 'noWhatsapp'
   | 'pending'
   | 'createError'
   | 'closeError'
+  | 'stillOpen'
   | 'numberRemoved'
   | 'contactRemoved';
 
@@ -332,8 +373,12 @@ export function groupBanners(g: SgGroup): BannerKey[] {
     if (g.wa_create_error) out.push('createError');
     else if (g.pending || !g.wa_group_id) out.push('pending');
   }
-  if (g.status === 'ENDED' && g.wa_close_error && !g.wa_closed_at)
-    out.push('closeError');
+  // closeError says it is still open and why; stillOpen is a close not tried
+  // or put off (a pending send, the close hold, a disconnected number).
+  if (g.status === 'ENDED' && !g.wa_closed_at) {
+    if (g.wa_close_error) out.push('closeError');
+    else if (g.wa_group_id && !noGroup) out.push('stillOpen');
+  }
   if (!g.channel && !noGroup) out.push('numberRemoved');
   if (!g.contact) out.push('contactRemoved');
   return out;

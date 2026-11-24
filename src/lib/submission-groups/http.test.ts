@@ -18,6 +18,7 @@ import {
 import {
   SubmissionGroupSendBlockedError,
   SubmissionGroupSendRefusedError,
+  SubmissionGroupSendUnconfirmedError,
   SubmissionGroupSentNotRecordedError,
 } from './service';
 import { SubmissionGroupDbError, type SubmissionGroup } from './store';
@@ -168,5 +169,15 @@ describe('accessErrorFor', () => {
   it('passes an SgHttpError through', () => {
     const e = new SgHttpError(400, 'bad');
     expect(accessErrorFor(e)).toBe(e);
+  });
+});
+
+describe('an unconfirmed send', () => {
+  it('is a 502 with its own code', () => {
+    const out = sendErrorFor(
+      new SubmissionGroupSendUnconfirmedError('m-1', new Error('timeout'))
+    );
+    expect(out.status).toBe(502);
+    expect(out.body).toMatchObject({ code: 'send_unconfirmed' });
   });
 });

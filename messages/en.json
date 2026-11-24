@@ -9050,7 +9050,7 @@
       "status": {
         "pending": "Sending",
         "sent": "Sent",
-        "failed": "Failed",
+        "failed": "May not have been delivered; check the group",
         "blocked": "Blocked"
       }
     },
@@ -9111,6 +9111,7 @@
         "noWhatsapp": "This submission was recorded without a WhatsApp group (WhatsApp groups are off in Settings → Cases).",
         "pending": "The WhatsApp group is being created. You can send once it is ready.",
         "createError": "The WhatsApp group could not be created.",
+        "stillOpen": "Ended here; the WhatsApp group is still open.",
         "closeError": "The group ended, but closing it on WhatsApp failed.",
         "closeRemaining": "{count, plural, one {# person} other {# people}} could not be removed from it, so it is still open. The system keeps trying; you can also remove them on the phone.",
         "numberRemoved": "The WhatsApp number hosting this group was removed. Nobody can send.",
@@ -9153,10 +9154,13 @@
       "endTitle": "End this group?",
       "endBody": "Group {ref} ends now: nobody can send, and its messages open only through the logged archive.",
       "endDone": "Group ended.",
+      "endCloseDeferred": "Group ended here. The WhatsApp group is still open and will be closed shortly.",
+      "endCloseFailed": "Group ended here, but the WhatsApp group could not be closed yet.",
       "endFailed": "Could not end the group.",
       "retryTitle": "Retry creating the WhatsApp group?",
       "retryBody": "We will ask WhatsApp to create the group again.",
       "retryDone": "Asked WhatsApp to create the group again.",
+      "retryPending": "Still waiting: the WhatsApp group is not created yet.",
       "retryFailed": "Could not retry.",
       "inviteResendDone": "Invite link sent to the customer again.",
       "inviteResendFailed": "Could not resend the invite.",
@@ -9184,6 +9188,7 @@
       "search": "Search company, contact or reference",
       "count": "{count, plural, one {# submission} other {# submissions}}",
       "countMore": "{count, plural, one {#+ submission} other {#+ submissions}}",
+      "endedUnread": "Ended, new messages",
       "myGroups": "My groups",
       "myGroupsHint": "Show only the submissions you are on",
       "contactLine": "Contact: {name}",

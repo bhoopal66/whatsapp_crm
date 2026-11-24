@@ -30,6 +30,8 @@ const group = (extra: Record<string, unknown> = {}) => ({
   accountId: 'acct-1',
   status: 'ACTIVE',
   waGroupId: null,
+  channelId: 'ch-1',
+  contactId: 'c-1',
   ...extra,
 });
 const opened = (g: Record<string, unknown>) => ({
@@ -53,6 +55,17 @@ beforeEach(() => {
 });
 
 describe('POST retry', () => {
+  it.each([
+    ['channelId', 'number_removed'],
+    ['contactId', 'contact_removed'],
+  ])('refuses a group with no %s', async (field, code) => {
+    mocks.get.mockResolvedValue(group({ [field]: null }));
+    const res = await post();
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ code });
+    expect(mocks.retryOne).not.toHaveBeenCalled();
+  });
+
   it('answers the group, no longer pending once created', async () => {
     const res = await post();
     expect(res.status).toBe(200);

@@ -167,6 +167,8 @@ function hrefFor(
       return isUuid(group) ? `/groups/${group}?tab=requests` : null;
     }
     case 'submission_group_message': {
+      // The group ended and the reader lost it with the end (308).
+      if (metaField(n.meta, 'ended') === true) return customer(n.contact_id);
       const group = metaField(n.meta, 'group_id');
       return isUuid(group) ? `/submission-groups/${group}` : null;
     }

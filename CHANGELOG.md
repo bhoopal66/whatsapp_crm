@@ -72,6 +72,22 @@ and polish.
   panel show the assignee the database returned. If someone else assigned
   the chat after your screen was loaded you are told who and asked again,
   and if the chat is no longer yours to see you are asked to reload.
+- **Submission groups: what the screen says is what happened.** **Migration
+  required: 308.** A send nobody answered for says it may have been
+  delivered, not that WhatsApp refused it. Ending a group whose WhatsApp
+  group is still open says so, and a banner stays until it is closed. Retry
+  says when the group is still waiting, or that its number or contact is
+  gone. A dead number's ended groups no longer keep the others from being
+  closed. A customer who left under a hidden number is checked again instead
+  of staying "joined".
+
+- **A customer's message after a submission group ended reaches somebody
+  who can read it.** The bell goes to those who may open the ended group,
+  and to the owner and admins when nobody on it may; an agent who lost the
+  group is sent to the customer's page instead, if they may see the
+  customer. Ended groups with new messages are listed above the active
+  ones, and opening the archive clears their count and bell. Part of
+  migration 308.
 - **The privacy register no longer calls Draft with AI a reply.** The
   draft and the playground record their own purpose (`draft`,
   `playground`) in the AI transfer register instead of `reply`.

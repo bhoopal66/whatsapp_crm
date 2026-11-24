@@ -837,6 +837,10 @@ jobs:
       - name: Verify submission group membership
         run: supabase db query --local --file supabase/ci/verify-submission-group-membership.sql
 
+      # Migration 308: a hidden number leaving makes a joined customer unknown.
+      - name: Verify submission groups ended and joined
+        run: supabase db query --local --file supabase/ci/verify-sg-ended-and-joined.sql
+
       # Migration 211: adding a number to a submission group.
       - name: Verify submission group add number
         run: supabase db query --local --file supabase/ci/verify-submission-group-add-number.sql

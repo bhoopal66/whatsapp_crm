@@ -65,11 +65,13 @@ import {
   canAddNumber,
   canResendInvite,
   canRetryCreate,
+  endToastKey,
   groupBanners,
   groupContactName,
   groupTitle,
   initialsOf,
   ownSendStored,
+  retryToastKey,
   sendErrorKey,
   sentAsPreview,
   settleRead,
@@ -359,8 +361,11 @@ export function SubmissionGroupPage({
       if (!res.ok) {
         const json = (await res.json().catch(() => null)) as {
           reason?: string;
+          code?: string;
         } | null;
-        toast.error(t(`sendErrors.${sendErrorKey(res.status, json?.reason)}`));
+        toast.error(
+          t(`sendErrors.${sendErrorKey(res.status, json?.reason, json?.code)}`)
+        );
         // A 502 (failed) or 409 consent block is kept as a stored row,
         // which points at an attachment's file: treat it as sent so the
         // composer neither gives it back nor deletes the file. Other
@@ -426,11 +431,22 @@ export function SubmissionGroupPage({
       const res = await fetch(`/api/submission-groups/${groupId}/${path}`, {
         method: 'POST',
       });
-      if (!res.ok) toast.error(t(path === 'end' ? 'endFailed' : 'retryFailed'));
+      const json = (await res.json().catch(() => null)) as
+        | (Parameters<typeof endToastKey>[0] &
+            Parameters<typeof retryToastKey>[1])
+        | null;
+      if (path === 'retry') {
+        const key = retryToastKey(res.status, json);
+        if (key === 'retryDone') toast.success(t(key));
+        else if (key === 'retryPending') toast.warning(t(key));
+        else toast.error(t(key));
+      } else if (!res.ok) toast.error(t('endFailed'));
       else {
-        toast.success(t(path === 'end' ? 'endDone' : 'retryDone'));
-        refreshList();
+        const key = endToastKey(json);
+        if (key === 'endDone') toast.success(t(key));
+        else toast.warning(t(key));
       }
+      if (res.ok) refreshList();
     } catch {
       toast.error(t(path === 'end' ? 'endFailed' : 'retryFailed'));
     } finally {
@@ -478,6 +494,8 @@ export function SubmissionGroupPage({
       const json = (await res.json()) as { messages?: SgMessage[] };
       stickRef.current = true;
       setArchive(json.messages ?? []);
+      // The messages after the end are read here and nowhere else (308).
+      void markSubmissionGroupRead(groupId);
     } catch {
       toast.error(t('archiveFailed'));
     } finally {
