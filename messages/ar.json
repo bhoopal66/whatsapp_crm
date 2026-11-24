@@ -465,6 +465,7 @@
       "dealCount": "{count} {count, plural, =1 {صفقة} other {صفقات}}",
       "total": "الإجمالي",
       "ariaLabel": "قيمة مسار المبيعات بحسب المرحلة",
+      "mixedCurrencies": "الحلقة حسب عدد الصفقات، لأن القيم بأكثر من عملة.",
       "viewPipelines": "عرض مسارات المبيعات"
     },
     "responseTimeChart": {

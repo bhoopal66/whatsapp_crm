@@ -4,8 +4,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { loadPipelineDonut } from './queries';
 
 const ROWS = [
-  { stage_id: 's1', deal_count: 2, total_value: 500 },
-  { stage_id: 's2', deal_count: 1, total_value: 100 },
+  { stage_id: 's1', currency: 'AED', deal_count: 2, total_value: 500 },
+  { stage_id: 's2', currency: 'USD', deal_count: 1, total_value: 100 },
 ];
 
 function fakeDb(
@@ -41,12 +41,15 @@ describe('dashboard pipeline donut', () => {
   it('folds the open-deals RPC into stage slices', async () => {
     const { db, rpc } = fakeDb({ data: ROWS, error: null });
     const donut = await loadPipelineDonut(db);
-    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(rpc.mock.calls).toEqual([['dashboard_open_deal_values']]);
     expect(donut.stages.map((s) => [s.id, s.dealCount])).toEqual([
       ['s1', 2],
       ['s2', 1],
     ]);
-    expect(donut.totalValue).toBe(600);
+    expect(donut.stages.map((s) => s.totals)).toEqual([
+      [{ currency: 'AED', value: 500 }],
+      [{ currency: 'USD', value: 100 }],
+    ]);
   });
 
   it('rejects when the stages fail to load, never an empty chart', async () => {

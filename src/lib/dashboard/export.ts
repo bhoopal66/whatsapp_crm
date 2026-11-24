@@ -9,6 +9,11 @@
 // in an explicit zone (`dashboardWindows`). Pure: no I/O.
 // ============================================================
 
+import {
+  currencyTotals,
+  currencyTotalsCell,
+  type CurrencyTotal,
+} from '@/lib/currency-totals';
 import { buildCsv, type CsvCell } from '@/lib/csv/build';
 import type { WeekSummary } from '@/lib/dashboard/home/campaigns';
 import type { Glance } from '@/lib/team-activity/glance';
@@ -179,16 +184,22 @@ export function dashboardRows(f: DashboardFigures): CsvCell[][] {
 
   {
     const s = 'Pipeline (open deals)';
+    // Per currency, in code order: the amounts are never added together.
+    const cell = (totals: CurrencyTotal[]) =>
+      currencyTotalsCell(currencyTotals(totals, ''));
     let count = 0;
-    let value = 0;
     for (const st of f.pipeline) {
       count += st.dealCount;
-      value += st.totalValue;
       add(s, `Deals in ${st.name}`, 'Now', st.dealCount);
-      add(s, `Value in ${st.name}`, 'Now', st.totalValue);
+      add(s, `Value in ${st.name}`, 'Now', cell(st.totals));
     }
     add(s, 'Open deals', 'Now', count);
-    add(s, 'Open deal value', 'Now', value);
+    add(
+      s,
+      'Open deal value',
+      'Now',
+      cell(f.pipeline.flatMap((st) => st.totals))
+    );
   }
 
   {

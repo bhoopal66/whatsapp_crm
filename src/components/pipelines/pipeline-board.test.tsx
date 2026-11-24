@@ -37,12 +37,12 @@ const deal = {
   currency: 'AED',
 } as BoardDeal;
 
-function render(readOnly = false) {
+function render(readOnly = false, deals: BoardDeal[] = [deal]) {
   return renderToStaticMarkup(
     <NextIntlClientProvider locale="en" messages={en as AbstractIntlMessages}>
       <PipelineBoard
         stages={[stage]}
-        deals={[deal]}
+        deals={deals}
         members={[]}
         readOnly={readOnly}
         onDealMoved={() => {}}
@@ -66,6 +66,23 @@ function ancestorsOfTitle(html: string): string[] {
 
 const isInteractive = (tag: string) =>
   tag.startsWith('<button') || /role="button"|tabindex="0"/.test(tag);
+
+describe('PipelineBoard column total', () => {
+  it('never adds two currencies', () => {
+    const html = render(false, [
+      { ...deal, id: 'd1', value: 150000 },
+      { ...deal, id: 'd2', value: 50000, currency: undefined },
+      { ...deal, id: 'd3', value: 100000, currency: 'USD' },
+    ]);
+    expect(html).toContain('>AED 200,000 + USD 100,000<');
+    // A deal without a currency is in the account's, on its card too.
+    expect(html).toMatch(/AED\s50,000/);
+  });
+
+  it('is one amount in one currency', () => {
+    expect(render()).toMatch(/>AED\s1,000<\/p>/);
+  });
+});
 
 describe('PipelineBoard deal cards', () => {
   it('make the card one button, not a button inside a drag handle', () => {

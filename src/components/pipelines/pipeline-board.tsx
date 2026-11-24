@@ -37,7 +37,7 @@ import {
 } from '@/components/context-menu/registry';
 import { moveTargets } from '@/lib/context-menu/records';
 import { useAuth } from '@/hooks/use-auth';
-import { formatCurrency } from '@/lib/currency';
+import { currencyTotals, formatCurrencyTotals } from '@/lib/currency-totals';
 import { useTranslations } from 'next-intl';
 
 interface PipelineBoardProps {
@@ -147,16 +147,11 @@ export function PipelineBoard({
       <div className="pipeline-scroll flex snap-x snap-mandatory gap-3 overflow-x-auto pb-4 lg:snap-none">
         {sortedStages.map((stage) => {
           const stageDeals = dealsByStage.get(stage.id) ?? [];
-          const totalValue = stageDeals.reduce(
-            (s, d) => s + Number(d.value || 0),
-            0
-          );
           return (
             <StageColumn
               key={stage.id}
               stage={stage}
               deals={stageDeals}
-              totalValue={totalValue}
               currency={defaultCurrency}
               members={members}
               readOnly={readOnly}
@@ -218,7 +213,6 @@ export function PipelineBoard({
 function StageColumn({
   stage,
   deals,
-  totalValue,
   currency,
   members,
   readOnly,
@@ -230,7 +224,6 @@ function StageColumn({
 }: {
   stage: PipelineStage;
   deals: BoardDeal[];
-  totalValue: number;
   currency: string;
   members: Profile[];
   readOnly: boolean;
@@ -269,7 +262,7 @@ function StageColumn({
         </span>
       </div>
       <p className="text-muted-foreground text-xs">
-        {formatCurrency(totalValue, currency)}
+        {formatCurrencyTotals(currencyTotals(deals, currency))}
       </p>
       {linkedTag && (
         <span

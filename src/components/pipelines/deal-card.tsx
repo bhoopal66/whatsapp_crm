@@ -5,7 +5,9 @@ import type { BoardDeal } from '@/lib/pipelines/board-deal';
 import { dealOwnerProfile } from '@/lib/pipelines/owner';
 import type { useDraggable } from '@dnd-kit/core';
 import { Calendar, Check, X } from 'lucide-react';
+import { useAuth } from '@/hooks/use-auth';
 import { formatCurrency } from '@/lib/currency';
+import { dealCurrency } from '@/lib/currency-totals';
 import type { LeadScore } from '@/lib/pipelines/lead-score';
 import { useLocale, useTranslations } from 'next-intl';
 import { LeadScoreBadge } from './lead-score-badge';
@@ -50,6 +52,7 @@ export function DealCard({
   score,
   drag,
 }: DealCardProps) {
+  const { defaultCurrency } = useAuth();
   const t = useTranslations('Pipelines.card');
   const locale = useLocale();
   const contactLabel =
@@ -120,7 +123,10 @@ export function DealCard({
 
       <div className="mt-2 flex items-center justify-between">
         <span className="text-primary text-sm font-bold">
-          {formatCurrency(deal.value, deal.currency)}
+          {formatCurrency(
+            deal.value,
+            dealCurrency(deal.currency, defaultCurrency)
+          )}
         </span>
         {deal.expected_close_date && (
           <span className="text-muted-foreground flex items-center gap-1 text-xs">

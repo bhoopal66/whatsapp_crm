@@ -1,3 +1,5 @@
+import type { CurrencyTotal } from '@/lib/currency-totals'
+
 // Shared result shapes the dashboard components consume. Centralised
 // here so each component stays thin and the page-level loader wires
 // them up without type gymnastics.
@@ -13,12 +15,12 @@ export interface PipelineStageSlice {
   name: string
   color: string
   dealCount: number
-  totalValue: number
+  /** The stage's value in each currency its deals are in. */
+  totals: CurrencyTotal[]
 }
 
 export interface PipelineDonutData {
   stages: PipelineStageSlice[]
-  totalValue: number
 }
 
 export interface ResponseTimeBucket {

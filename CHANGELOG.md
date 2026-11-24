@@ -36,6 +36,20 @@ and polish.
   had refused was offered in a Meta chat and failed, and one waiting at
   Meta was missing on linked numbers, which do not need Meta. A Meta chat
   now shows the ones that cannot be sent with the reason. No migration.
+- **Deal values in different currencies are no longer added together.** The
+  home pipeline card, the owner's CSV, the board's column totals and its
+  analytics show "AED 200,000 + USD 100,000" when there is more than one
+  currency, and one amount, in the deals' own currency, when there is one.
+  A deal created without a currency takes the workspace's default currency
+  instead of USD; existing deals are not changed. **Migration required: 296**
+  (extended).
+- **The home "New chats today" card no longer lists personal WhatsApp
+  numbers**, and is not shown when only personal numbers are connected. No
+  migration.
+- **A message that failed to send no longer counts on the home screen.** It
+  counted as the answer in "First response time" (the card and the owner's
+  CSV) and was drawn as an outgoing message. Both figures can change for past
+  days. **Migration required: 296** (`296_home_figures.sql`).
 - **The call reports start the day at midnight in Dubai**, also for
   someone whose computer is set to another time zone: their report days
   held other calls than everyone else's. No migration.

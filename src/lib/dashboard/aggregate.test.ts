@@ -3,7 +3,6 @@ import {
   foldMessageSeries,
   foldPipelineSlices,
   foldResponseTime,
-  sumOpenDeals,
 } from './aggregate';
 
 describe('foldMessageSeries', () => {
@@ -48,16 +47,13 @@ describe('foldResponseTime', () => {
 
 describe('open deals', () => {
   const rows = [
-    { stage_id: 's1', deal_count: 2, total_value: '150.50' },
-    { stage_id: 's3', deal_count: '1', total_value: 0 },
-    { stage_id: 'gone', deal_count: 1, total_value: 10 },
+    { stage_id: 's1', currency: 'AED', deal_count: 2, total_value: '150.50' },
+    { stage_id: 's1', currency: 'USD', deal_count: '1', total_value: 20 },
+    { stage_id: 's3', currency: 'AED', deal_count: '1', total_value: 0 },
+    { stage_id: 'gone', currency: 'AED', deal_count: 1, total_value: 10 },
   ];
 
-  it('sums every stage for the metric card', () => {
-    expect(sumOpenDeals(rows)).toEqual({ count: 4, value: 160.5 });
-  });
-
-  it('keeps stage order, defaults colour, hides empty stages', () => {
+  it('keeps stage order and currencies apart, hides empty stages', () => {
     const slices = foldPipelineSlices(
       [
         { id: 's1', name: 'Lead', color: '' },
@@ -71,10 +67,19 @@ describe('open deals', () => {
         id: 's1',
         name: 'Lead',
         color: '#64748b',
-        dealCount: 2,
-        totalValue: 150.5,
+        dealCount: 3,
+        totals: [
+          { currency: 'AED', value: 150.5 },
+          { currency: 'USD', value: 20 },
+        ],
       },
-      { id: 's3', name: 'Demo', color: '#000', dealCount: 1, totalValue: 0 },
+      {
+        id: 's3',
+        name: 'Demo',
+        color: '#000',
+        dealCount: 1,
+        totals: [{ currency: 'AED', value: 0 }],
+      },
     ]);
   });
 });
