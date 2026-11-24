@@ -9919,7 +9919,8 @@
       "unknown": "حدث خطأ ما. حاول مرة أخرى.",
       "presubReentry": "لا يمكن لملف مقدَّم أن يعود إلى مرحلة سابقة للتقديم.",
       "submissionRequired": "تتطلب هذه المرحلة تقديم الطلب إلى البنك أولًا. يمكن فقط سحب العميل المحتمل.",
-      "managedExternally": "تتم إدارة هذا الملف في Compass. غيّره هناك."
+      "managedExternally": "تتم إدارة هذا الملف في Compass. غيّره هناك.",
+      "stageChanged": "تغيّرت المرحلة في هذه الأثناء (الآن: {stage})"
     },
     "timeline": {
       "includeMessages": "تضمين رسائل WhatsApp",

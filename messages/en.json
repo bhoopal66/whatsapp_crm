@@ -9919,7 +9919,8 @@
       "unknown": "Something went wrong. Try again.",
       "presubReentry": "A submitted case cannot go back to a pre-submission stage.",
       "submissionRequired": "That stage needs the bank submission first. A lead can only be withdrawn.",
-      "managedExternally": "This case is managed in Compass. Change it there."
+      "managedExternally": "This case is managed in Compass. Change it there.",
+      "stageChanged": "The stage changed meanwhile (now: {stage})"
     },
     "timeline": {
       "includeMessages": "Include WhatsApp messages",

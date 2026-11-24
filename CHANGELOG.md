@@ -27,6 +27,11 @@ and polish.
   count in the team chat side menu that could not be read shows no number
   instead of hiding the tag; and changing a case with a priority that does
   not exist is refused before anything else in the request is saved.
+- **A stage move no longer undoes someone else's.** If the case moved
+  while the "Move stage" window was open, the move is refused, the window
+  shows the stage the case is in now, and nothing changes until you pick
+  again. An open case page also reads the case again when you return to its
+  tab after more than a minute (never under an open window). No migration.
 - **Two people pressing "Request documents" no longer send the customer the
   same request twice.** A request made within 10 minutes of the case's last
   one asks first: "Requested by … at …. Send again?".

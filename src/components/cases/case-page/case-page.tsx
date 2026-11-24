@@ -29,7 +29,9 @@ import { Button, buttonVariants } from '@/components/ui/button';
 import { GatedButton } from '@/components/ui/gated-button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useBrainNav } from '@/hooks/use-brain-nav';
+import { usePageVisible } from '@/hooks/use-page-visible';
 import {
+  caseAwayStep,
   caseLocks,
   caseTabDisabled,
   canTakeOver,
@@ -44,6 +46,7 @@ import {
   takeoverNotApproved,
   unsnoozeAlreadyDone,
   visibleCaseTabs,
+  type CaseAway,
   type CaseDetail,
   type CaseTab,
   type CaseTabProps,
@@ -137,10 +140,14 @@ export function CasePage({ caseId }: { caseId: string }) {
   const [viewers, setViewers] = useState<string[]>([]);
   const mounted = useRef(true);
   const seq = useRef(0);
+  const away = useRef<CaseAway>({ hiddenAt: null, stale: false });
+  const visible = usePageVisible();
+  const dialogOpen = open !== null || recentRequest !== null;
 
   const reload = useCallback(async () => {
     // An older reload answering after a newer one must not overwrite it.
     const mine = ++seq.current;
+    away.current.stale = false;
     const current = () => mounted.current && mine === seq.current;
     try {
       const res = await fetch(`/api/cases/${caseId}`, { cache: 'no-store' });
@@ -166,6 +173,17 @@ export function CasePage({ caseId }: { caseId: string }) {
       mounted.current = false;
     };
   }, [reload]);
+
+  // Back after a while: read the case again, once no dialog is open.
+  useEffect(() => {
+    const step = caseAwayStep(away.current, {
+      visible,
+      dialogOpen,
+      at: Date.now(),
+    });
+    away.current = { hiddenAt: step.hiddenAt, stale: step.stale };
+    if (step.reload) void reload();
+  }, [visible, dialogOpen, reload]);
 
   // "Also viewing": a hint only, polled while the tab is visible; a
   // failure just leaves the line out.
