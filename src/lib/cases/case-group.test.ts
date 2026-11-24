@@ -55,6 +55,7 @@ describe('liveGroupMessages', () => {
   });
 
   /** A table of `count` rows that cuts every answer at 1,000, as PostgREST does. */
+  let asked: number | null = null;
   const longTable = (count: number) => {
     let data = Array.from({ length: count }, (_, i) => ({
       id: i + 1,
@@ -65,6 +66,7 @@ describe('liveGroupMessages', () => {
       created_at: new Date(Date.UTC(2026, 0, 1, 0, i)).toISOString(),
     }));
     let max = 1000;
+    asked = null;
     const query = {
       select: () => query,
       eq: () => query,
@@ -73,6 +75,7 @@ describe('liveGroupMessages', () => {
         return query;
       },
       limit(n: number) {
+        asked = n;
         max = Math.min(max, n);
         return query;
       },
@@ -90,6 +93,7 @@ describe('liveGroupMessages', () => {
     expect(r.messages.at(-1)?.body).toBe('message 1200');
     expect(r.messages[0].body).toBe(`message ${1201 - DETAIL_MESSAGE_LIMIT}`);
     expect(r.truncated).toBe(true);
+    expect(asked).toBe(DETAIL_MESSAGE_LIMIT + 1);
   });
 
   it('a chat of exactly one page is not called truncated', async () => {
