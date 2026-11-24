@@ -319,9 +319,12 @@ export function MembersTab() {
       if (cres.ok) {
         const cdata = (await cres.json()) as {
           coordinators: Parameters<typeof banksByUser>[0];
+          phones?: Parameters<typeof phonesByUser>[0];
         };
         setCoordBanks(banksByUser(cdata.coordinators));
-        setCoordPhones(phonesByUser(cdata.coordinators));
+        // Everyone's, not the bank holders': a person without banks can
+        // have a saved number too.
+        setCoordPhones(phonesByUser(cdata.phones ?? cdata.coordinators));
       }
 
       if (!ires.ok) {

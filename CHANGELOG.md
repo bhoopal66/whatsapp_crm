@@ -34,6 +34,9 @@ and polish.
 
 ### Fixed
 
+- **A coordinator number shows without banks.** Settings → Members showed an
+  empty WhatsApp number for somebody who has one saved but holds no bank,
+  and it could not be cleared.
 - **One phone is connected once on OpenWA too.** A phone that scans a QR
   while it is already connected as another Whapi or OpenWA number (in any
   workspace) is refused with the reason and unlinked again; before, a

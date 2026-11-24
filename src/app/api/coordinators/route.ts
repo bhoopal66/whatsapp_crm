@@ -6,6 +6,11 @@
 // account because one login can hold a profile in several workspaces.
 // Each row carries `whatsapp_phone` (migration 142), null unless the
 // caller is an owner or admin.
+//
+// Without a bank filter an owner or admin also gets `phones`: the saved
+// number of EVERYONE who has one, banks or not. The member dialog edits
+// it for people without banks too, and a number it was not told about
+// showed as an empty field that could not be cleared.
 
 import { NextResponse } from 'next/server';
 
@@ -46,7 +51,32 @@ export async function GET(request: Request) {
     const userIds = [...byUser.entries()]
       .filter(([, banks]) => bank === null || banks.includes(bank))
       .map(([id]) => id);
-    if (userIds.length === 0) return NextResponse.json({ coordinators: [] });
+
+    // 142's numbers, through the caller's RLS client: only owners and
+    // admins read the table, so everyone else gets null. A failure only
+    // costs the numbers.
+    const phones = new Map<string, string>();
+    const { data: phoneRows, error: phErr } = await supabase
+      .from('coordinator_phones')
+      .select('user_id, phone')
+      .eq('account_id', accountId);
+    if (phErr) console.error('[GET /api/coordinators] phones:', phErr);
+    for (const r of phoneRows ?? []) {
+      phones.set(r.user_id as string, r.phone as string);
+    }
+    const showEmail = canManageMembers(role);
+    const everyPhone =
+      bank === null && showEmail
+        ? {
+            phones: [...phones].map(([user_id, whatsapp_phone]) => ({
+              user_id,
+              whatsapp_phone,
+            })),
+          }
+        : {};
+    if (userIds.length === 0) {
+      return NextResponse.json({ coordinators: [], ...everyPhone });
+    }
 
     const { data: profiles, error: pErr } = await supabase
       .from('profiles')
@@ -62,21 +92,6 @@ export async function GET(request: Request) {
       );
     }
 
-    // 142's numbers, through the caller's RLS client: only owners and
-    // admins read the table, so everyone else gets null. A failure only
-    // costs the numbers.
-    const phones = new Map<string, string>();
-    const { data: phoneRows, error: phErr } = await supabase
-      .from('coordinator_phones')
-      .select('user_id, phone')
-      .eq('account_id', accountId)
-      .in('user_id', userIds);
-    if (phErr) console.error('[GET /api/coordinators] phones:', phErr);
-    for (const r of phoneRows ?? []) {
-      phones.set(r.user_id as string, r.phone as string);
-    }
-
-    const showEmail = canManageMembers(role);
     // Holding a bank row is not enough: a person since promoted to admin
     // or demoted to viewer keeps the row but is no coordinator (133).
     const coordinators = (profiles ?? [])
@@ -88,7 +103,7 @@ export async function GET(request: Request) {
         banks: byUser.get(p.user_id as string) ?? [],
         whatsapp_phone: phones.get(p.user_id as string) ?? null,
       }));
-    return NextResponse.json({ coordinators });
+    return NextResponse.json({ coordinators, ...everyPhone });
   } catch (err) {
     return toErrorResponse(err);
   }
