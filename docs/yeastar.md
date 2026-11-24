@@ -150,10 +150,12 @@ One PBX can serve several workspaces.
 - Recordings sit in a private bucket. Every play is logged, and the
   owner can erase a customer's call records on request, unless a
   recording is under legal hold. The erasure takes every call of the
-  workspace that is linked to the customer, that listed them as a
-  possible match, or that came from their number (matched as incoming
-  calls are, so also calls from before the contact existed). It deletes
-  the recordings and clears the notes, the outcome, the caller's number,
+  workspace that is linked to the customer and, of the calls linked to
+  nobody, each one that listed them as a possible match or came from
+  their number (matched as incoming calls are, so also calls from before
+  the contact existed). A call linked to another customer is never
+  taken. It deletes the recordings, with their references on deals,
+  and clears the notes, the outcome, the caller's number,
   the recording's file name and the match details. What stays is the
   bare call: time, duration, extension, direction and status. Audio the
   erasure could not delete at once is swept by the phone-system cron

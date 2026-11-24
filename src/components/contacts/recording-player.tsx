@@ -210,6 +210,11 @@ export function RecordingPlayer({
     setAttach('idle');
     if (res?.status === 409) {
       const why = await res.json().catch(() => null);
+      // Nothing about the recording: the deal is somebody else's.
+      if (why?.code === 'other_customer') {
+        toast.error(t('attachOtherCustomer'));
+        return;
+      }
       setRefused(refusalView(why?.code));
     }
     toast.error(t('attachFailed'));

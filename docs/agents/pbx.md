@@ -57,7 +57,10 @@ parser, signature check, WebSocket helpers, token manager and CDR helpers.
   and up to download), then a 300 s URL is signed.
 - **Erasure.** `pbx_erase_contact_calls` (owner-only, with a reason, refused
   under a legal hold) matches the contact, its phone candidates and
-  `pbx_phone_variants` (↔ `phoneVariants` / `contactPhoneCandidates`). The
+  `pbx_phone_variants` (↔ `phoneVariants` / `contactPhoneCandidates`), but a
+  call linked to somebody is only theirs (311): `meta.contact_candidates` is
+  never kept on a linked call. A call is on a deal once
+  (`deal_files_call_ref_idx`), never on another customer's. The
   `calls_guard` trigger strips number, file and meta for every writer, late
   PBX events included.
 - **Numbers.** `contacts.phone_normalized` is only the typed digits (022, no

@@ -34,6 +34,15 @@ and polish.
 
 ### Fixed
 
+- **Erasing one customer no longer erases another's calls.** A call whose
+  number fitted two customers stayed with both even after staff linked it
+  to one: erasing the other deleted its recording and notes for good, and
+  a legal hold on it blocked their erase. Only calls linked to the erased
+  customer, or to nobody, are taken now. Both erases also remove the
+  recording's entry on deals, which carried the customer's name. A
+  recording is attached to a deal once, and not to another customer's
+  deal; linking a call never points it at a personal WhatsApp chat.
+  **Migration required: 311** (before the build).
 - **Forward a WhatsApp message to any chat.** The dialog's search reaches
   every chat you may open, not only the 200 latest.
 - **A failed search or list no longer looks empty.** The inbox search and

@@ -7174,6 +7174,7 @@
     "taskFailed": "Couldn't update the task",
     "playFailed": "Couldn't play the recording",
     "attachFailed": "Couldn't attach the recording",
+    "attachOtherCustomer": "This recording belongs to another customer, so it can't be attached to this deal",
     "download": "Download recording",
     "downloadFailed": "Couldn't download the recording",
     "noDeal": "No open deal to attach to",
