@@ -34,6 +34,10 @@ and polish.
 
 ### Fixed
 
+- **Saving a shared contact card says when a colleague already has the
+  number**, instead of showing the database's sentence, and a contact
+  check that failed says so with Retry instead of offering Save as if the
+  number were new.
 - **Assigning a chat no longer claims a change that was not made, or
   overwrites a colleague's.** The inbox list, the chat header and the HR
   panel show the assignee the database returned. If someone else assigned

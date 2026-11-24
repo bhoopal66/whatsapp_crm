@@ -905,6 +905,9 @@
       "saved": "{name}을(를) 연락처에 저장했습니다.",
       "alreadySaved": "이 번호는 이미 연락처에 있습니다.",
       "saveFailed": "연락처를 저장하지 못했습니다.",
+      "colleagueHasIt": "이 번호는 이미 다른 동료의 고객입니다.",
+      "lookupFailed": "연락처를 확인하지 못했습니다.",
+      "retry": "다시 시도",
       "viewContact": "저장됨 — 연락처 보기",
       "openContact": "연락처 열기"
     },

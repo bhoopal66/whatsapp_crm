@@ -18,6 +18,7 @@ import { cn } from '@/lib/utils';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
 import { validateContactPhone } from '@/lib/contacts/phone-validation';
+import { findCardContact, saveCardContact } from '@/lib/contacts/shared-card';
 import type { SharedContact } from '@/lib/whatsapp/contact-card';
 
 /**
@@ -44,6 +45,9 @@ function ContactCard({ card }: { card: SharedContact }) {
   const { user, accountId } = useAuth();
   const [saving, setSaving] = useState(false);
   const [savedId, setSavedId] = useState<string | null>(null);
+  // A failed lookup is not "not saved": it is said, and Retry asks again.
+  const [lookupFailed, setLookupFailed] = useState(false);
+  const [lookupTry, setLookupTry] = useState(0);
   const router = useRouter();
 
   // Neutral tints, so the card reads on the green outbound bubble and
@@ -58,20 +62,17 @@ function ContactCard({ card }: { card: SharedContact }) {
     const checked = validateContactPhone(primaryPhone);
     if (!checked.ok) return;
     let live = true;
-    createClient()
-      .from('contacts')
-      .select('id')
-      .eq('account_id', accountId)
-      .eq('phone_normalized', checked.normalized)
-      .limit(1)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (live && data?.id) setSavedId(data.id);
-      });
+    void findCardContact(createClient(), accountId, checked.normalized).then(
+      (found) => {
+        if (!live) return;
+        setLookupFailed(!found.ok);
+        if (found.ok && found.id) setSavedId(found.id);
+      }
+    );
     return () => {
       live = false;
     };
-  }, [accountId, primaryPhone]);
+  }, [accountId, primaryPhone, lookupTry]);
 
   const save = async () => {
     if (!user || !accountId || !primaryPhone) return;
@@ -82,41 +83,41 @@ function ContactCard({ card }: { card: SharedContact }) {
       toast.error(checked.error);
       return;
     }
-    const key = checked.normalized;
     setSaving(true);
     try {
-      const supabase = createClient();
-      const { data: existing } = await supabase
-        .from('contacts')
-        .select('id')
-        .eq('account_id', accountId)
-        .eq('phone_normalized', key)
-        .limit(1)
-        .maybeSingle();
-      if (existing?.id) {
-        setSavedId(existing.id);
-        toast.info(t('alreadySaved'));
-        router.push(`/contacts/${existing.id}`);
-        return;
+      const result = await saveCardContact(createClient(), {
+        accountId,
+        userId: user.id,
+        phone: checked.normalized,
+        name: card.name || null,
+        email: card.emails[0] ?? null,
+        company: card.org,
+      });
+      switch (result.kind) {
+        case 'existing':
+        case 'created':
+          setSavedId(result.id);
+          if (result.kind === 'existing') toast.info(t('alreadySaved'));
+          else toast.success(t('saved', { name: card.name || primaryPhone }));
+          router.push(`/contacts/${result.id}`);
+          return;
+        case 'colleague':
+          toast.error(t('colleagueHasIt'));
+          return;
+        case 'lookupFailed':
+          setLookupFailed(true);
+          return;
+        case 'failed':
+          toast.error(t('saveFailed'));
+          return;
+        default: {
+          const never: never = result;
+          return never;
+        }
       }
-      const { data, error } = await supabase
-        .from('contacts')
-        .insert({
-          user_id: user.id,
-          account_id: accountId,
-          name: card.name || null,
-          phone: key,
-          email: card.emails[0] ?? null,
-          company: card.org,
-        })
-        .select('id')
-        .single();
-      if (error) throw error;
-      setSavedId(data.id);
-      toast.success(t('saved', { name: card.name || primaryPhone }));
-      router.push(`/contacts/${data.id}`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('saveFailed'));
+      console.error('Failed to save a shared contact:', err);
+      toast.error(t('saveFailed'));
     } finally {
       setSaving(false);
     }
@@ -183,6 +184,20 @@ function ContactCard({ card }: { card: SharedContact }) {
               <Check className="h-3 w-3" />
               {t('openContact')}
             </Link>
+          ) : lookupFailed ? (
+            <span role="alert" className="flex flex-wrap items-center gap-2">
+              {t('lookupFailed')}
+              <button
+                type="button"
+                onClick={() => {
+                  setLookupFailed(false);
+                  setLookupTry((n) => n + 1);
+                }}
+                className="font-medium hover:underline"
+              >
+                {t('retry')}
+              </button>
+            </span>
           ) : (
             <button
               type="button"
