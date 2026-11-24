@@ -8,6 +8,9 @@ const mocks = vi.hoisted(() => ({
   requireRole: vi.fn(),
   rpc: vi.fn(),
   upsert: vi.fn(),
+  clear: vi.fn(),
+  /** Every write, in order. */
+  writes: [] as string[],
 }));
 
 vi.mock('@/lib/auth/account', () => ({
@@ -19,7 +22,10 @@ vi.mock('@/lib/auth/account', () => ({
 
 vi.mock('@/lib/whatsapp/channels', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
-  loadChannels: async () => [{ id: 'cfg-1' }],
+  loadChannels: async () => [
+    { id: 'cfg-1', isPersonal: false },
+    { id: 'cfg-personal', isPersonal: true },
+  ],
 }));
 
 import { PUT } from './route';
@@ -34,18 +40,40 @@ function request(body: unknown): Request {
   return { json: async () => body } as unknown as Request;
 }
 
-describe('PUT /api/whatsapp/routes — personal numbers (190)', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    vi.spyOn(console, 'error').mockImplementation(() => {});
-    mocks.requireRole.mockResolvedValue({
-      accountId: 'account-1',
-      supabase: {
-        rpc: mocks.rpc,
-        from: () => ({ upsert: mocks.upsert }),
+function useDb() {
+  vi.clearAllMocks();
+  vi.spyOn(console, 'error').mockImplementation(() => {});
+  mocks.writes.length = 0;
+  mocks.rpc.mockResolvedValue({ error: null });
+  mocks.upsert.mockResolvedValue({ error: null });
+  mocks.clear.mockResolvedValue({ error: null });
+  mocks.requireRole.mockResolvedValue({
+    accountId: 'account-1',
+    supabase: {
+      rpc: (...args: unknown[]) => {
+        mocks.writes.push('primary');
+        return mocks.rpc(...args);
       },
-    });
+      from: () => ({
+        upsert: (...args: unknown[]) => {
+          mocks.writes.push('set');
+          return mocks.upsert(...args);
+        },
+        delete: () => ({
+          eq: () => ({
+            in: (...args: unknown[]) => {
+              mocks.writes.push('clear');
+              return mocks.clear(...args);
+            },
+          }),
+        }),
+      }),
+    },
   });
+}
+
+describe('PUT /api/whatsapp/routes — personal numbers (190)', () => {
+  beforeEach(useDb);
 
   it('answers 409 when set_primary_channel refuses a personal number', async () => {
     mocks.rpc.mockResolvedValue({ error: refused });
@@ -57,5 +85,72 @@ describe('PUT /api/whatsapp/routes — personal numbers (190)', () => {
     mocks.upsert.mockResolvedValue({ error: refused });
     const res = await PUT(request({ routes: { broadcast: 'cfg-1' } }));
     expect(res.status).toBe(409);
+  });
+});
+
+describe('PUT /api/whatsapp/routes — nothing is half-saved', () => {
+  beforeEach(useDb);
+
+  it.each([
+    ['an unknown surface', { nope: 'cfg-1' }, 400],
+    ['a number that is gone', { broadcast: 'cfg-dead' }, 400],
+    ['a personal number', { broadcast: 'cfg-personal' }, 409],
+  ])('writes nothing when the body names %s', async (_n, routes, status) => {
+    const res = await PUT(
+      request({
+        primary_config_id: 'cfg-1',
+        routes: { inbox: null, ...routes },
+      })
+    );
+    expect(res.status).toBe(status);
+    expect(mocks.writes).toEqual([]);
+  });
+
+  it('refuses a personal default before any write', async () => {
+    const res = await PUT(
+      request({
+        primary_config_id: 'cfg-personal',
+        routes: { broadcast: 'cfg-1' },
+      })
+    );
+    expect(res.status).toBe(409);
+    expect(mocks.writes).toEqual([]);
+  });
+
+  it('clears nothing when the upsert is refused', async () => {
+    mocks.upsert.mockResolvedValue({ error: refused });
+    const res = await PUT(
+      request({
+        primary_config_id: 'cfg-1',
+        routes: { inbox: null, broadcast: 'cfg-1' },
+      })
+    );
+    expect(res.status).toBe(409);
+    expect(mocks.writes).toEqual(['set']);
+  });
+
+  it('says which part was saved when a later write fails', async () => {
+    mocks.clear.mockResolvedValue({ error: { message: 'connection reset' } });
+    const res = await PUT(
+      request({
+        primary_config_id: 'cfg-1',
+        routes: { inbox: null, broadcast: 'cfg-1' },
+      })
+    );
+    expect(res.status).toBe(500);
+    const body = (await res.json()) as { error: string; saved: string[] };
+    expect(body.error).toContain('Only a part was saved');
+    expect(body.saved).toEqual(['the chosen numbers', 'the default number']);
+  });
+
+  it('saves all three', async () => {
+    const res = await PUT(
+      request({
+        primary_config_id: 'cfg-1',
+        routes: { inbox: null, broadcast: 'cfg-1' },
+      })
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ success: true, updated: 2 });
   });
 });

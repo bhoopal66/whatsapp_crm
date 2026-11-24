@@ -34,6 +34,10 @@ and polish.
 
 ### Fixed
 
+- **A routing save is checked whole before anything is written.** An unknown
+  surface or a removed number no longer leaves the default changed, a
+  refused number no longer clears other routes, and a save that fails
+  half-way says which part was saved.
 - **Rotate secret while Whapi is unreachable no longer stops inbound.** The
   new secret was saved although Whapi still called the old address, so every
   message on that number was rejected. The rotation is now refused, the
