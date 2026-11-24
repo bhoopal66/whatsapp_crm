@@ -5,6 +5,7 @@ import { PbxConnectionError } from './connection';
 import { normalizeRemoteNumber, storedPhoneCandidates } from './phone';
 import { YeastarError, type CallInfo, type CallMember } from './yeastar';
 import {
+  DEFAULT_TIME_ZONE,
   isMissedCall,
   type CallDirection,
   type CallStatus,
@@ -17,6 +18,7 @@ import {
 // can import; this file pulls in next/server.
 export {
   CALL_STATUSES,
+  DEFAULT_TIME_ZONE,
   MISSED_STATUSES,
   isMissedCall,
   type CallDirection,
@@ -76,9 +78,6 @@ export {
 } from './presence';
 
 // ---------- "Calls this month" ----------
-
-/** The workspace's zone when the client names none (the UAE's). */
-export const DEFAULT_TIME_ZONE = 'Asia/Dubai';
 
 export function isTimeZone(tz: string): boolean {
   try {

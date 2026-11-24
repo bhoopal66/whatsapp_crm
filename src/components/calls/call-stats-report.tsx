@@ -21,6 +21,7 @@ import {
 import { Skeleton } from '@/components/dashboard/skeleton';
 import { useAuth } from '@/hooks/use-auth';
 import { hasMinRole } from '@/lib/auth/roles';
+import { DEFAULT_TIME_ZONE } from '@/lib/pbx/call-status';
 import {
   CALL_REPORT_OUTCOMES,
   checkCustomDays,
@@ -159,10 +160,6 @@ export function CallStatsReport() {
   const leader =
     !!accountRole &&
     (hasMinRole(accountRole, 'team_leader') || reviewsAllCalls);
-  const viewerZone = useMemo(
-    () => Intl.DateTimeFormat().resolvedOptions().timeZone,
-    []
-  );
   const ownId = user?.id ?? null;
   // Below team leader there is only me: a shared link to someone else
   // or to everyone still opens on the reader's own calls.
@@ -184,7 +181,7 @@ export function CallStatsReport() {
   const [customOpen, setCustomOpen] = useState(params.period === 'custom');
   const shownPeriod: CallStatsPeriod = customOpen ? 'custom' : params.period;
 
-  const query = statsQuery(params, viewerZone, ownId);
+  const query = statsQuery(params, DEFAULT_TIME_ZONE, ownId);
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   // The person picker's names: the people of the last load for everyone.
   const [people, setPeople] = useState<CallStatsPerson[]>([]);
@@ -242,7 +239,7 @@ export function CallStatsReport() {
   useEffect(() => {
     if (!leader) return;
     let cancelled = false;
-    const q = new URLSearchParams({ period: 'today', tz: viewerZone });
+    const q = new URLSearchParams({ period: 'today', tz: DEFAULT_TIME_ZONE });
     fetch(`/api/pbx/calls/stats?${q}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((body: { stats?: CallStats } | null) => {
@@ -253,7 +250,7 @@ export function CallStatsReport() {
     return () => {
       cancelled = true;
     };
-  }, [leader, viewerZone]);
+  }, [leader]);
 
   const [detailsOpen, setDetailsOpen] = useState(false);
   useEffect(() => {
@@ -341,7 +338,7 @@ export function CallStatsReport() {
   );
 
   // ---------- Formatting ----------
-  const zone = range?.timeZone ?? viewerZone;
+  const zone = range?.timeZone ?? DEFAULT_TIME_ZONE;
   const dayFmt = (iso: string) =>
     new Intl.DateTimeFormat(locale, {
       timeZone: zone,

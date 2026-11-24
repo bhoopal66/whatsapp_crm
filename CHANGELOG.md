@@ -22,6 +22,9 @@ and polish.
 
 ### Fixed
 
+- **The call reports start the day at midnight in Dubai**, also for
+  someone whose computer is set to another time zone: their report days
+  held other calls than everyone else's. No migration.
 - **The call card and window say when some details could not be loaded**,
   with Retry, instead of showing "None" for a deal or last message that
   failed to load. And they stop asking for a call's customer after it has

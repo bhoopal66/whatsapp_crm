@@ -3,6 +3,13 @@
 // the inbox composer via ./timeline) use these, and ./calls, which
 // re-exports them, pulls in next/server.
 
+/**
+ * The workspace's zone (the UAE's): where a day of calls starts and ends,
+ * whatever the browser's own zone says, so every person, every screen and
+ * the server count the same day.
+ */
+export const DEFAULT_TIME_ZONE = 'Asia/Dubai';
+
 export const CALL_STATUSES = [
   'ringing',
   'in_progress',
