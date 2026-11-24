@@ -487,7 +487,7 @@ BEGIN
   END IF;
   r := pg_temp.tn_try(u_out, format('SELECT can_use_channel(%L, %L)::text', a_acct, w3));
   n := n + 1;
-  IF r <> 'true' THEN failed := array_append(failed, ('a number whose team emptied by removal is not shared again: ' || r)::text); END IF;
+  IF r <> 'false' THEN failed := array_append(failed, ('a number whose team emptied by removal opened to everyone (314): ' || r)::text); END IF;
 
   -- A deleted profile is the same case.
   INSERT INTO whatsapp_config (user_id, account_id, provider, phone_number_id, access_token, status, is_primary)
@@ -498,8 +498,8 @@ BEGIN
   DELETE FROM profiles WHERE user_id = u_pd;
   r := pg_temp.tn_try(u_out, format('SELECT can_use_channel(%L, %L)::text', a_acct, w4));
   n := n + 1;
-  IF r <> 'true' OR EXISTS (SELECT 1 FROM team_members WHERE user_id = u_pd) THEN
-    failed := array_append(failed, ('a deleted profile kept its team or the number restricted: ' || r)::text);
+  IF r <> 'false' OR EXISTS (SELECT 1 FROM team_members WHERE user_id = u_pd) THEN
+    failed := array_append(failed, ('a deleted profile kept its team, or its number opened to everyone (314): ' || r)::text);
   END IF;
 
   -- (e) A number allocated directly to one person only: removing them
@@ -521,7 +521,7 @@ BEGIN
   END IF;
   r := pg_temp.tn_try(u_out, format('SELECT can_use_channel(%L, %L)::text', a_acct, w7));
   n := n + 1;
-  IF r <> 'true' THEN failed := array_append(failed, ('a number allocated only to a removed member is not shared again: ' || r)::text); END IF;
+  IF r <> 'false' THEN failed := array_append(failed, ('a number allocated only to a removed member opened to everyone (314): ' || r)::text); END IF;
 
   -- ---------- (d) the combined RPCs: admins of this account only ----------
   r := pg_temp.tn_try(u_m1, format('SELECT set_channel_access(%L, ARRAY[]::uuid[], ARRAY[]::uuid[])::text', w6));
