@@ -1518,6 +1518,10 @@ jobs:
       - name: Verify call notes
         run: supabase db query --local --file supabase/ci/verify-call-notes.sql
 
+      # Migration 295: three pushes open the screen their bell opens.
+      - name: Verify push link inbound
+        run: supabase db query --local --file supabase/ci/verify-push-link-inbound.sql
+
       # Migration 290: learn from team answers. Off by default and, while
       # off, nothing is drafted; only an admin sets it; one run a week; a
       # learned entry is always a draft; a topic is drafted once (again

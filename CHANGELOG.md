@@ -30,6 +30,11 @@ and polish.
 - **A video call no longer ends on two refusals with a dropped network in
   between**: only two in a row end it, and a failed account read is "try
   again" (503), not a refusal. No migration.
+- **Three push notifications open the right screen**: a message that could
+  not be processed opens Settings -> WhatsApp, a personal number's alert
+  opens Settings -> Profile, handed-over work opens the inbox; they opened
+  the notifications list (an admin's personal number: the company numbers).
+  **Migration required: 295** (after 294, any build).
 - **The call reports start the day at midnight in Dubai**, also for
   someone whose computer is set to another time zone: their report days
   held other calls than everyone else's. No migration.
