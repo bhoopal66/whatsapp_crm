@@ -34,6 +34,11 @@ and polish.
 
 ### Fixed
 
+- **API: a number in a template's values keeps its place (contract
+  change).** `POST /api/v1/messages` and `/api/v1/broadcasts` left out a
+  value that was not text and moved the rest up, so `["Jane", 50000,
+  "5.9"]` went out as Jane, 5.9. A number is now sent as its text, and any
+  other value is `400 bad_request`. No migration.
 - **When a submission group ends, its bells follow.** The unread bell of an
   agent who loses the group opens the customer's page instead of "does not
   exist". **Migration required: 313**.

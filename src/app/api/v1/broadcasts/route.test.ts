@@ -6,6 +6,7 @@ const h = vi.hoisted(() => ({
   db: null as unknown,
   afterCallbacks: [] as (() => Promise<void>)[],
   send: vi.fn(),
+  create: vi.fn(),
 }));
 
 vi.mock('next/server', async (orig) => ({
@@ -27,25 +28,27 @@ vi.mock('@/lib/whatsapp/provider', async (orig) => ({
 }));
 vi.mock('@/lib/whatsapp/broadcast-core', async (orig) => ({
   ...(await orig<typeof import('@/lib/whatsapp/broadcast-core')>()),
-  createBroadcast: async () => ({
-    broadcastId: 'bc-1',
-    templateName: 'promo',
-    templateLanguage: 'en_US',
-    channelId: 'pn-1',
-    channel: { id: 'cfg-1', accountId: 'acct-1', provider: 'meta' },
-    templateRow: { name: 'promo' },
-    planned: [
-      {
-        recipientRowId: 'r0',
-        contactId: null,
-        phone: '971501000000',
-        params: [],
-      },
-    ],
-    rejected: 0,
-    skippedOptedOut: 0,
-  }),
+  createBroadcast: h.create,
 }));
+
+const PLAN = {
+  broadcastId: 'bc-1',
+  templateName: 'promo',
+  templateLanguage: 'en_US',
+  channelId: 'pn-1',
+  channel: { id: 'cfg-1', accountId: 'acct-1', provider: 'meta' },
+  templateRow: { name: 'promo' },
+  planned: [
+    {
+      recipientRowId: 'r0',
+      contactId: null,
+      phone: '971501000000',
+      params: [],
+    },
+  ],
+  rejected: 0,
+  skippedOptedOut: 0,
+};
 
 import { POST } from './route';
 import { claimBroadcastDelivery } from '@/lib/whatsapp/broadcast-resume';
@@ -56,6 +59,7 @@ let recipient: Row;
 beforeEach(() => {
   h.afterCallbacks.length = 0;
   h.send.mockReset().mockResolvedValue({ messageId: 'wamid.1' });
+  h.create.mockReset().mockResolvedValue(PLAN);
   broadcast = {
     id: 'bc-1',
     account_id: 'acct-1',
@@ -75,14 +79,16 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 
-const post = () =>
+const BODY = {
+  template_name: 'promo',
+  recipients: [{ to: '+971501000000' }] as unknown[],
+};
+const post = (body: unknown = BODY, headers: Record<string, string> = {}) =>
   POST(
     new Request('http://x/api/v1/broadcasts', {
       method: 'POST',
-      body: JSON.stringify({
-        template_name: 'promo',
-        recipients: [{ to: '+971501000000' }],
-      }),
+      headers,
+      body: JSON.stringify(body),
     })
   );
 
@@ -129,4 +135,30 @@ describe('POST /api/v1/broadcasts', () => {
     expect(broadcast.delivery_locked_at).toBe(theirs);
     expect(recipient.status).toBe('pending');
   });
+
+  it('sends a number as text, in its own place', async () => {
+    const to = '+971501000000';
+    const res = await post({
+      ...BODY,
+      recipients: [{ to, params: ['Jane', 50000, '5.9'] }, { to }],
+    });
+    expect(res.status).toBe(202);
+    expect(h.create.mock.calls[0][3].recipients).toEqual([
+      { to, params: ['Jane', '50000', '5.9'] },
+      { to, params: undefined },
+    ]);
+  });
+
+  it.each([[['Jane', null]], [['Jane', true]], ['Jane']])(
+    'refuses the params %j before anything is created',
+    async (params) => {
+      const to = '+971501000000';
+      const res = await post({ ...BODY, recipients: [{ to }, { to, params }] });
+      expect(res.status).toBe(400);
+      const { error } = await res.json();
+      expect(error.code).toBe('bad_request');
+      expect(error.message).toContain('recipients[1].params');
+      expect(h.create).not.toHaveBeenCalled();
+    }
+  );
 });

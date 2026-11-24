@@ -124,7 +124,10 @@ export function templateReadFailed(): BroadcastError {
 export interface BroadcastRecipientInput {
   /** International phone with its country code (validateContactPhone). */
   to: string;
-  /** Positional body params for the template ({{1}}, {{2}}…). */
+  /**
+   * Positional body params for the template ({{1}}, {{2}}…). The caller
+   * has checked them: one left out here would move the rest up.
+   */
   params?: string[];
 }
 
@@ -402,9 +405,7 @@ export async function createBroadcast(
     resolved.push({
       contactId: id,
       phone: checked.normalized,
-      params: Array.isArray(r.params)
-        ? r.params.filter((p): p is string => typeof p === 'string')
-        : [],
+      params: r.params ?? [],
     });
   }
 

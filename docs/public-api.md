@@ -183,6 +183,11 @@ needs a `template` object:
 }
 ```
 
+Every value in `params` must be a string or a number (a number is sent as
+its text), as must `body`, `headerText` and `buttonParams` in the structured
+object. Anything else (`null`, a boolean, an object) is `400 bad_request`
+naming the value, and nothing is sent.
+
 Response (201):
 
 ```json
@@ -403,6 +408,10 @@ code, a trunk `0` after it removed). If every recipient is rejected the
 call is `400 bad_request` and the message names the first problem. A
 contact this call creates gets `lead_source` `broadcast`; an existing
 contact's is left as it is.
+
+Every value in a recipient's `params` must be a string or a number, as on
+`POST /api/v1/messages`. Anything else is `400 bad_request` naming the
+value; nothing is persisted or sent.
 
 A recipient whose contact opted out of messages (`opted_out_at` set) is
 skipped: it is not sent to and is counted in neither `accepted` nor

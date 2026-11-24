@@ -37,6 +37,7 @@ import { requireApiKey } from '@/lib/auth/api-context';
 // requests. The broadcast cron continues what is left half an hour later.
 export const maxDuration = 60;
 import { ok, fail, toApiErrorResponse } from '@/lib/api/v1/respond';
+import { readTemplateValues } from '@/lib/api/v1/template-params';
 import { resolveAuditUserId, ContactError } from '@/lib/api/v1/contacts';
 import { createBroadcast, BroadcastError } from '@/lib/whatsapp/broadcast-core';
 import { runBroadcastPass } from '@/lib/whatsapp/broadcast-pass';
@@ -56,7 +57,12 @@ export async function POST(request: Request) {
 
     const templateName =
       typeof body.template_name === 'string' ? body.template_name : '';
-    const recipients = Array.isArray(body.recipients) ? body.recipients : [];
+    const recipients = (
+      Array.isArray(body.recipients) ? body.recipients : []
+    ).map((r, i) => ({
+      to: typeof r?.to === 'string' ? r.to : '',
+      params: readTemplateValues(r?.params, `recipients[${i}].params`),
+    }));
 
     const auditUserId = await resolveAuditUserId(ctx.supabase, ctx.accountId);
 
@@ -71,10 +77,7 @@ export async function POST(request: Request) {
           typeof body.template_language === 'string'
             ? body.template_language
             : null,
-        recipients: recipients.map((r) => ({
-          to: typeof r?.to === 'string' ? r.to : '',
-          params: Array.isArray(r?.params) ? r.params : undefined,
-        })),
+        recipients,
         flowId: typeof body.flow_id === 'string' ? body.flow_id : null,
       }
     );
