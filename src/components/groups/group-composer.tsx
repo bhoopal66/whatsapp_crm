@@ -59,6 +59,7 @@ import {
   type GroupPickerKind,
 } from '@/lib/groups/composer';
 import { shouldSendOnKey } from '@/lib/groups/group-page';
+import { createUnsentQueue, sendOrKeep } from '@/lib/groups/unsent-media';
 import { createUnsentTakes } from '@/lib/inbox/unsent-takes';
 import {
   GROUP_MEDIA_CAPTION_MAX,
@@ -80,6 +81,8 @@ const TEXT_MAX = 4096;
 export interface GroupComposerProps {
   /** The chat, for a voice note kept until it can be uploaded. */
   chatKey: string;
+  /** The chat's name, for a notice shown once it has been left. */
+  chatName: string;
   /** Who is signed in: the only one it is kept for. */
   userId: string | null;
   /** Sends text; false when it was not sent (the text comes back). */
@@ -105,8 +108,14 @@ interface VoiceFile {
   deliver: SendMedia | null;
 }
 
-/** Recordings whose upload failed, by chat. */
+/** An uploaded attachment; `refused`: its send came back once. */
+type StagedMedia = GroupMediaDraft & { refused?: true };
+
+/** Recordings that are not sent, by chat. */
 const unsentVoices = createUnsentTakes<VoiceFile>();
+
+/** Attachments whose send was refused after the chat was left. */
+const unsentMedia = createUnsentQueue<StagedMedia>();
 
 /** Best effort: an upload nobody will send is removed from the bucket. */
 function removeUpload(path: string | undefined) {
@@ -121,6 +130,7 @@ function removeUpload(path: string | undefined) {
  */
 export function GroupComposer({
   chatKey,
+  chatName,
   userId,
   onSendText,
   onSendMedia,
@@ -135,9 +145,11 @@ export function GroupComposer({
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [draft, setDraft] = useState<GroupMediaDraft | null>(null);
-  const draftRef = useRef<GroupMediaDraft | null>(null);
+  const [draft, setDraft] = useState<StagedMedia | null>(null);
+  const draftRef = useRef<StagedMedia | null>(null);
   draftRef.current = draft;
+  const chatRef = useRef({ userId, chatKey });
+  chatRef.current = { userId, chatKey };
   const [quickReplyOpen, setQuickReplyOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const captionRef = useRef<HTMLInputElement>(null);
@@ -149,7 +161,10 @@ export function GroupComposer({
 
   // A recording being sent or made ready, and one whose upload failed.
   const [voiceWork, setVoiceWork] = useState<'send' | 'review' | null>(null);
-  useLayoutEffect(() => unsentVoices.claim(userId), [userId]);
+  useLayoutEffect(() => {
+    unsentVoices.claim(userId);
+    unsentMedia.claim(userId);
+  }, [userId]);
   const unsentVoice = useSyncExternalStore(
     unsentVoices.subscribe,
     () => unsentVoices.get(userId, chatKey),
@@ -159,14 +174,23 @@ export function GroupComposer({
   const lastSentAtRef = useRef(0);
 
   // Leaving removes an upload that was never sent (the recorder frees
-  // the mic by itself).
+  // the mic by itself); one the group refused waits here.
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      removeUpload(draftRef.current?.path);
+      const left = draftRef.current;
+      const { userId, chatKey } = chatRef.current;
+      if (left?.refused && unsentMedia.add(userId, chatKey, left)) return;
+      removeUpload(left?.path);
     };
   }, []);
+
+  const waiting = useSyncExternalStore(
+    unsentMedia.subscribe,
+    () => unsentMedia.first(userId, chatKey),
+    () => null
+  );
 
   /** Throws when the file cannot be uploaded. */
   const upload = useCallback(
@@ -250,25 +274,31 @@ export function GroupComposer({
 
   /** Sends what is uploaded; not sent, it comes back to the composer. */
   const sendUploaded = useCallback(
-    async (staged: GroupMediaDraft, deliver: SendMedia) => {
-      // Put back (as text is) unless another was staged meanwhile or the
-      // composer is gone; only then is it deleted.
-      const giveBack = () => {
-        if (mountedRef.current && !draftRef.current) {
-          draftRef.current = staged;
-          setDraft(staged);
-        } else {
-          removeUpload(staged.path);
-        }
-      };
-      try {
-        const ok = await deliver(groupMediaPayload(staged));
-        if (!ok) giveBack();
-      } catch {
-        giveBack();
-      }
-    },
-    []
+    (staged: StagedMedia, deliver: SendMedia, voice?: VoiceFile) =>
+      sendOrKeep(staged, (it) => deliver(groupMediaPayload(it)), {
+        toComposer: (it) => {
+          if (!mountedRef.current || draftRef.current) return false;
+          const back: StagedMedia = { ...it, refused: true };
+          draftRef.current = back;
+          setDraft(back);
+          return true;
+        },
+        // One recording waits per chat: a second stays an attachment.
+        keepRecording: () =>
+          !!voice &&
+          !mountedRef.current &&
+          !unsentVoices.get(userId, chatKey) &&
+          unsentVoices.put(userId, chatKey, voice),
+        keepUpload: (it) =>
+          unsentMedia.add(userId, chatKey, { ...it, refused: true }),
+        remove: (it) => removeUpload(it.path),
+        onKept: () => {
+          if (!mountedRef.current) {
+            toast.error(tg('notSentIn', { group: chatName }));
+          }
+        },
+      }),
+    [userId, chatKey, chatName, tg]
   );
 
   // ---- Voice note (Ogg/Opus in the browser, as the inbox) -----------
@@ -286,7 +316,7 @@ export function GroupComposer({
         // Kept for this chat, which says so; elsewhere a notice does.
         const kept = unsentVoices.put(userId, chatKey, voice);
         if (mountedRef.current) setVoiceWork(null);
-        else if (kept) toast.error(tv('notSent'));
+        else if (kept) toast.error(tg('notSentIn', { group: chatName }));
         return;
       } finally {
         if (mountedRef.current) setBusy(false);
@@ -297,10 +327,10 @@ export function GroupComposer({
         return;
       }
       lastSentAtRef.current = Date.now();
-      await sendUploaded(staged, voice.deliver);
+      await sendUploaded(staged, voice.deliver, voice);
       if (mountedRef.current) setVoiceWork(null);
     },
-    [upload, land, sendUploaded, tv, userId, chatKey]
+    [upload, land, sendUploaded, tg, chatName, userId, chatKey]
   );
 
   const {
@@ -330,6 +360,17 @@ export function GroupComposer({
     },
   });
   const recording = voicePhase === 'starting' || voicePhase === 'recording';
+
+  // What this chat refused is offered again, once nothing else is there.
+  const free =
+    !draft && !sending && !busy && !voiceWork && voicePhase === 'idle';
+  useEffect(() => {
+    if (!waiting || !free) return;
+    const back = unsentMedia.take(userId, chatKey);
+    if (!back) return;
+    draftRef.current = back;
+    setDraft(back);
+  }, [waiting, free, userId, chatKey]);
 
   // The text box grows with its text, up to about six lines.
   useLayoutEffect(() => {

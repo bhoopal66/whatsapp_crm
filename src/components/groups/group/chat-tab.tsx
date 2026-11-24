@@ -432,6 +432,7 @@ export function ChatTab({ groupId, detail }: GroupTabProps) {
 
       <GroupComposer
         chatKey={`group:${groupId}`}
+        chatName={detail.group.name}
         userId={userId}
         onSendText={sendText}
         onSendMedia={sendMedia}

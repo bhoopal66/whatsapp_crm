@@ -283,6 +283,11 @@ export function ConversationTab({ caseId, detail }: CaseTabProps) {
         (detail.permissions.canWrite ? (
           <GroupComposer
             chatKey={`case:${caseId}`}
+            chatName={
+              detail.case.contactName ||
+              detail.case.submissionRef ||
+              t('untitled')
+            }
             userId={userId}
             onSendText={(text) => post({ text })}
             onSendMedia={(media) => post({ media })}

@@ -8798,7 +8798,8 @@
         "send": "Send",
         "uploadFailed": "Upload failed.",
         "fileTooLarge": "This file is {size} MB; the limit for this kind is {limit} MB.",
-        "fileTypeNotAllowed": "This kind of file cannot be sent."
+        "fileTypeNotAllowed": "This kind of file cannot be sent.",
+        "notSentIn": "Not sent in {group}. It is kept there: open the group to send it again."
       },
       "reasons": {
         "not_allowed": "You don't have permission to do that.",

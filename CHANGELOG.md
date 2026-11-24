@@ -34,6 +34,10 @@ and polish.
 
 ### Fixed
 
+- **A voice note or file a group refuses is kept, also after the group was
+  left.** It was deleted when its send failed with another group open; it now
+  waits in its own group (until the app is closed or reloaded) and the notice
+  names that group. Both kinds of group chat.
 - **A chat that arrived while the Inbox was out of touch is not missed.**
   When the read that catches the list up after a lost connection or a long
   absence failed, its window was dropped and a new customer chat stayed
