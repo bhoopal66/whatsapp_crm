@@ -2493,6 +2493,11 @@
         "notEligible": "This member cannot be a call reviewer",
         "failed": "Failed to update member"
       },
+      "activeFailed": {
+        "deactivation_undone": "Could not disable {name}’s login. They are active again, but any team, phone extension and report access they had were cleared: set them again.",
+        "deactivation_half_done": "{name} is deactivated here, but their login could not be disabled. Reactivate them, then deactivate them again.",
+        "reactivation_half_done": "{name} is active here again, but their login is still disabled. Deactivate them, then reactivate them."
+      },
       "reactivatedToast": "Reactivated {name}",
       "deactivateDialogTitle": "Deactivate member",
       "deactivateDialogDesc": "Deactivate <bold>{name}</bold>? They'll be signed out and won't be able to sign in until you reactivate them. They're also taken off their team and their phone extension is unlinked; reactivating doesn't put either back. Their role and history stay as they are; you can hand their chats, tasks, deals and customers over next.",
@@ -3611,7 +3616,7 @@
       "cancel": "Cancel",
       "created": "Created {email}",
       "failed": "Could not create the user",
-      "added": "Added {email} with their existing login",
+      "added": "Added {email} with their existing login. They sign in with their earlier password; set a new one if needed.",
       "noLoginHint": "No login uses this email yet. Set a password to create one, and share it with them directly — no email is sent.",
       "bankCodeLabel": "Bank",
       "bankCodePlaceholder": "Bank (e.g. Mashreq)",

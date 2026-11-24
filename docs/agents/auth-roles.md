@@ -42,6 +42,9 @@
   their `pbx_extensions` in that workspace, then re-runs the number
   sync; direct number allocations stay, and reactivating restores
   nothing. `supabase/ci/verify-member-deactivation.sql` asserts this.
+  Leaving the workspace (a removal) takes the same since 306
+  (`profiles_leave_account_teams`); the ban stays, and only adding the
+  person back lifts it. `verify-member-leaving.sql`.
 - **Setting a member's password (migration 140)** is POST
   `/api/account/members/[id]/password`: `authorize_member_password_change`
   decides as the caller, then GoTrue changes it, then

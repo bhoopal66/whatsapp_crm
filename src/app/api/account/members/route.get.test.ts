@@ -189,9 +189,26 @@ describe('GET /api/account/members', () => {
     expect(calls.eq).toEqual([['account_id', 'account-1']]);
   });
 
-  it('still lists members when the personal-number read fails', async () => {
+  it('fails the list rather than show a linked number as none', async () => {
+    const consoleError = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => {});
     mocks.requireRole.mockResolvedValue(
-      ctx({ data: [STAFF] }, { error: { message: 'no is_personal column' } })
+      ctx({ data: [STAFF] }, { error: { code: '57014', message: 'timeout' } })
+    );
+
+    const res = await GET();
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: 'Failed to load members' });
+    consoleError.mockRestore();
+  });
+
+  it('still lists members before migration 190', async () => {
+    mocks.requireRole.mockResolvedValue(
+      ctx(
+        { data: [STAFF] },
+        { error: { code: '42703', message: 'no is_personal column' } }
+      )
     );
 
     const res = await GET();

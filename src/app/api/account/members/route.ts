@@ -105,16 +105,26 @@ export async function GET() {
       );
     }
 
-    // Personal numbers (190): one `whatsapp_config` row per owner. A
-    // failed read (e.g. no `is_personal` column yet) is "none", never a
-    // failed roster.
+    // Personal numbers (190): one `whatsapp_config` row per owner. No
+    // `is_personal` column yet (42703) is "none"; any other failed read is
+    // not, or a linked number would show as no number at all.
     const personalByUser = new Map<string, { id: string; phone: string }>();
     const { data: personal, error: personalError } = await ctx.supabase
       .from('whatsapp_config')
       .select('id, user_id, waba_id')
       .eq('account_id', ctx.accountId)
       .eq('is_personal', true);
-    if (!personalError && Array.isArray(personal)) {
+    if (personalError && personalError.code !== '42703') {
+      console.error(
+        '[GET /api/account/members] personal numbers error:',
+        personalError
+      );
+      return NextResponse.json(
+        { error: 'Failed to load members' },
+        { status: 500 }
+      );
+    }
+    if (Array.isArray(personal)) {
       for (const n of personal as {
         id: string;
         user_id: string | null;
