@@ -50,6 +50,9 @@ and polish.
   nobody was told. The failures must now span 30 minutes, and the owners
   and admins get a notification. An event whose webhooks could not be read
   from the database goes back to the queue instead of being lost.
+  Removing a number now asks once more when customer messages of that
+  number are still waiting to be processed (they would be lost with it);
+  a failed read of that count never blocks a removal.
   **Migration required: 293**, after 292; needs a superuser or BYPASSRLS
   role.
 

@@ -151,6 +151,9 @@ export function WhatsAppNumbers() {
   const [rescanId, setRescanId] = useState<string | null>(null);
 
   const [removing, setRemoving] = useState<NumberRow | null>(null);
+  // Set after the server answered 409 messages_waiting: the dialog then
+  // asks once more, with this count.
+  const [waitingCount, setWaitingCount] = useState<number | null>(null);
   const [health, setHealth] = useState<Record<string, NumberHealth>>({});
   // The member roster is what the access dialog edits. If it failed to
   // load, an empty checklist saved back would un-allocate everyone —
@@ -425,17 +428,28 @@ export function WhatsAppNumbers() {
     }
   }
 
-  async function handleRemove(row: NumberRow) {
+  async function handleRemove(row: NumberRow, force = false) {
     setBusyId(row.id);
     try {
-      const url =
+      const base =
         row.provider === 'meta'
           ? '/api/whatsapp/config/meta'
           : row.provider === 'openwa'
             ? `/api/whatsapp/config/openwa/${encodeURIComponent(row.id)}`
             : `/api/whatsapp/config?config_id=${encodeURIComponent(row.id)}`;
+      const url = force
+        ? `${base}${base.includes('?') ? '&' : '?'}force=1`
+        : base;
       const res = await fetch(url, { method: 'DELETE' });
       const body = await res.json().catch(() => ({}));
+      if (
+        res.status === 409 &&
+        body?.code === 'messages_waiting' &&
+        typeof body?.count === 'number'
+      ) {
+        setWaitingCount(body.count);
+        return;
+      }
       if (!res.ok) {
         toast.error(body?.error || t('removeFailed'));
         return;
@@ -448,6 +462,7 @@ export function WhatsAppNumbers() {
         toast.success(t('removed', { name: channelDisplayName(row) }));
       }
       setRemoving(null);
+      setWaitingCount(null);
       invalidateNumberCaches();
       await load();
     } catch {
@@ -1047,7 +1062,11 @@ export function WhatsAppNumbers() {
       {/* Disconnect */}
       <Dialog
         open={removing !== null}
-        onOpenChange={(o) => !o && setRemoving(null)}
+        onOpenChange={(o) => {
+          if (o) return;
+          setRemoving(null);
+          setWaitingCount(null);
+        }}
       >
         <DialogContent className="border-border bg-popover text-popover-foreground sm:max-w-sm">
           <DialogHeader>
@@ -1057,11 +1076,13 @@ export function WhatsAppNumbers() {
               })}
             </DialogTitle>
             <DialogDescription className="text-muted-foreground">
-              {removing?.provider === 'meta'
-                ? t('removeBodyMeta')
-                : removing?.provider === 'openwa'
-                  ? t('openwa.removeBody')
-                  : t('removeBody')}
+              {waitingCount !== null
+                ? t('waitingBody', { count: waitingCount })
+                : removing?.provider === 'meta'
+                  ? t('removeBodyMeta')
+                  : removing?.provider === 'openwa'
+                    ? t('openwa.removeBody')
+                    : t('removeBody')}
             </DialogDescription>
             {removing ? (
               <p className="text-muted-foreground text-sm">
@@ -1072,15 +1093,24 @@ export function WhatsAppNumbers() {
             ) : null}
           </DialogHeader>
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setRemoving(null)}>
+            <Button
+              variant="ghost"
+              autoFocus
+              onClick={() => {
+                setRemoving(null);
+                setWaitingCount(null);
+              }}
+            >
               {t('cancel')}
             </Button>
             <Button
-              onClick={() => removing && void handleRemove(removing)}
+              onClick={() =>
+                removing && void handleRemove(removing, waitingCount !== null)
+              }
               disabled={busyId !== null}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {t('remove')}
+              {waitingCount !== null ? t('removeAnyway') : t('remove')}
             </Button>
           </DialogFooter>
         </DialogContent>

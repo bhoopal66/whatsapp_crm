@@ -1,4 +1,9 @@
 import { pickActiveProfile } from '@/lib/auth/active-profile'
+import {
+  messagesWaitingResponse,
+  waitingMessages,
+  wantsForce,
+} from '@/lib/whatsapp/waiting-messages'
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { requireRole, toErrorResponse } from '@/lib/auth/account'
@@ -928,6 +933,13 @@ export async function DELETE(request: Request) {
     }
     if (!target) {
       return NextResponse.json({ success: true })
+    }
+
+    // Customer messages the gateway was told we got, not processed yet,
+    // go with the number (webhook_inbox cascades): ask once more.
+    if (!wantsForce(request)) {
+      const waiting = await waitingMessages(supabaseAdmin, [target.id])
+      if (waiting > 0) return messagesWaitingResponse(waiting)
     }
 
     const { error: deleteError } = await supabase
