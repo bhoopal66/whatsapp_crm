@@ -25,8 +25,9 @@ and polish.
 - **An open tab notices what changed elsewhere.** When you switch workspace
   on another device, or your access to this workspace is deactivated while
   you have another, a bar above the page says so and offers Reload; nothing
-  reloads by itself, so typed text is safe. A new role or department takes
-  effect in open tabs without a reload. Checked when you return to the tab
+  reloads by itself, so typed text is safe (text typed behind an open dialog
+  counts too). A new role or department takes effect in open tabs without a
+  reload, even when the department check fails. Checked when you return to the tab
   (at most every 2 minutes) and about once an hour. No migration.
 - **A slow or lost connection no longer shows the sign-in page.** While the
   app cannot find out whether you are signed in it says "Reconnecting…", with
