@@ -797,6 +797,10 @@
       "maybeSent": "No answer: it may have been forwarded. Check the chats before forwarding again."
     },
     "templatePicker": {
+      "loadFailed": "The templates could not be loaded.",
+      "retry": "Try again",
+      "urlValueLabel": "Button \"{text}\": value for {val}",
+      "fillAll": "Fill in every blank to send.",
       "sendTemplate": "Send template",
       "fillPlaceholders": "Fill in the placeholders to render this template. Meta requires every variable to be set.",
       "pickTemplate": "Pick an approved WhatsApp template to send to this contact.",
