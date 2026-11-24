@@ -22,6 +22,9 @@ import { cn } from '@/lib/utils';
 /** The most tasks `/api/tasks` answers. */
 const LIST_LIMIT = 200;
 
+/** Before the names of the customers are asked for once more. */
+const NAMES_RETRY_MS = 2_000;
+
 /**
  * Open HR tasks (migration 200's workflow rules write them as ordinary
  * `tasks` rows). RLS decides which ones come back: the assignee, anyone
@@ -29,6 +32,7 @@ const LIST_LIMIT = 200;
  */
 export default function HrTasksPage() {
   const t = useTranslations('Hr.tasks');
+  const tPanel = useTranslations('Hr.panel');
   const format = useFormatter();
   const { user, accountId } = useAuth();
   const { nameOf } = useWorkspaceMembers();
@@ -56,10 +60,18 @@ export default function HrTasksPage() {
       setNow(Date.now());
       const ids = taskConversationIds(body.tasks);
       if (ids.length > 0) {
-        const { data } = await createClient()
-          .from('conversations')
-          .select('id, contact:contacts(name)')
-          .in('id', ids);
+        const read = () =>
+          createClient()
+            .from('conversations')
+            .select('id, contact:contacts(name)')
+            .in('id', ids);
+        let { data, error } = await read();
+        if (error) {
+          await new Promise((r) => setTimeout(r, NAMES_RETRY_MS));
+          ({ data, error } = await read());
+        }
+        // The list stands without them; the names shown before stay.
+        if (error) return;
         setNames(
           customerNamesByTask(
             body.tasks,
@@ -165,7 +177,12 @@ export default function HrTasksPage() {
           <span className="sr-only">{t('done')}</span>
         </div>
         {failed ? (
-          <p className="text-destructive p-4 text-sm">{t('loadFailed')}</p>
+          <div className="space-y-2 p-4" role="alert">
+            <p className="text-destructive text-sm">{t('loadFailed')}</p>
+            <Button variant="outline" size="sm" onClick={() => void load()}>
+              {tPanel('retry')}
+            </Button>
+          </div>
         ) : tasks === null ? (
           <div className="bg-card-2 h-24 animate-pulse" />
         ) : shown.length === 0 ? (

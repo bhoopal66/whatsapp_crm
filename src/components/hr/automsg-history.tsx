@@ -136,6 +136,11 @@ export function AutomsgHistory({
           onCancel={(id) => void cancel(id)}
         />
       )}
+      {!failed && items.length >= HISTORY_LIMIT && (
+        <p className="text-muted-foreground text-xs">
+          {t('history.capped', { n: HISTORY_LIMIT })}
+        </p>
+      )}
     </section>
   );
 }

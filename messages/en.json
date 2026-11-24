@@ -13072,6 +13072,7 @@
       },
       "history": {
         "title": "History",
+        "capped": "The newest {n} are shown.",
         "filter": {
           "all": "All",
           "queued": "Queued",

@@ -13072,6 +13072,7 @@
       },
       "history": {
         "title": "기록",
+        "capped": "최근 {n}건만 표시됩니다.",
         "filter": {
           "all": "전체",
           "queued": "대기 중",

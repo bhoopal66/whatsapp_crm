@@ -34,6 +34,9 @@ and polish.
 
 ### Fixed
 
+- **HR screens say when something could not be read.** Hire fast no longer
+  says "no access" for a failed read, HR tasks offer Retry, and the message
+  history says that only the newest 100 are shown.
 - **A paid SMS or RCS that may have gone out is never sent again.** A
   timeout, a lost connection or a gateway error is now "unconfirmed", as on
   WhatsApp; only a gateway that was never reached is tried again.
