@@ -151,5 +151,8 @@ everything in the viewer's zone.
 | PUT    | `/api/calendar/events/[id]/response` | `{ response, reminders? }`                                                | `{ ok: true, response }`                                               |
 
 `start`, `end`, `allDay` and `timeZone` are always sent together.
+`moveSeries: true` marks a drag of all events: cancelled dates move too.
+A series whose first date is not one of its repeat days is a 400, unless
+it was stored that way and the change leaves both, or drags them together.
 Errors are `{ error }`: 400 invalid input, 403 not the organiser, 404
 not visible, 409 changed elsewhere.

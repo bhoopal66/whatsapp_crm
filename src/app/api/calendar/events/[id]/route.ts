@@ -164,6 +164,8 @@ function rpcErrorResponse(
   return calendarDbErrorResponse(error, fallback);
 }
 
+const DAY_MS = 86_400_000;
+
 const byParts = (rrule: string) =>
   rrule
     .split(';')
@@ -171,51 +173,134 @@ const byParts = (rrule: string) =>
     .sort()
     .join(';');
 
-/**
- * Whether every occurrence moved with the series' start, by whole days: a
- * drag says so itself (a 7-day one leaves a weekly rule unchanged). An
- * edit in the dialog is one when the rule's days (BY*) moved by the same
- * days, or when the rule names none and takes its day from the start.
- */
-function occurrencesMoved(ev: EventRow, next: EventRow, dragged: boolean) {
-  const days =
-    dayOf(next.start_at, next.time_zone) - dayOf(ev.start_at, ev.time_zone);
-  if (dragged || days === 0 || !ev.rrule || !next.rrule) return true;
-  const before = byParts(ev.rrule);
-  const after = byParts(next.rrule);
-  if (before !== after) {
-    const date = new Date(dayOf(ev.start_at, ev.time_zone) * 86_400_000)
-      .toISOString()
-      .slice(0, 10);
-    const moved = shiftRule(ev.rrule, days, { date, timeZone: ev.time_zone });
-    // The month's day follows the start by itself (BYMONTHDAY), over a
-    // month's end too, where shiftRule refuses.
-    const monthDay = /^BYMONTHDAY=\d+$/;
-    return moved === null
-      ? monthDay.test(before) && monthDay.test(after)
-      : byParts(moved) === after;
-  }
-  if (before) return false;
-  const step = Number(/INTERVAL=(\d+)/.exec(next.rrule)?.[1] ?? 1);
-  if (next.rrule.startsWith('FREQ=DAILY')) return days % step !== 0;
-  if (next.rrule.startsWith('FREQ=WEEKLY')) return days % (7 * step) !== 0;
-  return true;
+const freqOf = (rrule: string) => /(?:^|;)FREQ=(\w+)/.exec(rrule)?.[1];
+const stepOf = (rrule: string) =>
+  Number(/(?:^|;)INTERVAL=(\d+)/.exec(rrule)?.[1] ?? 1);
+
+/** The whole days the series' start moved by. */
+const startMoved = (ev: EventRow, next: EventRow) =>
+  dayOf(next.start_at, next.time_zone) - dayOf(ev.start_at, ev.time_zone);
+
+/** The stored rule moved by the start's whole days (null: no rule is). */
+function shiftedRule(ev: EventRow, rrule: string, days: number) {
+  const date = new Date(dayOf(ev.start_at, ev.time_zone) * DAY_MS)
+    .toISOString()
+    .slice(0, 10);
+  return shiftRule(rrule, days, { date, timeZone: ev.time_zone });
 }
 
 /**
- * The series' exdates after its start moved, each an occurrence at the new
- * time of day in the new zone: on its own day ("Wednesday 2 December" stays
- * that date when the series only starts later), or moved by the start's
- * whole days when every occurrence moved.
+ * The whole days the occurrences moved by with the series' start: the
+ * start's own, or none when the series only starts at another date. A
+ * drag moves them and says so itself (a 7-day one leaves a weekly rule
+ * unchanged). An edit in the dialog does when the rule's days (BY*) moved
+ * by the same days, or when the rule names none and takes its day from the
+ * start; a rule of every second week also when its weeks became the others.
+ */
+function occurrencesMoved(ev: EventRow, next: EventRow, dragged: boolean) {
+  const days = startMoved(ev, next);
+  if (dragged || days === 0 || !ev.rrule || !next.rrule) return days;
+  const before = byParts(ev.rrule);
+  const after = byParts(next.rrule);
+  if (before !== after) {
+    const moved = shiftedRule(ev, ev.rrule, days);
+    // The month's day follows the start by itself (BYMONTHDAY), over a
+    // month's end too, where shiftRule refuses.
+    const monthDay = /^BYMONTHDAY=\d+$/;
+    const follows =
+      moved === null
+        ? monthDay.test(before) && monthDay.test(after)
+        : byParts(moved) === after;
+    return follows ? days : 0;
+  }
+  const step = stepOf(next.rrule);
+  const freq = freqOf(next.rrule);
+  if (before) {
+    if (freq !== 'WEEKLY' || freqOf(ev.rrule) !== freq) return 0;
+    if (stepOf(ev.rrule) !== step) return 0;
+    // Weeks of the rule (WKST), and whole ones: of TU,TH the start may have
+    // moved to the other day as well.
+    const wkst = /(?:^|;)WKST=(\w+)/.exec(next.rrule)?.[1] ?? 'MO';
+    const first = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'].indexOf(wkst);
+    // Day 0 (1 January 1970) is a Thursday.
+    const weekOf = (e: EventRow) =>
+      Math.floor((dayOf(e.start_at, e.time_zone) + 3 - first) / 7);
+    const weeks = weekOf(next) - weekOf(ev);
+    return weeks % step === 0 ? 0 : weeks * 7;
+  }
+  if (freq === 'DAILY') return days % step === 0 ? 0 : days;
+  if (freq === 'WEEKLY') return days % (7 * step) === 0 ? 0 : days;
+  return days;
+}
+
+/** A monthly rule's BY* that names one date a month. */
+const ONE_A_MONTH = /^(BYMONTHDAY=[+-]?\d+|BYDAY=[+-]?\d+[A-Z]{2})?$/;
+
+/**
+ * For a monthly series that stays one: the months its dates moved by, or
+ * null when they did not move, or not by months. No number of days says
+ * it: "the second Tuesday" lies 5 days before the second Thursday in one
+ * month and 2 after in another, and months differ in length. A date stays
+ * in its month, unless the rule's months (INTERVAL) became others, or the
+ * start only crossed a month's end (the 28th became the 2nd).
+ */
+function monthsMoved(ev: EventRow, next: EventRow, dragged: boolean) {
+  if (!ev.rrule || !next.rrule) return null;
+  if (freqOf(ev.rrule) !== 'MONTHLY') return null;
+  if (freqOf(next.rrule) !== 'MONTHLY') return null;
+  const step = stepOf(next.rrule);
+  if (stepOf(ev.rrule) !== step) return null;
+  const before = byParts(ev.rrule);
+  const after = byParts(next.rrule);
+  if (!ONE_A_MONTH.test(before) || !ONE_A_MONTH.test(after)) return null;
+  const months =
+    monthOf(toFloating(Date.parse(next.start_at), next.time_zone)) -
+    monthOf(toFloating(Date.parse(ev.start_at), ev.time_zone));
+  const days = startMoved(ev, next);
+  const moved =
+    dragged || months % step !== 0 || Math.abs(days) <= 14 ? months : 0;
+  const sameDates = before === after && (before !== '' || days === 0);
+  return sameDates && moved === 0 ? null : moved;
+}
+
+/** Months since 1970 of a wall-clock time, and the first of such a month. */
+const monthOf = (floating: number) => {
+  const d = new Date(floating);
+  return (d.getUTCFullYear() - 1970) * 12 + d.getUTCMonth();
+};
+const firstOfMonth = (month: number) => Date.UTC(1970, month);
+
+/**
+ * The series' exdates after its start or rule changed, each an occurrence
+ * at the new time of day in the new zone: on its own day ("Wednesday 2
+ * December" stays that date when the series only starts later), moved by
+ * whole days when every occurrence moved, or the date of its month in a
+ * monthly rule that now names another (dropped when that month has none).
  */
 function shiftExdates(ev: EventRow, next: EventRow, dragged: boolean) {
-  const days =
-    dayOf(next.start_at, next.time_zone) - dayOf(ev.start_at, ev.time_zone);
+  const exdates = ev.exdates ?? [];
+  const months = monthsMoved(ev, next, dragged);
+  if (months !== null) {
+    return exdates.flatMap((x) => {
+      const at = Date.parse(x);
+      // One the old rule did not name cancelled nothing.
+      if (!isOccurrence(ev, at)) return [];
+      const month = monthOf(toFloating(at, ev.time_zone)) + months;
+      const from = fromFloating(firstOfMonth(month), next.time_zone);
+      const to = fromFloating(firstOfMonth(month + 1), next.time_zone);
+      const found = expandEvent(
+        { ...next, exdates: [] },
+        from,
+        to
+      ).occurrences.find((o) => o.start >= from);
+      return found ? [new Date(found.start).toISOString()] : [];
+    });
+  }
   const delta =
     toFloating(Date.parse(next.start_at), next.time_zone) -
     toFloating(Date.parse(ev.start_at), ev.time_zone) -
-    (occurrencesMoved(ev, next, dragged) ? 0 : days * 86_400_000);
-  return (ev.exdates ?? []).map((x) =>
+    (startMoved(ev, next) - occurrencesMoved(ev, next, dragged)) * DAY_MS;
+  return exdates.map((x) =>
     new Date(
       fromFloating(
         toFloating(Date.parse(x), ev.time_zone) + delta,
@@ -227,7 +312,7 @@ function shiftExdates(ev: EventRow, next: EventRow, dragged: boolean) {
 
 /** The whole day of an instant on the zone's calendar. */
 const dayOf = (iso: string, timeZone: string) =>
-  Math.floor(toFloating(Date.parse(iso), timeZone) / 86_400_000);
+  Math.floor(toFloating(Date.parse(iso), timeZone) / DAY_MS);
 
 /**
  * Whether the edit leaves a series whose rule does not name its start
@@ -340,25 +425,29 @@ export async function PATCH(request: Request, { params }: Params) {
       rrule: v.rrule !== undefined ? v.rrule : ev.rrule,
     };
     // "Move all events": every occurrence shifts with the first one.
-    const dragged = (raw as { moveSeries?: unknown }).moveSeries === true;
-    // A drag keeps the start and the rule as they stood to each other, so
-    // it is no reason to refuse a series that already missed its start.
-    const missedBefore =
-      dragged && !!ev.rrule && !ruleIncludesStart(ev.rrule, ev);
-    if (!missedBefore && missesStart(ev, next)) {
-      return jsonError(RULE_MISSES_START, 400);
+    let dragged = (raw as { moveSeries?: unknown }).moveSeries === true;
+    if (missesStart(ev, next)) {
+      // A drag keeps the start and the rule as they stood to each other, so
+      // it is no reason to refuse a series that already missed its start. A
+      // tab from before `moveSeries` sends only what the rule moved to; the
+      // dialog refuses such a start itself.
+      const missed = !!ev.rrule && !ruleIncludesStart(ev.rrule, ev);
+      dragged ||=
+        missed &&
+        next.rrule === shiftedRule(ev, ev.rrule!, startMoved(ev, next));
+      if (!missed || !dragged) return jsonError(RULE_MISSES_START, 400);
     }
     if (v.start_at !== undefined || v.rrule !== undefined) {
       changes.series_end_at = seriesEndAt(next)?.toISOString() ?? null;
-    }
-    if (
-      ev.rrule &&
-      (ev.exdates ?? []).length > 0 &&
-      v.start_at !== undefined &&
-      v.time_zone !== undefined &&
-      (!sameInstant(v.start_at, ev.start_at) || v.time_zone !== ev.time_zone)
-    ) {
-      changes.exdates = shiftExdates(ev, next, dragged);
+      const before = ev.rrule ? (ev.exdates ?? []) : [];
+      const after = shiftExdates(ev, next, dragged);
+      if (
+        before.length > 0 &&
+        (before.length !== after.length ||
+          !before.every((x, i) => sameInstant(x, after[i])))
+      ) {
+        changes.exdates = after;
+      }
     }
 
     const { data, error: rpcErr } = await supabase.rpc(

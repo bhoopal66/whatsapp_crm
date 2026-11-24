@@ -81,7 +81,11 @@ export async function middleware(request: NextRequest) {
   // This request has waited once: what it reaches does not ask again.
   if (refresh.gaveUp()) {
     request.cookies.set(REFRESH_UNANSWERED_COOKIE, '1')
+    // What getUser() wrote stays: a token still valid may have been used
+    // to learn that the session has ended.
+    const written = supabaseResponse.cookies.getAll()
     supabaseResponse = NextResponse.next({ request })
+    written.forEach((cookie) => supabaseResponse.cookies.set(cookie))
   }
 
   // The auth service did not answer, for someone who holds a session

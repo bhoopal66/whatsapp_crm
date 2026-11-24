@@ -215,6 +215,15 @@ describe('the real auth-js on the server', () => {
     vi.restoreAllMocks();
   });
 
+  it('an answer whose body never ends', async () => {
+    const stalled = () => new Response(new ReadableStream(), { status: 200 });
+    expect(await refresh(stalled, [])).toMatchObject({
+      ...unanswered,
+      seconds: 3,
+      requestsInAll: 1,
+    });
+  });
+
   it('gives up a request that is under way', async () => {
     let signal: AbortSignal | null | undefined;
     await refresh(() => {
