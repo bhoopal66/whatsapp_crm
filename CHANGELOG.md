@@ -22,6 +22,12 @@ and polish.
 
 ### Fixed
 
+- **Groups: Sync no longer believes an empty or damaged list.** A gateway
+  that has just re-paired answers with no groups, and every group on the
+  number was marked "left" and refused sends. An empty list, a row that
+  cannot be read or a list short of its own total now marks nothing, and
+  the person is told. A number that really left everything is recorded by
+  a second Sync ten minutes to an hour later.
 - **Numbers typed in Arabic digits work.** Contact search, the inbox,
   groups and forward searches read Arabic-Indic and Persian digits as 0-9,
   and a number typed or imported with them keeps its digits.

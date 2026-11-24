@@ -8558,6 +8558,7 @@
     "sync": "WhatsApp에서 동기화",
     "syncing": "동기화 중…",
     "syncDone": "그룹 {synced}개 동기화 · 신규 {created} · 나감 {left}",
+    "syncIncomplete": "게이트웨이의 목록이 불완전해 보여 나간 것으로 표시된 그룹이 없습니다. 몇 분 후 다시 시도하세요.",
     "syncFailed": "그룹을 동기화하지 못했습니다: {reason}",
     "loadFailed": "그룹을 불러오지 못했습니다. 잠시 후 다시 시도하세요.",
     "emptyTitle": "아직 그룹이 없습니다",

@@ -570,7 +570,7 @@ export async function listGroups(
 /**
  * `listGroups`, saying whether the list is the number's whole set.
  * `complete: false` when the OpenWA walk ran out of time or a group's
- * read failed: a caller that marks unlisted groups as left (Sync) must
+ * read failed, or Whapi's rows could not all be read: a caller that marks unlisted groups as left (Sync) must
  * not do so from a partial list.
  */
 export async function listGroupsWithStatus(
@@ -578,13 +578,7 @@ export async function listGroupsWithStatus(
 ): Promise<{ groups: whapi.WhapiGroup[]; complete: boolean }> {
   const gw = gatewayFor(args.channel);
   if (gw.kind === 'whapi') {
-    return {
-      groups: await whapi.listAllGroups({
-        token: gw.token,
-        maxGroups: args.maxGroups,
-      }),
-      complete: true,
-    };
+    return whapi.walkAllGroups({ token: gw.token, maxGroups: args.maxGroups });
   }
   const budget: TimeBudget = {
     deadline: args.deadline ?? groupDeadline(args.now?.()),

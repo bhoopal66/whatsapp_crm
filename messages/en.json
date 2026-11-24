@@ -8558,6 +8558,7 @@
     "sync": "Sync from WhatsApp",
     "syncing": "Syncing…",
     "syncDone": "{synced, plural, =1 {# group} other {# groups}} synced · {created} new · {left} left",
+    "syncIncomplete": "The gateway's list looked incomplete; nothing was marked as left. Try again in a few minutes.",
     "syncFailed": "Couldn't sync groups: {reason}",
     "loadFailed": "Couldn't load groups. Try again in a moment.",
     "emptyTitle": "No groups yet",

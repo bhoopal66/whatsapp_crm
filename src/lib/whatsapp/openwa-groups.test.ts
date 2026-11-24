@@ -280,6 +280,11 @@ describe('createGroup and list', () => {
       { id: '120363000000000002@g.us', name: 'B' },
     ]);
   });
+
+  it('throws on an answer that is not a list', async () => {
+    fetchMock.mockResolvedValueOnce(json(200, { status: 'starting' }));
+    await expect(listGroupSummaries(creds)).rejects.toThrow('no list');
+  });
 });
 
 describe('participants', () => {

@@ -2,7 +2,11 @@
 // POST /api/whatsapp/groups/sync — pull every Whapi number's groups in
 // from WhatsApp (admin and up). A group no longer listed is marked
 // `left`, but only when that number's listing was complete: a capped or
-// interrupted walk proves nothing about the groups it did not reach.
+// interrupted walk proves nothing about the groups it did not reach. Nor
+// does an empty list while groups are known on the number: a gateway that
+// has just re-paired answers 200 with none. It marks groups left only when
+// a second Sync, ten minutes to an hour later, finds it still empty; until
+// then the answer carries `incomplete: true`, as for any partial list.
 // The listing is everything on the number, so a submission group (its
 // own screens) and a group an admin deleted for good are skipped; both
 // still count as listed, so a row of theirs is not marked left.
@@ -30,6 +34,23 @@ export const SYNC_GROUPS_PER_CHANNEL = 300;
 const START_BUDGET_MS = 45_000;
 const HARD_STOP_MS = 52_000;
 
+/** An empty list is believed on a second Sync this long after the first. */
+const EMPTY_CONFIRM_MS = 10 * 60_000;
+const EMPTY_STALE_MS = 60 * 60_000;
+/** When each number was first seen empty. Memory only: a restart asks again. */
+const emptySince = new Map<string, number>();
+
+/** Whether an empty list of a number with known groups is to be believed. */
+function confirmedEmpty(channelId: string): boolean {
+  const now = Date.now();
+  const first = emptySince.get(channelId);
+  if (first === undefined || now - first > EMPTY_STALE_MS) {
+    emptySince.set(channelId, now);
+    return false;
+  }
+  return now - first >= EMPTY_CONFIRM_MS;
+}
+
 export async function POST() {
   try {
     const ctx = assertSalesAccess(await getCurrentAccount());
@@ -56,6 +77,7 @@ export async function POST() {
     let created = 0;
     let left = 0;
     let truncated = false;
+    let incomplete = false;
     let done = 0;
     let firstFailure: unknown = null;
 
@@ -111,6 +133,17 @@ export async function POST() {
       done++;
       let complete =
         listed.complete && listed.groups.length <= SYNC_GROUPS_PER_CHANNEL;
+      if (!listed.complete) incomplete = true;
+      if (listed.groups.length > 0) emptySince.delete(channel.id);
+      else if (
+        complete &&
+        known.some((g) => g.our_role !== 'left') &&
+        !confirmedEmpty(channel.id)
+      ) {
+        complete = false;
+        incomplete = true;
+        console.warn('[groups] sync: empty list not believed', channel.id);
+      }
       const seen = new Set<string>();
       for (const group of listed.groups.slice(0, SYNC_GROUPS_PER_CHANNEL)) {
         if (elapsed() > HARD_STOP_MS) {
@@ -153,6 +186,7 @@ export async function POST() {
       left,
       truncated,
       channels: done,
+      ...(incomplete ? { incomplete } : {}),
     });
   } catch (err) {
     return groupErrorResponse(err);

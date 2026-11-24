@@ -223,6 +223,35 @@ describe('POST /api/whatsapp/groups/sync', () => {
     );
   });
 
+  it('does not believe an empty list until a second sync ten minutes on', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      mocks.listGroups.mockResolvedValue([]);
+      const first = await (await POST()).json();
+      expect(first).toMatchObject({ left: 0, incomplete: true });
+      vi.setSystemTime(Date.now() + 9 * 60_000);
+      expect(await (await POST()).json()).toMatchObject({ left: 0 });
+      expect(mocks.updates).toEqual([]);
+      vi.setSystemTime(Date.now() + 60_000);
+      const third = await (await POST()).json();
+      expect(third).toMatchObject({ left: 2, truncated: false });
+      expect(third.incomplete).toBeUndefined();
+      expect(mocks.updates).toEqual([
+        { values: { our_role: 'left' }, ids: ['row-1', 'row-9'] },
+      ]);
+      // A listing with groups starts the wait again.
+      mocks.listGroups.mockResolvedValueOnce([group(1)]);
+      await POST();
+      expect(await (await POST()).json()).toMatchObject({
+        left: 0,
+        incomplete: true,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('marks nothing left when the listing was incomplete', async () => {
     // An OpenWA walk that ran out of time or failed a group read.
     mocks.complete = false;
