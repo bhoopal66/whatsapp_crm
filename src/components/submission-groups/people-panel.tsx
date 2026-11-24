@@ -13,6 +13,7 @@ import {
   avatarTone,
   initialsOf,
   STAFF_LABELS,
+  staffNumberNote,
   type SgAccess,
   type StaffLabel,
 } from '@/lib/submission-groups/ui';
@@ -44,15 +45,14 @@ export function PeoplePanel({
   const candidates = addableStaff(members, access);
   const titleId = useId();
 
-  // What happened to the person's saved WhatsApp number (219); quiet when
-  // they have none or the group has no WhatsApp side.
-  const noteNumber = (body: unknown) => {
-    const status = (body as { number?: { status?: string } } | null)?.number
-      ?.status;
-    if (status === 'added') toast.success(t('numberAdded'));
-    else if (status === 'removed') toast.success(t('numberRemoved'));
-    else if (status === 'refused') toast.warning(t('numberRefused'));
-    else if (status === 'failed') toast.warning(t('numberFailed'));
+  // What happened to the person's saved WhatsApp number (219, 299).
+  const noteNumber = (body: unknown, change: 'give' | 'remove') => {
+    const note = staffNumberNote(
+      (body as { number?: { status?: string; reason?: string } } | null)
+        ?.number,
+      change
+    );
+    if (note) toast[note.tone](t(note.key));
   };
 
   const put = async (userId: string, label: StaffLabel) => {
@@ -67,7 +67,7 @@ export function PeoplePanel({
         toast.error(t('saveFailed'));
         return false;
       }
-      noteNumber(await res.json().catch(() => null));
+      noteNumber(await res.json().catch(() => null), 'give');
       onChanged();
       return true;
     } catch {
@@ -89,7 +89,7 @@ export function PeoplePanel({
       );
       if (!res.ok) toast.error(t('removeFailed'));
       else {
-        noteNumber(await res.json().catch(() => null));
+        noteNumber(await res.json().catch(() => null), 'remove');
         onChanged();
       }
     } catch {

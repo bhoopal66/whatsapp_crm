@@ -545,3 +545,31 @@ export function clearUnread<T extends { id: string; unread?: number }>(
 export function onlyMine(groups: readonly SgListItem[]): SgListItem[] {
   return groups.filter((g) => g.my_label !== null);
 }
+
+/**
+ * The toast for what happened to a person's saved WhatsApp number when
+ * access was given or removed (219); null when there is nothing to say. With
+ * no saved number an addition is quiet (they send from the app), a removal is
+ * not: their phone may still be in the WhatsApp group (299).
+ */
+export function staffNumberNote(
+  number: { status?: string; reason?: string } | null | undefined,
+  change: 'give' | 'remove'
+) {
+  switch (number?.status) {
+    case 'added':
+      return { tone: 'success', key: 'numberAdded' } as const;
+    case 'removed':
+      return { tone: 'success', key: 'numberRemoved' } as const;
+    case 'refused':
+      return { tone: 'warning', key: 'numberRefused' } as const;
+    case 'failed':
+      return { tone: 'warning', key: 'numberFailed' } as const;
+    case 'none':
+      return change === 'remove' && number.reason === 'no_saved_number'
+        ? ({ tone: 'warning', key: 'numberUnknown' } as const)
+        : null;
+    default:
+      return null;
+  }
+}

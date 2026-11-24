@@ -8741,7 +8741,8 @@
         "unknown": "Something went wrong. Try again.",
         "no_participants": "None of those people could be added to a group. Check the numbers and try again.",
         "saved_failed_run_sync": "The group was created on WhatsApp but couldn't be saved here. An admin can run Sync to bring it in — don't create it again.",
-        "send_unconfirmed": "This message may have been sent: check the chat before sending it again."
+        "send_unconfirmed": "This message may have been sent: check the chat before sending it again.",
+        "no_saved_number": "No number of their own is saved. If their phone is in the group, remove it on the Members tab."
       },
       "membersTab": {
         "search": "Search members",
@@ -8967,6 +8968,7 @@
       "numberAdded": "Their WhatsApp number was added to the group.",
       "numberRefused": "WhatsApp would not add their number. Share the group's invite link with them.",
       "numberFailed": "Access saved, but their WhatsApp number could not be updated in the group.",
+      "numberUnknown": "Access removed, but no WhatsApp number of their own is saved, so nothing was taken out of the group. If their phone is in it, remove it in WhatsApp.",
       "numberRemoved": "Their WhatsApp number was removed from the group.",
       "title": "People",
       "hint": "Staff on this list read and write the group.",

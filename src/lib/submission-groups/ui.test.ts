@@ -17,6 +17,7 @@ import {
   inviteNotice,
   coordinatorPhonesOf,
   addableStaff,
+  staffNumberNote,
   appendPage,
   bubbleKind,
   canAddNumber,
@@ -551,5 +552,41 @@ describe('canAddNumber (211)', () => {
     expect(canAddNumber(group({ wa_mode: 'none' }))).toBe(false);
     expect(canAddNumber(group({ wa_group_id: null }))).toBe(false);
     expect(canAddNumber(group({ channel: null }))).toBe(false);
+  });
+});
+
+describe('staffNumberNote (219, 299)', () => {
+  it('warns on a removal with no saved number, and is quiet on an addition', () => {
+    const none = { status: 'none', reason: 'no_saved_number' };
+    expect(staffNumberNote(none, 'remove')).toEqual({
+      tone: 'warning',
+      key: 'numberUnknown',
+    });
+    expect(staffNumberNote(none, 'give')).toBeNull();
+  });
+
+  it.each(['give', 'remove'] as const)('on %s says the rest', (change) => {
+    expect(staffNumberNote({ status: 'added' }, change)?.key).toBe(
+      'numberAdded'
+    );
+    expect(staffNumberNote({ status: 'removed' }, change)?.key).toBe(
+      'numberRemoved'
+    );
+    expect(staffNumberNote({ status: 'refused' }, change)?.key).toBe(
+      'numberRefused'
+    );
+    expect(staffNumberNote({ status: 'failed' }, change)?.key).toBe(
+      'numberFailed'
+    );
+    for (const quiet of [
+      { status: 'none', reason: 'not_in_group' },
+      { status: 'none', reason: 'no_access_row' },
+      { status: 'skipped', reason: 'no_whatsapp' },
+      { status: 'already' },
+      null,
+      undefined,
+    ]) {
+      expect(staffNumberNote(quiet, change)).toBeNull();
+    }
   });
 });

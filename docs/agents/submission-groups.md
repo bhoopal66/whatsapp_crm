@@ -35,6 +35,9 @@ submission app. `docs/submission-groups.md` is the contract.
 - **Inbound** group messages arrive through `processWhapiGroups` and are
   stored idempotently on `(group_id, wa_message_id)`; they never reach
   `messages`, flows, automations or the AI.
+- **Never an ordinary group (299).** A `whatsapp_groups` row with the same
+  WhatsApp id is nobody's; access is this module's alone. Removing access
+  takes out the number `staff_removal_phone` gives, whoever they are now.
 - **Detach on delete:** `channel_id` / `contact_id` are ON DELETE SET NULL;
   a detached group refuses sends (`NUMBER_REMOVED` / `CONTACT_REMOVED`).
 - **Consent:** opt-out and do-not-contact refuse create and sends; there

@@ -191,6 +191,7 @@ beforeEach(() => {
       },
     ],
     whatsapp_group_messages: [],
+    submission_groups: [],
   };
   updates = 0;
   h.upload.mockResolvedValue({ error: null });

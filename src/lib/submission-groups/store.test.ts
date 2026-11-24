@@ -28,6 +28,25 @@ describe('SubmissionGroupStore RPC errors', () => {
   });
 });
 
+describe('a saved staff number (219, 299)', () => {
+  it('is asked of its own function for an addition and for a removal', async () => {
+    const calls: [string, unknown][] = [];
+    const store = new SubmissionGroupStore({
+      rpc: async (fn: string, args: unknown) => {
+        calls.push([fn, args]);
+        return { data: fn === 'staff_removal_phone' ? '971' : '', error: null };
+      },
+    } as unknown as SupabaseClient);
+    expect(await store.staffSavedPhone('a1', 'u1')).toBeNull();
+    expect(await store.staffRemovalPhone('a1', 'u1')).toBe('971');
+    const args = { p_account: 'a1', p_user: 'u1' };
+    expect(calls).toEqual([
+      ['staff_saved_phone', args],
+      ['staff_removal_phone', args],
+    ]);
+  });
+});
+
 describe('the 1:1 invite (118)', () => {
   it('noteInvite calls sg_note_invite and answers its boolean', async () => {
     const calls: [string, unknown][] = [];

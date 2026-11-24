@@ -878,6 +878,22 @@ export class SubmissionGroupStore {
   }
 
   /**
+   * 299: the saved number to take out of a group with this person, whatever
+   * their role or state now; null when nothing is saved or it is another
+   * live member's now.
+   */
+  async staffRemovalPhone(
+    accountId: string,
+    userId: string
+  ): Promise<string | null> {
+    const v = await this.rpc('staff_removal_phone', {
+      p_account: accountId,
+      p_user: userId,
+    });
+    return typeof v === 'string' && v ? v : null;
+  }
+
+  /**
    * 219: a phone joined the group; when it is a staff member's saved number
    * they get access ('coordinator'). Their user id, or null.
    */

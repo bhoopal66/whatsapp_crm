@@ -261,6 +261,13 @@ describe('PUT: manager numbers follow the managers', () => {
     [U2]: '+971 50 000 0002',
     [CREATOR]: null,
   };
+  const live = (args: Record<string, unknown>) =>
+    mocks.admin.tables.profiles.some(
+      (p) =>
+        p.user_id === args.p_user &&
+        !p.deactivated_at &&
+        ['agent', 'team_leader'].includes(String(p.account_role))
+    );
   beforeEach(() => {
     mocks.rls.tables.whatsapp_groups[0] = {
       ...mocks.rls.tables.whatsapp_groups[0],
@@ -269,7 +276,12 @@ describe('PUT: manager numbers follow the managers', () => {
       our_role: 'admin',
     };
     mocks.admin.rpc = {
+      // Live agents and leaders only, like 219.
       staff_saved_phone: (args) => ({
+        data: live(args) ? (PHONES[String(args.p_user)] ?? null) : null,
+      }),
+      // Whatever the person is now (299).
+      staff_removal_phone: (args) => ({
         data: PHONES[String(args.p_user)] ?? null,
       }),
     };
@@ -302,7 +314,41 @@ describe('PUT: manager numbers follow the managers', () => {
     });
   });
 
-  it('does nothing at WhatsApp for people with no saved number', async () => {
+  it.each([
+    { deactivated_at: '2026-11-01T00:00:00Z' },
+    { account_role: 'viewer' },
+  ])('removes the number of a dropped manager who is now %o', async (now) => {
+    Object.assign(
+      mocks.admin.tables.profiles.find((p) => p.user_id === U1)!,
+      now
+    );
+    const res = await put({ userIds: [U2] });
+    expect(res.status).toBe(200);
+    expect(mocks.removeParticipants.mock.calls[0][0]).toMatchObject({
+      participants: ['971500000001'],
+    });
+    expect((await res.json()).numbers).toEqual({
+      added: ['Ugo'],
+      removed: ['Uma'],
+      failed: [],
+    });
+  });
+
+  it('never adds by the removal number: an admin sends from the app', async () => {
+    mocks.admin.tables.profiles.find((p) => p.user_id === U2)!.account_role =
+      'admin';
+    const res = await put({ userIds: [U1, U2] });
+    expect(res.status).toBe(200);
+    expect(managerIds()).toEqual([CREATOR, U1, U2].sort());
+    expect(mocks.addParticipants).not.toHaveBeenCalled();
+    expect((await res.json()).numbers).toEqual({
+      added: [],
+      removed: [],
+      failed: [],
+    });
+  });
+
+  it('says so when it has no number to remove, and does nothing at WhatsApp', async () => {
     PHONES[U2] = null;
     PHONES[U1] = null;
     try {
@@ -313,7 +359,7 @@ describe('PUT: manager numbers follow the managers', () => {
       expect((await res.json()).numbers).toEqual({
         added: [],
         removed: [],
-        failed: [],
+        failed: [{ name: 'Uma', reason: 'no_saved_number' }],
       });
     } finally {
       PHONES[U1] = '971500000001';

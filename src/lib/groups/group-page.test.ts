@@ -21,6 +21,7 @@ describe('reasonKey', () => {
     expect(reasonKey('not_group_admin')).toBe('not_group_admin');
     expect(reasonKey('channel_disconnected')).toBe('channel_disconnected');
     expect(reasonKey('own_number')).toBe('own_number');
+    expect(reasonKey('no_saved_number')).toBe('no_saved_number');
     expect(reasonKey('something_new')).toBe('unknown');
     expect(reasonKey(42)).toBe('unknown');
     expect(reasonKey(undefined)).toBe('unknown');
