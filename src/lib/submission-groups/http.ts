@@ -5,12 +5,14 @@
  * `{ error }` responses. No I/O here; the routes do that.
  */
 import { GROUP_SEND_LIMIT } from '@/lib/groups/member-requests';
+import { SEND_UNCONFIRMED } from '@/lib/groups/unconfirmed-sends';
 
 import { isStaffLabel, type StaffLabel } from './rules';
 import {
   type SgAttachmentKind,
   SubmissionGroupSendBlockedError,
   SubmissionGroupSendRefusedError,
+  SubmissionGroupSendUnconfirmedError,
   SubmissionGroupSentNotRecordedError,
 } from './service';
 import { SubmissionGroupDbError, type SubmissionGroup } from './store';
@@ -193,6 +195,11 @@ export function sendErrorFor(err: unknown): SgHttpError {
   // 210: sg_send_begin_media refused the type or the media object.
   if (err instanceof SubmissionGroupDbError && err.code === '22023')
     return new SgHttpError(400, 'Invalid attachment');
+  // Nobody knows whether WhatsApp took it: never worded as a refusal.
+  if (err instanceof SubmissionGroupSendUnconfirmedError)
+    return new SgHttpError(502, 'The message may have been sent', {
+      code: SEND_UNCONFIRMED,
+    });
   return new SgHttpError(502, 'The message could not be sent');
 }
 

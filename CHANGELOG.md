@@ -34,6 +34,15 @@ and polish.
 
 ### Fixed
 
+- **Submission groups: what the screen says is what happened.** **Migration
+  required: 308.** A send nobody answered for says it may have been
+  delivered, not that WhatsApp refused it. Ending a group whose WhatsApp
+  group is still open says so, and a banner stays until it is closed. Retry
+  says when the group is still waiting, or that its number or contact is
+  gone. A dead number's ended groups no longer keep the others from being
+  closed. A customer who left under a hidden number is checked again instead
+  of staying "joined".
+
 - **The privacy register no longer calls Draft with AI a reply.** The
   draft and the playground record their own purpose (`draft`,
   `playground`) in the AI transfer register instead of `reply`.

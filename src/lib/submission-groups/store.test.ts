@@ -254,6 +254,16 @@ describe('wa_mode (136)', () => {
     await store.listUnclosedEnded();
     expect(filters).toContainEqual(['eq', 'wa_mode', 'group']);
   });
+
+  it('listUnclosedEnded leaves out a number that is not connected', async () => {
+    const { store, filters } = recording();
+    await store.listUnclosedEnded();
+    expect(filters).toContainEqual([
+      'eq',
+      'whatsapp_config.status',
+      'connected',
+    ]);
+  });
 });
 
 describe('listWithoutCase (the cron opens the missing case)', () => {

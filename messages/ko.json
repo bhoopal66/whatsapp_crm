@@ -9040,7 +9040,7 @@
       "status": {
         "pending": "전송 중",
         "sent": "전송됨",
-        "failed": "실패",
+        "failed": "전달되지 않았을 수 있음, 그룹을 확인하세요",
         "blocked": "차단됨"
       }
     },
@@ -9101,6 +9101,7 @@
         "noWhatsapp": "이 제출 건은 WhatsApp 그룹 없이 기록되었습니다 (설정 → 케이스에서 WhatsApp 그룹이 꺼져 있습니다).",
         "pending": "WhatsApp 그룹을 만드는 중입니다. 준비되면 메시지를 보낼 수 있습니다.",
         "createError": "WhatsApp 그룹을 만들지 못했습니다.",
+        "stillOpen": "여기서는 종료되었지만 WhatsApp 그룹은 아직 열려 있습니다.",
         "closeError": "그룹은 종료되었지만 WhatsApp에서 닫지 못했습니다.",
         "closeRemaining": "{count, plural, other {#명을 내보내지 못해 그룹이 아직 열려 있습니다. 시스템이 계속 시도하며, 휴대폰에서 직접 내보낼 수도 있습니다.}}",
         "numberRemoved": "이 그룹을 운영하는 WhatsApp 번호가 제거되었습니다. 아무도 메시지를 보낼 수 없습니다.",
@@ -9143,10 +9144,13 @@
       "endTitle": "이 그룹을 종료할까요?",
       "endBody": "그룹 {ref}이(가) 지금 종료됩니다. 아무도 메시지를 보낼 수 없으며, 메시지는 기록되는 보관함에서만 열립니다.",
       "endDone": "그룹이 종료되었습니다.",
+      "endCloseDeferred": "그룹이 여기서 종료되었습니다. WhatsApp 그룹은 아직 열려 있으며 곧 닫힙니다.",
+      "endCloseFailed": "그룹이 여기서 종료되었지만 WhatsApp 그룹을 아직 닫지 못했습니다.",
       "endFailed": "그룹을 종료하지 못했습니다.",
       "retryTitle": "WhatsApp 그룹 생성을 다시 시도할까요?",
       "retryBody": "WhatsApp에 그룹 생성을 다시 요청합니다.",
       "retryDone": "WhatsApp에 그룹 생성을 다시 요청했습니다.",
+      "retryPending": "아직 대기 중입니다. WhatsApp 그룹이 아직 생성되지 않았습니다.",
       "retryFailed": "다시 시도하지 못했습니다.",
       "inviteResendDone": "고객에게 초대 링크를 다시 보냈습니다.",
       "inviteResendFailed": "초대를 다시 보내지 못했습니다.",
