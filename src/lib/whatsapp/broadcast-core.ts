@@ -693,8 +693,8 @@ export async function deliverBroadcast(
     if (!marked || marked.length === 0) {
       // Nothing is marked either once the campaign is no longer 'sending'
       // (the trigger of migration 301): then the whole pass ends.
-      if (await wasStopped(db, plan.broadcastId)) {
-        stopped = 'the campaign was stopped';
+      if (await noLongerSending(db, plan.broadcastId)) {
+        stopped = 'the campaign is no longer being sent';
         break;
       }
       continue;
@@ -811,16 +811,20 @@ export async function deliverBroadcast(
   if (!lockLost) await finalizeBroadcastStatus(db, plan.broadcastId);
 }
 
-async function wasStopped(
+/**
+ * Stopped, finished, deleted, or not readable: the pass ends either way,
+ * since a recipient that could not be marked is never sent to.
+ */
+async function noLongerSending(
   db: SupabaseClient,
   broadcastId: string
 ): Promise<boolean> {
-  const { data } = await db
+  const { data, error } = await db
     .from('broadcasts')
     .select('status')
     .eq('id', broadcastId)
     .maybeSingle();
-  return data?.status === 'stopped';
+  return !!error || data?.status !== 'sending';
 }
 
 /**

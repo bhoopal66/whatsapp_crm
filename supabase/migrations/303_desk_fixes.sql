@@ -28,6 +28,12 @@
 
 SET lock_timeout = '5s';
 
+-- First: the patches of step 7 use it, and a plain `psql -f` goes on after
+-- a lock timeout. patch_303 refuses them while it is missing.
+ALTER TABLE public.cases ADD COLUMN IF NOT EXISTS group_end_tried_at timestamptz NULL;
+COMMENT ON COLUMN public.cases.group_end_tried_at IS
+  'When ending this case''s group was last tried (case_claim_group_end_system); orders and spaces the sweep. Migration 303.';
+
 CREATE OR REPLACE FUNCTION pg_temp.patch_303(p_fn text, p_old text, p_new text,
                                               p_old2 text DEFAULT '', p_new2 text DEFAULT '')
 RETURNS void LANGUAGE plpgsql AS $p$
@@ -35,6 +41,11 @@ DECLARE
   v_def text := pg_get_functiondef(p_fn::regprocedure);
 BEGIN
   IF position(p_new IN v_def) > 0 THEN RETURN; END IF;
+  IF position('group_end_tried_at' IN p_new || p_new2) > 0 AND NOT EXISTS (
+       SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'cases' AND column_name = 'group_end_tried_at') THEN
+    RAISE EXCEPTION '303: cases.group_end_tried_at is missing, % is left as it was', p_fn;
+  END IF;
   IF position(p_old IN v_def) = 0 OR (p_old2 <> '' AND position(p_old2 IN v_def) = 0) THEN
     RAISE EXCEPTION '303: % is not the body this migration patches', p_fn;
   END IF;
@@ -268,10 +279,6 @@ $o$, $n$to_char(v.started_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
 $n$);
 
 -- ---------- 7. The group-end sweep takes turns ----------
-
-ALTER TABLE public.cases ADD COLUMN IF NOT EXISTS group_end_tried_at timestamptz NULL;
-COMMENT ON COLUMN public.cases.group_end_tried_at IS
-  'When ending this case''s group was last tried (case_claim_group_end_system); orders and spaces the sweep. Migration 303.';
 
 SELECT pg_temp.patch_303('public.case_claim_group_end_system(uuid, interval)',
 $o$  UPDATE public.cases x SET group_end_claimed_at = now() WHERE x.id = p_case;$o$,

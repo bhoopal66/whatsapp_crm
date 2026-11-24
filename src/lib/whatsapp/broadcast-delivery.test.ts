@@ -628,6 +628,45 @@ describe('Stop (migration 301)', () => {
     expect(w.broadcasts[0].status).toBe('stopped');
   });
 
+  it.each([
+    ['finished meanwhile', 'sent', null],
+    ['not readable', 'sending', 'timeout'],
+  ])(
+    'ends the pass when nothing could be marked and it is %s',
+    async (_, status, failRead) => {
+      const w = world(4);
+      let marking = false;
+      const db = fakeDb(w, {
+        fail: ({ table }) => {
+          if (table !== 'broadcasts' || !marking) return null;
+          return failRead;
+        },
+      });
+      const marked: string[] = [];
+      const from = db.from.bind(db);
+      // Every mark matches nothing: the trigger of 301, or another pass.
+      db.from = ((table: string) => {
+        const q = from(table) as Record<string, (...a: unknown[]) => unknown>;
+        if (table !== 'broadcast_recipients') return q;
+        const update = q.update.bind(q);
+        q.update = (patch: unknown) => {
+          const text = (patch as Row).error_message;
+          if (typeof text === 'string' && text.startsWith('May have been')) {
+            marking = true;
+            marked.push(text);
+            w.broadcasts[0].status = status;
+            return (update({ ...(patch as Row) }) as typeof q).eq('id', 'none');
+          }
+          return update(patch);
+        };
+        return q;
+      }) as typeof db.from;
+      await deliverBroadcast(db, planFor(w));
+      expect(sendTemplate).not.toHaveBeenCalled();
+      expect(marked).toHaveLength(1);
+    }
+  );
+
   it('is undone by its own Resume only', async () => {
     const w = world(2, { status: 'stopped' });
     const db = fakeDb(w);

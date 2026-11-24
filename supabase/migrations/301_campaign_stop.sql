@@ -23,9 +23,12 @@
 -- Re-runnable.
 -- ============================================================
 
-ALTER TABLE public.broadcasts DROP CONSTRAINT IF EXISTS broadcasts_status_check;
-ALTER TABLE public.broadcasts ADD CONSTRAINT broadcasts_status_check
-  CHECK (status IN ('draft', 'scheduled', 'sending', 'sent', 'failed', 'stopped'));
+-- One statement: the table is never without the check.
+ALTER TABLE public.broadcasts
+  DROP CONSTRAINT IF EXISTS broadcasts_status_check,
+  ADD CONSTRAINT broadcasts_status_check
+  CHECK (status IN ('draft', 'scheduled', 'sending', 'sent', 'failed', 'stopped')) NOT VALID;
+ALTER TABLE public.broadcasts VALIDATE CONSTRAINT broadcasts_status_check;
 
 CREATE OR REPLACE FUNCTION public.broadcast_recipients_stopped_guard()
 RETURNS trigger
