@@ -13385,6 +13385,12 @@
       "dismissReason": "Why does it belong to no case?",
       "dismiss": "Dismiss",
       "dismissed": "Dismissed",
+      "openChat": "Open the chat",
+      "shown": "{shown} of {total}, oldest first",
+      "loadMore": "Load more",
+      "waiting": "This document is already waiting in the sorting queue.",
+      "filedElsewhere": "This document was already filed on {caseNumber}.",
+      "filedAlready": "This document was already filed on another case.",
       "reasons": {
         "unknown_sender": "Sender is not linked to any company",
         "no_open_case": "The sender's companies have no open case",
@@ -13392,7 +13398,8 @@
         "many_cases": "Several open cases, no case number given",
         "evidence_conflict": "The quoted message and the caption name different cases",
         "other_person": "Sent by someone other than the case's customer",
-        "file_refused": "The case would not accept the file"
+        "file_refused": "The case would not accept the file",
+        "copy_failed": "The document could not be copied automatically: open the original in the chat"
       },
       "why": {
         "quoted": "quoted",

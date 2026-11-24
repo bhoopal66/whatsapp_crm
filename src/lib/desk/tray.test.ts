@@ -11,9 +11,14 @@ const SQL = readFileSync(
   'utf8'
 );
 
+const SQL_303 = readFileSync(
+  join(process.cwd(), 'supabase/migrations/303_desk_fixes.sql'),
+  'utf8'
+);
+
 describe('desk tray (migration 230)', () => {
   it('has the reasons of the SQL CHECK, in order', () => {
-    const m = SQL.match(
+    const m = SQL_303.match(
       /desk_tray_reason_check CHECK \(reason IN \(([^)]*)\)\)/
     );
     const reasons = [...(m?.[1] ?? '').matchAll(/'([a-z_]+)'/g)].map(
@@ -24,7 +29,9 @@ describe('desk tray (migration 230)', () => {
 
   it('knows every hint migration 230 raises', () => {
     const hints = new Set(
-      [...SQL.matchAll(/desk_refuse\('[a-z_]+', '([A-Z_]+)'/g)].map((m) => m[1])
+      [...(SQL + SQL_303).matchAll(/desk_refuse\('[a-z_]+', '([A-Z_]+)'/g)].map(
+        (m) => m[1]
+      )
     );
     expect(hints.size).toBeGreaterThan(5);
     for (const x of hints)

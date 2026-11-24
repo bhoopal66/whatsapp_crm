@@ -4,7 +4,8 @@
 // person's (a PRO's) is copied through the desk intake in the caller's
 // name and the tray item points at that upload. A case of a company the
 // sender does not act for needs its legal name typed (CONFIRM_COMPANY).
-// -> `{ outcome: 'filed', caseNumber, item? }`.
+// -> `{ outcome: 'filed', caseNumber, item? }`, or `{ outcome: 'waiting' }`
+// when the copy is in the sorting queue (303).
 import { NextResponse } from 'next/server';
 
 import { assertSalesAccess, getCurrentAccount } from '@/lib/auth/account';
@@ -38,6 +39,8 @@ export async function POST(request: Request, { params }: Params) {
     );
     if (r.outcome === 'filed')
       return NextResponse.json({ outcome: 'filed', caseNumber: r.caseNumber });
+    if (r.outcome === 'waiting')
+      return NextResponse.json({ outcome: 'waiting', caseNumber: null });
     if (!r.mediaUrl || !r.caseNumber)
       throw new DeskRefusedError('FILE_INVALID');
     // The tray item's id is the upload's: filing it twice replays.
@@ -63,6 +66,8 @@ export async function POST(request: Request, { params }: Params) {
         originalName: r.originalName,
       },
     });
+    if (item.state === 'untagged')
+      return NextResponse.json({ outcome: 'waiting', caseNumber: null, item });
     await store.trayResolve(
       ctx.userId,
       ctx.accountId,

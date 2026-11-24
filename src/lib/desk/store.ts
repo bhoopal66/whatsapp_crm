@@ -24,6 +24,8 @@ import {
 } from './shared-docs';
 import {
   parseCandidates,
+  TRAY_PAGE,
+  type TrayPage,
   type DeskSettings,
   type RouteDecision,
   type TrayItem,
@@ -604,6 +606,25 @@ export class DeskStore {
     };
   }
 
+  /**
+   * A document that could not be routed or copied becomes a tray row
+   * (migration 303), found by the message it arrived on; one already
+   * placed is left alone. False when no document is recorded for it.
+   */
+  async trayCopyFailed(
+    account: string,
+    messageRowId: string,
+    channelId: string | null
+  ): Promise<boolean> {
+    const rows = await this.rpc('desk_tray_copy_failed', {
+      p_account: account,
+      p_message: messageRowId,
+      p_channel: channelId,
+      p_now: this.now(),
+    });
+    return (rows[0] as unknown) !== 'missing';
+  }
+
   /** A desk upload that arrived by WhatsApp (220's intake, channel whatsapp). */
   whatsappIntake(
     actor: string,
@@ -636,16 +657,19 @@ export class DeskStore {
   async tray(
     actor: string,
     account: string,
-    state: TrayState = 'open'
-  ): Promise<TrayItem[]> {
-    const rows = await this.rpc('desk_tray_list', {
+    state: TrayState = 'open',
+    limit: number = TRAY_PAGE
+  ): Promise<TrayPage> {
+    const [page] = await this.rpc('desk_tray_page', {
       p_actor: actor,
       p_account: account,
       p_state: state,
-      p_limit: 100,
+      p_limit: limit,
       p_now: this.now(),
     });
-    return rows.map((r) => ({
+    if (!page || !Array.isArray(page.items))
+      throw new DeskStoreError('desk_tray_page', null);
+    const items = (page.items as Record<string, unknown>[]).map((r) => ({
       trayId: String(r.tray_id),
       reason: String(r.reason) as TrayReason,
       candidates: parseCandidates(r.candidates),
@@ -665,12 +689,20 @@ export class DeskStore {
       originalName: str(r.original_name),
       caption: str(r.caption),
       mediaUrl: str(r.media_url),
+      sizeBytes: num(r.size_bytes),
+      conversationId: str(r.conversation_id),
       resolvedCaseId: str(r.resolved_case_id),
       dismissReason: str(r.dismiss_reason),
     }));
+    const total = num(page.total) ?? items.length;
+    return { items, total, hasMore: total > items.length };
   }
 
-  /** 'filed', or 'needs_copy' with the file to copy through the intake. */
+  /**
+   * 'filed' (303: perhaps on the case an earlier copy went to), 'waiting'
+   * (an earlier copy is in the sorting queue), or 'needs_copy' with the
+   * file to copy through the intake.
+   */
   async trayFile(
     actor: string,
     account: string,
@@ -678,7 +710,7 @@ export class DeskStore {
     caseId: string,
     confirmCompany: string | null
   ): Promise<{
-    outcome: 'filed' | 'needs_copy';
+    outcome: 'filed' | 'needs_copy' | 'waiting';
     caseNumber: string | null;
     mediaUrl: string | null;
     mime: string | null;
@@ -696,7 +728,10 @@ export class DeskStore {
     )[0];
     if (!r) throw new DeskStoreError('desk_tray_file', null);
     return {
-      outcome: r.outcome === 'filed' ? 'filed' : 'needs_copy',
+      outcome:
+        r.outcome === 'filed' || r.outcome === 'waiting'
+          ? r.outcome
+          : 'needs_copy',
       caseNumber: str(r.case_number),
       mediaUrl: str(r.media_url),
       mime: str(r.mime),

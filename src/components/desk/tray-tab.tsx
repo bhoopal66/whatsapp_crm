@@ -7,6 +7,7 @@
  * company and bank are always shown, a company the sender does not act
  * for needs its legal name typed, and filing needs a chosen case.
  */
+import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import { toast } from 'sonner';
@@ -17,11 +18,14 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/hooks/use-auth';
+import { formatFileSize } from '@/lib/case-files/view';
 import { mergeCandidates } from '@/lib/desk/case-search';
 import { trayDismissBlock, trayFileBlock } from '@/lib/desk/form-hints';
 import { formatAge } from '@/lib/desk/intake-form';
 import {
   needsCompanyConfirm,
+  TRAY_PAGE,
+  TRAY_PAGE_MAX,
   type DeskSettings,
   type TrayCandidate,
   type TrayItem,
@@ -37,19 +41,25 @@ export function TrayTab({ isLead }: { isLead: boolean }) {
   const locale = useLocale();
   const { user } = useAuth();
   const [items, setItems] = useState<TrayItem[] | null>(null);
+  const [total, setTotal] = useState(0);
+  const [limit, setLimit] = useState(TRAY_PAGE);
   const [settings, setSettings] = useState<DeskSettings | null>(null);
 
   const load = useCallback(
     () =>
-      Promise.all([deskApi.tray(), deskApi.settings()]).then(([r, s]) => {
-        if (r.ok) setItems(r.data);
-        else {
-          toast.error(r.error);
-          setItems([]);
+      Promise.all([deskApi.tray('open', limit), deskApi.settings()]).then(
+        ([r, s]) => {
+          if (r.ok) {
+            setItems(r.data.items);
+            setTotal(r.data.total);
+          } else {
+            toast.error(r.error);
+            setItems([]);
+          }
+          if (s.ok) setSettings(s.data.settings);
         }
-        if (s.ok) setSettings(s.data.settings);
-      }),
-    []
+      ),
+    [limit]
   );
   useEffect(() => {
     void load();
@@ -79,7 +89,7 @@ export function TrayTab({ isLead }: { isLead: boolean }) {
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
             {items !== null && (
               <span className="text-foreground font-medium">
-                {t('tray.count', { count: items.length })}
+                {t('tray.count', { count: Math.max(total, items.length) })}
                 {oldest !== null && (
                   <span className="text-muted-foreground font-normal">
                     {' · '}
@@ -117,6 +127,20 @@ export function TrayTab({ isLead }: { isLead: boolean }) {
       {items?.map((item) => (
         <TrayCard key={item.trayId} item={item} onDone={load} />
       ))}
+      {items !== null && total > items.length && (
+        <div className="text-muted-foreground flex flex-wrap items-center gap-3 text-sm">
+          <span>{t('tray.shown', { shown: items.length, total })}</span>
+          {limit < TRAY_PAGE_MAX && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setLimit(limit + TRAY_PAGE)}
+            >
+              {t('tray.loadMore')}
+            </Button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -184,9 +208,12 @@ function TrayCard({
         toast.error(r.error);
         return;
       }
-      toast.success(
-        t('tray.filed', { caseNumber: r.data.caseNumber ?? picked.caseId })
-      );
+      const filedOn = r.data.caseNumber;
+      if (r.data.waiting) toast.info(t('tray.waiting'));
+      else if (filedOn === null) toast.info(t('tray.filedAlready'));
+      else if (filedOn === picked.caseNumber)
+        toast.success(t('tray.filed', { caseNumber: filedOn }));
+      else toast.info(t('tray.filedElsewhere', { caseNumber: filedOn }));
       await onDone();
     } finally {
       setBusy(false);
@@ -247,6 +274,21 @@ function TrayCard({
               {t('tray.open')}
               {item.originalName ? ` · ${item.originalName}` : ''}
             </a>
+          )}
+          {item.reason === 'copy_failed' && (
+            <span className="text-muted-foreground text-xs" dir="ltr">
+              {[item.mime, formatFileSize(item.sizeBytes)]
+                .filter(Boolean)
+                .join(' · ')}
+            </span>
+          )}
+          {item.reason === 'copy_failed' && item.conversationId && (
+            <Link
+              href={`/inbox?c=${encodeURIComponent(item.conversationId)}`}
+              className="text-primary text-sm underline underline-offset-2"
+            >
+              {t('tray.openChat')}
+            </Link>
           )}
           {item.caption && (
             <span className="text-muted-foreground min-w-0 text-xs break-words">

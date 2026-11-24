@@ -13385,6 +13385,12 @@
       "dismissReason": "어느 케이스에도 속하지 않는 이유는?",
       "dismiss": "닫기",
       "dismissed": "닫힘",
+      "openChat": "채팅 열기",
+      "shown": "전체 {total}개 중 {shown}개, 오래된 순",
+      "loadMore": "더 보기",
+      "waiting": "이 문서는 이미 분류 대기열에 있습니다.",
+      "filedElsewhere": "이 문서는 이미 {caseNumber}에 등록되었습니다.",
+      "filedAlready": "이 문서는 이미 다른 케이스에 등록되었습니다.",
       "reasons": {
         "unknown_sender": "발신자가 어떤 회사와도 연결되어 있지 않음",
         "no_open_case": "발신자의 회사에 진행 중인 케이스가 없음",
@@ -13392,7 +13398,8 @@
         "many_cases": "진행 중인 케이스가 여러 개이며 케이스 번호가 없음",
         "evidence_conflict": "인용된 메시지와 캡션이 서로 다른 케이스를 가리킴",
         "other_person": "케이스 고객이 아닌 다른 사람이 보냄",
-        "file_refused": "케이스가 파일을 받지 않음"
+        "file_refused": "케이스가 파일을 받지 않음",
+        "copy_failed": "문서를 자동으로 복사하지 못했습니다: 채팅에서 원본을 여세요"
       },
       "why": {
         "quoted": "인용됨",

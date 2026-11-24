@@ -131,6 +131,28 @@ class DeskDocumentMissingError extends Error {
   override name = 'DeskDocumentMissingError';
 }
 
+/**
+ * A failed document is never lost to the desk (303): inbound is not
+ * retried, so it becomes a tray row a sorter sees. Tried twice; the SQL
+ * leaves a document that was filed or copied after all. Never throws.
+ */
+async function traceInTray(
+  store: DeskStore,
+  input: DeskDocumentInput
+): Promise<void> {
+  const { accountId, messageRowId, channelId } = input;
+  for (const last of [false, true]) {
+    try {
+      if (!(await store.trayCopyFailed(accountId, messageRowId, channelId)))
+        console.error(`[desk] no document recorded for ${messageRowId}`);
+      return;
+    } catch {
+      if (last) console.error(`[desk] no tray row for message ${messageRowId}`);
+      else await new Promise((done) => setTimeout(done, 250));
+    }
+  }
+}
+
 /** Routes one recorded document. Never throws; null on any failure. */
 export async function routeDeskDocument(
   admin: Admin,
@@ -150,6 +172,7 @@ export async function routeDeskDocument(
     console.error(
       `[desk] route failed: ${err instanceof Error ? err.name : typeof err}`
     );
+    await traceInTray(store, input);
     return null;
   }
   if (decision.action !== 'staff' || !decision.staffUserId) return decision;
@@ -179,6 +202,7 @@ export async function routeDeskDocument(
           : typeof err
       }`
     );
+    await traceInTray(store, input);
   }
   return decision;
 }

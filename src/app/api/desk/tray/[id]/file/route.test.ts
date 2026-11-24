@@ -102,6 +102,36 @@ describe('POST /api/desk/tray/[id]/file', () => {
     expect(m.upload).toHaveBeenCalledTimes(1);
   });
 
+  it('says so when the copy waits in the queue, before or after copying', async () => {
+    m.rpc.mockResolvedValueOnce({
+      data: [{ outcome: 'waiting' }],
+      error: null,
+    });
+    let res = await POST(post({ caseId: CASE }), params);
+    expect(await res.json()).toEqual({ outcome: 'waiting', caseNumber: null });
+    expect(m.rpc).toHaveBeenCalledTimes(1);
+    m.rpc
+      .mockResolvedValueOnce({
+        data: [
+          {
+            outcome: 'needs_copy',
+            case_number: 'TC-26-00001-RAK',
+            media_url: 'https://x/a.pdf',
+            mime: 'application/pdf',
+            original_name: 'a.pdf',
+          },
+        ],
+        error: null,
+      })
+      .mockResolvedValueOnce({
+        data: [{ item_id: TRAY, state: 'untagged' }],
+        error: null,
+      });
+    res = await POST(post({ caseId: CASE }), params);
+    expect((await res.json()).outcome).toBe('waiting');
+    expect(m.rpc).toHaveBeenCalledTimes(3);
+  });
+
   it('maps CONFIRM_COMPANY and needs a case id', async () => {
     m.rpc.mockResolvedValueOnce({
       data: null,
