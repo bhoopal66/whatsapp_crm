@@ -20,6 +20,22 @@ function harness(results: (string | Error)[]) {
 const boom = new Error('x');
 
 describe('startFirstLoad', () => {
+  it('asks again when something newer lands, and drops the older answer', async () => {
+    const answers: ((v: string) => void)[] = [];
+    const read = vi.fn(() => new Promise<string>((r) => answers.push(r)));
+    const onData = vi.fn();
+    const load = startFirstLoad(read, { onData, onState: vi.fn() });
+    load.retry();
+    answers[0]('older');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(onData).not.toHaveBeenCalled();
+    answers[1]('newer');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(onData.mock.calls).toEqual([['newer']]);
+    load.retry();
+    expect(read).toHaveBeenCalledTimes(2);
+  });
+
   it('delivers a first answer without retrying', async () => {
     const h = harness(['a']);
     await vi.advanceTimersByTimeAsync(20_000);

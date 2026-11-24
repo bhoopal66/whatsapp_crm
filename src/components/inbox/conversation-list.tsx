@@ -1087,6 +1087,10 @@ export function ConversationList({
   }>({ params: null, byId: new Map() });
   const hrPatchById = hrPatches.params === listParams ? hrPatches.byId : null;
   const heldIdsRef = useRef<ReadonlySet<string>>(new Set());
+  const viewerIdRef = useRef(viewerId);
+  useEffect(() => {
+    viewerIdRef.current = viewerId;
+  }, [viewerId]);
   useEffect(() => {
     heldIdsRef.current = new Set(conversations.map((c) => c.id));
   }, [conversations]);
@@ -1206,6 +1210,7 @@ export function ConversationList({
     const generation = ++generationRef.current;
     const params = listParams;
     const key = cacheKey;
+    const caughtUpTo = catchUpRef.current?.mark() ?? 0;
     // Known now: read the pins beside the page. Unknown: append them
     // once the settings arrive, so they never hold the page up.
     const startMode = signalsRef.current.mode;
@@ -1278,7 +1283,7 @@ export function ConversationList({
       if (cancelled || generation !== generationRef.current) return;
       deliver(snap);
       setPinsFailedView(null);
-      catchUpRef.current?.settle();
+      catchUpRef.current?.settle(caughtUpTo);
 
       // The page is up: the pins it lacks are read beside it, failed
       // ones once more.
@@ -1415,6 +1420,10 @@ export function ConversationList({
       },
       drop: (ids) =>
         onConversationsLoadedRef.current([], { mode: 'gone', ids }),
+      signedIn: async () => {
+        const { data } = await createClient().auth.getSession();
+        return !!data.session && data.session.user.id === viewerIdRef.current;
+      },
     });
     const catchUp = createDeltaCatchUp<ConversationListItem>({
       read: async (since) => {

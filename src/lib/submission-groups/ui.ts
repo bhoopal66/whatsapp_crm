@@ -337,9 +337,13 @@ export async function refusedSendOutcome(
   if (body?.code === SEND_NOT_STORED)
     return { kept: media && (await stored()) !== false, toast };
   const row = await stored();
-  const kept = row ?? media;
-  if (typeof body?.error === 'string') return { kept, toast };
-  return { kept, toast: row === false ? 'unknown' : 'maybeSent' };
+  // Our own 502 stored its row before it asked WhatsApp.
+  if (typeof body?.error === 'string')
+    return { kept: row ?? (media || status === 502), toast };
+  return {
+    kept: row ?? media,
+    toast: row === false ? 'unknown' : 'maybeSent',
+  };
 }
 
 /**

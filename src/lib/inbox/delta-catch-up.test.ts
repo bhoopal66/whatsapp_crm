@@ -96,7 +96,7 @@ describe('createDeltaCatchUp', () => {
     const t = setup(down);
     t.catchUp.signal(EARLY);
     await vi.advanceTimersByTimeAsync(0);
-    t.catchUp.settle();
+    t.catchUp.settle(t.catchUp.mark());
     await vi.advanceTimersByTimeAsync(60_000);
     expect(t.read).toHaveBeenCalledTimes(1);
     t.catchUp.signal(LATE);
@@ -104,6 +104,28 @@ describe('createDeltaCatchUp', () => {
     t.catchUp.stop();
     await vi.advanceTimersByTimeAsync(60_000);
     expect(t.read).toHaveBeenCalledTimes(2);
+  });
+
+  it('a first page asked for before the gap closed settles nothing', async () => {
+    let answer: (rows: string[]) => void = () => {};
+    const t = setup(() => new Promise((r) => (answer = r)));
+    const mark = t.catchUp.mark();
+    t.catchUp.signal(EARLY);
+    t.catchUp.settle(mark);
+    answer(['in the gap']);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(t.apply.mock.calls).toEqual([[['in the gap']]]);
+  });
+
+  it('a mark of one list does not settle the signal of the next', async () => {
+    const a = setup(() => Promise.resolve([]));
+    a.catchUp.signal(EARLY);
+    const mark = a.catchUp.mark();
+    const b = setup(() => Promise.resolve(['new']));
+    b.catchUp.signal(EARLY);
+    b.catchUp.settle(mark);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(b.apply.mock.calls).toEqual([[['new']]]);
   });
 
   it('drops an answer that a newer read has replaced', async () => {

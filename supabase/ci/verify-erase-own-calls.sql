@@ -138,7 +138,7 @@ BEGIN
     END IF;
   END LOOP;
 
-  -- The sweep keeps a held customer's calls by the same match.
+  -- The sweep keeps a held customer's calls, at least by the same match.
   BEGIN
     -- The sweep leaves a call whose recording is still there.
     DELETE FROM call_recordings WHERE account_id = a;
@@ -150,7 +150,7 @@ BEGIN
   EXCEPTION WHEN SQLSTATE 'ZT312' THEN NULL;
   END;
   n := n + 1;
-  IF got IS DISTINCT FROM ARRAY['eoc-free', 'eoc-free-num', 'eoc-link', 'eoc-own'] THEN
+  IF NOT coalesce(got @> ARRAY['eoc-free', 'eoc-free-num', 'eoc-link', 'eoc-own'], false) THEN
     failed := array_append(failed, format('the sweep kept for a held customer: %s', got));
   END IF;
 

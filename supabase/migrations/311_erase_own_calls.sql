@@ -9,9 +9,11 @@
 -- gone for good; and a legal hold on B's recording refused A's erase.
 --
 --  1. An indirect match (a candidate, the number, its last 8 digits) counts
---     only for a call linked to nobody. The retention sweep's held calls
---     (282) follow the same match. privacy_subject_erase locks the calls it
---     takes, as pbx_erase_contact_calls does.
+--     only for a call linked to nobody. A call linked to someone else stays
+--     with them, also when their number made the link: erase that contact
+--     too. The retention sweep's held calls (282) keep the wider match: a
+--     hold may protect too much, never too little. privacy_subject_erase
+--     locks the calls it takes, as pbx_erase_contact_calls does.
 --  2. Both erases delete the erased calls' references on deals
 --     (deal_files, ref_type 'call'), which carry the customer's name or
 --     number, on whoever's deal.
@@ -21,10 +23,9 @@
 --  4. pbx_link_call_contact drops the candidates, and never points the call
 --     at a personal WhatsApp chat (190).
 --
--- RESTATES 294's pbx_link_call_contact, 093's pbx_erase_contact_calls,
--- 262's privacy_subject_erase and 282's privacy_retention_sweep: apply in
--- order (re-running one of those files afterwards reverts it). Safe to run
--- twice. Before the build: the attach route answers a repeat from 3.
+-- RESTATES 294's pbx_link_call_contact, 093's pbx_erase_contact_calls and
+-- 262's privacy_subject_erase: apply in order (re-running one of those files
+-- afterwards reverts it). Safe to run twice. Before the build: the attach route answers a repeat from 3.
 -- supabase/ci/verify-erase-own-calls.sql asserts it.
 -- ============================================================
 
@@ -41,6 +42,12 @@ BEGIN
             FROM public.deal_files f
            WHERE f.ref_type = 'call' AND f.deal_id IS NOT NULL AND f.ref_id IS NOT NULL) x
    WHERE d.id = x.id AND x.rn > 1 AND d.storage_path IS NULL;
+  -- What an erase before this left behind: an erased call has no number and
+  -- may have no contact, so nothing would match it again.
+  DELETE FROM public.deal_files f
+   USING public.calls c
+   WHERE f.ref_type = 'call' AND f.storage_path IS NULL
+     AND f.ref_id = c.id::text AND c.erased_at IS NOT NULL;
   CREATE UNIQUE INDEX IF NOT EXISTS deal_files_call_ref_idx
     ON public.deal_files (deal_id, ref_type, ref_id) WHERE ref_type = 'call';
 END;
@@ -133,7 +140,7 @@ BEGIN
     SELECT c.id, c.started_at FROM calls c
      WHERE c.account_id = v_account
        AND (c.contact_id = p_contact_id
-            -- Linked to nobody: anything else is a guess against a person's link.
+            -- A call linked to someone else is theirs.
             OR (c.contact_id IS NULL
                 AND (c.meta -> 'contact_candidates' ? p_contact_id::text
                      OR v_phone = ANY (pbx_phone_variants(c.remote_number))
@@ -454,215 +461,6 @@ $function$
 ;
 REVOKE ALL ON FUNCTION public.privacy_subject_erase(uuid, uuid, uuid, boolean, text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.privacy_subject_erase(uuid, uuid, uuid, boolean, text) TO service_role;
-
--- ---------- 1. the retention sweep's held calls ----------
-
-CREATE OR REPLACE FUNCTION public.privacy_retention_sweep(p_account uuid, p_dry_run boolean DEFAULT NULL::boolean, p_limit integer DEFAULT NULL::integer)
- RETURNS jsonb
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO ''
-AS $function$
-DECLARE
-  s       public.privacy_retention_settings%ROWTYPE;
-  v_dry   boolean;
-  r       record;
-  v_cut   timestamptz;
-  v_n     integer;
-  v_held  integer;
-  v_out   jsonb := '{}'::jsonb;
-  v_id    bigint;
-  v_ids    text[];
-  v_phones text[];
-  v_lim   integer;
-  v_more  boolean := false;
-  v_got   jsonb;
-  v_obj   jsonb := '[]'::jsonb;
-BEGIN
-  SELECT * INTO s FROM public.privacy_retention_settings x WHERE x.account_id = p_account;
-  IF NOT FOUND OR s.policy -> 'tables' = '{}'::jsonb THEN
-    RETURN NULL;
-  END IF;
-  IF public.privacy_retention_problem(s.policy) IS NOT NULL THEN
-    RAISE EXCEPTION 'privacy_retention_sweep: the stored policy is invalid' USING ERRCODE = 'check_violation', HINT = 'INVALID';
-  END IF;
-  v_dry := coalesce(p_dry_run, NOT s.apply);
-  -- LIMIT NULL is no limit. A dry run counts everything.
-  v_lim := CASE WHEN v_dry OR p_limit IS NULL THEN NULL ELSE greatest(1, least(p_limit, 5000)) END;
-
-  -- Contacts under a legal hold, and their phone digits.
-  CREATE TEMP TABLE IF NOT EXISTS pg_temp.privacy_held (contact_id uuid, digits text, phone text) ON COMMIT DROP;
-  TRUNCATE pg_temp.privacy_held;
-  INSERT INTO pg_temp.privacy_held
-  SELECT c.id, public.privacy_digits(coalesce(c.phone_normalized, c.phone)), nullif(c.phone_normalized, '')
-    FROM public.privacy_legal_holds h JOIN public.contacts c ON c.id = h.contact_id
-   WHERE h.account_id = p_account AND h.released_at IS NULL;
-
-  -- 262: what else belongs to a held customer. Calls: 222's match (093, 311),
-  -- set-based; change both. Rooms: theirs, or with them in it. Groups: with
-  -- them in it.
-  CREATE TEMP TABLE IF NOT EXISTS pg_temp.privacy_held_rows (kind text, id uuid) ON COMMIT DROP;
-  TRUNCATE pg_temp.privacy_held_rows;
-  IF EXISTS (SELECT 1 FROM pg_temp.privacy_held) THEN
-    SELECT array_agg(h.contact_id::text), coalesce(array_agg(h.phone) FILTER (WHERE h.phone IS NOT NULL), '{}')
-      INTO v_ids, v_phones FROM pg_temp.privacy_held h;
-    INSERT INTO pg_temp.privacy_held_rows
-    SELECT 'call', x.id FROM public.calls x
-     WHERE x.account_id = p_account AND x.erased_at IS NULL
-       AND (x.contact_id::text = ANY (v_ids)
-            OR (x.contact_id IS NULL
-                AND (x.meta -> 'contact_candidates' ?| v_ids
-                     OR public.pbx_phone_variants(x.remote_number)::text[] && v_phones
-                     OR (length(x.remote_number) >= 8
-                         AND right(x.remote_number, 8) IN (SELECT right(h.phone, 8) FROM pg_temp.privacy_held h WHERE length(h.phone) >= 8)
-                         AND NOT EXISTS (SELECT 1 FROM public.contacts o
-                                          WHERE o.account_id = p_account
-                                            AND o.phone_normalized = ANY (public.pbx_phone_variants(x.remote_number)))))));
-    INSERT INTO pg_temp.privacy_held_rows
-    SELECT 'room', d.id FROM public.deal_rooms d
-     WHERE d.account_id = p_account AND d.contact_id IN (SELECT h.contact_id FROM pg_temp.privacy_held h)
-    UNION
-    SELECT 'room', p.room_id FROM public.deal_room_participants p
-     WHERE p.account_id = p_account AND p.contact_id IN (SELECT h.contact_id FROM pg_temp.privacy_held h);
-    INSERT INTO pg_temp.privacy_held_rows
-    SELECT DISTINCT 'group', p.group_id FROM public.whatsapp_group_participants p
-     WHERE p.account_id = p_account
-       AND (p.contact_id IN (SELECT h.contact_id FROM pg_temp.privacy_held h)
-            OR public.privacy_digits(p.wa_id) IN (SELECT h.digits FROM pg_temp.privacy_held h WHERE h.digits IS NOT NULL));
-  END IF;
-
-  BEGIN
-    FOR r IN SELECT k, (v ->> 'days')::integer AS days, v ->> 'action' AS action
-               FROM jsonb_each(s.policy -> 'tables') AS e(k, v) ORDER BY k LOOP
-      v_cut := now() - make_interval(days => r.days);
-      v_n := 0; v_got := '[]'::jsonb;
-      -- Each kind: lock the slice (its media as it is now), remove exactly
-      -- those rows, keep what their media pointed at.
-      IF r.k = 'deal_room_messages' THEN
-        SELECT count(*) INTO v_held FROM public.group_messages m
-         WHERE m.account_id = p_account AND m.created_at < v_cut AND m.room_id IN (SELECT x.id FROM pg_temp.privacy_held_rows x WHERE x.kind = 'room');
-        IF r.action = 'delete' THEN
-          WITH pick AS MATERIALIZED (
-            SELECT m.id, m.media FROM public.group_messages m WHERE m.account_id = p_account AND m.created_at < v_cut
-               AND m.room_id NOT IN (SELECT x.id FROM pg_temp.privacy_held_rows x WHERE x.kind = 'room')
-             LIMIT v_lim FOR UPDATE),
-          gone AS (DELETE FROM public.group_messages m USING pick WHERE m.id = pick.id RETURNING pick.media)
-          SELECT count(*), coalesce(jsonb_agg(o.o) FILTER (WHERE o.o IS NOT NULL), '[]')
-            INTO v_n, v_got FROM gone LEFT JOIN LATERAL (
-              SELECT public.privacy_media_objects(p_account, gone.media) AS o WHERE gone.media IS NOT NULL) o ON true;
-        ELSE
-          WITH pick AS MATERIALIZED (
-            SELECT m.id, m.media FROM public.group_messages m
-             WHERE m.account_id = p_account AND m.created_at < v_cut AND (m.body IS NOT NULL OR m.media IS NOT NULL)
-               AND m.room_id NOT IN (SELECT x.id FROM pg_temp.privacy_held_rows x WHERE x.kind = 'room')
-             LIMIT v_lim FOR UPDATE),
-          gone AS (UPDATE public.group_messages m SET body = NULL, media = NULL, sender_wa_id = NULL
-                     FROM pick WHERE m.id = pick.id RETURNING pick.media)
-          SELECT count(*), coalesce(jsonb_agg(o.o) FILTER (WHERE o.o IS NOT NULL), '[]')
-            INTO v_n, v_got FROM gone LEFT JOIN LATERAL (
-              SELECT public.privacy_media_objects(p_account, gone.media) AS o WHERE gone.media IS NOT NULL) o ON true;
-        END IF;
-      ELSIF r.k = 'whatsapp_group_messages' THEN
-        SELECT count(*) INTO v_held FROM public.whatsapp_group_messages m
-         WHERE m.account_id = p_account AND m.created_at < v_cut
-           AND (m.group_id IN (SELECT x.id FROM pg_temp.privacy_held_rows x WHERE x.kind = 'group')
-                OR public.privacy_digits(m.sender_wa_id) IN (SELECT digits FROM pg_temp.privacy_held WHERE digits IS NOT NULL));
-        IF r.action = 'delete' THEN
-          WITH pick AS MATERIALIZED (
-            SELECT m.id, m.media FROM public.whatsapp_group_messages m WHERE m.account_id = p_account AND m.created_at < v_cut
-               AND m.group_id NOT IN (SELECT x.id FROM pg_temp.privacy_held_rows x WHERE x.kind = 'group')
-               AND coalesce(public.privacy_digits(m.sender_wa_id), '') NOT IN (SELECT digits FROM pg_temp.privacy_held WHERE digits IS NOT NULL)
-             LIMIT v_lim FOR UPDATE),
-          gone AS (DELETE FROM public.whatsapp_group_messages m USING pick WHERE m.id = pick.id RETURNING pick.media)
-          SELECT count(*), coalesce(jsonb_agg(o.o) FILTER (WHERE o.o IS NOT NULL), '[]')
-            INTO v_n, v_got FROM gone LEFT JOIN LATERAL (
-              SELECT public.privacy_media_objects(p_account, gone.media) AS o WHERE gone.media IS NOT NULL) o ON true;
-        ELSE
-          WITH pick AS MATERIALIZED (
-            SELECT m.id, m.media FROM public.whatsapp_group_messages m
-             WHERE m.account_id = p_account AND m.created_at < v_cut
-               AND (m.body IS NOT NULL OR m.media IS NOT NULL OR m.sender_name IS NOT NULL)
-               AND m.group_id NOT IN (SELECT x.id FROM pg_temp.privacy_held_rows x WHERE x.kind = 'group')
-               AND coalesce(public.privacy_digits(m.sender_wa_id), '') NOT IN (SELECT digits FROM pg_temp.privacy_held WHERE digits IS NOT NULL)
-             LIMIT v_lim FOR UPDATE),
-          gone AS (UPDATE public.whatsapp_group_messages m SET body = NULL, media = NULL, sender_name = NULL
-                     FROM pick WHERE m.id = pick.id RETURNING pick.media)
-          SELECT count(*), coalesce(jsonb_agg(o.o) FILTER (WHERE o.o IS NOT NULL), '[]')
-            INTO v_n, v_got FROM gone LEFT JOIN LATERAL (
-              SELECT public.privacy_media_objects(p_account, gone.media) AS o WHERE gone.media IS NOT NULL) o ON true;
-        END IF;
-      ELSIF r.k = 'hr_outbox_bodies' THEN
-        SELECT count(*) INTO v_held FROM public.hr_automsg_outbox o
-         WHERE o.account_id = p_account AND o.created_at < v_cut AND o.status IN ('sent', 'failed', 'cancelled')
-           AND o.contact_id IN (SELECT contact_id FROM pg_temp.privacy_held);
-        WITH pick AS MATERIALIZED (
-          SELECT o.id FROM public.hr_automsg_outbox o
-           WHERE o.account_id = p_account AND o.created_at < v_cut AND o.status IN ('sent', 'failed', 'cancelled')
-             AND o.body_rendered <> '' AND o.contact_id NOT IN (SELECT contact_id FROM pg_temp.privacy_held)
-           LIMIT v_lim FOR UPDATE)
-        UPDATE public.hr_automsg_outbox o SET body_rendered = '', params = '[]'::jsonb FROM pick WHERE o.id = pick.id;
-        GET DIAGNOSTICS v_n = ROW_COUNT;
-      ELSIF r.k = 'hr_agent_drafts' THEN
-        SELECT count(*) INTO v_held FROM public.hr_agent_drafts d JOIN public.conversations v ON v.id = d.conversation_id
-         WHERE d.account_id = p_account AND d.created_at < v_cut AND d.status <> 'pending'
-           AND v.contact_id IN (SELECT contact_id FROM pg_temp.privacy_held);
-        WITH pick AS MATERIALIZED (
-          SELECT d.id FROM public.hr_agent_drafts d JOIN public.conversations v ON v.id = d.conversation_id
-           WHERE d.account_id = p_account AND d.created_at < v_cut AND d.status <> 'pending'
-             AND v.contact_id NOT IN (SELECT contact_id FROM pg_temp.privacy_held)
-           LIMIT v_lim FOR UPDATE OF d)
-        DELETE FROM public.hr_agent_drafts d USING pick WHERE d.id = pick.id;
-        GET DIAGNOSTICS v_n = ROW_COUNT;
-      ELSIF r.k = 'call_records' THEN
-        SELECT count(*) INTO v_held FROM public.calls c
-         WHERE c.account_id = p_account AND c.started_at < v_cut AND c.erased_at IS NULL
-           AND c.id IN (SELECT x.id FROM pg_temp.privacy_held_rows x WHERE x.kind = 'call');
-        WITH pick AS MATERIALIZED (
-          SELECT c.id FROM public.calls c
-           WHERE c.account_id = p_account AND c.started_at < v_cut AND c.erased_at IS NULL
-             AND c.id NOT IN (SELECT x.id FROM pg_temp.privacy_held_rows x WHERE x.kind = 'call')
-             AND NOT EXISTS (SELECT 1 FROM public.call_recordings rr WHERE rr.call_id = c.id AND rr.erased_at IS NULL)
-           LIMIT v_lim FOR UPDATE)
-        UPDATE public.calls c SET notes = NULL, disposition = NULL, notes_updated_by = NULL, notes_updated_at = NULL,
-               recording_state = 'erased', erased_at = now()
-          FROM pick WHERE c.id = pick.id;
-        GET DIAGNOSTICS v_n = ROW_COUNT;
-      END IF;
-      v_more := v_more OR coalesce(v_n >= v_lim, false);
-      v_obj := v_obj || coalesce((SELECT jsonb_agg(o) FROM jsonb_array_elements(v_got) AS g(l),
-                                         LATERAL jsonb_array_elements(g.l) AS e(o)), '[]'::jsonb);
-      v_out := v_out || jsonb_build_object(r.k, jsonb_build_object('action', r.action, 'days', r.days,
-                                                                   'rows', v_n, 'held_skipped', v_held));
-    END LOOP;
-    -- Every row of this slice is gone or blank now: what still points at a
-    -- file is what stays.
-    v_obj := public.privacy_objects_unreferenced(p_account, v_obj);
-    IF v_dry THEN
-      RAISE EXCEPTION USING ERRCODE = 'ZP223', MESSAGE = 'privacy_retention_sweep dry run';
-    END IF;
-  EXCEPTION WHEN SQLSTATE 'ZP223' THEN
-    NULL;
-  END;
-
-  INSERT INTO public.privacy_requests (account_id, kind, actor_label, detail)
-  VALUES (p_account, CASE WHEN v_dry THEN 'retention_dry_run' ELSE 'retention' END, 'system:retention',
-          jsonb_build_object('tables', v_out, 'objects', jsonb_array_length(v_obj), 'more', v_more)
-          || CASE WHEN v_dry OR jsonb_array_length(v_obj) = 0 THEN '{}'::jsonb
-                  ELSE jsonb_build_object('objects_list', jsonb_path_query_array(v_obj, '$[0 to 999]')) END)
-  RETURNING id INTO v_id;
-  IF NOT v_dry THEN
-    INSERT INTO public.privacy_requests (account_id, kind, actor_label, detail)
-    SELECT p_account, 'retention', 'system:retention', jsonb_build_object('part_of', v_id, 'objects_list', jsonb_agg(e.o ORDER BY e.n))
-      FROM jsonb_array_elements(v_obj) WITH ORDINALITY AS e(o, n)
-     WHERE e.n > 1000 GROUP BY (e.n - 1) / 1000 ORDER BY (e.n - 1) / 1000;
-  END IF;
-  RETURN jsonb_build_object('mode', CASE WHEN v_dry THEN 'dry_run' ELSE 'apply' END, 'request_id', v_id, 'tables', v_out,
-                            'objects', jsonb_array_length(v_obj), 'more', v_more);
-END;
-$function$
-;
-REVOKE ALL ON FUNCTION public.privacy_retention_sweep(uuid, boolean, integer) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.privacy_retention_sweep(uuid, boolean, integer) TO service_role;
 
 RESET lock_timeout;
 

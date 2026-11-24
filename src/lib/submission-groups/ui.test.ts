@@ -313,6 +313,9 @@ describe('refusedSendOutcome', () => {
       toast: 'maybeSent',
     });
     expect((await outcome(502, null, null, true)).kept).toBe(true);
+    // Our own 502 is stored, whatever the log says.
+    expect((await outcome(502, gateway, null)).kept).toBe(true);
+    expect((await outcome(503, gateway, null)).kept).toBe(false);
   });
   it("keeps the app's stored failure, and never gives an unconfirmed one back", async () => {
     expect(await outcome(502, gateway, true)).toMatchObject({

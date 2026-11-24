@@ -187,4 +187,5 @@ AS $function$
    ORDER BY p.full_name, p.user_id
 $function$;
 
+RESET lock_timeout;
 NOTIFY pgrst, 'reload schema';

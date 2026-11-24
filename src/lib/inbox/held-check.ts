@@ -21,12 +21,15 @@ export function createHeldCheck({
   held,
   read,
   drop,
+  signedIn,
   now = Date.now,
 }: {
   held: () => Iterable<string>;
   /** The ids of these still visible; rejects when the read failed. */
   read: (ids: string[]) => Promise<string[]>;
   drop: (ids: string[]) => void;
+  /** Whether the same person is still signed in. */
+  signedIn: () => Promise<boolean>;
   now?: () => number;
 }): HeldCheck {
   let last: number | null = null;
@@ -43,15 +46,23 @@ export function createHeldCheck({
       for (let i = 0; i < ids.length; i += HELD_CHECK_CHUNK) {
         chunks.push(ids.slice(i, i + HELD_CHECK_CHUNK));
       }
+      const ask = async () =>
+        new Set((await Promise.all(chunks.map(read))).flat());
       let visible: Set<string>;
       try {
-        visible = new Set((await Promise.all(chunks.map(read))).flat());
+        visible = await ask();
+        // None at all is also what a lost session answers: every chat is
+        // handed over only when it answers so twice, signed in.
+        if (!stopped && visible.size === 0) {
+          if (!(await signedIn())) return;
+          visible = await ask();
+        }
       } catch {
         // Unknown, so nothing goes; the next delta asks again.
+        last = null;
         return;
       }
-      // None at all is what a lost session answers, not a hand-over.
-      if (stopped || visible.size === 0) return;
+      if (stopped) return;
       const gone = ids.filter((id) => !visible.has(id));
       if (gone.length > 0) drop(gone);
     },

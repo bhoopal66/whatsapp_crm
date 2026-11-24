@@ -310,8 +310,8 @@ export function HrPanel({
     };
   }, [conversationId, hasAccess, show, isCurrent]);
 
-  // A live event, a write or the catch-up read is newer than the first
-  // read: drop it (and its retries) rather than paint over them.
+  // A write or the catch-up read is newer than the first read: drop it
+  // (and its retries) rather than paint over them.
   const dropFirstLoad = useCallback(() => {
     firstLoadRef.current?.stop();
     setLoadFailed(false);
@@ -403,7 +403,9 @@ export function HrPanel({
     onChangeRef.current = (next) => {
       if (!isCurrent(conversationId)) return;
       liveRef.current?.changed();
-      dropFirstLoad();
+      // A first read still on its way is older than this: asked again,
+      // for the row alone does not open the panel.
+      firstLoadRef.current?.retry();
       const prev = rowRef.current;
       setRow(next);
       if (next) {

@@ -22,10 +22,18 @@ export function olderSince(a: string | null, b: string | null): string | null {
 export interface DeltaCatchUp {
   /** A gap that opened at `since` has closed: read it. */
   signal: (since: string) => void;
-  /** A fresh first page landed: nothing is owed any more. */
-  settle: () => void;
+  /** Taken when a first page is asked for, for `settle`. */
+  mark: () => number;
+  /**
+   * That first page landed: what was signalled before it was asked for is
+   * in it. A gap that closed later is still read.
+   */
+  settle: (mark: number) => void;
   stop: () => void;
 }
+
+/** Counts the signals of every catch-up, so a mark outlives its own. */
+let signals = 0;
 
 export function createDeltaCatchUp<Row>({
   read,
@@ -41,6 +49,7 @@ export function createDeltaCatchUp<Row>({
   limit: number;
 }): DeltaCatchUp {
   let owed: string | null = null;
+  let lastSignal = 0;
   let run = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -73,10 +82,13 @@ export function createDeltaCatchUp<Row>({
 
   return {
     signal: (since) => {
+      lastSignal = ++signals;
       owed = olderSince(owed, since);
       void attempt(owed!, supersede(), 0);
     },
-    settle: () => {
+    mark: () => signals,
+    settle: (mark) => {
+      if (lastSignal > mark) return;
       owed = null;
       supersede();
     },

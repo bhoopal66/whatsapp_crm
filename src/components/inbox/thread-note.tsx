@@ -171,6 +171,7 @@ export function ThreadNote({
           <div className="mt-1.5 space-y-2">
             <Textarea
               value={draft}
+              readOnly={busy}
               onChange={(e) => typeEdit(e.target.value)}
               onKeyDown={(e) => {
                 if (isImeKey(e.nativeEvent)) return;

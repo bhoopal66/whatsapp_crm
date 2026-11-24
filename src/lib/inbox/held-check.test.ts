@@ -8,7 +8,8 @@ import {
 
 function setup(
   ids: string[],
-  answer: (chunk: string[]) => Promise<string[]> = async (chunk) => chunk
+  answer: (chunk: string[]) => Promise<string[]> = async (chunk) => chunk,
+  signedIn = async () => true
 ) {
   let now = 1_000;
   const read = vi.fn(answer);
@@ -17,6 +18,7 @@ function setup(
     held: () => new Set(ids),
     read,
     drop,
+    signedIn,
     now: () => now,
   });
   return { check, read, drop, pass: (ms: number) => (now += ms) };
@@ -52,9 +54,41 @@ describe('createHeldCheck', () => {
   });
 
   it('takes an answer without any row for a lost session', async () => {
+    const t = setup(
+      ['a', 'b'],
+      async () => [],
+      async () => false
+    );
+    await t.check.run();
+    expect(t.read).toHaveBeenCalledTimes(1);
+    expect(t.drop).not.toHaveBeenCalled();
+  });
+
+  it('drops every row when, signed in, it answers so twice', async () => {
     const t = setup(['a', 'b'], async () => []);
     await t.check.run();
-    expect(t.drop).not.toHaveBeenCalled();
+    expect(t.read).toHaveBeenCalledTimes(2);
+    expect(t.drop.mock.calls).toEqual([[['a', 'b']]]);
+    let first = true;
+    const u = setup(['a', 'b'], async (chunk) => {
+      if (!first) return chunk;
+      first = false;
+      return [];
+    });
+    await u.check.run();
+    expect(u.drop).not.toHaveBeenCalled();
+  });
+
+  it('a failed check does not use up the minute', async () => {
+    let up = false;
+    const t = setup(['a', 'b'], async () => {
+      if (!up) throw new Error('timeout');
+      return ['a'];
+    });
+    await t.check.run();
+    up = true;
+    await t.check.run();
+    expect(t.drop.mock.calls).toEqual([[['b']]]);
   });
 
   it('asks at most once a minute, and not once stopped', async () => {
