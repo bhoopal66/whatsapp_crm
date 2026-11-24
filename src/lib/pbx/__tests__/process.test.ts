@@ -213,6 +213,57 @@ describe('ingestPbxEvent', () => {
     ]);
   });
 
+  describe('a call staff linked after its first frame', () => {
+    beforeEach(async () => {
+      fake.tables.contacts.push({
+        id: 'k2',
+        account_id: A2,
+        name: 'Dup',
+        phone: '9710501234567',
+        phone_normalized: '9710501234567',
+        user_id: null,
+      });
+      await ingest(ring('call-1', [inbound('ALERT'), ext('1001', 'RING')]));
+    });
+
+    it('keeps no candidates from a later frame', async () => {
+      // Linked by an older build, which left them.
+      fake.tables.calls[0].contact_id = 'k2';
+      await ingest(ring('call-1', [inbound('ANSWER'), ext('1001', 'ANSWER')]));
+      const call = fake.tables.calls[0];
+      expect(call.status).toBe('in_progress');
+      expect((call.meta as Row).answered_user_ids).toBeTruthy();
+      expect(call.meta).not.toHaveProperty('contact_candidates');
+      const legs = fake.tables.call_live[0].members as Row[];
+      expect(legs.some((m) => 'contactCandidates' in m)).toBe(false);
+    });
+
+    it('gets none back when linked while a frame is being handled', async () => {
+      const from = fake.db.from.bind(fake.db);
+      const spy = vi.spyOn(fake.db, 'from').mockImplementation(((t: string) => {
+        // Between the frame's read of the row and its write.
+        if (t === 'call_live') {
+          fake.tables.calls[0].contact_id = 'k2';
+          fake.tables.calls[0].meta = { rang_user_ids: ['x'] };
+        }
+        return from(t);
+      }) as never);
+      await ingest(ring('call-1', [inbound('ANSWER'), ext('1001', 'ANSWER')]));
+      spy.mockRestore();
+      const call = fake.tables.calls[0];
+      expect(call).toMatchObject({ contact_id: 'k2', status: 'in_progress' });
+      expect((call.meta as Row).answered_user_ids).toBeTruthy();
+      expect(call.meta).not.toHaveProperty('contact_candidates');
+    });
+
+    it('not linked, keeps them', async () => {
+      await ingest(ring('call-1', [inbound('ANSWER'), ext('1001', 'ANSWER')]));
+      const call = fake.tables.calls[0];
+      expect(call.status).toBe('in_progress');
+      expect((call.meta as Row).contact_candidates).toEqual(['k1', 'k2']);
+    });
+  });
+
   it('never matches another country sharing the last 8 digits', async () => {
     Object.assign(fake.tables.contacts[0], {
       phone: '966501234567',

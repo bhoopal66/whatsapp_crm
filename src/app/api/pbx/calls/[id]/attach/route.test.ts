@@ -126,6 +126,41 @@ describe('POST /api/pbx/calls/[id]/attach', () => {
     expect(service.tables.deal_files).toEqual([]);
   });
 
+  it.each([
+    ['another customer', CONTACT, 'other', 409],
+    ['the same customer', CONTACT, CONTACT, 200],
+    ['a deal of no customer', CONTACT, null, 200],
+    ['a call of no customer', null, 'other', 200],
+  ])('a deal of %s', async (_what, ofCall, ofDeal, status) => {
+    rls.tables.calls[0].contact_id = ofCall;
+    rls.tables.deals[0].contact_id = ofDeal;
+    const res = await post({ dealId: DEAL });
+    expect(res.status).toBe(status);
+    if (status === 409)
+      expect(await res.json()).toEqual({
+        error: 'This recording belongs to another customer',
+        code: 'other_customer',
+      });
+    expect(service.tables.deal_files).toHaveLength(status === 200 ? 1 : 0);
+    // A refused attach is no access.
+    expect(service.tables.call_access_log).toHaveLength(status === 200 ? 1 : 0);
+  });
+
+  it('answers the row already there when attached twice', async () => {
+    service.tables.deal_files.push(
+      { id: 'x', deal_id: HIDDEN_DEAL, ref_type: 'call', ref_id: CALL },
+      { id: 'y', deal_id: DEAL, ref_type: 'group_message', ref_id: CALL },
+      { id: 'there', deal_id: DEAL, ref_type: 'call', ref_id: CALL }
+    );
+    service.fail('deal_files', 'insert', {
+      code: '23505',
+      message: 'duplicate key value violates deal_files_call_ref_idx',
+    });
+    const res = await post({ dealId: DEAL });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ fileId: 'there' });
+  });
+
   it('needs a call and a deal the caller can see', async () => {
     expect((await post({ dealId: HIDDEN_DEAL })).status).toBe(404);
     rls.tables.calls = [];

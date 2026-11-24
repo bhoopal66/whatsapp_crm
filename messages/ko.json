@@ -7176,6 +7176,7 @@
     "taskFailed": "할 일을 업데이트하지 못했습니다",
     "playFailed": "녹음을 재생하지 못했습니다",
     "attachFailed": "녹음을 첨부하지 못했습니다",
+    "attachOtherCustomer": "이 녹음은 다른 고객의 것이므로 이 거래에 첨부할 수 없습니다",
     "download": "녹음 다운로드",
     "downloadFailed": "녹음을 다운로드하지 못했습니다",
     "noDeal": "첨부할 진행 중인 딜이 없습니다",

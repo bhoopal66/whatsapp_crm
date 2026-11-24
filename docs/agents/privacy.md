@@ -19,7 +19,11 @@ Port of package 033h-k. `docs/privacy.md` is the contract.
   row is anonymised; its opt-out stays on that row and, from 280, by
   keyed hash of the number (`contact_suppressions`), so a re-imported
   number is opted out again. Calls inline 093's match
-  (`pbx_erase_contact_calls` needs `auth.uid()`): change both. Files are
+  (`pbx_erase_contact_calls` needs `auth.uid()`), and the retention
+  sweep's held calls repeat it: change all three. An indirect match
+  (candidate, number, last 8) counts only for a call linked to nobody
+  (311), and both erases delete the calls' `deal_files` references on
+  any deal. 311 restates the erase and 282's sweep: in order. Files are
   deleted by the route after the commit (`erase-objects.ts`).
 - **Files (262).** `privacy_objects_unreferenced` runs after the erase's
   deletes and before every retry: only `account-<id>/` paths, nothing a

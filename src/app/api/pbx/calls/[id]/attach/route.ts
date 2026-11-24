@@ -11,6 +11,10 @@
 // storage_path NULL, source 'call_recording', ref_type 'call', ref_id
 // the call id. No audio is copied; playing it from the deal goes
 // through /recording, which checks and logs again. Agent+.
+//
+// A call linked to one customer is not filed on another's deal (409
+// `other_customer`); either one unknown is the caller's word. A call is
+// on a deal once (311's unique index): a repeat answers the row there.
 // ============================================================
 
 import { NextResponse } from 'next/server';
@@ -43,11 +47,16 @@ export async function POST(
     if (!call) return fail('Call not found', 404);
     const deal = await ctx.supabase
       .from('deals')
-      .select('id')
+      .select('id, contact_id')
       .eq('id', dealId)
       .maybeSingle();
     if (deal.error) throw new Error(`deals read failed: ${deal.error.message}`);
     if (!deal.data) return fail('Deal not found', 404);
+    const dealContact = (deal.data as { contact_id: string | null }).contact_id;
+    if (call.contact_id && dealContact && call.contact_id !== dealContact)
+      return fail('This recording belongs to another customer', 409, {
+        code: 'other_customer',
+      });
 
     // Named after the contact as the caller sees it, else the number.
     let who = call.remote_number;
@@ -85,6 +94,18 @@ export async function POST(
       })
       .select('id')
       .single();
+    if (error?.code === '23505') {
+      const there = await service
+        .from('deal_files')
+        .select('id')
+        .eq('deal_id', dealId)
+        .eq('ref_type', 'call')
+        .eq('ref_id', call.id)
+        .single();
+      if (there.error)
+        throw new Error(`deal_files read failed: ${there.error.message}`);
+      return NextResponse.json({ fileId: (there.data as { id: string }).id });
+    }
     if (error) throw new Error(`deal_files insert failed: ${error.message}`);
     return NextResponse.json({ fileId: (file as { id: string }).id });
   } catch (err) {

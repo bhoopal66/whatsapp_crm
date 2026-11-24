@@ -759,7 +759,9 @@ async function onCallState(ctx: Ctx, ev: CallStateEvent): Promise<void> {
             ...NO_MATCH,
             contactId: str(existing.contact_id),
             conversationId: str(existing.conversation_id),
+            // Linked since the first frame: the choice is made.
             candidates:
+              !existing.contact_id &&
               isRecord(existing.meta) &&
               Array.isArray(existing.meta.contact_candidates)
                 ? (existing.meta.contact_candidates as string[])
@@ -876,7 +878,8 @@ async function onCallState(ctx: Ctx, ev: CallStateEvent): Promise<void> {
     direction === 'inbound'
       ? unique([...rangBefore, ...ringingUsers])
       : rangBefore;
-  const meta = isRecord(existing?.meta) ? existing.meta : {};
+  const meta = isRecord(existing?.meta) ? { ...existing.meta } : {};
+  if (existing?.contact_id) delete meta.contact_candidates;
   const answeredBefore = answeredIn(meta);
   const people =
     direction === 'internal'
@@ -888,12 +891,22 @@ async function onCallState(ctx: Ctx, ev: CallStateEvent): Promise<void> {
       ? { meta: withAnswered(withRang(meta, rang), people) }
       : {};
   // Compare-and-set on a live status: a 30012 that landed first wins.
-  const upd = await ctx.db
-    .from('calls')
-    .update({ status, ...party, ...peer, ...answeredAt, ...peopleMeta })
-    .eq('connection_id', ctx.connectionId)
-    .eq('pbx_call_id', ev.callId)
-    .in('status', LIVE);
+  const write = (patch: Row) =>
+    ctx.db
+      .from('calls')
+      .update({ status, ...party, ...peer, ...answeredAt, ...patch })
+      .eq('connection_id', ctx.connectionId)
+      .eq('pbx_call_id', ev.callId)
+      .in('status', LIVE);
+  // Candidates go only onto a call still linked to nobody: staff may have
+  // linked it since the read above, and the link dropped them.
+  if (peopleMeta.meta && 'contact_candidates' in peopleMeta.meta) {
+    const upd = await write(peopleMeta).is('contact_id', null).select('id');
+    if (upd.error) fail('calls update', upd.error);
+    if (((upd.data ?? []) as unknown[]).length) return;
+    delete peopleMeta.meta.contact_candidates;
+  }
+  const upd = await write(peopleMeta);
   if (upd.error) fail('calls update', upd.error);
 }
 
