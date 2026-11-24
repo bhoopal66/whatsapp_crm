@@ -2701,7 +2701,7 @@
       "headerSamplePlaceholder": "Sample value for {{1}} (required for Meta review)",
       "mediaUrlPlaceholder": "https://… (or paste a public {format} link)",
       "imageHint": "Upload a JPEG/PNG (≤5 MB, ≥800×418 px recommended) or paste a public HTTPS link. We do not upload it to Meta: to use this template on the Meta number, create it in WhatsApp Manager, then press Sync.",
-      "mediaHint": "Must be a publicly accessible HTTPS link. Meta fetches it once during review, so it needs to stay live for ~24 hrs.",
+      "mediaHint": "Must be a public HTTPS link that stays online. We do not upload it to Meta: to use this template on the Meta number, create it in WhatsApp Manager, then press Sync.",
       "videoHint": " Recommended: MP4 / 3GPP, ≤16 MB, ≤60 seconds.",
       "documentHint": " Recommended: PDF, ≤100 MB.",
       "bodyText": "Body Text",

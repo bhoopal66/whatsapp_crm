@@ -2701,7 +2701,7 @@
       "headerSamplePlaceholder": "{{1}}의 샘플 값 (Meta 검토에 필요)",
       "mediaUrlPlaceholder": "https://… (또는 공개 {format} 링크 붙여넣기)",
       "imageHint": "JPEG/PNG(5MB 이하, 800×418px 이상 권장)를 업로드하거나 공개 HTTPS 링크를 붙여넣으세요. Meta에는 업로드되지 않습니다. Meta 번호에서 이 템플릿을 사용하려면 WhatsApp 관리자에서 만든 뒤 동기화를 누르세요.",
-      "mediaHint": "공개적으로 접근 가능한 HTTPS 링크여야 합니다. Meta가 검토 중 한 번 가져오므로 약 24시간 동안 살아있어야 합니다.",
+      "mediaHint": "계속 열려 있는 공개 HTTPS 링크여야 합니다. Meta에는 업로드되지 않습니다. Meta 번호에서 이 템플릿을 사용하려면 WhatsApp 관리자에서 만든 뒤 동기화를 누르세요.",
       "videoHint": " 권장: MP4 / 3GPP, 16MB 이하, 60초 이하.",
       "documentHint": " 권장: PDF, 100MB 이하.",
       "bodyText": "본문 텍스트",
