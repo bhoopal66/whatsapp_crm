@@ -21,12 +21,16 @@ import type {
   AssignConversationStepConfig,
 } from '@/types'
 import { supabaseAdmin } from './admin-client'
+import { isActiveStaff } from '@/lib/auth/active-staff'
 import { salesAnswersOff, type SalesChatCheck } from '@/lib/ai/not-sales-chat'
 import { judgeMeanings, loadMeaningTurns, meaningCandidate } from '@/lib/insights/meaning'
 import { writeConversationChatTags } from '@/lib/chat-tags/server'
 import { chatTagTriggerMatches } from '@/lib/chat-tags/trigger-match'
 import { engineSendText, engineSendTemplate, engineSendInteractive } from './channel-send'
 import { validateInteractivePayload } from '@/lib/whatsapp/interactive'
+import { resolveTemplateRow } from '@/lib/whatsapp/template-body'
+import { resolveTemplateValues } from './template-values'
+import { consentRefusal } from '@/lib/whatsapp/send-origin'
 import { isDeliverableUrl, safeFetch } from '@/lib/webhooks/ssrf'
 import { automationPoolKey, rotateAssign } from '@/lib/assignment/rotation'
 import { isInTimeRange } from './schedule'
@@ -81,7 +85,8 @@ export interface DispatchInput {
   context?: AutomationContext
   /** The customer's own inbound message is being handled right now. Set
    *  ONLY by the inbound pipeline: it lets a message step answer a
-   *  contact who opted out, because they just wrote. Absent (a tag
+   *  contact who opted out, because they just wrote (never one marked do
+   *  not contact). Absent (a tag
    *  change, a manual POST, a resumed wait) an opted-out contact is sent
    *  nothing. Not part of `context`, which is caller-supplied and is
    *  stored with a parked wait. */
@@ -562,7 +567,9 @@ async function runStepList(args: Run, frame: Frame): Promise<RunOutcome> {
       }
 
       const skipReason =
-        (await notSalesSkipReason(step, args)) ?? (await optOutSkipReason(step, args))
+        (await notSalesSkipReason(step, args)) ??
+        (await optOutSkipReason(step, args)) ??
+        (await assigneeSkipReason(step, args))
       if (skipReason) {
         results.push({
           step_id: step.id,
@@ -650,24 +657,23 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
       if (!args.contactId) throw new Error('send_template needs a contact')
       if (!cfg.template_name) throw new Error('send_template needs template_name')
       const conversationId = await resolveConversationId(args)
-      // Meta templates use positional {{1}}, {{2}}, … placeholders, so
-      // we MUST emit params in strict numeric order. Lexicographic sort
-      // of "1", "2", …, "10" yields "1", "10", "2", … which silently
-      // scrambles every template with ≥10 variables.
-      const params = cfg.variables
-        ? Object.keys(cfg.variables)
-            .sort((a, b) => {
-              const na = Number(a)
-              const nb = Number(b)
-              const aNum = Number.isFinite(na)
-              const bNum = Number.isFinite(nb)
-              if (aNum && bNum) return na - nb
-              if (aNum) return -1
-              if (bNum) return 1
-              return a.localeCompare(b)
-            })
-            .map((k) => String(cfg.variables![k]))
-        : []
+      // Every placeholder needs a value, on every provider: a linked
+      // number renders the text itself and sends a literal `{{1}}`.
+      const { row, readFailed } = await resolveTemplateRow(
+        db,
+        args.automation.account_id,
+        cfg.template_name,
+        cfg.language,
+      )
+      if (readFailed) throw new Error('send_template: the template could not be read')
+      const values = row
+        ? resolveTemplateValues(row, cfg, (value) => interpolate(value, args))
+        : null
+      if (values?.missing.length) {
+        throw new Error(
+          `send_template: no value for ${values.missing.join(', ')} of template ${cfg.template_name}`,
+        )
+      }
       const { whatsapp_message_id } = await engineSendTemplate({
         accountId: args.automation.account_id,
         userId: args.automation.user_id,
@@ -675,7 +681,9 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
         contactId: args.contactId,
         templateName: cfg.template_name,
         language: cfg.language,
-        params,
+        // No row: the sender refuses the send and says so.
+        params: values?.params ?? [],
+        headerText: values?.headerText,
       })
       return `template sent via Meta (${whatsapp_message_id})`
     }
@@ -1022,8 +1030,9 @@ const STOPPED_SWITCHED_OFF = 'stopped: the automation was switched off'
 const STOPPED_INTERRUPTED = 'stopped: interrupted'
 const STOPPED_CHANGED = 'stopped: automation changed while waiting'
 
-/** The log detail of a message step not sent to an opted-out contact. */
+/** The log detail of a message step the consent register refused. */
 const SKIPPED_OPTED_OUT = 'skipped: the customer opted out'
+const SKIPPED_DO_NOT_CONTACT = 'skipped: the customer is marked do not contact'
 
 /** Why this run's chat is not a sales chat, or null. */
 async function notSalesReason(args: ExecuteArgs): Promise<string | null> {
@@ -1041,20 +1050,21 @@ async function notSalesSkipReason(
 }
 
 /**
- * Why a message step must not run, or null to run it. A contact with
- * `opted_out_at` gets a message only as a direct answer to what they
- * just wrote. A flag that cannot be read counts as opted out.
+ * Why a message step must not run, or null to run it. A do-not-contact
+ * customer is sent nothing, also right after they wrote (as in Flows). A
+ * contact with `opted_out_at` gets a message only as a direct answer to
+ * what they just wrote. A flag that cannot be read stops the message.
  */
 async function optOutSkipReason(
   step: AutomationStep,
   args: ExecuteArgs,
 ): Promise<string | null> {
-  if (args.customerJustWrote || !MESSAGE_STEP_TYPES.has(step.step_type)) return null
+  if (!MESSAGE_STEP_TYPES.has(step.step_type)) return null
   // The step itself fails on a missing contact.
   if (!args.contactId) return null
   const { data, error } = await supabaseAdmin()
     .from('contacts')
-    .select('opted_out_at')
+    .select('opted_out_at, do_not_contact_at')
     .eq('id', args.contactId)
     .eq('account_id', args.automation.account_id)
     .maybeSingle()
@@ -1064,7 +1074,32 @@ async function optOutSkipReason(
   }
   // What the sender itself says of a contact it cannot find.
   if (!data) throw new Error('contact not found for this account')
-  return (data as { opted_out_at?: string | null }).opted_out_at ? SKIPPED_OPTED_OUT : null
+  const refusal = consentRefusal(
+    data as { opted_out_at?: string | null; do_not_contact_at?: string | null },
+  )
+  if (refusal === 'do_not_contact') return SKIPPED_DO_NOT_CONTACT
+  return refusal && !args.customerJustWrote ? SKIPPED_OPTED_OUT : null
+}
+
+/**
+ * Why "assign to a specific person" must not run, or null to run it: the
+ * person named in the saved step was deactivated, left the account or is
+ * not staff (the same check as a flow's hand-off).
+ */
+async function assigneeSkipReason(
+  step: AutomationStep,
+  args: ExecuteArgs,
+): Promise<string | null> {
+  if (step.step_type !== 'assign_conversation') return null
+  const cfg = step.step_config as AssignConversationStepConfig
+  if (cfg.enabled === false || cfg.mode === 'round_robin' || !cfg.agent_id) return null
+  const person = await isActiveStaff(
+    supabaseAdmin(),
+    args.automation.account_id,
+    cfg.agent_id,
+  )
+  failOnWriteError(person.error, 'assign_conversation: the person could not be checked')
+  return person.ok ? null : 'skipped: the person is no longer active staff'
 }
 
 /** Fails the step with a short reason; the database's own text only goes
@@ -1311,12 +1346,14 @@ async function evaluateCondition(cfg: ConditionStepConfig, args: ExecuteArgs): P
       if (!args.contactId || !cfg.operand) return false
       // Scope to the account so the condition can't be turned into a
       // cross-tenant read oracle via the service-role client.
-      const { data } = await db
+      const { data, error } = await db
         .from('contacts')
         .select(cfg.operand)
         .eq('id', args.contactId)
         .eq('account_id', args.automation.account_id)
         .maybeSingle()
+      // Never the "no" branch: a read that failed says nothing about the field.
+      failOnWriteError(error, 'condition: the contact field could not be read')
       const v = (data as Record<string, unknown> | null)?.[cfg.operand]
       return v != null && String(v) === String(cfg.value ?? '')
     }

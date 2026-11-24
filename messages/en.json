@@ -1760,7 +1760,8 @@
         "updateError": "Failed to update",
         "duplicateError": "Failed to duplicate",
         "deleteError": "Failed to delete"
-      }
+      },
+      "neverRuns": "On, but never runs"
     },
     "edit": {
       "loading": "Loading...",
@@ -1882,7 +1883,9 @@
         "email": "Email",
         "company": "Company",
         "customFields": "Custom fields",
-        "unknown": "{id} (unknown field)"
+        "unknown": "{id} (unknown field)",
+        "phone": "Phone",
+        "choose": "Choose a field…"
       },
       "agents": {
         "select": "Select an agent…",
@@ -1906,7 +1909,10 @@
         "languageLabel": "Language",
         "select": "Select a template…",
         "unknown": "{name} ({lang}) — not in approved list",
-        "unknownLang": "unknown"
+        "unknownLang": "unknown",
+        "value": "Value for {name}",
+        "headerValue": "Header value",
+        "valuesHint": "Required. Use {{ message.text }} for the customer's message."
       },
       "branches": {
         "yes": "Yes",
@@ -1975,7 +1981,10 @@
           "placeholderText": "Triage marked this lead as ready to apply.",
           "textHint": "Posts as “wacrm · automation” and notifies nobody. **Double asterisks** make your text bold; {{ message.text }} and {{ vars.x }} are filled in, without bold or mentions. Everyone who can read the channel sees the post, even people who cannot see the conversation: in a team channel that is every staff member, viewers included. A channel with a bank guest is never posted to."
         }
-      }
+      },
+      "triggerNotAvailable": "{trigger} (not available yet)",
+      "triggerNotAvailableWhy": "Triggers marked \"not available yet\" cannot be used: nothing starts them so far.",
+      "triggerNotRunning": "This trigger does not run yet, so the automation cannot be activated."
     }
   },
   "Flows": {
@@ -13700,8 +13709,7 @@
     "triesAgain": "It tries again after {when}.",
     "triesSoon": "It tries again within the hour.",
     "usageLabel": "Learned answers"
-  }
-,
+  },
   "AiUsage": {
     "title": "Token usage",
     "description": "Tokens spent on your provider key by drafts and the auto-reply bot. Counts only — no message content is stored here.",

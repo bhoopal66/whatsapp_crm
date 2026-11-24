@@ -10,7 +10,10 @@ Two independent engines, deliberately kept apart:
   partial unique index for one active run per contact). Abandoned runs are swept
   by `GET /api/flows/cron`.
 - `lib/automations/*` — stateless trigger → steps rules (keyword, chat
-  tag, inbound message, schedule). Scheduled work runs via `GET /api/automations/cron`.
+  tag, inbound message, button reply, meaning). `time_based` and
+  `conversation_assigned` are never dispatched (`triggerRuns`): they are
+  disabled in the builder and refused on activation. Parked waits resume
+  via `GET /api/automations/cron`.
   A wait suspends the whole run and parks it by the wait's step id
   (`wait_step_id`, 269), so saving must keep step ids: only
   `automation_save` writes the steps of an existing automation. Every read

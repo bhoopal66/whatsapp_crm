@@ -15,6 +15,7 @@ import {
   validateStepsForActivation,
   validateTriggerForActivation,
 } from '@/lib/automations/validate';
+import { templateValueIssues } from '@/lib/automations/template-issues';
 import { serverErrorResponse } from '@/lib/api/server-error';
 import {
   AuthUnavailableError,
@@ -156,6 +157,7 @@ export async function PATCH(
     const issues = [
       ...validateTriggerForActivation(mergedTriggerType, mergedTriggerConfig),
       ...validateStepsForActivation(mergedSteps),
+      ...(await templateValueIssues(admin, ctx.accountId, mergedSteps)),
     ];
     if (issues.length > 0) {
       return NextResponse.json(

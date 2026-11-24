@@ -920,7 +920,10 @@ export type SendListStepConfig = InteractiveMessagePayload;
 export interface SendTemplateStepConfig {
   template_name: string;
   language?: string;
+  /** Body values by placeholder: `{ "1": "…" }` or `{ "name": "…" }`. */
   variables?: Record<string, string>;
+  /** The value of a text header's own placeholder. */
+  header_text?: string;
 }
 
 /**

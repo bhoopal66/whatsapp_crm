@@ -31,6 +31,26 @@ and polish.
   first), and the answer lands on that row, also when a teammate holds one
   of the same name and language. A row with a media header says why it
   cannot go from here. No migration.
+- **The automation builder asks for a template's values**: one field per
+  placeholder of the body and of a text header, with the filled text below.
+  No migration.
+- **"Time-Based" and "Conversation Assigned" automations say they do not run
+  yet.** Nothing ever started them: they are disabled in the builder, cannot
+  be activated, and one that is on shows "On, but never runs". No migration.
+- **An automation's "Send template" never sends a literal `{{1}}`.** A step
+  whose template has a placeholder (body or text header) without a value
+  fails with the reason in the run log, and an automation with one cannot
+  be activated. No migration.
+- **"Assign to a specific person" skips someone who left** (deactivated, not
+  staff, or no longer in the workspace), with the reason in the run log,
+  instead of giving them the chat. No migration.
+- **A "Contact field" condition whose read failed** fails its step instead
+  of taking the "no" branch, and the field is picked from a list (name,
+  phone, email, company); an unknown saved name cannot be activated. No
+  migration.
+- **Automations honour "Do not contact".** A customer marked so is sent no
+  automation message (text, buttons, list, template), not even right after
+  they wrote; before, only "opted out" was checked. No migration.
 - **Numbers typed in Arabic digits work.** Contact search, the inbox,
   groups and forward searches read Arabic-Indic and Persian digits as 0-9,
   and a number typed or imported with them keeps its digits.

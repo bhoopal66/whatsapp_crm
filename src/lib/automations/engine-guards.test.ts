@@ -76,6 +76,8 @@ vi.mock('./channel-send', () => ({
 }));
 
 import { resumePendingExecution, runAutomationsForTrigger } from './engine';
+import { templateValueIssues } from './template-issues';
+import { supabaseAdmin } from './admin-client';
 import type { AutomationTriggerType } from '@/types';
 
 const ACCOUNT = 'acct-1';
@@ -169,6 +171,7 @@ beforeEach(() => {
     conversations: [{ id: 'conv-1', account_id: ACCOUNT, contact_id: 'c1' }],
     accounts: [{ id: ACCOUNT, default_currency: 'AED' }],
     custom_fields: [{ id: 'f1', account_id: ACCOUNT }],
+    profiles: [{ user_id: 'u2', account_id: ACCOUNT, account_role: 'agent' }],
     automations: [
       {
         id: 'a1',
@@ -314,7 +317,7 @@ describe('a contact who opted out', () => {
 
   it('is not messaged when the flag cannot be read', async () => {
     contact().opted_out_at = null;
-    h.refuse.add('contacts.select:opted_out_at');
+    h.refuse.add('contacts.select:opted_out_at, do_not_contact_at');
     steps(TEXT, CLOSE);
     await trigger('chat_tag_set');
     expect(sends()).toBe(0);
@@ -328,6 +331,184 @@ describe('a contact who opted out', () => {
     steps(TEXT);
     await trigger('chat_tag_set');
     expect(sends()).toBe(1);
+  });
+});
+
+describe('a contact marked do not contact', () => {
+  beforeEach(() => {
+    contact().do_not_contact_at = '2026-11-01T00:00:00Z';
+  });
+
+  it.each([
+    ['send_message', TEXT],
+    ['send_template', TEMPLATE],
+    ['send_buttons', BUTTONS],
+    ['send_list', LIST],
+  ])('%s is skipped, also right after they wrote', async (_type, step) => {
+    steps(step, CLOSE);
+    await trigger('new_message_received', { customerJustWrote: true });
+    await trigger('chat_tag_set');
+    expect(sends()).toBe(0);
+    expect(log().steps_executed[0]).toMatchObject({
+      status: 'skipped',
+      detail: 'skipped: the customer is marked do not contact',
+    });
+    expect(h.db.conversations[0].status).toBe('closed');
+  });
+
+  it('is sent nothing by a resumed wait', async () => {
+    park();
+    steps(TEXT);
+    await resume();
+    expect(sends()).toBe(0);
+  });
+
+  it('is sent nothing right after they wrote when the flags cannot be read', async () => {
+    contact().do_not_contact_at = null;
+    h.refuse.add('contacts.select:opted_out_at, do_not_contact_at');
+    steps(TEXT);
+    await trigger('new_message_received', { customerJustWrote: true });
+    expect(sends()).toBe(0);
+    expect(log().steps_executed[0]).toMatchObject({ status: 'skipped' });
+  });
+});
+
+describe('a contact_field condition', () => {
+  const field = (operand: string): [string, Row] => [
+    'condition',
+    { subject: 'contact_field', operand, value: 'ACME' },
+  ];
+
+  it('fails its step when the contact cannot be read', async () => {
+    h.refuse.add('contacts.select:company');
+    steps(field('company'), CLOSE);
+    await trigger('new_message_received');
+    expect(log().steps_executed).toHaveLength(1);
+    expect(log().steps_executed[0]).toMatchObject({
+      status: 'failed',
+      detail: 'condition: the contact field could not be read',
+    });
+    expect(JSON.stringify(log())).not.toContain('secret');
+    expect(h.db.conversations[0].status).toBeUndefined();
+  });
+
+  it('control: compares the field it read', async () => {
+    contact().company = 'ACME';
+    steps(field('company'));
+    await trigger('new_message_received');
+    expect(log().steps_executed[0].detail).toBe('branch=yes');
+  });
+});
+
+describe('assign to a specific person', () => {
+  const person = () => h.db.profiles[0] as Row;
+  const holder = () => h.db.conversations[0].assigned_agent_id;
+  beforeEach(() => {
+    h.db.conversations[0].assigned_agent_id = 'u9';
+    steps(['assign_conversation', { mode: 'specific', agent_id: 'u2' }], CLOSE);
+  });
+
+  it.each([
+    ['deactivated', { deactivated_at: '2026-11-01T00:00:00Z' }],
+    ['of another account', { account_id: 'acct-2' }],
+    ['a bank guest', { account_role: 'bank_guest' }],
+  ])('someone %s is skipped, with the reason', async (_who, patch) => {
+    Object.assign(person(), patch);
+    await trigger('new_message_received');
+    expect(holder()).toBe('u9');
+    expect(log().steps_executed.map((s) => [s.status, s.detail])).toEqual([
+      ['skipped', 'skipped: the person is no longer active staff'],
+      ['success', 'conversation closed'],
+    ]);
+  });
+
+  it('a person who cannot be checked fails the step', async () => {
+    h.refuse.add('profiles.select:account_role');
+    await trigger('new_message_received');
+    expect(holder()).toBe('u9');
+    expect(log().steps_executed).toMatchObject([{ status: 'failed' }]);
+    expect(JSON.stringify(log())).not.toContain('secret');
+  });
+
+  it('control: active staff takes the chat, over its holder', async () => {
+    await trigger('new_message_received');
+    expect(holder()).toBe('u2');
+  });
+});
+
+describe('the values of a template', () => {
+  const offer = (config: Row): [string, Row] => [
+    'send_template',
+    { template_name: 'offer', ...config },
+  ];
+  beforeEach(() => {
+    h.db.message_templates = [
+      {
+        id: 't1',
+        user_id: 'u1',
+        account_id: ACCOUNT,
+        name: 'offer',
+        language: 'en_US',
+        category: 'Utility',
+        status: 'APPROVED',
+        body_text: 'Hi {{1}}, about {{2}}',
+        header_type: 'text',
+        header_content: 'For {{1}}',
+      },
+    ];
+  });
+
+  it.each([
+    ['none', {}],
+    ['a blank one', { variables: { '1': 'Ann', '2': ' ' }, header_text: 'x' }],
+    [
+      'one that comes out empty',
+      { variables: { '1': 'Ann', '2': '{{ vars.none }}' }, header_text: 'x' },
+    ],
+    ['no header value', { variables: { '1': 'Ann', '2': 'cards' } }],
+  ])('%s: nothing is sent and the step fails', async (_name, config) => {
+    steps(offer(config), CLOSE);
+    await trigger('new_message_received', { customerJustWrote: true });
+    expect(sends()).toBe(0);
+    expect(log().steps_executed).toHaveLength(1);
+    expect(log().steps_executed[0].detail).toContain(
+      'send_template: no value for '
+    );
+  });
+
+  it('are filled in as other text is', async () => {
+    const config = {
+      variables: { '2': '{{ message.text }}', '1': 'Ann' },
+      header_text: 'you',
+    };
+    steps(offer(config));
+    await trigger('new_message_received', { customerJustWrote: true });
+    expect(h.template).toHaveBeenCalledWith(
+      expect.objectContaining({ params: ['Ann', 'hi'], headerText: 'you' })
+    );
+  });
+
+  it('a template that cannot be read sends nothing', async () => {
+    h.refuse.add('message_templates.select:*');
+    steps(offer({}));
+    await trigger('new_message_received', { customerJustWrote: true });
+    expect(sends()).toBe(0);
+  });
+
+  it('activation names the missing ones, in a branch too', async () => {
+    const step = {
+      step_type: 'send_template',
+      step_config: { template_name: 'offer', variables: { '1': 'Ann' } },
+    };
+    const issues = await templateValueIssues(supabaseAdmin(), ACCOUNT, [
+      { step_type: 'condition', step_config: {}, branches: { yes: [step] } },
+    ]);
+    expect(issues).toEqual([
+      {
+        path: 'steps[0].yes.steps[0].variables',
+        message: 'template value is required for {{2}}, header {{1}}',
+      },
+    ]);
   });
 });
 

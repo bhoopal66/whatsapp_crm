@@ -1,6 +1,7 @@
 import type { AutomationTriggerType } from '@/types'
 import { validateInteractivePayload } from '@/lib/whatsapp/interactive'
-import { TRIGGER_META } from './trigger-meta'
+import { isConditionContactField } from './contact-fields'
+import { TRIGGER_META, triggerRuns } from './trigger-meta'
 import { TEAM_CHAT_BODY_MAX } from './team-chat-post'
 import { validateIntentTriggerConfig } from '@/lib/insights/meaning-config'
 
@@ -161,6 +162,11 @@ function validateOne(step: StepLike, path: string, issues: ValidationIssue[]): v
       }
       if (!nonEmpty(c.operand)) {
         issues.push({ path: `${path}.operand`, message: 'condition operand is required' })
+      } else if (c.subject === 'contact_field' && !isConditionContactField(c.operand)) {
+        issues.push({
+          path: `${path}.operand`,
+          message: `unknown contact field: ${String(c.operand)}`,
+        })
       }
       break
     case 'send_webhook':
@@ -216,6 +222,11 @@ export function validateTriggerForActivation(
     return issues
   }
 
+  if (!triggerRuns(triggerType)) {
+    issues.push({ path: 'trigger.type', message: 'this trigger does not run yet' })
+    return issues
+  }
+
   if (triggerType === 'keyword_match') {
     const k = cfg.keywords
     if (!Array.isArray(k) || k.length === 0) {
@@ -243,10 +254,6 @@ export function validateTriggerForActivation(
   } else if (triggerType === 'intent_match') {
     for (const i of validateIntentTriggerConfig(cfg)) {
       issues.push({ path: `trigger.${i.field}`, message: i.message })
-    }
-  } else if (triggerType === 'time_based') {
-    if (!nonEmpty(cfg.schedule)) {
-      issues.push({ path: 'trigger.schedule', message: 'schedule is required' })
     }
   } else if (triggerType === 'chat_tag_set') {
     if (!nonEmpty(cfg.chat_tag_id)) {

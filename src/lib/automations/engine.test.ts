@@ -17,7 +17,7 @@ const h = vi.hoisted(() => ({
     rpcCalls: [] as { fn: string; params: unknown }[],
     // resolve_chat_deal_owner's answer, and the profiles it maps to.
     dealOwnerRpc: { data: null, error: null } as { data: unknown; error: unknown },
-    profiles: [] as { id: string; user_id: string; account_id: string }[],
+    profiles: [] as { id: string; user_id: string; account_id: string; account_role?: string }[],
     // chat_channels rows, and chat_post_system_message's answer.
     chatChannels: [] as Record<string, unknown>[],
     chatPostRpc: { data: "msg-1", error: null } as { data: unknown; error: unknown },
@@ -483,7 +483,10 @@ describe("company chat only", () => {
     h.state.owned = { id: "c1" };
     h.state.automations = [automationWithUpdateStep()];
     h.state.steps = [{ ...updateStep(), step_type, step_config }];
-    h.state.profiles = [{ id: "p1", user_id: "owner-1", account_id: ACCOUNT }];
+    h.state.profiles = [
+      { id: "p1", user_id: "owner-1", account_id: ACCOUNT },
+      { id: "p2", user_id: "a", account_id: ACCOUNT, account_role: "agent" },
+    ];
     await runAutomationsForTrigger({
       accountId: ACCOUNT,
       triggerType: "new_message_received",
@@ -600,6 +603,9 @@ describe("assign_conversation — the rotation engine decides (migration 236)", 
   });
 
   it("a named person still takes the chat", async () => {
+    h.state.profiles = [
+      { id: "p1", user_id: "agent-1", account_id: ACCOUNT, account_role: "agent" },
+    ];
     const { writes, rotations } = await run({ mode: "specific", agent_id: "agent-1" });
     expect(rotations).toEqual([]);
     expect(writes).toHaveLength(1);

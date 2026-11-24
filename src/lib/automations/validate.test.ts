@@ -361,14 +361,16 @@ describe("validateTriggerForActivation", () => {
     ).toEqual([]);
   });
 
-  it("requires schedule on time_based triggers", () => {
-    expect(validateTriggerForActivation("time_based", {})).toEqual([
-      { path: "trigger.schedule", message: "schedule is required" },
-    ]);
-    expect(
-      validateTriggerForActivation("time_based", { schedule: "0 9 * * *" }),
-    ).toEqual([]);
-  });
+  it.each(["time_based", "conversation_assigned"])(
+    "refuses %s, which nothing dispatches",
+    (type) => {
+      expect(
+        validateTriggerForActivation(type, { schedule: "0 9 * * *" }),
+      ).toEqual([
+        { path: "trigger.type", message: "this trigger does not run yet" },
+      ]);
+    },
+  );
 
   it("requires a main tag on chat_tag_set triggers; the sub-tag is optional", () => {
     expect(validateTriggerForActivation("chat_tag_set", {})).toEqual([
@@ -435,7 +437,24 @@ describe("validateTriggerForActivation", () => {
   it("knows every trigger in TRIGGER_META", () => {
     for (const t of Object.keys(TRIGGER_META)) {
       const issues = validateTriggerForActivation(t, {});
-      expect(issues.map((i) => i.path)).not.toContain("trigger.type");
+      expect(issues.map((i) => i.message).join()).not.toContain("unknown trigger");
     }
   });
 });
+
+describe("contact_field condition", () => {
+  const issuesFor = (operand: string) =>
+    validateStepsForActivation([
+      { step_type: "condition", step_config: { subject: "contact_field", operand, value: "x" } },
+    ])
+
+  it("refuses a field the condition cannot read", () => {
+    expect(issuesFor("company_name")).toEqual([
+      { path: "steps[0].operand", message: "unknown contact field: company_name" },
+    ])
+  })
+
+  it.each(["name", "phone", "email", "company"])("accepts %s", (field) => {
+    expect(issuesFor(field)).toEqual([])
+  })
+})

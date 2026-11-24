@@ -10,6 +10,18 @@ import {
 } from "react"
 import { useRouter } from "next/navigation"
 import { useTranslations } from "next-intl"
+import {
+  headerTakesValue,
+  resolveTemplateValues,
+  type TemplateStepValues,
+} from "@/lib/automations/template-values"
+import { renderTemplateBody } from "@/lib/whatsapp/template-body"
+import { extractVariableKeys } from "@/lib/whatsapp/template-validators"
+import { triggerRuns } from "@/lib/automations/trigger-meta"
+import {
+  CONDITION_CONTACT_FIELDS,
+  isConditionContactField,
+} from "@/lib/automations/contact-fields"
 import { toast } from "sonner"
 import {
   ArrowLeft,
@@ -598,6 +610,34 @@ function ChatTagAnySelect({
  *  any account custom fields (stored as `custom:<id>`). A saved custom field
  *  that's since been deleted is preserved as a labelled option so editing an
  *  existing automation doesn't silently drop it. */
+function ConditionFieldSelect({
+  value,
+  onChange,
+  t,
+}: {
+  value: string
+  onChange: (v: string) => void
+  t: ReturnType<typeof useTranslations>
+}) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className={SELECT_CLASS}
+    >
+      <option value="">{t("fields.choose")}</option>
+      {CONDITION_CONTACT_FIELDS.map((f) => (
+        <option key={f} value={f}>
+          {t(`fields.${f}`)}
+        </option>
+      ))}
+      {value && !isConditionContactField(value) && (
+        <option value={value}>{t("fields.unknown", { id: value })}</option>
+      )}
+    </select>
+  )
+}
+
 function ContactFieldSelect({
   value,
   onChange,
@@ -842,18 +882,86 @@ function DealPipelineFields({
   )
 }
 
+/** One input per placeholder of the picked template, and the filled text. */
+function TemplateValueFields({
+  template,
+  values,
+  onValues,
+  t,
+}: {
+  template: MessageTemplate
+  values: TemplateStepValues
+  onValues: (patch: TemplateStepValues) => void
+  t: ReturnType<typeof useTranslations>
+}) {
+  const keys = extractVariableKeys(template.body_text)
+  const header = headerTakesValue(template)
+  if (keys.length === 0 && !header) return null
+  const { params, headerText } = resolveTemplateValues(template, values)
+  // An empty value stays as its placeholder in the preview.
+  const filled = (text: string, list: string[]) =>
+    renderTemplateBody(
+      text,
+      list.map((v) => v || undefined) as string[],
+    )
+  return (
+    <>
+      {header && (
+        <FieldBlock label={t("templates.headerValue")}>
+          <Input
+            value={values.header_text ?? ""}
+            onChange={(e) => onValues({ header_text: e.target.value })}
+            className="text-foreground"
+          />
+        </FieldBlock>
+      )}
+      {keys.map((key) => (
+        <FieldBlock key={key} label={t("templates.value", { name: `{{${key}}}` })}>
+          <Input
+            value={values.variables?.[key] ?? ""}
+            onChange={(e) =>
+              onValues({
+                variables: { ...values.variables, [key]: e.target.value },
+              })
+            }
+            className="text-foreground"
+          />
+        </FieldBlock>
+      ))}
+      <p className="text-xs text-muted-foreground">
+        {t.raw("templates.valuesHint")}
+      </p>
+      <div
+        dir="auto"
+        className="rounded-md bg-card-2 px-3 py-2 text-sm whitespace-pre-wrap text-foreground"
+      >
+        {header && (
+          <p className="font-medium">
+            {filled(template.header_content ?? "", headerText ? [headerText] : [])}
+          </p>
+        )}
+        {filled(template.body_text, params)}
+      </div>
+    </>
+  )
+}
+
 /** Template dropdown showing approved templates by name + language,
  *  storing both template_name and language. Falls back to manual name +
  *  language inputs when no approved templates are synced yet. */
 function SendTemplateFields({
   templateName,
   language,
+  values,
   onChange,
+  onValues,
   t,
 }: {
   templateName: string
   language: string
+  values: TemplateStepValues
   onChange: (patch: { template_name: string; language: string }) => void
+  onValues: (patch: TemplateStepValues) => void
   t: ReturnType<typeof useTranslations>
 }) {
   const { templates } = useResources()
@@ -891,7 +999,12 @@ function SendTemplateFields({
     (t) => toValue(t.name, t.language ?? "en_US") === current,
   )
 
+  const picked = templates.find(
+    (tmpl) => toValue(tmpl.name, tmpl.language ?? "en_US") === current,
+  )
+
   return (
+    <>
     <FieldBlock label={t("templates.templateLabel")}>
       <select
         value={current}
@@ -917,6 +1030,15 @@ function SendTemplateFields({
         )}
       </select>
     </FieldBlock>
+    {picked && (
+      <TemplateValueFields
+        template={picked}
+        values={values}
+        onValues={onValues}
+        t={t}
+      />
+    )}
+    </>
   )
 }
 
@@ -1156,11 +1278,25 @@ function TriggerCard({
                 className="w-full rounded-md border border-border bg-card dark:bg-muted px-2 py-1.5 text-sm text-foreground focus:border-primary focus:outline-none"
               >
                 {TRIGGER_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {label(o.value)}
+                  <option
+                    key={o.value}
+                    value={o.value}
+                    disabled={!triggerRuns(o.value)}
+                  >
+                    {triggerRuns(o.value)
+                      ? label(o.value)
+                      : t("triggerNotAvailable", { trigger: label(o.value) })}
                   </option>
                 ))}
               </select>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {t("triggerNotAvailableWhy")}
+              </p>
+              {!triggerRuns(type) && (
+                <p className="mt-1 text-xs font-medium text-warning">
+                  {t("triggerNotRunning")}
+                </p>
+              )}
               <p className="mt-1 text-xs text-muted-foreground">
                 {type === "intent_match"
                   ? tm("triggerHint")
@@ -1755,7 +1891,12 @@ function StepEditor({
         <SendTemplateFields
           templateName={(cfg.template_name as string) ?? ""}
           language={(cfg.language as string) ?? ""}
-          onChange={(patch) => set(patch)}
+          values={cfg as TemplateStepValues}
+          // Another template's values say nothing about this one.
+          onChange={(patch) =>
+            set({ ...patch, variables: undefined, header_text: undefined })
+          }
+          onValues={(patch) => set({ ...patch })}
           t={t}
         />
       )
@@ -1937,11 +2078,10 @@ function StepEditor({
           {subject === "contact_field" && (
             <>
               <FieldBlock label={t("config.operandLabel")}>
-                <Input
-                  placeholder={t("config.placeholderContact")}
+                <ConditionFieldSelect
                   value={(cfg.operand as string) ?? ""}
-                  onChange={(e) => set({ operand: e.target.value })}
-                  className="text-foreground"
+                  onChange={(operand) => set({ operand })}
+                  t={t}
                 />
               </FieldBlock>
               <FieldBlock label={t("config.conditionIs")}>

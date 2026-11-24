@@ -36,7 +36,7 @@
  *     INSERT raises 23505 and the runner catches & exits.
  */
 
-import { STAFF_ROLES, type AccountRole } from '@/lib/auth/roles';
+import { isActiveStaff } from '@/lib/auth/active-staff';
 import { supabaseAdmin } from './admin-client';
 import {
   engineSendInteractiveButtons,
@@ -670,20 +670,12 @@ async function handOverChat(
   if (error) await failed('status', error.message);
   if (!assignTo) return null;
 
-  const { data: people, error: personErr } = await db
-    .from('profiles')
-    .select('account_role')
-    .eq('user_id', assignTo)
-    .eq('account_id', run.account_id)
-    .is('deactivated_at', null)
-    .limit(1);
-  if (personErr) {
-    await failed('assignee check', personErr.message);
+  const person = await isActiveStaff(db, run.account_id, assignTo);
+  if (person.error) {
+    await failed('assignee check', person.error);
     return null;
   }
-  const role = (people as { account_role: AccountRole }[] | null)?.[0]
-    ?.account_role;
-  if (!role || !(STAFF_ROLES as readonly AccountRole[]).includes(role)) {
+  if (!person.ok) {
     console.warn('[flows] hand-off assignee is not active staff:', run.id);
     return null;
   }
