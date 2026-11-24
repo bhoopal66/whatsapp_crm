@@ -39,6 +39,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { ConfirmDialog } from '@/components/ui-ext/confirm-dialog';
 import { AiKnowledgeCard } from '@/components/settings/ai-knowledge';
 import { AiKnowledgeGapsCard } from '@/components/settings/ai-knowledge-gaps';
+import { AiKbLearnSwitch } from '@/components/settings/ai-kb-learn-switch';
 import type { KbEntry } from '@/lib/kb/types';
 import {
   AI_PROVIDER_DEFAULT_MODEL,
@@ -857,6 +858,13 @@ export function KnowledgeSection({
         accountId={form.accountId}
         canEdit={form.canEdit}
         onWriteAnswer={onWriteAnswer}
+      />
+
+      {/* Keyed: another workspace's setting never shows while its own loads. */}
+      <AiKbLearnSwitch
+        key={form.accountId}
+        accountId={form.accountId}
+        canEdit={form.canEdit}
       />
     </div>
   );

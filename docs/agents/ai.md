@@ -83,3 +83,34 @@ panel. The bubble text never gets `dir="auto"`, because the time overlay
 reserves room at the end of the last line; the composer textarea does
 get it. Anything under a bubble goes after the reactions chip, which
 overlaps the bubble (`-mt-1.5`).
+
+**Learn from team answers (migration 290, `lib/kb/learn*.ts`,
+`docs/ai-agent.md`).** Off by default (`kb_learn_settings`, set only via
+`kb_learn_set_enabled`, admin+ of the active account). The automations
+cron runs `runKbLearning` hourly; `kb_learn_claim_run` marks a due
+account `running` and due again in 50 minutes (3 attempts per 24 h), so
+only `kb_learn_finish_run` without an error starts the 7-day wait; its
+codes are `KB_LEARN_RUN_ERRORS` ↔ 290's CHECK. The ledger's last 7 days
+(`kb_learn_asked_this_week`) count toward the ten topics, so an asked
+topic that cannot be noted stops the run. A team answer is the first non-holding person reply (bubbles
+joined, `pickTeamAnswer`); a topic needs `MIN_ANSWERS_PER_TOPIC` (2). Drafts are written only by
+`kb_learn_record_draft` (service role), always status `draft`, source
+`learned`, ref `LRN-…`; it refuses while the switch is off and when the
+topic has a live draft (`kb_learned_drafts`: same gaps ≥ half, or same
+`topic_key`, a SHA-256 of the label; a deleted or `remove` draft frees the topic). A discarded
+one (`kb_learn_record_discard`) holds it for 28 days, as does a declined, malformed or cut-off answer;
+`kb_learn_open_topics` leaves all of these out and orders each topic's
+gaps newest first. `loadConfig` requires the AI master switch on. The label is a
+customer's message: never sent or stored. Chats pass `notSalesChat`
+(`lib/ai/not-sales-chat.ts`, shared with auto-reply; `readOnly` here) for
+the chat and every message's number; every read throws. Evidence is
+masked with `maskIdentifiers` (`brainRedact`, case numbers, 5+ digit runs)
+and `buildNameMatcher` over the account's whole list (`knownNames`, once
+per run; `kb_learn_case_names` for tables the service role may not read) before `generateReply`
+(purpose `kb_learn`, so `assertAiTransfer` runs), fail closed; the
+model's question and both answers are screened with the same
+(`screenText`). Usage mode
+`kb_learn`: 290 adds it to the CHECK list it finds in the catalog; a
+re-run of 202 drops it, so apply in order, once. A failed call that was
+billed is logged too (`AiError.usage`).
+The bot's reply path and `kb_shortlist` are unchanged.

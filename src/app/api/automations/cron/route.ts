@@ -29,6 +29,7 @@ import { caseSlaStore, caseStore } from '@/lib/cases/server'
 import { runCaseRulesSweep } from '@/lib/cases/rules'
 import { memoryStore } from '@/lib/memory/server'
 import { runKbGapRecomputePass } from '@/lib/kb/gap-recompute'
+import { runKbLearning } from '@/lib/kb/learn-run'
 import { drainWebhookOutbox, purgeWebhookOutbox } from '@/lib/webhooks/outbox'
 import { runInboundQueueTick } from '@/lib/whatsapp/inbound-drain'
 import { runPbxCron } from '@/lib/pbx/housekeeping'
@@ -601,6 +602,36 @@ function scheduleKbGapRecompute() {
 }
 
 /**
+ * Learn from team answers (migration 290): workspaces that switched it on
+ * get learned knowledge-base DRAFTS from their open gap topics, at most
+ * once a week each, a failed run again within the hour (kb_learn_claim_run
+ * stamps it first). Checked hourly inside after(); runKbLearning never
+ * throws and starts no new work after its own budget.
+ */
+const kbLearningDue = everyInterval(60 * 60_000)
+
+function scheduleKbLearning() {
+  try {
+    if (!kbLearningDue()) return
+    after(async () => {
+      try {
+        await runKbLearning()
+      } catch (err) {
+        console.error(
+          '[automations-cron] knowledge-base learning failed:',
+          err instanceof Error ? err.message : err,
+        )
+      }
+    })
+  } catch (err) {
+    console.error(
+      '[automations-cron] could not schedule knowledge-base learning:',
+      err instanceof Error ? err.message : err,
+    )
+  }
+}
+
+/**
  * Inbound WhatsApp queue (migration 264): the events a webhook recorded
  * and did not finish are retried, the dead ones ring their admins, and
  * done rows are purged, at most once a minute per process inside after().
@@ -1061,6 +1092,7 @@ export async function GET(request: Request) {
     scheduleCaseGroupEnds()
     scheduleMemoryExpiry()
     scheduleKbGapRecompute()
+    scheduleKbLearning()
     scheduleWebhookInbox()
     scheduleWebhookOutbox()
     schedulePbxCron()

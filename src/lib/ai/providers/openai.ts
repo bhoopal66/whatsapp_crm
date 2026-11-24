@@ -71,16 +71,17 @@ export async function generateOpenAi(
   const data = (await res.json().catch(() => null)) as OpenAiResponse | null;
   const choice = data?.choices?.[0];
   const text = choice?.message?.content;
-  if (!text || typeof text !== 'string' || !text.trim()) {
-    throw new AiError('OpenAI returned an empty response.', {
-      code: 'empty_response',
-    });
-  }
   const usage = normalizeUsage({
     prompt: data?.usage?.prompt_tokens,
     completion: data?.usage?.completion_tokens,
     total: data?.usage?.total_tokens,
   });
+  if (!text || typeof text !== 'string' || !text.trim()) {
+    throw new AiError('OpenAI returned an empty response.', {
+      code: 'empty_response',
+      usage,
+    });
+  }
   return {
     text,
     usage,

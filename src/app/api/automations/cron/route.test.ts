@@ -24,6 +24,7 @@ const h = vi.hoisted(() => ({
   caseRules: vi.fn(),
   memoryExpire: vi.fn(),
   kbGap: vi.fn(),
+  kbLearn: vi.fn(),
   inboxTick: vi.fn(),
   outboxDrain: vi.fn(),
   outboxPurge: vi.fn(),
@@ -119,6 +120,9 @@ vi.mock('@/lib/memory/server', () => ({
 vi.mock('@/lib/kb/gap-recompute', () => ({
   runKbGapRecomputePass: h.kbGap,
 }));
+vi.mock('@/lib/kb/learn-run', () => ({
+  runKbLearning: h.kbLearn,
+}));
 vi.mock('@/lib/whatsapp/inbound-drain', () => ({
   runInboundQueueTick: h.inboxTick,
 }));
@@ -206,6 +210,7 @@ beforeEach(() => {
     .mockResolvedValue({ attempted: 0, results: [], stopped: false });
   h.memoryExpire.mockReset().mockResolvedValue(0);
   h.kbGap.mockReset().mockResolvedValue({ accounts: 0, failed: 0 });
+  h.kbLearn.mockReset().mockResolvedValue({ accounts: 0, drafted: 0 });
   h.inboxTick.mockReset().mockResolvedValue(undefined);
   h.outboxDrain.mockReset().mockResolvedValue({ claimed: 0, delivered: 0 });
   h.outboxPurge.mockReset().mockResolvedValue(0);
@@ -906,6 +911,34 @@ describe('GET /api/automations/cron — cases and memory', () => {
     expect(log).toHaveBeenCalledWith(
       '[automations-cron] knowledge-gap recompute failed:',
       'gap boom'
+    );
+    log.mockRestore();
+  });
+
+  it('checks for knowledge-base learning once an hour per process, and survives a throw', async () => {
+    vi.resetModules();
+    vi.setSystemTime(new Date('2026-10-22T09:00:00Z'));
+    const { GET } = await import('./route');
+
+    await GET(req());
+    await runAfter();
+    expect(h.kbLearn).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(new Date('2026-10-22T09:59:00Z'));
+    await GET(req());
+    await runAfter();
+    expect(h.kbLearn).toHaveBeenCalledTimes(1);
+
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    h.kbLearn.mockRejectedValueOnce(new Error('learn boom'));
+    vi.setSystemTime(new Date('2026-10-22T10:00:00Z'));
+    const res = await GET(req());
+    expect(res.status).toBe(200);
+    await runAfter();
+    expect(h.kbLearn).toHaveBeenCalledTimes(2);
+    expect(log).toHaveBeenCalledWith(
+      '[automations-cron] knowledge-base learning failed:',
+      'learn boom'
     );
     log.mockRestore();
   });

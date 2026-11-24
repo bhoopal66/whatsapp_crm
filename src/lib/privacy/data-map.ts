@@ -888,6 +888,8 @@ export const NOT_PERSONAL: Readonly<Record<string, string>> =
             'account_departments',
             'ai_configs',
             'ai_insight_settings',
+            // 290: the learn-from-team-answers switch and its last run.
+            'kb_learn_settings',
             'assignment_settings',
             'automations',
             'automation_steps',
@@ -950,8 +952,16 @@ export const NOT_PERSONAL: Readonly<Record<string, string>> =
             'broadcasts',
             'kb_entries',
             'kb_imports',
+            // 152: the label IS a customer's question (phone numbers and other
+            // identifiers masked when the gap is stored, names not). No link to
+            // a person, so neither export nor erase reaches it: an erased
+            // customer's label goes with the next daily recompute.
             'kb_gap_topics',
             'kb_gap_topic_members',
+            // 290: gap ids and a SHA-256 of the topic's label per learned draft; no
+            // message text. The entry's question and answers (kb_entries) are the
+            // model's, stored only when they carry no known name or identifier.
+            'kb_learned_drafts',
             'ai_knowledge_chunks',
             'ai_knowledge_documents',
             'ts_label',

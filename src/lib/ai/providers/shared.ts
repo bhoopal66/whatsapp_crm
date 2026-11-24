@@ -54,7 +54,7 @@ export function assertComplete(result: ProviderResult): void {
   if (!result.truncated) return;
   throw new AiError(
     'The AI stopped before finishing its answer, so it was not used. Please try again.',
-    { code: 'truncated', status: 502 }
+    { code: 'truncated', status: 502, usage: result.usage }
   );
 }
 
