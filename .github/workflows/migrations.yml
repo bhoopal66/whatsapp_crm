@@ -1587,6 +1587,11 @@ jobs:
       - name: Verify v1 message keys (305)
         run: supabase db query --local --file supabase/ci/verify-v1-message-keys.sql
 
+      # Migration 317: an erasure reaches the tasks that name a customer
+      # without pointing at them; an HR template has a version.
+      - name: Verify HR rest
+        run: supabase db query --local --file supabase/ci/verify-hr-rest.sql
+
       # Migration 306: leaving a workspace takes the extension; a removed
       # person is added back only by the workspace that removed them.
       - name: Verify leaving and coming back
