@@ -13601,6 +13601,23 @@
     "loadFailed": "학습 설정을 불러오지 못했습니다",
     "saveFailed": "학습 설정을 저장하지 못했습니다",
     "switchedOn": "팀 답변 학습이 켜졌습니다",
-    "switchedOff": "팀 답변 학습이 꺼졌습니다"
+    "switchedOff": "팀 답변 학습이 꺼졌습니다",
+    "skills": {
+      "title": "학습한 내용 (활성 {count}개)",
+      "description": "관리자가 이전 초안을 승인, 수정 또는 거부한 방식에서 추출한 규칙입니다. 새 초안에만 영향을 줍니다. 잘못된 규칙은 중지하세요. 더 이상 사용되지 않으며 다시 학습되지 않습니다.",
+      "loading": "불러오는 중…",
+      "empty": "아직 없습니다. 관리자가 학습된 초안 몇 개를 검토하면 규칙이 나타납니다.",
+      "loadFailed": "학습한 내용을 불러오지 못했습니다",
+      "saveFailed": "규칙을 저장하지 못했습니다",
+      "retire": "중지",
+      "restore": "복원",
+      "when": "적용 시점: {when}",
+      "kind": {
+        "general": "모든 답변",
+        "category": "카테고리",
+        "categoryNamed": "{category}",
+        "mistake": "피해야 할 실수"
+      }
+    }
   }
 }

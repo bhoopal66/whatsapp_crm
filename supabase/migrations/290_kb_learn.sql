@@ -26,6 +26,10 @@
 --  4. kb_learn_record_draft(): the one writer of a learned entry, service
 --     role only. Refuses when the switch is off or the topic already has
 --     a live draft, and always writes status 'draft', source 'learned'.
+--  5. kb_learn_skills: a small skill library distilled from how admins
+--     reviewed the drafts (SkillRL's general / per-category / mistakes),
+--     used in the next drafts' prompt. Admin-visible, retirable, capped,
+--     and CHECKed to hold no identifiers.
 --
 -- The functions are SECURITY DEFINER and write kb_entries, which RLS
 -- guards: hence the BYPASSRLS check below. Re-runnable: IF NOT EXISTS,
@@ -96,7 +100,20 @@ CREATE TABLE IF NOT EXISTS public.kb_learned_drafts (
   gap_ids        uuid[] NOT NULL DEFAULT '{}',
   entry_id       uuid NULL,
   evidence_count integer NOT NULL,
+  -- The answer as drafted (model output, checked for identifiers before
+  -- it was stored): compared with what the admin approved, it is what
+  -- the skill library learns from (section 5).
+  draft_answer_en text NULL,
+  -- How the admin's review went, set by the job: approved as drafted,
+  -- approved after editing, set to remove, or deleted. NULL = not yet.
+  reviewed_outcome text NULL,
+  reviewed_at      timestamptz NULL,
+  -- When the skill library last learned from this review.
+  distilled_at     timestamptz NULL,
   created_at     timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT kb_learned_drafts_outcome_check CHECK (
+    reviewed_outcome IS NULL OR reviewed_outcome IN ('approved', 'edited', 'removed', 'deleted')),
+  CONSTRAINT kb_learned_drafts_draft_len_check CHECK (char_length(coalesce(draft_answer_en, '')) <= 4000),
   CONSTRAINT kb_learned_drafts_label_check CHECK (char_length(topic_label) BETWEEN 1 AND 500),
   CONSTRAINT kb_learned_drafts_evidence_check CHECK (evidence_count BETWEEN 1 AND 50),
   -- The column list keeps account_id when the draft is deleted: the row
@@ -108,7 +125,7 @@ CREATE TABLE IF NOT EXISTS public.kb_learned_drafts (
 );
 
 COMMENT ON TABLE public.kb_learned_drafts IS
-  'Learn from team answers (290): which gap topic was drafted into which kb_entries row, so a topic is drafted once. Holds gap ids and the topic label, no team or customer message text. Admin+ read; written by kb_learn_record_draft() only.';
+  'Learn from team answers (290): which gap topic was drafted into which kb_entries row, so a topic is drafted once, and how the review went. Holds gap ids, the redacted topic label and the drafted answer (model output checked for identifiers), no team or customer message text. Admin+ read; written by kb_learn_record_draft() and the service role.';
 
 CREATE INDEX IF NOT EXISTS idx_kb_learned_drafts_account
   ON public.kb_learned_drafts (account_id, created_at DESC);
@@ -301,9 +318,10 @@ BEGIN
   END;
 
   INSERT INTO public.kb_learned_drafts
-    (account_id, topic_id, topic_label, gap_ids, entry_id, evidence_count)
+    (account_id, topic_id, topic_label, gap_ids, entry_id, evidence_count, draft_answer_en)
   VALUES
-    (p_account, p_topic_id, left(btrim(p_topic_label), 500), v_gaps, v_entry, p_evidence_count);
+    (p_account, p_topic_id, left(btrim(p_topic_label), 500), v_gaps, v_entry, p_evidence_count,
+     btrim(p_answer_en));
 
   RETURN jsonb_build_object('status', 'drafted', 'entry_id', v_entry);
 END $$;
@@ -312,3 +330,163 @@ REVOKE ALL ON FUNCTION public.kb_learn_record_draft(uuid, uuid, text, uuid[], te
   FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.kb_learn_record_draft(uuid, uuid, text, uuid[], text, text, text, text, text, integer)
   TO service_role;
+
+-- ------------------------------------------------------------
+-- 5. The skill library (learning from the admin's review)
+-- ------------------------------------------------------------
+-- After the drafts are reviewed, the job distils short reusable rules
+-- from what admins approved, corrected or threw away (the SkillRL idea:
+-- general skills, per-category skills, and common mistakes from
+-- failures), and the next drafts are written with the relevant ones in
+-- the prompt. Skills only shape drafts: a draft is still never approved
+-- by the job. Admins see every skill and can retire one.
+--
+-- Skills are model output and are general rules, never customer data:
+-- a CHECK refuses an e-mail, a run of 9+ digits (any script) and the
+-- redactor's masks, whatever the job sends (the TS check comes first,
+-- lib/kb/skills.ts). At most 24 active skills per account.
+CREATE TABLE IF NOT EXISTS public.kb_learn_skills (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  account_id    uuid NOT NULL REFERENCES public.accounts(id) ON DELETE CASCADE,
+  kind          text NOT NULL,
+  category      text NULL,
+  title         text NOT NULL,
+  principle     text NOT NULL,
+  when_to_apply text NULL,
+  status        text NOT NULL DEFAULT 'active',
+  -- How many reviews it was distilled from.
+  evidence_count integer NOT NULL DEFAULT 1,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  updated_at    timestamptz NOT NULL DEFAULT now(),
+  retired_by    uuid NULL REFERENCES auth.users(id) ON DELETE SET NULL,
+  CONSTRAINT kb_learn_skills_kind_check CHECK (kind IN ('general', 'category', 'mistake')),
+  CONSTRAINT kb_learn_skills_category_check CHECK (
+    (kind = 'category') = (category IS NOT NULL)
+    AND (category IS NULL OR category ~ '^[a-z_]{1,32}$')),
+  CONSTRAINT kb_learn_skills_status_check CHECK (status IN ('active', 'retired')),
+  CONSTRAINT kb_learn_skills_len_check CHECK (
+    char_length(title) BETWEEN 1 AND 120
+    AND char_length(principle) BETWEEN 1 AND 600
+    AND char_length(coalesce(when_to_apply, '')) <= 300),
+  CONSTRAINT kb_learn_skills_evidence_check CHECK (evidence_count BETWEEN 1 AND 1000),
+  -- General rules only: no e-mail, no long number, no redaction mask.
+  CONSTRAINT kb_learn_skills_no_identifiers CHECK (
+    (title || ' ' || principle || ' ' || coalesce(when_to_apply, '')) !~ '@'
+    AND (title || ' ' || principle || ' ' || coalesce(when_to_apply, ''))
+        !~ '[0-9٠-٩۰-۹０-９]([^0-9٠-٩۰-۹０-９]{0,2}[0-9٠-٩۰-۹０-９]){8,}'
+    AND (title || ' ' || principle || ' ' || coalesce(when_to_apply, ''))
+        !~* '\[(EMAIL|IBAN|EID|CARD|OTP|ACCT|PASSPORT|PHONE|ID|NAME|withheld)'
+  )
+);
+
+COMMENT ON TABLE public.kb_learn_skills IS
+  'Learn from team answers (290): the skill library distilled from admins'' reviews of learned drafts (general, per-category, common mistakes). Admin+ read; retired through kb_learn_skill_set_status(); written by the service role (lib/kb/learn-run.ts).';
+
+CREATE INDEX IF NOT EXISTS idx_kb_learn_skills_account
+  ON public.kb_learn_skills (account_id, status, kind);
+
+ALTER TABLE public.kb_learn_settings
+  ADD COLUMN IF NOT EXISTS last_distilled_at timestamptz NULL;
+
+ALTER TABLE public.kb_learn_skills ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS kb_learn_skills_select ON public.kb_learn_skills;
+CREATE POLICY kb_learn_skills_select ON public.kb_learn_skills FOR SELECT
+  USING (is_account_member(account_id, 'admin'));
+
+REVOKE ALL ON public.kb_learn_skills FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.kb_learn_skills TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.kb_learn_skills TO service_role;
+
+-- An admin+ of the skill's account (the active one) retires or restores
+-- it. A missing skill and someone else's are the same 42501. Restoring
+-- respects the cap of 24 active skills.
+CREATE OR REPLACE FUNCTION public.kb_learn_skill_set_status(p_skill uuid, p_status text)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_account uuid;
+  v_row     public.kb_learn_skills;
+BEGIN
+  IF p_status IS NULL OR p_status NOT IN ('active', 'retired') THEN
+    RAISE EXCEPTION 'unknown skill status: %', p_status USING ERRCODE = '22023';
+  END IF;
+  SELECT account_id INTO v_account FROM public.kb_learn_skills WHERE id = p_skill;
+  IF v_account IS NULL OR v_account IS DISTINCT FROM current_account_id()
+     OR NOT is_account_member(v_account, 'admin') THEN
+    RAISE EXCEPTION 'not allowed' USING ERRCODE = '42501';
+  END IF;
+  PERFORM pg_advisory_xact_lock(hashtext('kb_learn:' || v_account::text));
+  IF p_status = 'active' AND (
+       SELECT count(*) FROM public.kb_learn_skills
+        WHERE account_id = v_account AND status = 'active' AND id <> p_skill) >= 24 THEN
+    RAISE EXCEPTION 'too many active skills' USING ERRCODE = '23514', HINT = 'SKILL_CAP';
+  END IF;
+  UPDATE public.kb_learn_skills
+     SET status = p_status, updated_at = now(),
+         retired_by = CASE WHEN p_status = 'retired' THEN auth.uid() ELSE NULL END
+   WHERE id = p_skill
+  RETURNING * INTO v_row;
+  RETURN jsonb_build_object('id', v_row.id, 'status', v_row.status, 'updated_at', v_row.updated_at);
+END $$;
+
+REVOKE ALL ON FUNCTION public.kb_learn_skill_set_status(uuid, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.kb_learn_skill_set_status(uuid, text) TO authenticated, service_role;
+
+-- The job's one write of a library update, under the account's lock:
+-- p_review_ids are marked distilled, p_skills (at most 3: SkillRL's
+-- max_new_skills) are added while the switch is on and the account has
+-- fewer than 24 active skills. A skill whose title a skill of the same
+-- kind already has, active OR retired, is skipped: an admin's retirement
+-- is not undone by the next cycle. Answers the number added.
+CREATE OR REPLACE FUNCTION public.kb_learn_add_skills(
+  p_account    uuid,
+  p_skills     jsonb,
+  p_review_ids uuid[]
+)
+RETURNS integer
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_skill jsonb;
+  v_added integer := 0;
+  v_active integer;
+BEGIN
+  PERFORM pg_advisory_xact_lock(hashtext('kb_learn:' || coalesce(p_account::text, '')));
+  IF NOT EXISTS (SELECT 1 FROM public.kb_learn_settings WHERE account_id = p_account AND enabled) THEN
+    RETURN 0;
+  END IF;
+  SELECT count(*) INTO v_active FROM public.kb_learn_skills
+   WHERE account_id = p_account AND status = 'active';
+  FOR v_skill IN SELECT * FROM jsonb_array_elements(coalesce(p_skills, '[]'::jsonb)) LIMIT 3
+  LOOP
+    EXIT WHEN v_active >= 24;
+    CONTINUE WHEN EXISTS (
+      SELECT 1 FROM public.kb_learn_skills k
+       WHERE k.account_id = p_account
+         AND k.kind = v_skill->>'kind'
+         AND lower(btrim(k.title)) = lower(btrim(v_skill->>'title')));
+    INSERT INTO public.kb_learn_skills
+      (account_id, kind, category, title, principle, when_to_apply, evidence_count)
+    VALUES
+      (p_account, v_skill->>'kind',
+       CASE WHEN v_skill->>'kind' = 'category' THEN v_skill->>'category' END,
+       btrim(v_skill->>'title'), btrim(v_skill->>'principle'),
+       nullif(btrim(coalesce(v_skill->>'when_to_apply', '')), ''),
+       greatest(1, least(1000, coalesce((v_skill->>'evidence_count')::integer, 1))));
+    v_added := v_added + 1;
+    v_active := v_active + 1;
+  END LOOP;
+  UPDATE public.kb_learned_drafts SET distilled_at = now()
+   WHERE account_id = p_account AND id = ANY (coalesce(p_review_ids, '{}'));
+  UPDATE public.kb_learn_settings SET last_distilled_at = now() WHERE account_id = p_account;
+  RETURN v_added;
+END $$;
+
+REVOKE ALL ON FUNCTION public.kb_learn_add_skills(uuid, jsonb, uuid[]) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.kb_learn_add_skills(uuid, jsonb, uuid[]) TO service_role;

@@ -3,7 +3,9 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('@/lib/ai/admin-client', () => ({ supabaseAdmin: () => ({}) }));
 
 import type { AiConfig } from '@/lib/ai/types';
+import type { Skill } from './skills';
 import {
+  evolveSkills,
   learnAccount,
   learnTopic,
   runKbLearning,
@@ -13,6 +15,7 @@ import {
   type LearnGap,
   type LearnThread,
   type RecordDraftArgs,
+  type ReviewRow,
 } from './learn-run';
 import type { ThreadMessage } from './learn';
 
@@ -99,6 +102,11 @@ function fakeStore(
     finishRun: async (id, n) => {
       finished.push([id, n]);
     },
+    activeSkills: async () => [],
+    skillTitles: async () => [],
+    reviewRows: async () => [],
+    markReviewed: async () => {},
+    addSkills: async () => 0,
     openTopics: async () => [
       { id: 't1', label: 'Account without a trade licence?', coverage: 'none' },
     ],
@@ -444,5 +452,169 @@ describe('runKbLearning', () => {
       accounts: 0,
       drafted: 0,
     });
+  });
+});
+
+describe('evolveSkills (the skill library)', () => {
+  const row = (
+    id: string,
+    entry: { status: string; answer_en: string } | null,
+    over: Partial<ReviewRow> = {}
+  ): ReviewRow => ({
+    id,
+    topicLabel: 'Account without a trade licence?',
+    draftAnswer: 'A freelance permit works instead of a trade licence.',
+    outcome: null,
+    distilled: false,
+    entry,
+    ...over,
+  });
+  const approved = {
+    status: 'approved',
+    answer_en: 'A freelance permit works instead of a trade licence.',
+  };
+
+  function skillStore(rows: ReviewRow[]) {
+    const marked: { id: string; outcome: string }[] = [];
+    const added: { skills: Skill[]; reviewIds: string[] }[] = [];
+    const store = fakeStore({
+      reviewRows: async () => rows,
+      markReviewed: async (_a, r) => {
+        marked.push(...r);
+      },
+      addSkills: async (_a, skills, reviewIds) => {
+        added.push({ skills, reviewIds });
+        return skills.length;
+      },
+    });
+    return { store, marked, added };
+  }
+  const skillModel = (skills: unknown[]) =>
+    vi.fn(
+      async (args: {
+        systemPrompt: string;
+        messages: { content: string }[];
+      }) => {
+        void args;
+        return {
+          text: JSON.stringify({ skills }),
+          handoff: false,
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+        };
+      }
+    );
+
+  it('classifies reviews and waits for enough of them', async () => {
+    const { store, marked, added } = skillStore([
+      row('r1', approved),
+      row('r2', { status: 'draft', answer_en: '' }),
+      row('r3', null),
+    ]);
+    const d = deps(store);
+    const res = await evolveSkills(d, ACCOUNT, CONFIG, 1e9);
+    expect(marked).toEqual([
+      { id: 'r1', outcome: 'approved' },
+      { id: 'r3', outcome: 'deleted' },
+    ]);
+    expect(res).toMatchObject({ classified: 2, evolved: false, added: 0 });
+    expect(d.generate).not.toHaveBeenCalled();
+    expect(added).toHaveLength(0);
+  });
+
+  it('evolves on a low approval rate, sends only redacted examples, adds safe skills', async () => {
+    const leaky = 'Call +971 50 123 4567 or write to sara.ali@example.com';
+    const { store, added } = skillStore([
+      row('r1', null, { draftAnswer: `Sara Ali said: ${leaky}` }),
+      row('r2', { status: 'remove', answer_en: 'x' }),
+      row('r3', { status: 'remove', answer_en: 'x' }),
+      row('r4', { status: 'remove', answer_en: 'x' }),
+      row('r5', approved, { outcome: 'approved', distilled: true }),
+    ]);
+    const generate = skillModel([
+      {
+        kind: 'mistake',
+        title: 'Promising approval',
+        principle: 'Do not promise approval; the bank decides.',
+      },
+      { kind: 'general', title: 'Leaky', principle: 'Call +971 50 123 4567.' },
+    ]);
+    const d = deps(store, {
+      generate: generate as unknown as KbLearnDeps['generate'],
+    });
+    const res = await evolveSkills(d, ACCOUNT, CONFIG, 1e9);
+    expect(res).toMatchObject({
+      evolved: true,
+      reason: 'low_approval',
+      added: 1,
+    });
+    const sent = generate.mock.calls
+      .map(
+        ([a]) => a.systemPrompt + a.messages.map((m) => m.content).join('\n')
+      )
+      .join('\n');
+    for (const s of ['+971 50 123 4567', 'sara.ali@example.com'])
+      expect(sent).not.toContain(s);
+    expect(added[0]!.skills.map((s) => s.title)).toEqual([
+      'Promising approval',
+    ]);
+    // Only the not-yet-distilled reviews are marked distilled.
+    expect(added[0]!.reviewIds).toEqual(['r1', 'r2', 'r3', 'r4']);
+    expect(d.logUsage).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: 'kb_learn' })
+    );
+  });
+
+  it('does not start the model call without time left', async () => {
+    const { store } = skillStore(
+      ['a', 'b', 'c', 'd', 'e'].map((id) => row(id, approved))
+    );
+    const d = deps(store);
+    const res = await evolveSkills(d, ACCOUNT, CONFIG, TOPIC_MIN_BUDGET_MS - 1);
+    expect(res.evolved).toBe(false);
+    expect(d.generate).not.toHaveBeenCalled();
+  });
+
+  it('never throws', async () => {
+    const store = fakeStore({
+      reviewRows: async () => {
+        throw new Error('db down');
+      },
+    });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await expect(
+      evolveSkills(deps(store), ACCOUNT, CONFIG, 1e9)
+    ).resolves.toMatchObject({
+      evolved: false,
+    });
+    warn.mockRestore();
+  });
+
+  it('puts the relevant learned skills in the draft prompt', async () => {
+    const store = fakeStore({
+      activeSkills: async () => [
+        {
+          kind: 'general',
+          category: null,
+          title: 'Name the documents',
+          principle: 'List what to bring.',
+          whenToApply: null,
+          evidenceCount: 3,
+        },
+        {
+          kind: 'category',
+          category: 'pos',
+          title: 'POS only rule',
+          principle: 'x',
+          whenToApply: null,
+          evidenceCount: 1,
+        },
+      ],
+    });
+    const d = deps(store);
+    await learnAccount(d, ACCOUNT, 1e9);
+    const system = d.sent[0]!;
+    expect(system).toContain('House rules');
+    expect(system).toContain('Name the documents');
+    expect(system).not.toContain('POS only rule');
   });
 });

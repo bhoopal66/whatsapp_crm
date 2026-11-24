@@ -954,8 +954,12 @@ export const NOT_PERSONAL: Readonly<Record<string, string>> =
             'kb_imports',
             'kb_gap_topics',
             'kb_gap_topic_members',
-            // 290: gap ids and a topic label per learned draft; no message text.
+            // 290: gap ids, the redacted topic label and the drafted answer
+            // (model output checked for identifiers); no message text.
             'kb_learned_drafts',
+            // 290: general rules distilled from admins' reviews; a CHECK
+            // refuses e-mails, long numbers and redaction masks.
+            'kb_learn_skills',
             'ai_knowledge_chunks',
             'ai_knowledge_documents',
             'ts_label',

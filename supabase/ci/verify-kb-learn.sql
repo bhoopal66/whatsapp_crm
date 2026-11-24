@@ -8,7 +8,10 @@
 -- gaps or its label) and again only after its draft was set to 'remove'
 -- or deleted; another account's gaps are refused; a non-admin member
 -- cannot read the ledger and no member can write it; the usage log
--- takes 'kb_learn'; the writer functions are service role only.
+-- takes 'kb_learn'; the writer functions are service role only; the
+-- skill library refuses identifiers, adds at most three per cycle and 24
+-- in all, never re-adds what an admin retired, and only an admin of the
+-- workspace reads or retires a skill.
 --
 -- ONE statement on purpose (the pinned CLI rejects several); fixtures
 -- are rolled back through a sentinel. Fixture emails: kb290-*.
@@ -22,7 +25,7 @@ DECLARE
   a_acct UUID; b_acct UUID;
   g1 UUID; g2 UUID; g3 UUID; g_other UUID;
   e1 UUID; e2 UUID;
-  res JSONB; r TEXT;
+  res JSONB; r TEXT; sk UUID; k INT;
   n INT := 0;
   failed TEXT[] := '{}';
 BEGIN
@@ -117,8 +120,9 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM kb_entries WHERE id = e1 AND status = 'draft' AND source = 'learned'
                    AND approved_at IS NULL AND approved_by IS NULL AND answer_ar = 'نعم، بشروط.') THEN
     failed := failed || 'learned entry is not a plain draft'::text; END IF; n := n + 1;
-  IF (SELECT count(*) FROM kb_learned_drafts WHERE account_id = a_acct AND entry_id = e1) <> 1 THEN
-    failed := failed || 'no ledger row'::text; END IF; n := n + 1;
+  IF (SELECT count(*) FROM kb_learned_drafts WHERE account_id = a_acct AND entry_id = e1
+        AND draft_answer_en = 'Yes, with conditions.' AND reviewed_outcome IS NULL) <> 1 THEN
+    failed := failed || 'no ledger row with its drafted answer'::text; END IF; n := n + 1;
 
   -- ---------- drafted once ----------
   -- The same gaps under a new topic id (a recompute) ...
@@ -166,6 +170,48 @@ BEGIN
   r := pg_temp.kl_try(u_owner2, 'select count(*)::text from public.kb_learned_drafts');
   IF r <> '0' THEN failed := failed || ('another workspace read the ledger: ' || r); END IF; n := n + 1;
 
+  -- ---------- the skill library ----------
+  -- The CHECK refuses identifiers, whatever the job sends.
+  FOREACH r IN ARRAY ARRAY['Write to help@bank.example', 'Quote 1234 5678 90', 'Call ٠٥٠١٢٣٤٥٦٧', 'Ask [NAME] first'] LOOP
+    BEGIN
+      INSERT INTO kb_learn_skills (account_id, kind, title, principle) VALUES (a_acct, 'general', 'x', r);
+      failed := failed || ('skill CHECK let through: ' || r);
+    EXCEPTION WHEN check_violation THEN NULL;
+    END;
+  END LOOP; n := n + 1;
+  -- Up to three per cycle, marks the reviews distilled, stamps the run.
+  k := kb_learn_add_skills(a_acct, jsonb_build_array(
+    jsonb_build_object('kind', 'general', 'title', 'Name every document', 'principle', 'List each document.'),
+    jsonb_build_object('kind', 'category', 'category', 'fees', 'title', 'Fee timing', 'principle', 'Say when a fee applies.'),
+    jsonb_build_object('kind', 'mistake', 'title', 'Promising approval', 'principle', 'Say the bank decides.'),
+    jsonb_build_object('kind', 'general', 'title', 'Fourth', 'principle', 'Over the cap.')),
+    (SELECT array_agg(id) FROM kb_learned_drafts WHERE account_id = a_acct));
+  IF k <> 3 OR (SELECT count(*) FROM kb_learn_skills WHERE account_id = a_acct) <> 3
+     OR EXISTS (SELECT 1 FROM kb_learned_drafts WHERE account_id = a_acct AND distilled_at IS NULL)
+     OR (SELECT last_distilled_at FROM kb_learn_settings WHERE account_id = a_acct) IS NULL THEN
+    failed := failed || ('add_skills: ' || k); END IF; n := n + 1;
+  SELECT id INTO sk FROM kb_learn_skills WHERE account_id = a_acct AND title = 'Promising approval';
+  -- An agent neither reads nor retires; another workspace cannot retire.
+  r := pg_temp.kl_try(u_agent, 'select count(*)::text from public.kb_learn_skills');
+  IF r <> '0' THEN failed := failed || ('agent read skills: ' || r); END IF; n := n + 1;
+  r := pg_temp.kl_try(u_agent, 'select (public.kb_learn_skill_set_status(''' || sk || ''', ''retired''))->>''status''');
+  IF r NOT LIKE 'ERROR:%' THEN failed := failed || ('agent retired a skill: ' || r); END IF; n := n + 1;
+  r := pg_temp.kl_try(u_owner2, 'select (public.kb_learn_skill_set_status(''' || sk || ''', ''retired''))->>''status''');
+  IF r NOT LIKE 'ERROR:%' THEN failed := failed || ('other workspace retired a skill: ' || r); END IF; n := n + 1;
+  -- An admin retires it; the next cycle does not add it back.
+  r := pg_temp.kl_try(u_admin, 'select (public.kb_learn_skill_set_status(''' || sk || ''', ''retired''))->>''status''');
+  k := kb_learn_add_skills(a_acct, jsonb_build_array(
+    jsonb_build_object('kind', 'mistake', 'title', ' promising APPROVAL ', 'principle', 'Again.')), '{}');
+  IF r <> 'retired' OR k <> 0 OR (SELECT count(*) FROM kb_learn_skills WHERE account_id = a_acct AND status = 'active') <> 2 THEN
+    failed := failed || ('retire: ' || r || ' / re-added ' || k); END IF; n := n + 1;
+  -- At most 24 active.
+  INSERT INTO kb_learn_skills (account_id, kind, title, principle)
+    SELECT a_acct, 'general', 'filler ' || i, 'p' FROM generate_series(1, 22) i;
+  k := kb_learn_add_skills(a_acct, jsonb_build_array(
+    jsonb_build_object('kind', 'general', 'title', 'One too many', 'principle', 'p')), '{}');
+  r := pg_temp.kl_try(u_admin, 'select (public.kb_learn_skill_set_status(''' || sk || ''', ''active''))->>''status''');
+  IF k <> 0 OR r NOT LIKE 'ERROR:%' THEN failed := failed || ('cap: ' || k || ' ' || r); END IF; n := n + 1;
+
   -- ---------- switched off again: nothing ----------
   r := pg_temp.kl_try(u_owner, 'select (public.kb_learn_set_enabled(false))->>''enabled''');
   res := kb_learn_record_draft(a_acct, NULL, 'POS documents', ARRAY[g3], 'LRN-GGGGGG', 'POS documents', 'a', NULL, NULL, 1);
@@ -182,6 +228,8 @@ BEGIN
   IF has_function_privilege('authenticated', 'public.kb_learn_record_draft(uuid,uuid,text,uuid[],text,text,text,text,text,integer)', 'EXECUTE')
      OR has_function_privilege('authenticated', 'public.kb_learn_claim_run(uuid,interval)', 'EXECUTE')
      OR has_function_privilege('authenticated', 'public.kb_learn_finish_run(uuid,integer)', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public.kb_learn_add_skills(uuid,jsonb,uuid[])', 'EXECUTE')
+     OR has_table_privilege('authenticated', 'public.kb_learn_skills', 'INSERT')
      OR has_function_privilege('authenticated', 'public.kb_learn_topic_drafted(uuid,uuid[],text)', 'EXECUTE')
      OR has_function_privilege('anon', 'public.kb_learn_set_enabled(boolean)', 'EXECUTE')
      OR NOT has_function_privilege('service_role', 'public.kb_learn_record_draft(uuid,uuid,text,uuid[],text,text,text,text,text,integer)', 'EXECUTE')
@@ -194,7 +242,7 @@ BEGIN
     IF SQLERRM <> 'KL_ROLLBACK' THEN RAISE; END IF;
   END;
 
-  IF n <> 30 THEN RAISE EXCEPTION 'verify-kb-learn: only % checks ran', n; END IF;
+  IF n <> 37 THEN RAISE EXCEPTION 'verify-kb-learn: only % checks ran', n; END IF;
   IF cardinality(failed) > 0 THEN
     RAISE EXCEPTION 'verify-kb-learn: % failed: %', cardinality(failed), array_to_string(failed, '; ');
   END IF;

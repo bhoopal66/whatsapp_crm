@@ -3,11 +3,12 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/lib/ai/admin-client', () => ({ supabaseAdmin: () => ({}) }));
 
-import { KB_LEARN_CORPUS } from './corpus';
+import { KB_LEARN_CORPUS, KB_LEARN_DISTILL_CORPUS } from './corpus';
 import {
   casePassed,
   formatReport,
   runCase,
+  runDistillCase,
   runEval,
   thresholdBreaches,
   type EvalCase,
@@ -29,6 +30,18 @@ describe('learn-from-team-answers evaluation', () => {
     expect(summary.leaks).toBe(0);
   });
 
+  it('holds the bar over the skill-library cycle', async () => {
+    const results = [];
+    for (const c of KB_LEARN_DISTILL_CORPUS)
+      results.push(await runDistillCase(c));
+    expect(
+      results
+        .filter((r) => !r.ok)
+        .map((r) => ({ id: r.id, problems: r.problems }))
+    ).toEqual([]);
+    expect(results.reduce((n, r) => n + r.leaks.length, 0)).toBe(0);
+  });
+
   it('covers every behaviour it claims to', () => {
     const tags = new Set(KB_LEARN_CORPUS.flatMap((c) => c.tags));
     for (const t of [
@@ -47,6 +60,7 @@ describe('learn-from-team-answers evaluation', () => {
       'decline',
       'injection',
       'known-gap',
+      'skills',
     ])
       expect(tags, t).toContain(t);
     const ids = KB_LEARN_CORPUS.map((c) => c.id);

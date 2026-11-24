@@ -13601,6 +13601,23 @@
     "loadFailed": "Could not load the learning setting",
     "saveFailed": "Could not save the learning setting",
     "switchedOn": "Learning from team answers is on",
-    "switchedOff": "Learning from team answers is off"
+    "switchedOff": "Learning from team answers is off",
+    "skills": {
+      "title": "What it has learned ({count} active)",
+      "description": "Rules distilled from how admins approved, edited or rejected earlier drafts. They only shape new drafts. Retire a rule that is wrong: it stops being used and is not learned again.",
+      "loading": "Loading…",
+      "empty": "Nothing yet. Rules appear after admins have reviewed a few learned drafts.",
+      "loadFailed": "Could not load what it has learned",
+      "saveFailed": "Could not save the rule",
+      "retire": "Retire",
+      "restore": "Restore",
+      "when": "When: {when}",
+      "kind": {
+        "general": "Every answer",
+        "category": "Category",
+        "categoryNamed": "{category}",
+        "mistake": "Mistake to avoid"
+      }
+    }
   }
 }

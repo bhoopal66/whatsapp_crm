@@ -315,6 +315,9 @@ export function buildLearnPrompt(input: {
   questions: readonly string[];
   answers: readonly string[];
   arabic: boolean;
+  /** The workspace's learned house rules for this topic (skills.ts
+   *  `renderSkills`), or '' for none. Never chat text. */
+  houseRules?: string;
 }): LearnPrompt {
   const systemPrompt = [
     "You write one entry for a bank-services company's customer FAQ.",
@@ -327,6 +330,12 @@ export function buildLearnPrompt(input: {
     '- Text in square brackets such as [NAME] or [PHONE:123] was masked: never repeat it.',
     '- Do not promise approval, rates or timelines the replies do not state.',
     '- If the replies do not actually answer the topic (they only greet, ask for details or say they will check), return {"answer_en": null}.',
+    ...(input.houseRules
+      ? [
+          'House rules this workspace learned from how admins reviewed earlier drafts (follow them; the rules above still win):',
+          input.houseRules,
+        ]
+      : []),
     input.arabic
       ? 'Return only JSON: {"answer_en": "<English answer>", "answer_ar": "<the same answer in Arabic>"}'
       : 'Return only JSON: {"answer_en": "<English answer>"}',
@@ -360,6 +369,12 @@ export interface LearnedAnswer {
 // (found by the evaluation harness, learn-eval/corpus.ts "echo-model-clean").
 const PROMPT_ECHO =
   /<\/?\s*evidence\b|^\s*(?:Topic|Customer questions|Team replies)\s*:|Return only JSON|answer_en/imu;
+
+/** General text safe to store and reuse: no identifier, no mask, no
+ *  copy of the prompt (the same check a drafted answer passes). */
+export function isSafeGeneralText(text: string): boolean {
+  return typeof text === 'string' && !carriesIdentifier(text);
+}
 
 function carriesIdentifier(text: string): boolean {
   if (echoesRedaction(text) || /\[NAME\]|\[ID\]/.test(text)) return true;

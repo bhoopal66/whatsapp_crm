@@ -27,6 +27,21 @@ import type { AiConfig } from '@/lib/ai/types';
 import { logAiUsage, type LogAiUsageArgs } from '@/lib/ai/usage';
 
 import {
+  buildDistillPrompt,
+  classifyReview,
+  evolveDecision,
+  isSkillCategory,
+  MAX_ACTIVE_SKILLS,
+  parseSkillUpdate,
+  prepareExamples,
+  renderSkills,
+  selectSkills,
+  type EvolveReason,
+  type ReviewOutcome,
+  type Skill,
+  type SkillKind,
+} from './skills';
+import {
   ANSWER_WINDOW_MS,
   KB_LEARN_INTERVAL_DAYS,
   MAX_ANSWERS_PER_TOPIC,
@@ -114,6 +129,35 @@ export interface KbLearnStore {
     until: string
   ): Promise<LearnThread | null>;
   recordDraft(args: RecordDraftArgs): Promise<RecordDraftResult>;
+  /** The skill library (290 §5): the active skills. */
+  activeSkills(accountId: string): Promise<Skill[]>;
+  /** Every skill's kind and title, retired ones included (no re-adding
+   *  what an admin retired). */
+  skillTitles(accountId: string): Promise<{ kind: SkillKind; title: string }[]>;
+  /** The latest ledger rows, newest first, each with its entry as it is
+   *  now (null when deleted). */
+  reviewRows(accountId: string): Promise<ReviewRow[]>;
+  /** Stamps the review outcome of rows not classified yet. */
+  markReviewed(
+    accountId: string,
+    rows: { id: string; outcome: ReviewOutcome }[]
+  ): Promise<void>;
+  /** kb_learn_add_skills: adds up to 3, marks the reviews distilled. */
+  addSkills(
+    accountId: string,
+    skills: Skill[],
+    reviewIds: string[]
+  ): Promise<number>;
+}
+
+/** One kb_learned_drafts row and its entry, for the skill library. */
+export interface ReviewRow {
+  id: string;
+  topicLabel: string;
+  draftAnswer: string | null;
+  outcome: ReviewOutcome | null;
+  distilled: boolean;
+  entry: { status: string; answer_en: string } | null;
 }
 
 export interface KbLearnDeps {
@@ -154,7 +198,8 @@ export async function learnTopic(
   deps: KbLearnDeps,
   accountId: string,
   config: AiConfig,
-  topic: LearnTopic
+  topic: LearnTopic,
+  skills: readonly Skill[] = []
 ): Promise<TopicOutcome> {
   const { store } = deps;
   // An approved answer already covers it (152's judgment): nothing to learn.
@@ -219,6 +264,7 @@ export async function learnTopic(
     questions: evidence.questions,
     answers: evidence.answers,
     arabic,
+    houseRules: renderSkills(selectSkills(skills, label)),
   });
   const model = config.modelSmall || config.model;
   let text: string;
@@ -283,12 +329,22 @@ export async function learnAccount(
   try {
     const config = await deps.loadConfig(accountId);
     if (!config?.apiKey) return { drafted, tried };
+    // Learn from last week's reviews first, so this week's drafts use it.
+    await evolveSkills(deps, accountId, config, deadlineAt);
+    let skills: Skill[] = [];
+    try {
+      skills = await deps.store.activeSkills(accountId);
+    } catch (err) {
+      console.warn(
+        `[kb-learn] skills unavailable for account ${accountId}: ${message(err)}`
+      );
+    }
     const topics = await deps.store.openTopics(accountId);
     for (const topic of topics) {
       if (tried >= MAX_TOPICS_PER_RUN) break;
       if (deadlineAt - now() < TOPIC_MIN_BUDGET_MS) break;
       try {
-        const out = await learnTopic(deps, accountId, config, topic);
+        const out = await learnTopic(deps, accountId, config, topic, skills);
         if (out.reason === 'disabled') break;
         // A topic the model was asked about counts toward the cap.
         if (out.drafted || ASKED.has(out.reason ?? '')) tried++;
@@ -305,6 +361,114 @@ export async function learnAccount(
     );
   }
   return { drafted, tried };
+}
+
+export interface EvolveResult {
+  /** Reviews classified this run. */
+  classified: number;
+  evolved: boolean;
+  reason: EvolveReason | null;
+  added: number;
+}
+
+/**
+ * The skill library's cycle (SkillRL's recursive evolution): classify
+ * the reviews of earlier drafts, and when evolveDecision says so, ask the
+ * model for at most three new general rules from the redacted examples
+ * and add them (kb_learn_add_skills). Never throws; one model call at
+ * most, and none without TOPIC_MIN_BUDGET_MS left.
+ */
+export async function evolveSkills(
+  deps: KbLearnDeps,
+  accountId: string,
+  config: AiConfig,
+  deadlineAt: number
+): Promise<EvolveResult> {
+  const now = deps.now ?? Date.now;
+  const result: EvolveResult = {
+    classified: 0,
+    evolved: false,
+    reason: null,
+    added: 0,
+  };
+  try {
+    const rows = await deps.store.reviewRows(accountId);
+    const fresh: { id: string; outcome: ReviewOutcome }[] = [];
+    for (const r of rows) {
+      if (r.outcome !== null) continue;
+      const outcome = classifyReview(r.draftAnswer, r.entry);
+      if (outcome) fresh.push({ id: r.id, outcome });
+    }
+    if (fresh.length > 0) {
+      await deps.store.markReviewed(accountId, fresh);
+      result.classified = fresh.length;
+    }
+    const outcomeOf = new Map(fresh.map((f) => [f.id, f.outcome]));
+    const reviewed = rows
+      .map((r) => ({ r, outcome: r.outcome ?? outcomeOf.get(r.id) ?? null }))
+      .filter((x): x is { r: ReviewRow; outcome: ReviewOutcome } =>
+        Boolean(x.outcome)
+      );
+    const undistilled = reviewed.filter((x) => !x.r.distilled);
+    const decision = evolveDecision(
+      undistilled.map((x) => x.outcome),
+      reviewed.map((x) => x.outcome)
+    );
+    result.reason = decision.reason;
+    if (!decision.evolve) return result;
+    if (deadlineAt - now() < TOPIC_MIN_BUDGET_MS) return result;
+
+    const examples = prepareExamples(
+      undistilled.map((x) => ({
+        topic: x.r.topicLabel,
+        outcome: x.outcome,
+        draft: x.r.draftAnswer ?? '',
+        final: x.r.entry?.answer_en ?? null,
+      }))
+    );
+    if (examples.length === 0) return result;
+    const known = await deps.store.skillTitles(accountId);
+    const existing = await deps.store.activeSkills(accountId);
+    const prompt = buildDistillPrompt(examples, existing);
+    const model = config.modelSmall || config.model;
+    let text: string;
+    try {
+      // generateReply runs assertAiTransfer (purpose 'kb_learn') first.
+      const res = await deps.generate({
+        config,
+        systemPrompt: prompt.systemPrompt,
+        messages: [{ role: 'user', content: prompt.userMessage }],
+        model,
+        purpose: 'kb_learn',
+      });
+      await deps.logUsage({
+        accountId,
+        conversationId: null,
+        mode: 'kb_learn',
+        provider: config.provider,
+        model,
+        usage: res.usage,
+      });
+      text = res.text;
+    } catch (err) {
+      console.warn(
+        `[kb-learn] skill update failed for account ${accountId}: ${message(err)}`
+      );
+      return result;
+    }
+    result.evolved = true;
+    const skills = parseSkillUpdate(text, known, examples.length);
+    result.added = await deps.store.addSkills(
+      accountId,
+      skills,
+      undistilled.map((x) => x.r.id)
+    );
+  } catch (err) {
+    console.warn(
+      `[kb-learn] skill library failed for account ${accountId}: ${message(err)}`
+    );
+  }
+  return result;
 }
 
 /**
@@ -485,6 +649,101 @@ export function supabaseKbLearnStore(db: SupabaseClient): KbLearnStore {
       }
       return { messages, contactName: k.name ?? null, senderNames };
     },
+    async activeSkills(accountId) {
+      const { data, error } = await db
+        .from('kb_learn_skills')
+        .select(
+          'id, kind, category, title, principle, when_to_apply, evidence_count'
+        )
+        .eq('account_id', accountId)
+        .eq('status', 'active')
+        .order('evidence_count', { ascending: false })
+        .limit(MAX_ACTIVE_SKILLS);
+      if (error) throw new Error(`skills: ${error.message}`);
+      return ((data ?? []) as SkillRow[]).map(skillFromRow);
+    },
+    async skillTitles(accountId) {
+      const { data, error } = await db
+        .from('kb_learn_skills')
+        .select('kind, title')
+        .eq('account_id', accountId)
+        .limit(500);
+      if (error) throw new Error(`skill titles: ${error.message}`);
+      return (data ?? []) as { kind: SkillKind; title: string }[];
+    },
+    async reviewRows(accountId) {
+      const { data, error } = await db
+        .from('kb_learned_drafts')
+        .select(
+          'id, topic_label, draft_answer_en, entry_id, reviewed_outcome, distilled_at'
+        )
+        .eq('account_id', accountId)
+        .order('created_at', { ascending: false })
+        .limit(100);
+      if (error) throw new Error(`ledger: ${error.message}`);
+      const rows = (data ?? []) as {
+        id: string;
+        topic_label: string;
+        draft_answer_en: string | null;
+        entry_id: string | null;
+        reviewed_outcome: ReviewOutcome | null;
+        distilled_at: string | null;
+      }[];
+      const ids = rows
+        .map((r) => r.entry_id)
+        .filter((id): id is string => Boolean(id));
+      const entries = new Map<string, { status: string; answer_en: string }>();
+      if (ids.length > 0) {
+        const { data: es, error: eErr } = await db
+          .from('kb_entries')
+          .select('id, status, answer_en')
+          .eq('account_id', accountId)
+          .in('id', ids);
+        if (eErr) throw new Error(`entries: ${eErr.message}`);
+        for (const e of (es ?? []) as {
+          id: string;
+          status: string;
+          answer_en: string;
+        }[])
+          entries.set(e.id, { status: e.status, answer_en: e.answer_en });
+      }
+      return rows.map((r) => ({
+        id: r.id,
+        topicLabel: r.topic_label,
+        draftAnswer: r.draft_answer_en,
+        outcome: r.reviewed_outcome,
+        distilled: r.distilled_at !== null,
+        entry: r.entry_id ? (entries.get(r.entry_id) ?? null) : null,
+      }));
+    },
+    async markReviewed(accountId, rows) {
+      const at = new Date().toISOString();
+      for (const r of rows) {
+        const { error } = await db
+          .from('kb_learned_drafts')
+          .update({ reviewed_outcome: r.outcome, reviewed_at: at })
+          .eq('account_id', accountId)
+          .eq('id', r.id)
+          .is('reviewed_outcome', null);
+        if (error) throw new Error(`review: ${error.message}`);
+      }
+    },
+    async addSkills(accountId, skills, reviewIds) {
+      const { data, error } = await db.rpc('kb_learn_add_skills', {
+        p_account: accountId,
+        p_skills: skills.map((s) => ({
+          kind: s.kind,
+          category: s.category,
+          title: s.title,
+          principle: s.principle,
+          when_to_apply: s.whenToApply,
+          evidence_count: s.evidenceCount,
+        })),
+        p_review_ids: reviewIds,
+      });
+      if (error) throw new Error(`add skills: ${error.message}`);
+      return typeof data === 'number' ? data : 0;
+    },
     async recordDraft(a) {
       const { data, error } = await db.rpc('kb_learn_record_draft', {
         p_account: a.accountId,
@@ -511,6 +770,28 @@ export function supabaseKbLearnStore(db: SupabaseClient): KbLearnStore {
         ? status
         : 'error';
     },
+  };
+}
+
+interface SkillRow {
+  id: string;
+  kind: SkillKind;
+  category: string | null;
+  title: string;
+  principle: string;
+  when_to_apply: string | null;
+  evidence_count: number;
+}
+
+function skillFromRow(r: SkillRow): Skill {
+  return {
+    id: r.id,
+    kind: r.kind,
+    category: isSkillCategory(r.category) ? r.category : null,
+    title: r.title,
+    principle: r.principle,
+    whenToApply: r.when_to_apply,
+    evidenceCount: r.evidence_count,
   };
 }
 

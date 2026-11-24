@@ -36,7 +36,9 @@ import { echoesRedaction } from '@/lib/ai/redact-input';
 import { brainRedact } from '@/lib/brain/redact';
 
 import { isLearnableChat, type ThreadMessage } from '../learn';
+import type { Skill } from '../skills';
 import {
+  evolveSkills,
   learnTopic,
   type KbLearnDeps,
   type KbLearnStore,
@@ -96,6 +98,10 @@ export interface EvalCase {
   secrets: string[];
   /** Documented limits: reported when they get through, not failed. */
   knownGapSecrets?: string[];
+  /** The workspace's active skill library (290 §5). */
+  skills?: Skill[];
+  /** Skill titles that must / must not be in the draft prompt. */
+  expectSkills?: { inPrompt?: string[]; notInPrompt?: string[] };
 }
 
 export interface CaseResult {
@@ -238,6 +244,12 @@ function memoryStore(c: EvalCase, drafts: RecordDraftArgs[]): KbLearnStore {
       drafts.push(args);
       return 'drafted';
     },
+    activeSkills: async () => c.skills ?? [],
+    skillTitles: async () =>
+      (c.skills ?? []).map((s) => ({ kind: s.kind, title: s.title })),
+    reviewRows: async () => [],
+    markReviewed: async () => {},
+    addSkills: async () => 0,
   };
 }
 
@@ -352,11 +364,17 @@ export async function runCase(c: EvalCase): Promise<CaseResult> {
     random: () => (seq = (seq * 9301 + 49297) % 233280) / 233280,
   };
   const { topicId } = idsFor(c);
-  const outcome = await learnTopic(deps, ACCOUNT, CONFIG, {
-    id: topicId,
-    label: c.topic.label,
-    coverage: c.topic.coverage ?? 'none',
-  });
+  const outcome = await learnTopic(
+    deps,
+    ACCOUNT,
+    CONFIG,
+    {
+      id: topicId,
+      label: c.topic.label,
+      coverage: c.topic.coverage ?? 'none',
+    },
+    c.skills ?? []
+  );
   const got: string = outcome.drafted ? 'drafted' : (outcome.reason ?? '?');
   const draft = drafts[0] ?? null;
   const everythingSent = sent.join('\n');
@@ -387,6 +405,11 @@ export async function runCase(c: EvalCase): Promise<CaseResult> {
     if (!includesCI(replies, p)) pickingProblems.push(`missing "${p}"`);
   for (const p of c.expect.notPicked ?? [])
     if (includesCI(everythingSent, p)) pickingProblems.push(`sent "${p}"`);
+  const system = sent[0] ?? '';
+  for (const t of c.expectSkills?.inPrompt ?? [])
+    if (!system.includes(t)) pickingProblems.push(`skill missing "${t}"`);
+  for (const t of c.expectSkills?.notInPrompt ?? [])
+    if (system.includes(t)) pickingProblems.push(`skill sent "${t}"`);
 
   const fenceOk = modelCalls === 0 || fenceHolds(user);
   const problems = draft ? draftProblems(draft) : [];
@@ -541,4 +564,135 @@ export async function runEval(
   const results: CaseResult[] = [];
   for (const c of corpus) results.push(await runCase(c));
   return { summary: summarise(results), results };
+}
+
+// ---------------------------------------------------------------------
+// The skill library (290 §5): the evolution cycle under the same bar.
+// ---------------------------------------------------------------------
+
+export interface DistillReview {
+  topic: string;
+  draft: string;
+  /** The entry now: null = deleted. */
+  entry: { status: string; answer_en: string } | null;
+  /** Already classified / distilled in an earlier run. */
+  outcome?: 'approved' | 'edited' | 'removed' | 'deleted';
+  distilled?: boolean;
+}
+
+export interface DistillCase {
+  id: string;
+  tags: string[];
+  note: string;
+  reviews: DistillReview[];
+  /** What the model proposes ('echo' copies its prompt into a skill). */
+  model: 'propose' | 'echo' | 'leaky';
+  proposed?: {
+    kind: string;
+    category?: string;
+    title: string;
+    principle: string;
+  }[];
+  expect: { evolved: boolean; added: number; reason?: string | null };
+  secrets: string[];
+}
+
+export interface DistillResult {
+  id: string;
+  tags: string[];
+  ok: boolean;
+  problems: string[];
+  leaks: string[];
+}
+
+export async function runDistillCase(c: DistillCase): Promise<DistillResult> {
+  const sent: string[] = [];
+  const stored: Skill[] = [];
+  const rows = c.reviews.map((r, i) => ({
+    id: `review-${c.id}-${i}`,
+    topicLabel: r.topic,
+    draftAnswer: r.draft,
+    outcome: r.outcome ?? null,
+    distilled: r.distilled ?? false,
+    entry: r.entry,
+  }));
+  const store: KbLearnStore = {
+    ...memoryStore(
+      {
+        id: c.id,
+        tags: [],
+        note: '',
+        topic: { label: 'x' },
+        chats: [],
+        model: 'faithful',
+        expect: { outcome: 'no_answers' },
+        secrets: [],
+      },
+      []
+    ),
+    reviewRows: async () => rows,
+    addSkills: async (_a, skills) => {
+      stored.push(...skills.slice(0, 3));
+      return Math.min(3, skills.length);
+    },
+  };
+  const deps: KbLearnDeps = {
+    store,
+    loadConfig: async () => CONFIG,
+    generate: (async (args: {
+      systemPrompt: string;
+      messages: ChatMessage[];
+    }) => {
+      const user = userText(args.messages);
+      sent.push(args.systemPrompt, user);
+      const skills =
+        c.model === 'echo'
+          ? [{ kind: 'general', title: 'Echo', principle: user.slice(0, 500) }]
+          : c.model === 'leaky'
+            ? [
+                {
+                  kind: 'general',
+                  title: 'Contact',
+                  principle: 'Tell customers to call +971 50 765 4321.',
+                },
+              ]
+            : (c.proposed ?? []);
+      return {
+        text: JSON.stringify({ skills }),
+        handoff: false,
+        usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+      };
+    }) as KbLearnDeps['generate'],
+    logUsage: async () => {},
+    now: () => GAP_AT,
+  };
+  const res = await evolveSkills(deps, ACCOUNT, CONFIG, GAP_AT + 60_000);
+  const problems: string[] = [];
+  if (res.evolved !== c.expect.evolved)
+    problems.push(`evolved ${res.evolved}, expected ${c.expect.evolved}`);
+  if (res.added !== c.expect.added)
+    problems.push(`added ${res.added}, expected ${c.expect.added}`);
+  if (c.expect.reason !== undefined && res.reason !== c.expect.reason)
+    problems.push(`reason ${res.reason}, expected ${c.expect.reason}`);
+  const storedText = stored
+    .map((s) => `${s.title} ${s.principle} ${s.whenToApply ?? ''}`)
+    .join('\n');
+  const leaks = c.secrets.filter((s) =>
+    includesCI(`${sent.join('\n')}\n${storedText}`, s)
+  );
+  for (const l of leaks) problems.push(`LEAK "${l}"`);
+  for (const s of stored) {
+    const text = `${s.title} ${s.principle} ${s.whenToApply ?? ''}`;
+    const r = brainRedact(text);
+    if (
+      !r.ok ||
+      r.text !== text ||
+      echoesRedaction(text) ||
+      /@|<\/?\s*evidence/i.test(text)
+    )
+      problems.push(`unsafe skill "${s.title}"`);
+  }
+  if (sent[1] && !fenceHolds(sent[1].slice(sent[1].indexOf('<evidence>') - 1)))
+    problems.push('evidence fence broken');
+  return { id: c.id, tags: c.tags, ok: problems.length === 0, problems, leaks };
 }

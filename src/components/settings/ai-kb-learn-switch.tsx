@@ -5,6 +5,7 @@ import { useFormatter, useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import { GraduationCap } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
+import { AiKbLearnedSkills } from '@/components/settings/ai-kb-learned-skills';
 import {
   KB_LEARN_SETTINGS_OFF,
   parseKbLearnResponse,
@@ -84,43 +85,46 @@ export function AiKbLearnSwitch({
   if (!canEdit) return null;
 
   return (
-    <div className="border-border bg-card flex items-start justify-between gap-4 rounded-md border p-3">
-      <div className="flex min-w-0 gap-2">
-        <GraduationCap
-          className="text-primary mt-0.5 h-4 w-4 shrink-0"
-          aria-hidden
-        />
-        <div className="min-w-0">
-          <p className="text-foreground text-sm font-medium">{t('title')}</p>
-          <p className="text-muted-foreground text-xs">{t('description')}</p>
-          {!settings.available ? (
-            <p className="text-warning mt-1 text-xs">{t('notApplied')}</p>
-          ) : settings.enabled ? (
-            <p className="text-muted-foreground mt-1 text-xs">
-              {settings.lastRunAt
-                ? settings.lastRunDrafted === null
-                  ? t('lastRun', {
-                      when: format.dateTime(new Date(settings.lastRunAt), {
-                        dateStyle: 'medium',
-                      }),
-                    })
-                  : t('lastRunDrafts', {
-                      when: format.dateTime(new Date(settings.lastRunAt), {
-                        dateStyle: 'medium',
-                      }),
-                      count: settings.lastRunDrafted,
-                    })
-                : t('notRunYet')}
-            </p>
-          ) : null}
+    <div className="space-y-2">
+      <div className="border-border bg-card flex items-start justify-between gap-4 rounded-md border p-3">
+        <div className="flex min-w-0 gap-2">
+          <GraduationCap
+            className="text-primary mt-0.5 h-4 w-4 shrink-0"
+            aria-hidden
+          />
+          <div className="min-w-0">
+            <p className="text-foreground text-sm font-medium">{t('title')}</p>
+            <p className="text-muted-foreground text-xs">{t('description')}</p>
+            {!settings.available ? (
+              <p className="text-warning mt-1 text-xs">{t('notApplied')}</p>
+            ) : settings.enabled ? (
+              <p className="text-muted-foreground mt-1 text-xs">
+                {settings.lastRunAt
+                  ? settings.lastRunDrafted === null
+                    ? t('lastRun', {
+                        when: format.dateTime(new Date(settings.lastRunAt), {
+                          dateStyle: 'medium',
+                        }),
+                      })
+                    : t('lastRunDrafts', {
+                        when: format.dateTime(new Date(settings.lastRunAt), {
+                          dateStyle: 'medium',
+                        }),
+                        count: settings.lastRunDrafted,
+                      })
+                  : t('notRunYet')}
+              </p>
+            ) : null}
+          </div>
         </div>
+        <Switch
+          checked={settings.enabled}
+          onCheckedChange={(v) => void save(v)}
+          disabled={loading || saving || !settings.available}
+          aria-label={t('title')}
+        />
       </div>
-      <Switch
-        checked={settings.enabled}
-        onCheckedChange={(v) => void save(v)}
-        disabled={loading || saving || !settings.available}
-        aria-label={t('title')}
-      />
+      {settings.available ? <AiKbLearnedSkills accountId={accountId} /> : null}
     </div>
   );
 }

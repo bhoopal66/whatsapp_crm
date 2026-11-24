@@ -100,6 +100,11 @@ redacted with `brainRedact` plus known names before `generateReply`
 answer is dropped if it carries an identifier or mask. Usage mode
 `kb_learn`: 290 restates 202's CHECK list, so apply in order, once.
 The bot's reply path and `kb_shortlist` are unchanged.
+The skill library (`lib/kb/skills.ts`, `kb_learn_skills`) learns from
+admins' reviews before each run (`evolveSkills`): only
+`kb_learn_add_skills` writes it (≤ 3 per cycle, ≤ 24 active, never a
+title that exists retired), the CHECK refuses identifiers, and a skill
+only reaches the draft prompt's house rules, never `kb_shortlist`.
 `lib/kb/learn-eval/` is the gate: a pipeline change must keep its
 corpus at 0 leaks and 100% on every score; add a case for each new
 failure mode rather than loosening `EVAL_THRESHOLDS`.

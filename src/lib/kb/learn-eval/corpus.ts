@@ -4,7 +4,8 @@
  * secrets that must never reach the model or a draft; a new failure mode
  * found in production becomes a new case here.
  */
-import type { CaseChat, CaseMessage, EvalCase } from './harness';
+import type { Skill } from '../skills';
+import type { CaseChat, CaseMessage, DistillCase, EvalCase } from './harness';
 
 const c = (text: string, minutes = 1): CaseMessage => ({
   from: 'customer',
@@ -45,6 +46,41 @@ const LICENCE_ANSWER = {
   en: 'A freelance permit can be used instead of a trade licence for most business accounts. Bring the permit and your Emirates ID.',
   ar: 'يمكن استخدام تصريح العمل الحر بدلاً من الرخصة التجارية لمعظم الحسابات. أحضر التصريح والهوية الإماراتية.',
 };
+
+const LIBRARY: Skill[] = [
+  {
+    kind: 'general',
+    category: null,
+    title: 'Name every document',
+    principle: 'List each document the customer must bring.',
+    whenToApply: null,
+    evidenceCount: 4,
+  },
+  {
+    kind: 'category',
+    category: 'pos',
+    title: 'POS needs statements',
+    principle: 'Say how many months of statements the bank asks for.',
+    whenToApply: null,
+    evidenceCount: 2,
+  },
+  {
+    kind: 'category',
+    category: 'loans',
+    title: 'Loan rule',
+    principle: 'Never quote a rate.',
+    whenToApply: null,
+    evidenceCount: 2,
+  },
+  {
+    kind: 'mistake',
+    category: null,
+    title: 'Promising approval',
+    principle: 'Drafts promised approval; say the bank decides.',
+    whenToApply: null,
+    evidenceCount: 3,
+  },
+];
 
 export const KB_LEARN_CORPUS: readonly EvalCase[] = [
   // ---------------------------------------------------------- happy paths
@@ -591,6 +627,188 @@ export const KB_LEARN_CORPUS: readonly EvalCase[] = [
     model: 'faithful',
     modelAnswer: LICENCE_ANSWER,
     expect: { outcome: 'drafted' },
+    secrets: [],
+  },
+  // ------------------------------------------------- the skill library
+  {
+    id: 'skills-retrieved',
+    tags: ['skills'],
+    note: "The general rules and this topic's category rules reach the prompt; another category's do not.",
+    topic: { label: 'What documents do I need for a POS machine?' },
+    chats: [
+      chat('POS documents?', [
+        a('A trade licence and three months of statements.'),
+      ]),
+      chat('POS machine papers?', [
+        a('Trade licence plus bank statements for 3 months.'),
+      ]),
+    ],
+    skills: LIBRARY,
+    model: 'faithful',
+    modelAnswer: {
+      en: 'A valid trade licence and three months of bank statements.',
+    },
+    expect: { outcome: 'drafted' },
+    expectSkills: {
+      inPrompt: [
+        'Name every document',
+        'POS needs statements',
+        'Promising approval',
+      ],
+      notInPrompt: ['Loan rule'],
+    },
+    secrets: [],
+  },
+  {
+    id: 'skills-none',
+    tags: ['skills'],
+    note: 'No library yet: no house-rules section at all.',
+    topic: { label: LICENCE },
+    chats: [
+      chat(LICENCE, [a('Yes, a freelance permit works.')]),
+      chat(LICENCE, [a('A freelance permit is enough.')]),
+    ],
+    skills: [],
+    model: 'faithful',
+    modelAnswer: LICENCE_ANSWER,
+    expect: { outcome: 'drafted' },
+    expectSkills: { notInPrompt: ['House rules'] },
+    secrets: [],
+  },
+];
+
+const DRAFT = 'A freelance permit can be used instead of a trade licence.';
+const APPROVED = { status: 'approved', answer_en: DRAFT };
+const REMOVED = { status: 'remove', answer_en: DRAFT };
+
+/** The skill library's evolution cycle (harness.ts runDistillCase). */
+export const KB_LEARN_DISTILL_CORPUS: readonly DistillCase[] = [
+  {
+    id: 'distill-waits',
+    tags: ['distill'],
+    note: 'Two good reviews: nothing to learn yet, no model call.',
+    reviews: [
+      { topic: 'Licence?', draft: DRAFT, entry: APPROVED },
+      { topic: 'Licence?', draft: DRAFT, entry: APPROVED },
+    ],
+    model: 'propose',
+    expect: { evolved: false, added: 0, reason: null },
+    secrets: [],
+  },
+  {
+    id: 'distill-low-approval',
+    tags: ['distill', 'pii'],
+    note: 'Mostly rejected drafts: learn now, from redacted examples only.',
+    reviews: [
+      {
+        topic: 'Licence? call 0501234567',
+        draft: 'Fatima, call us on +971 4 123 4567.',
+        entry: null,
+      },
+      { topic: 'Licence?', draft: 'Approval is guaranteed.', entry: REMOVED },
+      {
+        topic: 'Licence?',
+        draft: 'Write to ops@bank.example.',
+        entry: REMOVED,
+      },
+      { topic: 'Licence?', draft: DRAFT, entry: REMOVED },
+      { topic: 'Licence?', draft: DRAFT, entry: APPROVED },
+    ],
+    model: 'propose',
+    proposed: [
+      {
+        kind: 'mistake',
+        title: 'Promising approval',
+        principle: 'Drafts promised approval; say the bank decides.',
+      },
+      {
+        kind: 'general',
+        title: 'No contact details',
+        principle: 'Point to the branch, never to a person or a private line.',
+      },
+    ],
+    expect: { evolved: true, added: 2, reason: 'low_approval' },
+    secrets: ['0501234567', '+971 4 123 4567', 'ops@bank.example'],
+  },
+  {
+    id: 'distill-edits',
+    tags: ['distill'],
+    note: 'Five edited approvals: learn what admins changed; at most three skills.',
+    reviews: Array.from({ length: 5 }, (_, i) => ({
+      topic: `Fees ${i}`,
+      draft: 'It is free.',
+      entry: {
+        status: 'approved',
+        answer_en:
+          'There is no monthly fee in the first year; after that a fee applies.',
+      },
+    })),
+    model: 'propose',
+    proposed: [
+      {
+        kind: 'category',
+        category: 'fees',
+        title: 'Say how long it is free',
+        principle: 'Give the free period and what applies after it.',
+      },
+      {
+        kind: 'general',
+        title: 'Be specific',
+        principle: 'Prefer the exact condition over a yes or no.',
+      },
+      {
+        kind: 'general',
+        title: 'Short',
+        principle: 'Three sentences at most.',
+      },
+      {
+        kind: 'general',
+        title: 'Fourth',
+        principle: 'Dropped by the cap of three.',
+      },
+    ],
+    expect: { evolved: true, added: 3, reason: 'enough_reviews' },
+    secrets: [],
+  },
+  {
+    id: 'distill-leaky-model',
+    tags: ['distill', 'model', 'leaky'],
+    note: 'A model proposing a skill with a phone number: nothing is added.',
+    reviews: Array.from({ length: 5 }, () => ({
+      topic: 'Licence?',
+      draft: DRAFT,
+      entry: REMOVED,
+    })),
+    model: 'leaky',
+    expect: { evolved: true, added: 0, reason: 'low_approval' },
+    secrets: ['+971 50 765 4321'],
+  },
+  {
+    id: 'distill-echo-model',
+    tags: ['distill', 'model', 'echo'],
+    note: 'A model copying its prompt into a skill: refused.',
+    reviews: Array.from({ length: 5 }, () => ({
+      topic: 'Licence?',
+      draft: DRAFT,
+      entry: REMOVED,
+    })),
+    model: 'echo',
+    expect: { evolved: true, added: 0, reason: 'low_approval' },
+    secrets: [],
+  },
+  {
+    id: 'distill-already-done',
+    tags: ['distill'],
+    note: 'Reviews already distilled are not learned from twice.',
+    reviews: Array.from({ length: 6 }, () => ({
+      topic: 'Licence?',
+      draft: DRAFT,
+      entry: APPROVED,
+      outcome: 'approved' as const,
+      distilled: true,
+    })),
+    model: 'propose',
+    expect: { evolved: false, added: 0, reason: null },
     secrets: [],
   },
 ];
