@@ -54,6 +54,7 @@ const webhook = (over: Partial<AccountWebhook>): AccountWebhook => ({
 
 type Reply = { status: number; body: unknown } | Error | 'never';
 let list: Reply;
+let keys: Reply;
 let change: Reply;
 let calls: string[];
 const ready = (...webhooks: AccountWebhook[]): Reply => ({
@@ -66,12 +67,13 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.spyOn(console, 'error').mockImplementation(() => {});
   list = ready();
+  keys = { status: 200, body: { keys: [KEY] } };
   change = { status: 200, body: { success: true } };
   calls = [];
   vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
     const method = init?.method ?? 'GET';
     calls.push(`${method} ${url} ${init?.body ?? ''}`.trim());
-    let reply: Reply = { status: 200, body: { keys: [KEY] } };
+    let reply: Reply = keys;
     if (method !== 'GET') reply = change;
     else if (url === '/api/account/webhooks') reply = list;
     if (reply === 'never') return new Promise(() => {});
@@ -132,6 +134,21 @@ async function confirm() {
   (openDialog().props.onConfirm as () => void)();
   await settle();
 }
+
+describe('the keys', () => {
+  it('a failed read is an error with Retry, never "no keys"', async () => {
+    keys = { status: 500, body: null };
+    const failed = errors(await load()).find(
+      (el) => el.props.message === 'loadFailed'
+    )!;
+    expect(textOf(screen())).not.toContain('noApiKeys');
+    keys = { status: 200, body: { keys: [KEY] } };
+    (failed.props.onRetry as () => void)();
+    const tree = await load();
+    expect(errors(tree)).toHaveLength(0);
+    expect(textOf(tree)).toContain('Zapier');
+  });
+});
 
 describe('the card', () => {
   it('shows loading until the answer, not "No webhooks"', async () => {

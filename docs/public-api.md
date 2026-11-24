@@ -698,10 +698,10 @@ active and ended groups alike, and the answer adds
   `bank_invalid`, `product_invalid`, `amount_invalid`,
   `external_url_invalid`, `changed_at_invalid`) and writes nothing.
   A `changed_at` in the future counts as the moment it arrived (it would
-  otherwise make every later update stale).
+  otherwise make every later update stale). Two such updates are ordered by
+  arrival, retries included: send the real time.
   Refusals of one item (an outcome reason, a document) are listed in
-  `sync.rejected` as `{ key, error }` and the rest still applies. Two such
-  updates are ordered by arrival, retries included: send the real time.
+  `sync.rejected` as `{ key, error }` and the rest still applies.
 - A move to `Approved`, `Declined`, `Withdrawn` or `Closed` ends the group
   like a final `status`.
 - The API is never blocked by the CRM's "managed in Compass" switch.

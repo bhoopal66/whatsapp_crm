@@ -18,6 +18,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { Copy, KeyRound, Loader2, Plus, Trash2 } from 'lucide-react';
 
+import { ErrorState } from '@/components/dashboard/error-state';
 import { ConfirmDialog } from '@/components/ui-ext/confirm-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -68,6 +69,8 @@ export function ApiKeysSettings() {
 
   const [keys, setKeys] = useState<ApiKey[]>([]);
   const [loading, setLoading] = useState(true);
+  // Never read: "no keys" would be an invention.
+  const [unread, setUnread] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [revoking, setRevoking] = useState<string | null>(null);
   const [askRevoke, setAskRevoke] = useState<ApiKey | null>(null);
@@ -79,13 +82,16 @@ export function ApiKeysSettings() {
       if (!res.ok) {
         const payload = await res.json().catch(() => ({}));
         toast.error(payload.error || t('loadFailed'));
+        setUnread(true);
         return;
       }
       const data = (await res.json()) as { keys: ApiKey[] };
       setKeys(data.keys);
+      setUnread(false);
     } catch (err) {
       console.error('[ApiKeysSettings] load error:', err);
       toast.error(t('networkError'));
+      setUnread(true);
     } finally {
       setLoading(false);
     }
@@ -159,7 +165,16 @@ export function ApiKeysSettings() {
         }
       />
 
-      {keys.length === 0 ? (
+      {unread && (
+        <ErrorState
+          message={t('loadFailed')}
+          onRetry={() => {
+            setLoading(true);
+            void load();
+          }}
+        />
+      )}
+      {unread && keys.length === 0 ? null : keys.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-10 text-center">
             <KeyRound className="text-muted-foreground size-6" />
