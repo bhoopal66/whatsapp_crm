@@ -1,10 +1,14 @@
 import {
+  PDFArray,
+  PDFDict,
   PDFDocument,
   PDFHexString,
   PDFName,
   PDFRawStream,
+  PDFRef,
   decodePDFRawStream,
 } from 'pdf-lib';
+import { getDocumentProxy, getResolvedPDFJS } from 'unpdf';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -531,66 +535,429 @@ describe('what the bank receives', () => {
   }
   const hex = (s: string) => Buffer.from(s).toString('hex').toUpperCase();
 
-  /** A filled form whose values have no stored appearance. */
-  async function form(value: string, saved: 'none' | 'stale' = 'none') {
+  type Raw = Record<string, unknown>;
+  const n = (s: string) => PDFName.of(s);
+  const str = (s: string) => PDFHexString.fromText(s);
+  const TICK = '0 0 m 10 10 l S';
+  const BLANK = '% off';
+
+  /** An appearance stream. */
+  const ap = (d: PDFDocument, body: string, more: Raw = {}) =>
+    d.context.register(
+      d.context.stream(body, {
+        Type: 'XObject',
+        Subtype: 'Form',
+        BBox: [0, 0, 100, 20],
+        ...more,
+      })
+    );
+  /** One page with these raw widgets, and their form. */
+  async function form(
+    make: (d: PDFDocument) => Raw[],
+    acro: ((d: PDFDocument, refs: PDFRef[]) => Raw | string) | null = () => ({})
+  ) {
     const d = await PDFDocument.create();
     const page = d.addPage([300, 300]);
-    const f = d.getForm();
-    const text = f.createTextField('name');
-    text.addToPage(page, { x: 10, y: 10, width: 200, height: 20 });
-    if (saved === 'stale') f.updateFieldAppearances();
-    text.acroField.dict.set(PDFName.of('V'), PDFHexString.fromText(value));
-    if (saved === 'none')
-      text.acroField.getWidgets()[0].dict.delete(PDFName.of('AP'));
-    else
-      f.acroForm.dict.set(PDFName.of('NeedAppearances'), d.context.obj(true));
-    const hidden = f.createTextField('internal');
-    hidden.setText('SECRET');
-    hidden.addToPage(page, { x: 10, y: 40, width: 200, height: 20 });
-    hidden.acroField.getWidgets()[0].setFlags(2);
-    const box = f.createCheckBox('agree');
-    box.addToPage(page, { x: 10, y: 70, width: 20, height: 20 });
-    box.defaultUpdateAppearances();
-    hidden.defaultUpdateAppearances(await d.embedFont('Helvetica'));
-    if (saved === 'none')
-      text.acroField.getWidgets()[0].dict.delete(PDFName.of('AP'));
-    // Real forms store no appearance for an unticked box.
-    (
-      box.acroField.getWidgets()[0].getAppearances()!.normal as unknown as {
-        delete(k: PDFName): void;
-      }
-    ).delete(PDFName.of('Off'));
+    const refs = make(d).map((w) =>
+      d.context.register(
+        d.context.obj({
+          Type: 'Annot',
+          Subtype: 'Widget',
+          Rect: [10, 10, 110, 30],
+          F: 4,
+          ...w,
+        } as never)
+      )
+    );
+    page.node.set(n('Annots'), d.context.obj(refs));
+    if (acro) {
+      const extra = acro(d, refs);
+      d.catalog.set(
+        n('AcroForm'),
+        d.context.obj(
+          (typeof extra === 'string'
+            ? extra
+            : { Fields: refs, ...extra }) as never
+        )
+      );
+    }
     return d.save({ updateFieldAppearances: false });
   }
+  const NEED = () => ({ NeedAppearances: true });
+  const text = (v?: string, more: Raw = {}): Raw => ({
+    FT: 'Tx',
+    T: str('name'),
+    ...(v === undefined ? {} : { V: str(v) }),
+    ...more,
+  });
+  const box = (more: Raw): Raw => ({ FT: 'Btn', T: str('agree'), ...more });
+  const states = (d: PDFDocument) => ({
+    Yes: ap(d, TICK),
+    Off: ap(d, BLANK),
+  });
 
-  it.each(['none', 'stale'] as const)(
-    'draws the values of a fillable form (appearance: %s)',
-    async (saved) => {
-      const w = await world();
-      w.bytes['f-stmt'] = await form('AED 12500', saved);
-      await build(w);
-      const all = (await streams(w)).join('\n').toUpperCase();
-      const out = await PDFDocument.load(w.uploads[0].body);
-      const used = out
-        .getPages()
-        .map((p) => p.node.toString())
-        .join();
-      expect(all).toContain(hex('AED 12500'));
-      expect(used).not.toContain('/Widget');
-      // A hidden field is not drawn.
-      expect(all).not.toContain(hex('SECRET'));
-    }
-  );
-
-  it('refuses, naming the document, when a value cannot be drawn', async () => {
+  /** The widgets in the stored bundle and what each one draws. */
+  async function drawn(pdf: Uint8Array) {
+    const w = await world();
+    w.bytes['f-stmt'] = pdf;
+    await build(w);
+    const body: Uint8Array = w.uploads[0].body;
+    const out = await PDFDocument.load(body);
+    const widgets = out.getPages().flatMap((p) => {
+      const annots = p.node.lookup(n('Annots'));
+      if (!(annots instanceof PDFArray)) return [];
+      return annots.asArray().map((a) => {
+        const dict = out.context.lookup(a, PDFDict);
+        expect(dict.get(n('Subtype'))).toBe(n('Widget'));
+        const as = dict.lookup(n('AS'));
+        const apDict = dict.lookup(n('AP'));
+        const N = apDict instanceof PDFDict ? apDict.lookup(n('N')) : undefined;
+        const s =
+          N instanceof PDFDict && as instanceof PDFName ? N.lookup(as) : N;
+        const stream = s instanceof PDFRawStream ? s : null;
+        return {
+          as: as instanceof PDFName ? as.decodeText() : null,
+          draws: stream
+            ? Buffer.from(decodePDFRawStream(stream).decode()).toString(
+                'latin1'
+              )
+            : null,
+          bbox: stream?.dict.get(n('BBox'))?.toString(),
+          matrix: stream?.dict.get(n('Matrix'))?.toString(),
+        };
+      });
+    });
+    return { widgets, body };
+  }
+  const only = async (pdf: Uint8Array) => {
+    const { widgets } = await drawn(pdf);
+    expect(widgets).toHaveLength(1);
+    return widgets[0];
+  };
+  const refusal = async (pdf: Uint8Array) => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const w = await world();
-    w.bytes['f-stmt'] = await form('محمد');
+    w.bytes['f-stmt'] = pdf;
     const err = (await build(w).catch((e) => e)) as CaseFilesRefusedError;
     expect(err).toBeInstanceOf(CaseFilesRefusedError);
-    expect(err.reason).toBe('FORM_NOT_FLATTENED');
-    expect(err.document).toBe('STATEMENT.pdf');
     expect(w.uploads).toEqual([]);
+    return { reason: err.reason, document: err.document };
+  };
+  const REFUSED = { reason: 'FORM_NOT_FLATTENED', document: 'STATEMENT.pdf' };
+  const ARABIC = 'محمد';
+
+  describe('form values the file draws itself stay as they are', () => {
+    it('a tick whose N is an indirect reference', async () => {
+      const w = await only(
+        await form((d) => [
+          box({
+            V: 'Yes',
+            AS: 'Yes',
+            AP: { N: d.context.register(d.context.obj(states(d))) },
+          }),
+        ])
+      );
+      expect(w).toMatchObject({ as: 'Yes', draws: TICK });
+    });
+
+    it.each([
+      ['checkbox', 0],
+      ['radio', 1 << 15],
+    ])('a %s ticked by AS without V', async (_, Ff) => {
+      const w = await only(
+        await form((d) => [box({ Ff, AS: 'Yes', AP: { N: states(d) } })])
+      );
+      expect(w).toMatchObject({ as: 'Yes', draws: TICK });
+    });
+
+    it('AS wins over the value', async () => {
+      const w = await only(
+        await form((d) => [box({ V: 'Yes', AS: 'Off', AP: { N: states(d) } })])
+      );
+      expect(w).toMatchObject({ as: 'Off', draws: BLANK });
+    });
+
+    it('a box with no AS shows the state its value names', async () => {
+      const w = await only(
+        await form((d) => [box({ V: 'Yes', AP: { N: states(d) } })])
+      );
+      expect(w).toMatchObject({ as: 'Yes', draws: TICK });
+    });
+
+    it('a form with a field on no page', async () => {
+      const w = await only(
+        await form(
+          (d) => [text('kept', { AP: { N: ap(d, TICK) } })],
+          (d, refs) => ({
+            Fields: [
+              ...refs,
+              d.context.register(
+                d.context.obj({
+                  Type: 'Annot',
+                  Subtype: 'Widget',
+                  Rect: [0, 0, 50, 20],
+                  P: d.context.nextRef(),
+                  ...text('gone'),
+                } as never)
+              ),
+            ],
+          })
+        )
+      );
+      expect(w.draws).toBe(TICK);
+    });
+
+    it.each([
+      ['empty AP', {}],
+      ['N that is gone', { N: PDFRef.of(999) }],
+      ['N without a stream', { N: {} }],
+    ])('an unused field and box with an %s', async (_, AP) => {
+      const { widgets } = await drawn(
+        await form(() => [text(undefined, { AP }), box({ AP })])
+      );
+      expect(widgets.map((w) => w.draws)).toEqual([null, null]);
+    });
+
+    it.each([
+      ['none', null],
+      ['stale', NEED],
+    ])('an appearance with its own BBox and Matrix (%s)', async (_, need) => {
+      const w = await only(
+        await form(
+          (d) => [
+            text(need ? ARABIC : 'x', {
+              AP: {
+                N: ap(d, TICK, {
+                  BBox: [50, 50, 150, 70],
+                  Matrix: [0, 1, -1, 0, 5, 6],
+                }),
+              },
+            }),
+          ],
+          need ?? (() => ({}))
+        )
+      );
+      expect(w).toMatchObject({
+        draws: TICK,
+        bbox: '[ 50 50 150 70 ]',
+        matrix: '[ 0 1 -1 0 5 6 ]',
+      });
+    });
+
+    it('a tick, with NeedAppearances', async () => {
+      const w = await only(
+        await form((d) => [box({ AS: 'Yes', AP: { N: states(d) } })], NEED)
+      );
+      expect(w).toMatchObject({ as: 'Yes', draws: TICK });
+    });
+
+    it.each([
+      ['a form without fields', () => ({})],
+      ['no form', null],
+    ])('%s', async (_, acro) => {
+      const { widgets } = await drawn(await form(() => [], acro));
+      expect(widgets).toEqual([]);
+    });
+
+    it.each([
+      ['a form that is not a dictionary', () => 'Broken', 1],
+      [
+        'a field list with a broken entry',
+        (_: PDFDocument, refs: PDFRef[]) => ({
+          Fields: [PDFRef.of(998), ...refs],
+        }),
+        0,
+      ],
+    ])('%s does not stop the build', async (_, acro, logged) => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const w = await only(
+        await form((d) => [text('kept', { AP: { N: ap(d, TICK) } })], acro)
+      );
+      expect(w.draws).toBe(TICK);
+      expect(warn).toHaveBeenCalledTimes(logged);
+      for (const call of warn.mock.calls)
+        expect(call).toEqual(['[case-files] form of f-stmt not read in full']);
+    });
+
+    it('a widget nothing is known about is left, and logged by id', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const w = await only(await form(() => [{ T: str('SECRET') }]));
+      expect(w.draws).toBeNull();
+      expect(warn.mock.calls).toEqual([
+        ['[case-files] form of f-stmt not read in full'],
+      ]);
+    });
+  });
+
+  describe('form values the file leaves to the reader are drawn', () => {
+    it.each([
+      ['no AP', {}],
+      ['an empty AP', { AP: {} }],
+      ['an N that is gone', { AP: { N: PDFRef.of(999) } }],
+    ])('text with %s', async (_, more) => {
+      const w = await only(await form(() => [text('AED 12500', more)]));
+      expect(w.draws).toContain(hex('AED 12500'));
+    });
+
+    it('text whose appearance is out of date', async () => {
+      const w = await only(
+        await form((d) => [text('AED 12500', { AP: { N: ap(d, TICK) } })], NEED)
+      );
+      expect(w.draws).toContain(hex('AED 12500'));
+    });
+
+    it('text stored as a stream, or on the parent', async () => {
+      const { widgets } = await drawn(
+        await form((d) => [
+          text(undefined, { V: d.context.register(d.context.stream('LONG')) }),
+          {
+            Parent: d.context.register(
+              d.context.obj(text('FROM PARENT') as never)
+            ),
+          },
+        ])
+      );
+      expect(widgets[0].draws).toContain(hex('LONG'));
+      expect(widgets[1].draws).toContain(hex('FROM PARENT'));
+    });
+
+    it('only the widget that has none, when its sibling has one', async () => {
+      const { widgets } = await drawn(
+        await form((d) => {
+          const Parent = d.context.register(
+            d.context.obj(text('AED 12500') as never)
+          );
+          return [{ Parent, AP: { N: ap(d, TICK) } }, { Parent }];
+        })
+      );
+      expect(widgets[0].draws).toBe(TICK);
+      expect(widgets[1].draws).toContain(hex('AED 12500'));
+    });
+
+    it('a dropdown (its display text) and a list', async () => {
+      const Opt = (d: PDFDocument) =>
+        d.context.obj([[str('AE'), str('Emirates')], str('Oman')] as never);
+      const { widgets } = await drawn(
+        await form((d) => [
+          { FT: 'Ch', Ff: 1 << 17, T: str('c'), V: str('AE'), Opt: Opt(d) },
+          {
+            FT: 'Ch',
+            T: str('l'),
+            V: str('Oman'),
+            Opt: d.context.obj([[str('Oman')]] as never),
+          },
+        ])
+      );
+      expect(widgets[0].draws).toContain(hex('Emirates'));
+      expect(widgets[1].draws).toContain(hex('Oman'));
+    });
+
+    it.each([
+      ['checkbox by AS', { AS: 'On' }, 'On'],
+      ['checkbox by value', { V: 'On' }, 'On'],
+      ['radio by AS', { Ff: 1 << 15, AS: '2' }, '2'],
+      ['radio by value', { Ff: 1 << 15, V: '2', AP: {} }, '2'],
+    ])('a ticked %s', async (_, more, as) => {
+      const w = await only(await form(() => [box(more)]));
+      expect(w.as).toBe(as);
+      expect(w.draws).toMatch(/ [lc]\n/);
+    });
+
+    it('not the other boxes of a ticked field', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const { widgets } = await drawn(
+        await form((d) => {
+          const Parent = d.context.nextRef();
+          d.context.assign(
+            Parent,
+            d.context.obj({
+              ...box({ V: 'A' }),
+              Kids: [PDFRef.of(900), PDFRef.of(901)],
+            } as never)
+          );
+          return [{ Parent }, { Parent, AS: 'Off' }];
+        })
+      );
+      expect(widgets.map((w) => w.draws)).toEqual([null, null]);
+      expect(warn).toHaveBeenCalledOnce();
+    });
+
+    it('not what a reader does not show', async () => {
+      const { widgets, body } = await drawn(
+        await form(() => [
+          text('SECRET', { F: 2 }),
+          text('SECRET', { F: 32 }),
+          text('SECRET', { Ff: 1 << 13 }),
+          text(' '),
+          text(ARABIC, { F: 2 }),
+          text(ARABIC, { Rect: [0, 0, 0, 0] }),
+        ])
+      );
+      expect(widgets.map((w) => w.draws)).toEqual(Array(6).fill(null));
+      expect(body.length).toBeGreaterThan(0);
+    });
+
+    it('a reader shows them, with no form in the bundle', async () => {
+      const { body } = await drawn(
+        await form((d) => [
+          text('DRAWN HERE'),
+          text('x', {
+            AP: {
+              N: ap(d, 'BT /F 10 Tf (STORED) Tj ET', {
+                Resources: {
+                  Font: {
+                    F: {
+                      Type: 'Font',
+                      Subtype: 'Type1',
+                      BaseFont: 'Helvetica',
+                    },
+                  },
+                },
+              }),
+            },
+          }),
+        ])
+      );
+      expect((await PDFDocument.load(body)).catalog.has(n('AcroForm'))).toBe(
+        false
+      );
+      const { OPS } = await getResolvedPDFJS();
+      const pdf = await getDocumentProxy(Uint8Array.from(body));
+      let shown = '';
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const ops = await (await pdf.getPage(i)).getOperatorList();
+        let inside = false;
+        ops.fnArray.forEach((fn, j) => {
+          if (fn === OPS.beginAnnotation) inside = true;
+          if (fn === OPS.endAnnotation) inside = false;
+          if (inside && fn === OPS.showText)
+            for (const g of ops.argsArray[j][0])
+              shown += (g as { unicode?: string }).unicode ?? '';
+        });
+      }
+      expect(shown).toContain('DRAWN HERE');
+      expect(shown).toContain('STORED');
+    });
+
+    it.each([
+      ['no appearance', {}, undefined],
+      ['an empty AP', { AP: {} }, undefined],
+      ['no appearance, NeedAppearances', {}, NEED],
+    ])('refuses Arabic with %s, naming the document', async (_, more, acro) => {
+      expect(
+        await refusal(await form(() => [text(ARABIC, more)], acro))
+      ).toEqual(REFUSED);
+    });
+
+    it.each([
+      ['', undefined],
+      [' and NeedAppearances', NEED],
+    ])('keeps Arabic with a stored appearance%s', async (_, acro) => {
+      const w = await only(
+        await form((d) => [text(ARABIC, { AP: { N: ap(d, TICK) } })], acro)
+      );
+      expect(w.draws).toBe(TICK);
+    });
   });
 
   /** `JPEG`, 300x100, with an EXIF orientation. */
