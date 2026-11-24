@@ -2493,6 +2493,7 @@
       "reactivate": "다시 활성화",
       "deactivatedOn": "{date} 비활성화됨",
       "deactivatedToast": "{name}을(를) 비활성화했습니다. 더 이상 로그인할 수 없습니다.",
+      "deactivatedHereToast": "이 워크스페이스에서 {name}을(를) 비활성화했습니다. 다른 워크스페이스에는 계속 로그인할 수 있습니다.",
       "personal": {
         "badge": "개인 WhatsApp",
         "allow": "개인 WhatsApp 허용",

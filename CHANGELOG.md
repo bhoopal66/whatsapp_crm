@@ -34,6 +34,10 @@ and polish.
 
 ### Fixed
 
+- **Deactivating says what happened to the login.** Somebody who also works
+  in another workspace keeps their login, and the message now says so
+  instead of "They can no longer sign in". An archived workspace no longer
+  counts as one they work in.
 - **A coordinator number shows without banks.** Settings → Members showed an
   empty WhatsApp number for somebody who has one saved but holds no bank,
   and it could not be cleared.

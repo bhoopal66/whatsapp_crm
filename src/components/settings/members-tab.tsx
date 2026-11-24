@@ -586,10 +586,17 @@ export function MembersTab() {
         )
       );
       const name = member.full_name || t('unnamed');
+      const { banned } = ((await res
+        .clone()
+        .json()
+        .catch(() => null)) ?? {}) as { banned?: boolean };
       toast.success(
         active
           ? t('reactivatedToast', { name })
-          : t('deactivatedToast', { name })
+          : banned === false
+            ? // Works in another workspace: the login stays open for it.
+              t('deactivatedHereToast', { name })
+            : t('deactivatedToast', { name })
       );
       await warnPersonalNumber(res, name);
       setDeactivatingMember(null);
