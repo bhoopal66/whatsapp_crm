@@ -30,7 +30,9 @@ and polish.
   (at most every 2 minutes) and about once an hour. No migration.
 - **A slow or lost connection no longer shows the sign-in page.** While the
   app cannot find out whether you are signed in it says "Reconnecting…", with
-  a Retry button, and keeps trying. When a session really has ended, signing
+  a Retry button, and keeps trying. Too many requests, or a page put in
+  between (a Cloudflare challenge), no longer count as the auth service's
+  answer and sign nobody out. When a session really has ended, signing
   in again returns you to the page you were on; "Sign out" does not. No
   migration.
 - **"Sign out" ends this device only.** It used to sign the person out of

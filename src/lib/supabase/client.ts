@@ -1,6 +1,7 @@
 import { createBrowserClient } from '@supabase/ssr'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+import { sessionFetch } from './session-fetch'
 import { AUTH_COOKIE_NAME, publicSupabaseUrl } from './urls'
 
 // Singleton instance — one client shared across the whole browser session.
@@ -19,7 +20,10 @@ export function createClient() {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     // Pin the session cookie name — the default is derived from the
     // URL, which differs between browser and server here. See urls.ts.
-    { cookieOptions: { name: AUTH_COOKIE_NAME } }
+    {
+      cookieOptions: { name: AUTH_COOKIE_NAME },
+      global: { fetch: sessionFetch },
+    }
   )
 
   return browserClient

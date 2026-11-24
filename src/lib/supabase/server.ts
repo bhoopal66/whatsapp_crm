@@ -1,5 +1,6 @@
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
+import { sessionFetch } from '@/lib/supabase/session-fetch'
 import { AUTH_COOKIE_NAME, serverSupabaseUrl } from '@/lib/supabase/urls'
 
 export async function createClient() {
@@ -11,6 +12,7 @@ export async function createClient() {
     {
       // Must match the browser's cookie name — see urls.ts.
       cookieOptions: { name: AUTH_COOKIE_NAME },
+      global: { fetch: sessionFetch },
       cookies: {
         getAll() {
           return cookieStore.getAll()
