@@ -13,7 +13,7 @@ export function reportClientError(kind: ClientErrorKind, thrown: unknown) {
     if (sent >= MAX_PER_LOAD) return;
     const report = buildReport(kind, thrown, window.location.pathname);
     if (!report) return;
-    const key = `${report.message}|${report.frames[0] ?? ''}`;
+    const key = `${report.name}|${report.message ?? ''}|${report.frames[0] ?? ''}`;
     if (said.has(key)) return;
     said.add(key);
     sent += 1;

@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const h = vi.hoisted(() => ({ user: null as null | { id: string } }));
 vi.mock('@/lib/supabase/server', () => ({
   createClient: async () => ({
-    auth: { getUser: async () => ({ data: { user: h.user } }) },
+    auth: { getUser: async () => ({ data: { user: h.user }, error: null }) },
   }),
 }));
 
@@ -26,28 +26,29 @@ function req(url: string, body: string, headers: Record<string, string> = {}) {
 const report = (message: string) =>
   JSON.stringify({
     kind: 'error',
-    message,
-    frames: ['A a.js:1:2'],
+    name: 'TypeError',
+    message: 'x is not defined',
+    frames: [`${message} a.js:1:2`],
     path: '/inbox',
   });
 
 describe('POST /api/client-errors', () => {
   it('logs a signed-in person’s report once, and answers 204', async () => {
-    const res = await POST(req('/api/client-errors', report('TypeError: one')));
+    const res = await POST(req('/api/client-errors', report('one')));
     expect(res.status).toBe(204);
     expect(warn).toHaveBeenCalledTimes(1);
     expect(String(warn.mock.calls[0][0])).toContain(
-      '[client-error] error /inbox user=ab12cd34 TypeError: one'
+      '[client-error] error /inbox user=ab12cd34 TypeError: x is not defined | one a.js:1:2'
     );
-    await POST(req('/api/client-errors', report('TypeError: one')));
+    await POST(req('/api/client-errors', report('one')));
     expect(warn).toHaveBeenCalledTimes(1);
   });
 
   it('keeps nothing from a signed-out browser, a long body or junk', async () => {
     h.user = null;
-    expect(
-      (await POST(req('/api/client-errors', report('TypeError: two')))).status
-    ).toBe(204);
+    expect((await POST(req('/api/client-errors', report('two')))).status).toBe(
+      204
+    );
     h.user = { id: 'u-2' };
     await POST(req('/api/client-errors', report('x'.repeat(9_000))));
     await POST(req('/api/client-errors', '{nope'));
@@ -57,14 +58,8 @@ describe('POST /api/client-errors', () => {
   it('stops at 20 a minute per person', async () => {
     h.user = { id: 'u-3-loop' };
     for (let i = 0; i < 40; i++) {
-      await POST(
-        req(
-          '/api/client-errors',
-          report(
-            `TypeError: ${'abcdefghij'[i % 10]}${'klmnopqrst'[Math.floor(i / 10)]}`
-          )
-        )
-      );
+      const name = `${'abcdefghij'[i % 10]}${'klmnopqrst'[Math.floor(i / 10)]}`;
+      await POST(req('/api/client-errors', report(name)));
     }
     expect(warn).toHaveBeenCalledTimes(20);
   });

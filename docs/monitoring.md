@@ -27,12 +27,15 @@ minutes late, so this is a safety net, not a pager.
 
 Two lines in the server log, nothing stored:
 
-- `[client-error] <kind> <path> user=<first 8 of the id> <message> | <frames>`:
+- `[client-error] <kind> <path> user=<first 8 of the id> <class>: <message> | <frames>`:
   a screen broke in a signed-in person's browser (an error screen, or an
-  error nothing caught). Ids, numbers, emails and long quotes are masked in
-  the browser and again on the server; nothing typed is sent. The same break
-  is logged once per ten minutes with how often it was held back; network
-  losses and browser extensions are left out.
+  error nothing caught). Nothing typed or received is in it: the path has no
+  ids and no query, and an error's own words are kept only when they are a
+  sentence the browser engine or React writes itself ("Cannot read
+  properties of undefined (reading 'map')"), else `(message withheld)`; the
+  browser and the server apply the same rule. The same break is logged once
+  per ten minutes with how often it was held back; network losses and
+  browser extensions are left out.
 - `[csp] <rule> would block <origin> on <path>`: what the
   Content-Security-Policy (still report-only) would have blocked, once per
   six hours each. When nothing of ours has shown up for a couple of weeks,
