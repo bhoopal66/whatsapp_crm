@@ -34,6 +34,10 @@ and polish.
 
 ### Fixed
 
+- **A submission group message that went nowhere comes back to the box.**
+  While the app restarted, or when the CRM broke before the message was
+  stored, the words were lost; now only a message that is in the log
+  counts as sent.
 - **Forward a WhatsApp message to any chat.** The dialog's search reaches
   every chat you may open, not only the 200 latest.
 - **A failed search or list no longer looks empty.** The inbox search and

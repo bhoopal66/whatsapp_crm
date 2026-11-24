@@ -9166,6 +9166,7 @@
         "notFound": "This group no longer exists.",
         "rateLimited": "You are sending too fast. Wait a minute.",
         "gateway": "WhatsApp did not take the message.",
+        "notStored": "Not sent: the CRM had a problem. Try again.",
         "tooLong": "The message is empty or too long.",
         "unknown": "The message could not be sent.",
         "maybeSent": "No answer: it may have been sent. Check the chat before sending it again.",

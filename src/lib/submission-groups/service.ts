@@ -268,6 +268,17 @@ export class SubmissionGroupSendRefusedError extends Error {
   }
 }
 
+/**
+ * A staff send broke before its row was stored (a read, or sg_send_begin
+ * itself): WhatsApp was not asked. `message` is the cause's own.
+ */
+export class SubmissionGroupSendNotStoredError extends Error {
+  override readonly name = 'SubmissionGroupSendNotStoredError';
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause), { cause });
+  }
+}
+
 /** The group's number is gone from the account (or never belonged to it). */
 export class SubmissionGroupChannelError extends Error {
   override readonly name = 'SubmissionGroupChannelError';
@@ -1266,7 +1277,11 @@ export class SubmissionGroupService {
   }> {
     const input = { groupId, userId };
     const { store } = this.deps;
-    const group = await store.get(input.groupId);
+    // Until the row is stored nothing went out, whatever breaks.
+    const unstored = (err: unknown): never => {
+      throw new SubmissionGroupSendNotStoredError(err);
+    };
+    const group = await store.get(input.groupId).catch(unstored);
     if (!group) throw new SubmissionGroupSendRefusedError('GROUP_NOT_FOUND');
     if (group.waMode === 'none')
       throw new SubmissionGroupSendRefusedError('NO_WHATSAPP_GROUP');
@@ -1279,15 +1294,19 @@ export class SubmissionGroupService {
     if (group.contactId === null)
       throw new SubmissionGroupSendRefusedError('CONTACT_REMOVED');
     const { channelId, contactId, waGroupId } = group;
-    const name = await this.deps.displayName(input.userId, group.accountId);
+    const name = await this.deps
+      .displayName(input.userId, group.accountId)
+      .catch(unstored);
     if (!name) throw new SubmissionGroupSendRefusedError('UNKNOWN_USER');
     // The prefix label is the open access row's label; sg_send_begin re-decides under the group lock.
-    const label = await store.openAccessLabel(group.id, input.userId);
+    const label = await store
+      .openAccessLabel(group.id, input.userId)
+      .catch(unstored);
     if (!label) throw new SubmissionGroupSendRefusedError('SEND_NOT_ALLOWED');
     const prefixed = compose(name, STAFF_LABEL_TEXT[label]);
 
     // The row exists (pending) before anything goes to the gateway.
-    const messageId = await begin(group.id, prefixed);
+    const messageId = await begin(group.id, prefixed).catch(unstored);
     if (messageId === null)
       throw new SubmissionGroupSendRefusedError('SEND_NOT_ALLOWED');
 

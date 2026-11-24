@@ -155,6 +155,16 @@ describe('POST messages', () => {
     expect((await res.json()).reason).toBe('opted_out');
   });
 
+  it('answers 503 not_stored when the send limit cannot be read', async () => {
+    mocks.admin.errors = {
+      'submission_group_messages:select': { message: 'x' },
+    };
+    const res = await post({ text: 'hi' });
+    expect(res.status).toBe(503);
+    expect((await res.json()).code).toBe('not_stored');
+    expect(mocks.sendFromCrm).not.toHaveBeenCalled();
+  });
+
   it('answers a generic 502 when the gateway fails', async () => {
     mocks.sendFromCrm.mockRejectedValue(new Error('whapi 500: secret detail'));
     const res = await post({ text: 'hi' });
