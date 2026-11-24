@@ -126,3 +126,7 @@ The bot's reply path and `kb_shortlist` are unchanged.
   the newest message of a burst is consumed elsewhere (`skipConsumed`, or
   `consumedBy` from the pipeline), the chat is flagged. Both sides write
   their outcome row before they look, so neither order misses the other.
+  A `consumedBy` message looks first and writes its row only when a
+  question stood down for it or may still (`pending`): an ordinary Flow,
+  journey or rating answer records nothing. One the Flow's own AI fallback
+  took (`ai_outcome` on the flow result) is not looked at again.

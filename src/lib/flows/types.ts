@@ -426,6 +426,8 @@ export interface DispatchInboundResult {
      */
     | "failed"
     | "no_match";
+  /** What the AI fallback did with this message, when it took it. */
+  ai_outcome?: "replied" | "handed_off" | "superseded";
 }
 
 // ============================================================
