@@ -59,6 +59,8 @@ export function WebFormPanel() {
     }
   }, [siteUrl]);
 
+  const [loadTry, setLoadTry] = useState(0);
+
   useEffect(() => {
     let live = true;
     fetch('/api/web-form', { cache: 'no-store' })
@@ -76,7 +78,7 @@ export function WebFormPanel() {
     return () => {
       live = false;
     };
-  }, []);
+  }, [loadTry]);
 
   const parsed = parseAllowedOrigins(originsText);
 
@@ -87,11 +89,20 @@ export function WebFormPanel() {
       const res = await fetch('/api/web-form', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          enabled,
-          allowedOrigins: parsed.origins,
-          rotate,
-        }),
+        // Only what this click means: a rotate sends no switch or origins
+        // (a stale tab would write its old ones back), a save sends just
+        // the fields that changed. The route fills the rest from the row.
+        body: JSON.stringify(
+          rotate
+            ? { rotate: true }
+            : {
+                ...(saved && enabled !== saved.enabled ? { enabled } : {}),
+                ...(saved &&
+                parsed.origins.join('\n') !== saved.allowed_origins.join('\n')
+                  ? { allowedOrigins: parsed.origins }
+                  : {}),
+              }
+        ),
       });
       if (!res.ok) throw new Error(String(res.status));
       const data = (await res.json()) as FormState;
@@ -117,7 +128,21 @@ export function WebFormPanel() {
   }
 
   if (loadFailed) {
-    return <p className="text-destructive text-sm">{t('loadFailed')}</p>;
+    return (
+      <div className="flex flex-wrap items-center gap-3">
+        <p className="text-destructive text-sm">{t('loadFailed')}</p>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            setLoadFailed(false);
+            setLoadTry((n) => n + 1);
+          }}
+        >
+          {t('retry')}
+        </Button>
+      </div>
+    );
   }
   if (!saved) {
     return (

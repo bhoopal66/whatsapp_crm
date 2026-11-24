@@ -32,6 +32,9 @@ import { stageIndex } from '@/lib/hr/access';
 import { HR_STAGES, type HrRule, type HrStage } from '@/lib/hr/types';
 import { createClient } from '@/lib/supabase/client';
 
+/** Conversations read in one go; a full page means there may be more. */
+const HIRE_FAST_LIMIT = 500;
+
 const SELECT =
   'conversation_id, inbox, stage_key, urgent, upset, reply_state, last_inbound_at, last_outbound_at, closed_at, created_at, chat:conversations(assigned_agent_id, contact:contacts(name, phone))';
 
@@ -99,13 +102,15 @@ export default function HrHireFastPage() {
           .select(SELECT)
           .eq('inbox', 'recruiter')
           .is('closed_at', null)
-          .limit(500),
+          .order('last_inbound_at', { ascending: false, nullsFirst: false })
+          .limit(HIRE_FAST_LIMIT),
         sb
           .from('tasks')
           .select('status, due_at, source_ref')
           .eq('status', 'open')
           .like('source_ref', 'hr:%')
           .lt('due_at', new Date(now).toISOString())
+          .order('due_at', { ascending: true })
           .limit(1000),
         sb
           .from('hr_workflow_rules')
@@ -327,6 +332,11 @@ export default function HrHireFastPage() {
               </>
             )}
           </div>
+          {!failed && data && data.rows.length >= HIRE_FAST_LIMIT && (
+            <p className="text-muted-foreground text-xs">
+              {t('capped', { n: HIRE_FAST_LIMIT })}
+            </p>
+          )}
         </>
       )}
     </div>

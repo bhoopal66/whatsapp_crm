@@ -21,6 +21,10 @@ import {
   KeyRound,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
+import {
+  MirrorNotSavedError,
+  saveMirrorInboundMedia,
+} from '@/lib/whatsapp/mirror-media-setting';
 import { invalidateCached } from '@/lib/client-cache';
 import { useAuth } from '@/hooks/use-auth';
 import { useTranslations } from 'next-intl';
@@ -281,20 +285,19 @@ export function WhatsAppConfig({
     setMirrorMedia(next);
     setSavingMirror(true);
     try {
-      const { error } = await supabase
-        .from('whatsapp_config')
-        .update({ mirror_inbound_media: next })
-        .eq('account_id', accountId)
-        // This number only — the toggle belongs to this panel. Keyed
-        // on anything wider it also flips the Meta channel's setting
-        // and every other Whapi number's.
-        .eq('id', config.id);
-      if (error) throw new Error(error.message);
+      // This number only (`config.id`) — the toggle belongs to this panel;
+      // keyed wider it also flips the Meta channel's setting and every
+      // other Whapi number's. `none` (number gone, right withdrawn) throws.
+      await saveMirrorInboundMedia(supabase, config.id, next);
       setConfig({ ...config, mirror_inbound_media: next });
     } catch (error) {
       console.error('Failed to update media retention setting:', error);
       setMirrorMedia(previous);
-      toast.error(t('mirrorInboundSaveFailed'));
+      toast.error(
+        error instanceof MirrorNotSavedError
+          ? t('mirrorInboundSaveGone')
+          : t('mirrorInboundSaveFailed')
+      );
     } finally {
       setSavingMirror(false);
     }

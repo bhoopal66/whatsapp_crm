@@ -12,6 +12,7 @@ import {
   type ExistingContact,
 } from '@/lib/contacts/dedupe';
 import {
+  PHONE_EXAMPLE,
   validateContactPhone,
   validatePhoneToSave,
 } from '@/lib/contacts/phone-validation';
@@ -67,6 +68,7 @@ function FloatingContent({
   className?: string;
   children: React.ReactNode;
 }) {
+  const t = useTranslations('Contacts.form');
   return (
     <DialogPortal>
       <DialogPrimitive.Popup
@@ -88,7 +90,7 @@ function FloatingContent({
           }
         >
           <XIcon />
-          <span className="sr-only">Close</span>
+          <span className="sr-only">{t('close')}</span>
         </DialogClose>
       </DialogPrimitive.Popup>
     </DialogPortal>
@@ -183,7 +185,12 @@ export function ContactForm({
       phone,
     );
     if (!checkedPhone.ok) {
-      toast.error(checkedPhone.error);
+      // `error` is the English sentence; the code is what translates.
+      toast.error(
+        checkedPhone.reason === 'required'
+          ? t('phoneRequired')
+          : t(`phoneError.${checkedPhone.reason}`, { example: PHONE_EXAMPLE })
+      );
       return;
     }
     const phoneToSave = checkedPhone.phone;
@@ -202,8 +209,8 @@ export function ContactForm({
         data: { session },
       } = await supabase.auth.getSession();
       const user = session?.user;
-      if (!user) throw new Error('Not authenticated');
-      if (!accountId) throw new Error('Your profile is not linked to an account.');
+      if (!user) throw new Error(t('notAuthenticated'));
+      if (!accountId) throw new Error(t('profileNotLinked'));
 
       let contactId = contact?.id ?? null;
 
