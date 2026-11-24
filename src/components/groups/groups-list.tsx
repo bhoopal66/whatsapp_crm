@@ -44,6 +44,7 @@ import {
 } from '@/lib/groups/ui';
 import { onSubmissionGroupRead } from '@/lib/submission-groups/mark-read';
 import { clearUnread, unreadBadgeText } from '@/lib/submission-groups/ui';
+import { startCatchUp } from '@/lib/realtime/catch-up';
 import { createClient } from '@/lib/supabase/client';
 import { usableNumbers } from '@/lib/whatsapp/channel-management';
 import { cn } from '@/lib/utils';
@@ -173,7 +174,7 @@ export function GroupsList({ selectedId }: { selectedId: string | null }) {
   // Live: any change to the account's groups (an inbound message bumps
   // last_message_at, a sync or a colleague's edit) re-reads the list,
   // which applies the visibility rules server-side. Focus re-reads too,
-  // for a tab that slept through a dropped socket.
+  // and so does a gap in realtime; the debounce makes them one read.
   useEffect(() => {
     if (!accountId) return;
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -181,6 +182,7 @@ export function GroupsList({ selectedId }: { selectedId: string | null }) {
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => void load(), REFETCH_DEBOUNCE_MS);
     };
+    const live = startCatchUp(soon);
     const supabase = createClient();
     const channel = supabase
       .channel(`whatsapp-groups:${accountId}:${++topicSeq}`)
@@ -204,10 +206,11 @@ export function GroupsList({ selectedId }: { selectedId: string | null }) {
         },
         soon
       )
-      .subscribe();
+      .subscribe(live.onStatus);
     const onFocus = () => soon();
     window.addEventListener('focus', onFocus);
     return () => {
+      live.stop();
       if (timer) clearTimeout(timer);
       window.removeEventListener('focus', onFocus);
       void supabase.removeChannel(channel);

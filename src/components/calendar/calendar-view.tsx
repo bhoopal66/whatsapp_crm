@@ -59,6 +59,7 @@ import {
 } from '@/components/context-menu/registry';
 import { useAuth } from '@/hooks/use-auth';
 import { useCan } from '@/hooks/use-can';
+import { startCatchUp, type LiveRead } from '@/lib/realtime/catch-up';
 import { createClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
 import type { FeedItem } from '@/lib/calendar/feed';
@@ -225,6 +226,21 @@ ${SCOPE} .fc .cal-chip--list { align-items: center; gap: 8px; }
 ${SCOPE} .fc .cal-chip--list .cal-chip__name { font-weight: 500; }
 `;
 
+async function readFeed(
+  url: string,
+  signal?: AbortSignal
+): Promise<FeedItem[]> {
+  const res = await fetch(url, { signal });
+  const body: unknown = await res.json().catch(() => null);
+  if (!res.ok) {
+    const message = (body as { error?: unknown } | null)?.error;
+    throw new Error(
+      typeof message === 'string' ? message : `HTTP ${res.status}`
+    );
+  }
+  return parseFeedResponse(body);
+}
+
 export function CalendarView({
   initialDate = null,
   initialView = 'week',
@@ -255,6 +271,10 @@ export function CalendarView({
   const searchRef = useRef<HTMLInputElement>(null);
   const cacheRef = useRef(new FeedCache());
   const abortRef = useRef<AbortController | null>(null);
+  // The range on screen, and the read that catches it up after a gap.
+  const feedUrlRef = useRef<string | null>(null);
+  const liveRef = useRef<LiveRead | null>(null);
+  const catchingUpRef = useRef(false);
   const pendingEventRef = useRef<string | null>(initialEventId);
   const menuCleanups = useRef(new Map<HTMLElement, () => void>());
   const callbacks = useRef({
@@ -290,7 +310,11 @@ export function CalendarView({
   const api = useCallback(() => calRef.current?.getApi() ?? null, []);
   const refetch = useCallback(
     (dropCache: boolean) => {
-      if (dropCache) cacheRef.current.clear();
+      if (dropCache) {
+        cacheRef.current.clear();
+        // A catch-up read in flight may be older than this change.
+        liveRef.current?.changed();
+      }
       api()?.refetchEvents();
     },
     [api]
@@ -330,6 +354,7 @@ export function CalendarView({
         info.end.toISOString(),
         true
       );
+      feedUrlRef.current = url;
       const deliver = (loaded: FeedItem[]) => {
         setItems(loaded);
         success(feedItemsToEventInputs(loaded));
@@ -342,17 +367,7 @@ export function CalendarView({
       abortRef.current?.abort();
       const controller = new AbortController();
       abortRef.current = controller;
-      fetch(url, { signal: controller.signal })
-        .then(async (res) => {
-          const body: unknown = await res.json().catch(() => null);
-          if (!res.ok) {
-            const message = (body as { error?: unknown } | null)?.error;
-            throw new Error(
-              typeof message === 'string' ? message : `HTTP ${res.status}`
-            );
-          }
-          return parseFeedResponse(body);
-        })
+      readFeed(url, controller.signal)
         .then((loaded) => {
           cacheRef.current.set(url, loaded);
           setLoadError(null);
@@ -369,12 +384,21 @@ export function CalendarView({
   );
 
   // Refetch on focus (the 30 s cache still applies) and on realtime
-  // changes (which drop the cache), debounced.
+  // changes (which drop the cache), debounced. Coming back to the tab
+  // can focus it and start a catch-up: the focus waits and leaves the
+  // read to it.
   useEffect(() => {
-    const onFocus = () => refetch(false);
+    let timer: number | undefined;
+    const onFocus = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        if (!catchingUpRef.current) refetch(false);
+      }, REALTIME_DEBOUNCE_MS);
+    };
     window.addEventListener('focus', onFocus);
     const tick = window.setInterval(() => setNow(Date.now()), 60_000);
     return () => {
+      window.clearTimeout(timer);
       window.removeEventListener('focus', onFocus);
       window.clearInterval(tick);
     };
@@ -388,6 +412,31 @@ export function CalendarView({
       window.clearTimeout(timer);
       timer = window.setTimeout(() => refetch(true), REALTIME_DEBOUNCE_MS);
     };
+    // After a gap in realtime. Read here and handed to the grid through
+    // the cache, so a read that fails leaves the events as they are,
+    // with no error over them.
+    const live = startCatchUp(
+      async () => {
+        const url = feedUrlRef.current;
+        if (!url) return null;
+        catchingUpRef.current = true;
+        try {
+          return { url, loaded: await readFeed(url) };
+        } finally {
+          catchingUpRef.current = false;
+        }
+      },
+      (read) => {
+        if (!read) return;
+        // An older read still in flight must not land over this one.
+        abortRef.current?.abort();
+        cacheRef.current.clear();
+        cacheRef.current.set(read.url, read.loaded);
+        setLoadError(null);
+        api()?.refetchEvents();
+      }
+    );
+    liveRef.current = live;
     let channel = supabase.channel(`calendar-${userId}`);
     for (const table of [
       'calendar_events',
@@ -400,12 +449,14 @@ export function CalendarView({
         bump
       );
     }
-    channel.subscribe();
+    channel.subscribe(live.onStatus);
     return () => {
+      live.stop();
+      liveRef.current = null;
       window.clearTimeout(timer);
       supabase.removeChannel(channel);
     };
-  }, [userId, refetch]);
+  }, [userId, refetch, api]);
 
   const firstSignal = useRef(refreshSignal);
   useEffect(() => {
@@ -798,7 +849,7 @@ export function CalendarView({
             ))}
           </div>
           <div className="relative">
-            <Search className="text-muted-foreground pointer-events-none absolute top-1/2 start-2 size-4 -translate-y-1/2" />
+            <Search className="text-muted-foreground pointer-events-none absolute start-2 top-1/2 size-4 -translate-y-1/2" />
             <Input
               ref={searchRef}
               value={query}
@@ -822,7 +873,7 @@ export function CalendarView({
             />
             {query.trim() && (
               <span
-                className="text-muted-foreground absolute -bottom-4 start-1 text-xs"
+                className="text-muted-foreground absolute start-1 -bottom-4 text-xs"
                 aria-live="polite"
               >
                 {t('searchCount', { count: matches.length })}

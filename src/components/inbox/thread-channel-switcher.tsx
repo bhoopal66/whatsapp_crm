@@ -57,24 +57,28 @@ import {
 } from '@/lib/insights/tag-note';
 import type { ConversationEvent } from '@/types';
 import type { ConversationListItem } from '@/lib/inbox/conversations';
+import { startLiveRead, type LiveRead } from '@/lib/realtime/catch-up';
 import { putConversationSendChannel } from '@/lib/inbox/switch-send-channel';
 
 /**
- * The chat's timeline notes, loaded once per conversation and kept
- * live over realtime. `reload` is for right after this user switched,
- * so their own note appears even if the realtime event is slow.
+ * The chat's timeline notes, loaded once per conversation, read again
+ * after a gap in realtime and kept live in between. `reload` is for
+ * right after this user switched, so their own note appears even if the
+ * realtime event is slow.
  */
 async function fetchConversationEvents(
   conversationId: string
 ): Promise<ConversationEvent[]> {
   // Only the kinds the timeline draws (channel switches and, since 147,
   // automatic tagging); a row of any other kind is never shown.
-  const { data } = await createClient()
+  const { data, error } = await createClient()
     .from('conversation_events')
     .select('*')
     .eq('conversation_id', conversationId)
     .in('kind', [...RENDERED_EVENT_KINDS])
     .order('created_at', { ascending: true });
+  // Thrown, not read as "no notes": the notes on screen stay.
+  if (error) throw error;
   return (data ?? []) as ConversationEvent[];
 }
 
@@ -86,26 +90,18 @@ export function useConversationEvents(conversationId: string | null) {
     events: ConversationEvent[];
   }>({ conversationId: null, events: [] });
 
-  // The chat on screen right now. A reload started for one chat must
-  // not land after the user has moved to another.
-  const currentIdRef = useRef(conversationId);
-  useEffect(() => {
-    currentIdRef.current = conversationId;
-  }, [conversationId]);
-
-  const reload = useCallback(async () => {
-    if (!conversationId) return;
-    const events = await fetchConversationEvents(conversationId);
-    if (currentIdRef.current !== conversationId) return;
-    setState({ conversationId, events });
-  }, [conversationId]);
+  // The open chat's read. A chat left behind has stopped its own, so a
+  // reload started for it never lands on the next one.
+  const liveRef = useRef<LiveRead | null>(null);
+  const reload = useCallback(() => liveRef.current?.refresh(), []);
 
   useEffect(() => {
     if (!conversationId) return;
-    let cancelled = false;
-    fetchConversationEvents(conversationId).then((events) => {
-      if (!cancelled) setState({ conversationId, events });
+    const live = startLiveRead({
+      read: () => fetchConversationEvents(conversationId),
+      apply: (events) => setState({ conversationId, events }),
     });
+    liveRef.current = live;
     const supabase = createClient();
     // A unique topic per subscription: realtime-js hands back the SAME
     // channel for a repeated name, and one that is still leaving (a
@@ -126,9 +122,10 @@ export function useConversationEvents(conversationId: string | null) {
         (payload) => {
           const row = payload.new as ConversationEvent;
           if (!isRenderedEventKind(row.kind)) return;
-          // A note can arrive before the initial fetch lands; start this
-          // chat's list rather than dropping it. The fetch then replaces
-          // the list with the full set, which includes this row.
+          // A note can arrive while a read is in flight: start this
+          // chat's list rather than dropping it, and drop the read,
+          // which may be older than this row.
+          live.changed();
           setState((prev) => {
             const events =
               prev.conversationId === conversationId ? prev.events : [];
@@ -138,9 +135,10 @@ export function useConversationEvents(conversationId: string | null) {
           });
         }
       )
-      .subscribe();
+      .subscribe(live.onStatus);
     return () => {
-      cancelled = true;
+      live.stop();
+      liveRef.current = null;
       void supabase.removeChannel(channel);
     };
   }, [conversationId]);
