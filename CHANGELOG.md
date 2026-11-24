@@ -44,7 +44,8 @@ and polish.
   chats shared with a coordinator, reminder suggestions, a chat's timeline
   notes, the HR panel, the groups list and the calendar now read again when a
   laptop wakes or the network returns, without a spinner; a read that fails
-  leaves what is shown. No migration.
+  leaves what is shown. The chats shared with a coordinator are never those
+  of the person or workspace before a switch. No migration.
 - **A person working in one tab no longer blinks between online and away.**
   Every open tab reported its own presence and a hidden one wrote `away` over
   the one in use. One tab of the browser now reports for all of them. No
