@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Nothing told an admin that a template was never synced with Meta.
 vi.mock('react', async (importOriginal) => {
@@ -139,4 +139,134 @@ it('a refused row says who refused it, and why', async () => {
       (el) => el.props.children === 'metaRefusedIt: No'
     )
   ).toHaveLength(1);
+});
+
+describe('Submit to Meta', () => {
+  const LOCAL = {
+    id: 'never',
+    name: 'a',
+    category: 'Utility',
+    language: 'en',
+    body_text: 'Hello',
+    status: 'DRAFT',
+  };
+  const META = [{ id: 'm', provider: 'meta' }];
+
+  async function screen(rows: unknown[], numbers: unknown[] = META) {
+    state.numbers = numbers;
+    ROWS.splice(0, ROWS.length, ...(rows as typeof ROWS));
+    render(TemplateManager);
+    await settle();
+    return render(TemplateManager);
+  }
+  const shows = (text: string) =>
+    findElements(render(TemplateManager), (el) => el.props.children === text)
+      .length;
+  const button = (text: string) =>
+    findElements(render(TemplateManager), (el) => {
+      if (el.type !== Button) return false;
+      return findElements(el, (x) => x.props.children === text).length > 0;
+    });
+  const click = (text: string) =>
+    (button(text)[0].props.onClick as () => Promise<void> | void)();
+  const answer = (status: number, body: unknown) => {
+    const call = vi.fn<typeof fetch>(
+      async () => new Response(JSON.stringify(body), { status })
+    );
+    vi.stubGlobal('fetch', call);
+    return call;
+  };
+
+  const before = [...ROWS];
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    ROWS.splice(0, ROWS.length, ...before);
+  });
+
+  it.each([
+    ['a draft', {}, META, 1],
+    ['one for linked numbers', { status: 'APPROVED' }, META, 1],
+    ['a refused one', { submission_error: 'No' }, META, 1],
+    ['one Meta has', { meta_template_id: 'M' }, META, 0],
+    ['one with Meta’s verdict', { status: 'REJECTED' }, META, 0],
+    ['no Meta number', {}, [{ id: 'w', provider: 'whapi' }], 0],
+  ])('is offered: %s', async (_, over, numbers, count) => {
+    await screen([{ ...LOCAL, ...over }], numbers);
+    expect(button('submitToMeta')).toHaveLength(count);
+  });
+
+  it('asks first, sends the row’s own content, and shows the answer', async () => {
+    await screen([LOCAL]);
+    const call = answer(200, {
+      template: { ...LOCAL, status: 'PENDING', meta_template_id: 'M1' },
+      meta: { submitted: true, status: 'PENDING' },
+    });
+    void click('submitToMeta');
+    expect(call).not.toHaveBeenCalled();
+    expect(shows('submitToMetaDesc')).toBe(1);
+
+    const done = click('submitToMetaConfirm');
+    expect(button('submitToMeta')[0].props.disabled).toBe(true);
+    await done;
+
+    expect(call.mock.calls[0][0]).toBe('/api/whatsapp/templates/submit');
+    expect(JSON.parse(String(call.mock.calls[0][1]?.body))).toEqual({
+      template_id: 'never',
+      name: 'a',
+      category: 'Utility',
+      language: 'en',
+      body_text: 'Hello',
+    });
+    expect(toast.success).toHaveBeenCalledWith('toastSubmitNewSuccess');
+    // Meta's now: no second submit.
+    expect(button('submitToMeta')).toHaveLength(0);
+  });
+
+  it('a refusal is in the toast and on the row', async () => {
+    await screen([LOCAL]);
+    answer(200, {
+      template: { ...LOCAL, submission_error: 'Bad body' },
+      meta: { submitted: false, error: 'Bad body' },
+    });
+    void click('submitToMeta');
+    await click('submitToMetaConfirm');
+    expect(vi.mocked(toast.error).mock.calls[0][0]).toBe(
+      'metaRefusedIt: Bad body'
+    );
+    expect(shows('metaRefusedIt: Bad body')).toBe(1);
+    // And again before the next try.
+    void click('submitToMeta');
+    expect(shows('submitRefusedBefore: Bad body')).toBe(1);
+  });
+
+  it.each([
+    ['TEMPLATE_EXISTS', 'toastMetaHasIt'],
+    ['TEMPLATE_GONE', 'toastTemplateGone'],
+    ['META_ACCEPTED_NOT_SAVED', 'toastMetaAcceptedNotSaved'],
+  ])('%s is told in words', async (code, text) => {
+    await screen([LOCAL]);
+    answer(409, { error: 'x', code });
+    void click('submitToMeta');
+    await click('submitToMetaConfirm');
+    expect(toast.error).toHaveBeenCalledWith(text);
+    await settle();
+    expect(button('submitToMeta')[0].props.disabled).toBe(false);
+  });
+
+  it.each([
+    [
+      { header_type: 'image', header_media_url: 'https://x/a.png' },
+      'media_header',
+    ],
+    [{ category: 'Authentication' }, 'authentication'],
+  ])('says why it cannot go: %j', async (over, why) => {
+    await screen([{ ...LOCAL, ...over }]);
+    void click('submitToMeta');
+    expect(shows(`submitBlocked.${why}`)).toBe(1);
+    expect(button('submitToMetaConfirm')).toHaveLength(0);
+  });
 });

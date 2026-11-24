@@ -11,6 +11,7 @@ import {
   Pencil,
   Upload,
   RefreshCw,
+  Send,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { uploadAccountMedia } from '@/lib/storage/upload-media';
@@ -50,7 +51,15 @@ import type {
   TemplateSampleValues,
 } from '@/types';
 import { templateStatusConfig } from '@/lib/template-status';
-import { templateSaveOutcome } from '@/lib/whatsapp/template-save-outcome';
+import {
+  templateSaveOutcome,
+  type TemplateSaveOutcome,
+} from '@/lib/whatsapp/template-save-outcome';
+import {
+  isLocalTemplate,
+  templateRowPayload,
+  templateSubmitBlock,
+} from '@/lib/whatsapp/template-submit-row';
 import { useAccountNumbers } from '@/hooks/use-whatsapp-numbers';
 import {
   extractVariableIndices,
@@ -158,6 +167,11 @@ export function TemplateManager() {
   // action goes through this two-step against a slip on the trash icon.
   const [templateToDelete, setTemplateToDelete] =
     useState<MessageTemplate | null>(null);
+  // The row whose "Submit to Meta" is being confirmed, and the one Meta is
+  // being asked about.
+  const [templateToSubmit, setTemplateToSubmit] =
+    useState<MessageTemplate | null>(null);
+  const [metaSubmittingId, setMetaSubmittingId] = useState<string | null>(null);
   // Header-media upload (issue #230 for images; video and document
   // joined later). Uploads to the account-scoped chat-media bucket and
   // stores the public URL in header_media_url — which is what every
@@ -304,6 +318,33 @@ export function TemplateManager() {
     }
   }
 
+  function announce(
+    outcome: TemplateSaveOutcome,
+    refused: 'toastMetaRefused' | 'metaRefusedIt'
+  ) {
+    switch (outcome.kind) {
+      case 'submitted':
+        toast.success(t('toastSubmitNewSuccess'));
+        break;
+      case 'edited':
+        toast.success(t('toastEditSaved'));
+        break;
+      case 'no_meta_number':
+        toast.success(t('toastSavedLinkedOnly'));
+        break;
+      case 'meta_unavailable':
+        toast.warning(t('toastSavedMetaUnavailable'));
+        break;
+      case 'refused':
+        toast.error(t(refused, { reason: outcome.reason }), {
+          duration: 15_000,
+        });
+        break;
+      default:
+        outcome satisfies never;
+    }
+  }
+
   async function handleSubmit() {
     // AUTHENTICATION is blocked by the persistent banner + disabled
     // submit button; this is a defensive second line of defense.
@@ -338,28 +379,7 @@ export function TemplateManager() {
       // immediately should not show a stale list.
       if (user) await fetchTemplates();
       // Saved either way; what Meta did with it is in the answer.
-      const outcome = templateSaveOutcome(data?.meta);
-      switch (outcome.kind) {
-        case 'submitted':
-          toast.success(t('toastSubmitNewSuccess'));
-          break;
-        case 'edited':
-          toast.success(t('toastEditSaved'));
-          break;
-        case 'no_meta_number':
-          toast.success(t('toastSavedLinkedOnly'));
-          break;
-        case 'meta_unavailable':
-          toast.warning(t('toastSavedMetaUnavailable'));
-          break;
-        case 'refused':
-          toast.error(t('toastMetaRefused', { reason: outcome.reason }), {
-            duration: 15_000,
-          });
-          break;
-        default:
-          outcome satisfies never;
-      }
+      announce(templateSaveOutcome(data?.meta), 'toastMetaRefused');
       setDialogOpen(false);
       setForm(emptyForm);
       setEditingId(null);
@@ -368,6 +388,45 @@ export function TemplateManager() {
       toast.error(err instanceof Error ? err.message : t('toastSubmitFailed'));
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  /** A saved row sent to Meta with the content it has. */
+  async function confirmSubmitToMeta() {
+    const target = templateToSubmit;
+    if (!target || metaSubmittingId || templateSubmitBlock(target)) return;
+    setMetaSubmittingId(target.id);
+    try {
+      const res = await fetch('/api/whatsapp/templates/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(templateRowPayload(target)),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        switch (data?.code) {
+          case 'TEMPLATE_EXISTS':
+            throw new Error(t('toastMetaHasIt'));
+          case 'TEMPLATE_GONE':
+            throw new Error(t('toastTemplateGone'));
+          case 'META_ACCEPTED_NOT_SAVED':
+            throw new Error(t('toastMetaAcceptedNotSaved'));
+          default:
+            throw new Error(data?.error || t('toastSubmitFailed'));
+        }
+      }
+      setTemplates((prev) =>
+        prev.map((row) => (row.id === target.id ? data.template : row))
+      );
+      announce(templateSaveOutcome(data.meta), 'metaRefusedIt');
+    } catch (err) {
+      console.error('Submit to Meta error:', err);
+      toast.error(err instanceof Error ? err.message : t('toastSubmitFailed'));
+      // What is saved may not be what the list shows.
+      await fetchTemplates();
+    } finally {
+      setMetaSubmittingId(null);
+      setTemplateToSubmit(null);
     }
   }
 
@@ -482,6 +541,7 @@ export function TemplateManager() {
     );
   }
 
+  const submitBlock = templateToSubmit && templateSubmitBlock(templateToSubmit);
   const headerNeedsMedia =
     form.header_format !== 'none' && form.header_format !== 'text';
 
@@ -628,6 +688,22 @@ export function TemplateManager() {
                     )}
                   </div>
                   <div className="ms-2 flex shrink-0 items-center gap-1">
+                    {hasMetaNumber && isLocalTemplate(template) && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setTemplateToSubmit(template)}
+                        disabled={metaSubmittingId !== null}
+                        className="text-muted-foreground hover:text-primary hover:bg-primary/10 h-8 px-2"
+                      >
+                        {metaSubmittingId === template.id ? (
+                          <Loader2 className="size-3.5 animate-spin" />
+                        ) : (
+                          <Send className="size-3.5 rtl:-scale-x-100" />
+                        )}
+                        <span>{t('submitToMeta')}</span>
+                      </Button>
+                    )}
                     {/* A template synced from Meta is edited there; the
                         route refuses it (409). The reason sits on the
                         wrapper: a disabled button shows no title. */}
@@ -652,6 +728,8 @@ export function TemplateManager() {
                         <Button
                           variant="ghost"
                           size="sm"
+                          // Meta is being asked about the text as it is.
+                          disabled={metaSubmittingId === template.id}
                           onClick={() => openEdit(template)}
                           title={t('editTitle')}
                           aria-label={t('editLabel')}
@@ -1150,6 +1228,60 @@ export function TemplateManager() {
                 t('submitApproval')
               )}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirm "Submit to Meta". A row that cannot go as it is says why
+          here instead of being refused. */}
+      <Dialog
+        open={templateToSubmit !== null}
+        onOpenChange={(open) => {
+          if (!open && !metaSubmittingId) setTemplateToSubmit(null);
+        }}
+      >
+        <DialogContent className="bg-popover border-border sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-popover-foreground">
+              {t('submitToMetaTitle', { name: templateToSubmit?.name ?? '' })}
+            </DialogTitle>
+            <DialogDescription className="text-muted-foreground">
+              {submitBlock
+                ? t(`submitBlocked.${submitBlock}`)
+                : t('submitToMetaDesc')}
+            </DialogDescription>
+          </DialogHeader>
+          {!submitBlock && templateToSubmit?.submission_error && (
+            <p className="border-destructive/30 bg-destructive-soft text-destructive rounded border px-2 py-1.5 text-xs">
+              {t('submitRefusedBefore', {
+                reason: templateToSubmit.submission_error,
+              })}
+            </p>
+          )}
+          <DialogFooter className="bg-popover border-border">
+            <Button
+              variant="outline"
+              onClick={() => setTemplateToSubmit(null)}
+              disabled={metaSubmittingId !== null}
+              className="border-border text-muted-foreground hover:bg-muted"
+            >
+              {t('cancel')}
+            </Button>
+            {!submitBlock && (
+              <Button
+                onClick={confirmSubmitToMeta}
+                disabled={metaSubmittingId !== null}
+              >
+                {metaSubmittingId !== null ? (
+                  <>
+                    <Loader2 className="size-4 animate-spin" />
+                    {t('submitting')}
+                  </>
+                ) : (
+                  t('submitToMetaConfirm')
+                )}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

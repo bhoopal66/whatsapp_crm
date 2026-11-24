@@ -26,6 +26,11 @@ and polish.
   same request twice.** A request made within 10 minutes of the case's last
   one asks first: "Requested by … at …. Send again?".
   **Migration required: 297.**
+- **A template kept only here can be submitted to Meta.** Settings →
+  Templates offers "Submit to Meta" on a row Meta does not have (it asks
+  first), and the answer lands on that row, also when a teammate holds one
+  of the same name and language. A row with a media header says why it
+  cannot go from here. No migration.
 - **Numbers typed in Arabic digits work.** Contact search, the inbox,
   groups and forward searches read Arabic-Indic and Persian digits as 0-9,
   and a number typed or imported with them keeps its digits.

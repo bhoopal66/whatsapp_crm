@@ -16,6 +16,7 @@ import { submitMessageTemplate, MetaError } from '@/lib/whatsapp/meta-api';
 import { normalizeStatus } from '@/lib/whatsapp/template-status-normalize';
 import { loadChannels } from '@/lib/whatsapp/channels';
 import type { TemplateMetaAnswer } from '@/lib/whatsapp/template-save-outcome';
+import { isLocalTemplate } from '@/lib/whatsapp/template-submit-row';
 import { AuthUnavailableError } from '@/lib/auth/auth-unavailable';
 
 /**
@@ -64,10 +65,14 @@ import { AuthUnavailableError } from '@/lib/auth/auth-unavailable';
  * name and language that are Meta's in this account (an id, or a verdict
  * of Meta's) are a 409 before anything happens, and nothing is written
  * until Meta has answered: a refused row keeps its reason until then.
+ *
+ * ─── A saved row sent to Meta (`template_id`) ─────────────────────
+ *
+ * "Submit to Meta" on a row names it, so the answer lands on that row
+ * also when a teammate holds one of the same name and language. Only a
+ * row of this account with that name and language counts; any other id
+ * is refused before Meta is asked, never saved as another row.
  */
-
-/** Statuses a row gets here without Meta; the rest are Meta's verdict. */
-const LOCAL_STATUSES: ReadonlySet<string> = new Set(['DRAFT', 'APPROVED']);
 
 interface ExistingRow {
   id: string;
@@ -104,19 +109,12 @@ function nameTaken() {
 }
 
 /** The columns a row cannot do without. */
-function coreColumns(
-  accountId: string,
-  userId: string,
-  payload: TemplatePayload
-) {
+function coreColumns(accountId: string, payload: TemplatePayload) {
   return {
     // Account tenancy — required NOT NULL on message_templates as of
     // migration 017. Without this an INSERT throws on the not-null
     // constraint.
     account_id: accountId,
-    // Original author. The unique index is still on
-    // (user_id, name, language).
-    user_id: userId,
     name: payload.name,
     category: payload.category,
     language: payload.language,
@@ -153,8 +151,12 @@ interface VerdictColumns {
   submission_error?: string | null;
 }
 
-/** The verdict as columns. Not asked: an earlier refusal stays. */
-function verdictColumns(verdict: Verdict): VerdictColumns {
+/**
+ * The verdict as columns. Not asked: an earlier refusal stays. `local` is
+ * the status of a row Meta has not taken: submitting a saved draft does
+ * not put it on offer.
+ */
+function verdictColumns(verdict: Verdict, local: string): VerdictColumns {
   switch (verdict.kind) {
     case 'taken':
       return {
@@ -163,27 +165,34 @@ function verdictColumns(verdict: Verdict): VerdictColumns {
         submission_error: null,
       };
     case 'refused':
-      return { status: 'APPROVED', submission_error: verdict.message };
+      return { status: local, submission_error: verdict.message };
     case 'not_asked':
-      return { status: 'APPROVED' };
+      return { status: local };
   }
 }
 
 /**
- * One write, to the caller's own row of that name or a new one. No row
- * back is "it became Meta's meanwhile" (a Sync, a second submit): only
- * Meta's own answer is written over one.
+ * One write, to the row named or a new one of the caller's. No row back
+ * is "it became Meta's meanwhile" (a Sync, a second submit): only Meta's
+ * own answer is written over one. An update leaves the author alone (the
+ * unique index is on (user_id, name, language)).
  */
 async function writeRow(
   supabase: SupabaseClient,
-  ownRowId: string | undefined,
+  rowId: string | undefined,
+  userId: string,
   row: ReturnType<typeof coreColumns> & VerdictColumns
 ) {
   const table = supabase.from('message_templates');
-  if (!ownRowId) return table.insert(row).select().single();
+  if (!rowId) {
+    return table
+      .insert({ ...row, user_id: userId })
+      .select()
+      .single();
+  }
   const update = table
     .update(row)
-    .eq('id', ownRowId)
+    .eq('id', rowId)
     .eq('account_id', row.account_id);
   const guarded =
     'meta_template_id' in row ? update : update.is('meta_template_id', null);
@@ -201,9 +210,9 @@ export async function POST(request: Request) {
       await requireRole('admin')
     );
 
-    let payload: TemplatePayload;
+    let payload: TemplatePayload & { template_id?: unknown };
     try {
-      payload = (await request.json()) as TemplatePayload;
+      payload = (await request.json()) as typeof payload;
     } catch {
       return NextResponse.json(
         { error: 'Invalid JSON body.' },
@@ -238,15 +247,24 @@ export async function POST(request: Request) {
     }
 
     const existing = await rowsOfThatName(supabase, accountId, payload);
-    if (
-      existing.some(
-        (r) => r.meta_template_id || !LOCAL_STATUSES.has(r.status ?? 'DRAFT')
-      )
-    ) {
-      return nameTaken();
+    const named = payload.template_id
+      ? existing.find((r) => r.id === payload.template_id)
+      : undefined;
+    if (payload.template_id && !named) {
+      return NextResponse.json(
+        {
+          error: 'This template was deleted or renamed.',
+          code: 'TEMPLATE_GONE',
+        },
+        { status: 404 }
+      );
     }
-    const ownRow = (rows: ExistingRow[]) =>
-      rows.find((r) => r.user_id === userId)?.id;
+    if (!existing.every(isLocalTemplate)) return nameTaken();
+    const targetRow = (rows: ExistingRow[]) =>
+      (
+        rows.find((r) => r.id === named?.id) ??
+        rows.find((r) => r.user_id === userId)
+      )?.id;
 
     // ── Submit to Meta, when a Meta number is connected ───────────
     //
@@ -310,12 +328,16 @@ export async function POST(request: Request) {
     }
 
     const core = {
-      ...coreColumns(accountId, userId, payload),
-      ...verdictColumns(verdict),
+      ...coreColumns(accountId, payload),
+      ...verdictColumns(
+        verdict,
+        named ? (named.status ?? 'DRAFT') : 'APPROVED'
+      ),
     };
     const { data: row, error: saveErr } = await writeRow(
       supabase,
-      ownRow(existing),
+      targetRow(existing),
+      userId,
       { ...core, ...contentColumns(payload) }
     );
 
@@ -330,7 +352,7 @@ export async function POST(request: Request) {
       const now = await rowsOfThatName(supabase, accountId, payload).catch(
         () => existing
       );
-      const again = await writeRow(supabase, ownRow(now), core);
+      const again = await writeRow(supabase, targetRow(now), userId, core);
       if (again.error) {
         console.error(
           `[templates/submit] Meta template ${verdict.id} is not saved here:`,
