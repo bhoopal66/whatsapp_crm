@@ -2,7 +2,14 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { BarChart3, Bot, BriefcaseBusiness, Languages, PencilLine } from 'lucide-react';
+import {
+  BarChart3,
+  Bot,
+  BriefcaseBusiness,
+  GraduationCap,
+  Languages,
+  PencilLine,
+} from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { canEditSettings } from '@/lib/auth/roles';
 import {
@@ -41,6 +48,8 @@ interface UsageResponse {
     translate?: { calls: number; tokens: number };
     // Recruiter agent drafts (migration 202); absent from older servers.
     hr_agent?: { calls: number; tokens: number };
+    // Learned knowledge-base drafts (migration 290); absent from older servers.
+    kb_learn?: { calls: number; tokens: number };
   };
   by_model: {
     model: string;
@@ -173,6 +182,13 @@ export function AiUsageCard() {
                   data.by_mode.hr_agent?.tokens ?? 0
                 )}
                 icon={BriefcaseBusiness}
+              />
+              <Stat
+                label="Learned answers"
+                value={formatCompactNumber(
+                  data.by_mode.kb_learn?.tokens ?? 0
+                )}
+                icon={GraduationCap}
               />
             </div>
 

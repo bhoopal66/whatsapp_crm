@@ -888,6 +888,8 @@ export const NOT_PERSONAL: Readonly<Record<string, string>> =
             'account_departments',
             'ai_configs',
             'ai_insight_settings',
+            // 290: the learn-from-team-answers switch and its last run.
+            'kb_learn_settings',
             'assignment_settings',
             'automations',
             'automation_steps',
@@ -952,6 +954,8 @@ export const NOT_PERSONAL: Readonly<Record<string, string>> =
             'kb_imports',
             'kb_gap_topics',
             'kb_gap_topic_members',
+            // 290: gap ids and a topic label per learned draft; no message text.
+            'kb_learned_drafts',
             'ai_knowledge_chunks',
             'ai_knowledge_documents',
             'ts_label',
