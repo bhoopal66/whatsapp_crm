@@ -34,6 +34,9 @@ and polish.
 
 ### Fixed
 
+- **An edit of a team note survives switching chats.** It comes back with the
+  chat, and after Escape with Edit, until it is saved or cancelled (or the
+  app is closed or reloaded).
 - **A failed read in the Inbox no longer passes for "none".** The Important
   and pinned chats say they could not be loaded, with Retry, and a list
   without them is not kept; a note's "@" says when names could not be loaded
