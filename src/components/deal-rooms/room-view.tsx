@@ -65,6 +65,10 @@ import {
   ROOM_MEDIA_CAPTION_MAX,
   checkRoomMedia,
 } from '@/lib/deal-rooms/room-media';
+import {
+  roomTemplateOptions,
+  type RoomTemplateRow,
+} from '@/lib/deal-rooms/room-templates';
 import { roomSendOutcome } from '@/lib/deal-rooms/send-outcome';
 import { rightColumn, withRightColumn } from '@/lib/chat/panels';
 import { renderTemplateBody } from '@/lib/whatsapp/template-body';
@@ -540,13 +544,6 @@ function GroupTimeline({ roomId }: { roomId: string }) {
   );
 }
 
-interface TemplateRow {
-  id: string;
-  name: string;
-  language: string;
-  body_text: string | null;
-}
-
 /** Free text inside the window; an approved template (confirmed) outside it. */
 function GroupComposer({
   roomId,
@@ -558,13 +555,14 @@ function GroupComposer({
   audience: number;
 }) {
   const t = useTranslations('Chat.rooms');
+  const tPicker = useTranslations('Inbox.templatePicker');
   const { sb } = useChatWorkspaceContext();
   const { accountId } = useAuth();
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   // The last send may be in the group: said until the next one starts.
   const [unconfirmed, setUnconfirmed] = useState(false);
-  const [templates, setTemplates] = useState<TemplateRow[] | null>(null);
+  const [templates, setTemplates] = useState<RoomTemplateRow[] | null>(null);
   const [picked, setPicked] = useState('');
   const [values, setValues] = useState<string[]>([]);
   const [confirming, setConfirming] = useState(false);
@@ -578,20 +576,26 @@ function GroupComposer({
     void Promise.resolve(
       sb
         .from('message_templates')
-        .select('id, name, language, body_text, meta_template_id')
+        .select(
+          'id, name, language, body_text, status, meta_template_id, submission_error, created_at'
+        )
         .eq('account_id', accountId)
-        .eq('status', 'APPROVED')
-        .not('meta_template_id', 'is', null)
         .order('name')
     ).then(({ data }) => {
-      if (!off) setTemplates((data ?? []) as TemplateRow[]);
+      if (!off) setTemplates((data ?? []) as RoomTemplateRow[]);
     });
     return () => {
       off = true;
     };
   }, [sb, accountId, wantTemplates]);
 
-  const template = templates?.find((x) => x.id === picked) ?? null;
+  const options = useMemo(
+    () => roomTemplateOptions(templates ?? []),
+    [templates]
+  );
+  const template =
+    options.find((o) => !o.reason && o.template.id === picked)?.template ??
+    null;
   const count = templateParamCount(template?.body_text);
   const filled = values.slice(0, count);
   const ready =
@@ -755,13 +759,19 @@ function GroupComposer({
             className="bg-card dark:bg-background w-full rounded-md border px-2 py-1.5 text-sm"
           >
             <option value="">
-              {templates && templates.length === 0
+              {templates && options.every((o) => o.reason)
                 ? t('composer.noTemplates')
                 : t('composer.templatePick')}
             </option>
-            {templates?.map((x) => (
-              <option key={x.id} value={x.id}>
+            {options.map(({ template: x, reason }) => (
+              <option key={x.id} value={x.id} disabled={reason !== null}>
                 {x.name} · {x.language}
+                {reason &&
+                  ` · ${
+                    reason === 'not_linked'
+                      ? t('composer.templateNotLinked')
+                      : tPicker(`blocked.${reason}`)
+                  }`}
               </option>
             ))}
           </select>

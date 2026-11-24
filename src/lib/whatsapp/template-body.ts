@@ -104,9 +104,9 @@ function baseLanguage(language: string): string {
   return language.toLowerCase().split(/[_-]/)[0];
 }
 
-interface TemplateCandidate {
+export interface TemplateCandidate {
   id?: string;
-  language?: string;
+  language?: string | null;
   status?: string | null;
   meta_template_id?: string | null;
   submission_error?: string | null;
@@ -130,6 +130,66 @@ function byPreference(a: TemplateCandidate, b: TemplateCandidate): number {
     templateRank(a) - templateRank(b) ||
     Date.parse(b.created_at ?? '') - Date.parse(a.created_at ?? '') ||
     0
+  );
+}
+
+/**
+ * Which of one name's rows a send uses: the row a person chose
+ * (`templateId`) when it is among them; else the requested language,
+ * exact then same base, or en_US, en and the first by language when none
+ * is asked for; `byPreference` among rows of one language. Undefined when
+ * the rows have no such language.
+ *
+ * Screens pick with this too, so they show the row the send will use.
+ */
+export function pickTemplateRow<T extends TemplateCandidate>(
+  rows: readonly T[],
+  requestedLanguage?: string | null,
+  templateId?: string | null
+): T | undefined {
+  const byId = templateId ? rows.find((r) => r.id === templateId) : undefined;
+  if (byId) return byId;
+  const sorted = rows
+    .slice()
+    .sort(
+      (a, b) =>
+        (a.language ?? '').localeCompare(b.language ?? '') || byPreference(a, b)
+    );
+  if (requestedLanguage) {
+    const wanted = requestedLanguage.toLowerCase();
+    const exact = sorted.find((r) => r.language?.toLowerCase() === wanted);
+    if (exact) return exact;
+    const wantedBase = baseLanguage(requestedLanguage);
+    return sorted.find(
+      (r) => r.language && baseLanguage(r.language) === wantedBase
+    );
+  }
+  // No language asked for: prefer the historical default, then the
+  // bare form, then whatever exists.
+  return (
+    sorted.find((r) => r.language === 'en_US') ??
+    sorted.find((r) => r.language === 'en') ??
+    sorted[0]
+  );
+}
+
+/**
+ * One row per name and language, the one a send of that pair uses, in the
+ * order each pair first appears. A row without a language counts as en_US,
+ * as a picker shows it.
+ */
+export function onePerTemplate<T extends TemplateCandidate & { name: string }>(
+  rows: readonly T[]
+): T[] {
+  const groups = new Map<string, T[]>();
+  for (const row of rows) {
+    const key = JSON.stringify([row.name, row.language ?? 'en_US']);
+    groups.set(key, [...(groups.get(key) ?? []), row]);
+  }
+  return [...groups.values()].map(
+    (group) =>
+      pickTemplateRow(group, group[0].language ?? 'en_US') ??
+      pickTemplateRow(group)!
   );
 }
 
@@ -161,10 +221,9 @@ export interface ResolvedTemplate {
  * synced from Meta commonly carry the bare `en`, so a caller that
  * omitted the language matched no row: no header components, and no
  * body to persist. Matching falls back through
- * exact → same base language → a sensible default. Among rows of one
- * language, `byPreference`. `templateId` is the row a person chose: when
- * it is this account's and has this name, it is the one, in its own
- * language.
+ * exact → same base language → a sensible default (`pickTemplateRow`).
+ * `templateId` is the row a person chose: when it is this account's and
+ * has this name, it is the one, in its own language.
  */
 export async function resolveTemplateRow(
   db: SupabaseClient,
@@ -179,15 +238,10 @@ export async function resolveTemplateRow(
     .eq('account_id', accountId)
     .eq('name', templateName);
 
-  // Sorted here rather than with `.order()` so the only query-builder
+  // Sorted in `pickTemplateRow` rather than with `.order()` so the only query-builder
   // surface this helper depends on is select + eq — the same shape the
   // callers' existing fakes implement.
-  const rows = ((Array.isArray(data) ? data : []) as TemplateCandidate[])
-    .slice()
-    .sort(
-      (a, b) =>
-        (a.language ?? '').localeCompare(b.language ?? '') || byPreference(a, b)
-    );
+  const rows = (Array.isArray(data) ? data : []) as TemplateCandidate[];
   const fallbackLanguage = requestedLanguage || 'en_US';
 
   if (rows.length === 0) {
@@ -199,27 +253,7 @@ export async function resolveTemplateRow(
     };
   }
 
-  const pick = (): TemplateCandidate | undefined => {
-    if (requestedLanguage) {
-      const wanted = requestedLanguage.toLowerCase();
-      const exact = rows.find((r) => r.language?.toLowerCase() === wanted);
-      if (exact) return exact;
-      const wantedBase = baseLanguage(requestedLanguage);
-      return rows.find(
-        (r) => r.language && baseLanguage(r.language) === wantedBase
-      );
-    }
-    // No language asked for: prefer the historical default, then the
-    // bare form, then whatever exists.
-    return (
-      rows.find((r) => r.language === 'en_US') ??
-      rows.find((r) => r.language === 'en') ??
-      rows[0]
-    );
-  };
-
-  const byId = templateId ? rows.find((r) => r.id === templateId) : undefined;
-  const chosen = byId ?? pick();
+  const chosen = pickTemplateRow(rows, requestedLanguage, templateId);
   if (!chosen) {
     // Rows exist but none in the requested language — the caller pinned
     // a translation this account doesn't have. Report no row; under
@@ -235,7 +269,7 @@ export async function resolveTemplateRow(
     row: chosen,
     malformed: false,
     language:
-      (byId ? chosen.language : null) ||
+      (templateId && chosen.id === templateId ? chosen.language : null) ||
       requestedLanguage ||
       chosen.language ||
       'en_US',

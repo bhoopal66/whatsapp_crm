@@ -5,6 +5,11 @@
  * so the panel stays a thin client and these are unit-tested.
  */
 import { isLinkedDeviceNumber } from '@/lib/whatsapp/channel-management';
+import {
+  pickTemplateRow,
+  type TemplateCandidate,
+} from '@/lib/whatsapp/template-body';
+import { refusedByMeta } from '@/lib/whatsapp/template-offer';
 
 import type { WorkflowDef } from './schema';
 import {
@@ -23,7 +28,8 @@ import {
  * A MARKETING / UTILITY template on a Meta number: `approved` sends;
  * `pending` is waiting on Meta's review (PENDING, IN_APPEAL);
  * `notApproved` is any other status (a DRAFT not yet submitted,
- * REJECTED, PAUSED, …) and is skipped like a missing one.
+ * REJECTED, PAUSED, …), or a row Meta refused whatever its status says,
+ * and is skipped like a missing one.
  */
 export type MetaTemplateState =
   'approved' | 'pending' | 'notApproved' | 'missing';
@@ -33,10 +39,8 @@ export type MetaTemplateState =
  */
 export type WhapiTemplateState = 'present' | 'missing';
 
-export interface TemplateRowLite {
+export interface TemplateRowLite extends TemplateCandidate {
   name: string;
-  language?: string | null;
-  status?: string | null;
 }
 
 export interface ChecklistItem {
@@ -50,6 +54,8 @@ export interface ChecklistItem {
   meta?: MetaTemplateState;
   /** The status of the row a send would use (upper case), when there is one. */
   metaStatus?: string;
+  /** Meta's answer, when it refused that row as it was submitted. */
+  metaRefusal?: string;
   /** Only when the account has a linked-device number (Whapi, OpenWA). */
   whapi?: WhapiTemplateState;
 }
@@ -57,20 +63,11 @@ export interface ChecklistItem {
 const AWAITING_REVIEW = new Set(['PENDING', 'IN_APPEAL']);
 
 /**
- * The row a journey send uses when a template exists in several
- * languages — `resolveTemplateRow` with no language asked for: en_US,
- * then en, then the first by language.
+ * The row a journey send uses: `resolveTemplateRow` with no language
+ * asked for (en_US, then en, then the first by language).
  */
 export function rowForSend<T extends TemplateRowLite>(rows: T[]): T | null {
-  const sorted = rows
-    .slice()
-    .sort((a, b) => (a.language ?? '').localeCompare(b.language ?? ''));
-  return (
-    sorted.find((r) => r.language === 'en_US') ??
-    sorted.find((r) => r.language === 'en') ??
-    sorted[0] ??
-    null
-  );
+  return pickTemplateRow(rows) ?? null;
 }
 
 /**
@@ -104,14 +101,18 @@ export function templateChecklist(
     if (hasMeta) {
       const row = rowForSend(mine);
       const status = String(row?.status ?? '').toUpperCase();
+      const refused = !!row && refusedByMeta(row);
       item.meta = !row
         ? 'missing'
-        : status === 'APPROVED'
-          ? 'approved'
-          : AWAITING_REVIEW.has(status)
-            ? 'pending'
-            : 'notApproved';
+        : refused
+          ? 'notApproved'
+          : status === 'APPROVED'
+            ? 'approved'
+            : AWAITING_REVIEW.has(status)
+              ? 'pending'
+              : 'notApproved';
       if (row) item.metaStatus = status;
+      if (refused) item.metaRefusal = row.submission_error ?? '';
     }
     if (hasWhapi) item.whapi = mine.length ? 'present' : 'missing';
     items.push(item);

@@ -22,6 +22,17 @@ and polish.
 
 ### Fixed
 
+- **Every screen that picks a template goes by the row that is sent.** When
+  two teammates hold a template of the same name and language, the Compass
+  templates, the journey bot's checklist, the automation builder and the
+  deal room now show the one the send uses. A template Meta refused, or one
+  still waiting, is listed with the reason and cannot be picked (automation
+  builder, when automations send from the Meta number; deal rooms). The
+  Compass screen and the checklist say Meta refused a row instead of calling
+  it approved or waiting, and the journey bot opens its "not available" task
+  for one rather than sending it to Meta. No migration.
+- **The template form no longer says a header picture is uploaded to Meta.**
+  It never was; the hint says what to do instead. No migration.
 - **Two people pressing "Request documents" no longer send the customer the
   same request twice.** A request made within 10 minutes of the case's last
   one asks first: "Requested by … at …. Send again?".

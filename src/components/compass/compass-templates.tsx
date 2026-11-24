@@ -18,16 +18,27 @@ import {
   compassTemplateProblem,
   type CompassTemplateProblem,
 } from '@/lib/compass/meta-template';
+import { pickTemplateRow } from '@/lib/whatsapp/template-body';
+import { refusedByMeta } from '@/lib/whatsapp/template-offer';
 import type { MessageTemplate } from '@/types';
 import { Badge } from '@/components/ui/badge';
 
 type Row = Pick<
   MessageTemplate,
-  'name' | 'language' | 'status' | 'body_text' | 'rejection_reason'
+  | 'id'
+  | 'name'
+  | 'language'
+  | 'status'
+  | 'body_text'
+  | 'rejection_reason'
+  | 'meta_template_id'
+  | 'submission_error'
+  | 'created_at'
 >;
 
 export function CompassTemplates({ accountId }: { accountId: string }) {
   const t = useTranslations('Compass.templates');
+  const tPicker = useTranslations('Inbox.templatePicker');
   const [rows, setRows] = useState<Row[] | null>(null);
   const [error, setError] = useState(false);
 
@@ -37,7 +48,7 @@ export function CompassTemplates({ accountId }: { accountId: string }) {
       const { data, error: err } = await createClient()
         .from('message_templates')
         .select(
-          'name, language, status, body_text, rejection_reason, meta_template_id, submission_error'
+          'id, name, language, status, body_text, rejection_reason, meta_template_id, submission_error, created_at'
         )
         .eq('account_id', accountId)
         .in(
@@ -79,11 +90,20 @@ export function CompassTemplates({ accountId }: { accountId: string }) {
       <p className="text-muted-foreground text-sm">{t('explain')}</p>
       {error && <p className="text-destructive text-sm">{t('loadFailed')}</p>}
       {COMPASS_TEMPLATES.map((tpl) => {
+        // The row the send uses (`compassTemplateSend`).
         const row =
-          rows.find(
-            (r) => r.name === tpl.name && r.language === tpl.language
+          pickTemplateRow(
+            rows.filter((r) => r.name === tpl.name),
+            tpl.language
           ) ?? null;
-        const s = state(compassTemplateProblem(tpl, row));
+        const refused = !!row && refusedByMeta(row);
+        const reason = refused ? row.submission_error : row?.rejection_reason;
+        const s = refused
+          ? {
+              label: tPicker('blocked.not_approved'),
+              cls: 'bg-destructive-soft text-destructive',
+            }
+          : state(compassTemplateProblem(tpl, row));
         return (
           <div
             key={tpl.name}
@@ -108,9 +128,9 @@ export function CompassTemplates({ accountId }: { accountId: string }) {
                 </Badge>
               )}
             </div>
-            {row?.rejection_reason && (
+            {reason && (
               <p className="text-destructive text-xs">
-                {t('rejected', { reason: row.rejection_reason })}
+                {t('rejected', { reason })}
               </p>
             )}
             <div className="bg-card-2 rounded-lg p-3 text-sm whitespace-pre-wrap">

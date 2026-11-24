@@ -14,6 +14,10 @@ import {
   type LastCustomerMessage,
 } from '@/lib/inbox/service-window';
 import type { SendChannelPrediction } from '@/lib/contacts/predict-send-channels';
+import {
+  onePerTemplate,
+  type TemplateCandidate,
+} from '@/lib/whatsapp/template-body';
 import type { MessageTemplate } from '@/types';
 
 export type TemplateSendsFrom = 'meta' | 'linked' | 'unknown';
@@ -49,7 +53,9 @@ function isHidden(row: OfferRow): boolean {
  * Refused when it was submitted: Meta does not know this template, and a
  * send from the Meta number fails whatever its status says.
  */
-export function refusedByMeta(row: Omit<OfferRow, 'status'>): boolean {
+export function refusedByMeta(
+  row: Pick<TemplateCandidate, 'meta_template_id' | 'submission_error'>
+): boolean {
   return !row.meta_template_id && Boolean(row.submission_error);
 }
 
@@ -93,6 +99,26 @@ export function offerTemplates<T extends OfferRow>(
     else offer.offered.push(row);
   }
   return offer;
+}
+
+export interface TemplateOption<T, R = TemplateBlock> {
+  template: T;
+  /** Why it is shown but cannot be picked; null when it can. */
+  reason: R | null;
+}
+
+/**
+ * A select's options: one per name and language (the row a send of that
+ * pair uses), the pickable ones first, then the blocked ones.
+ */
+export function templateOptions<
+  T extends OfferRow & TemplateCandidate & { name: string },
+>(rows: readonly T[], sendsFrom: TemplateSendsFrom): TemplateOption<T>[] {
+  const offer = offerTemplates(onePerTemplate(rows), sendsFrom);
+  return [
+    ...offer.offered.map((template) => ({ template, reason: null })),
+    ...offer.blocked,
+  ];
 }
 
 /**
@@ -157,8 +183,9 @@ export function contactTemplateSendsFrom(
 }
 
 /**
- * What a campaign goes out on: the workspace's `broadcast` route, else its
- * primary number (`resolveChannelForSurface`). `routedId` is undefined
+ * What a campaign, or an automation, goes out on: the workspace's route
+ * for that surface, else its primary number (`resolveChannelForSurface`;
+ * `resolveBotChannel` without a chat). `routedId` is undefined
  * while the route is not read; then only numbers of one kind are certain.
  */
 export function broadcastTemplateSendsFrom(
