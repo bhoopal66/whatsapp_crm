@@ -36,6 +36,8 @@ export function QuickReplyPicker({
   const tMenu = useTranslations('ComposerMenu');
   const [items, setItems] = useState<QuickReply[]>([]);
   const [loading, setLoading] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   // Filters on title, shortcut and body (the "/" list's matcher).
   // Emptied each time the picker opens.
   const [query, setQuery] = useState('');
@@ -50,13 +52,16 @@ export function QuickReplyPicker({
     if (!open) return;
     let cancelled = false;
     setLoading(true);
+    setFailed(false);
     void (async () => {
       try {
         const res = await fetch('/api/quick-replies', { cache: 'no-store' });
-        const data = await res.json().catch(() => ({}));
-        if (!cancelled && res.ok) {
-          setItems((data.quick_replies as QuickReply[]) ?? []);
-        }
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (!cancelled) setItems((data.quick_replies as QuickReply[]) ?? []);
+      } catch {
+        // A list read earlier stays usable.
+        if (!cancelled) setFailed(true);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -64,7 +69,7 @@ export function QuickReplyPicker({
     return () => {
       cancelled = true;
     };
-  }, [open]);
+  }, [open, attempt]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -75,7 +80,7 @@ export function QuickReplyPicker({
         {items.length > 0 && (
           <div className="relative">
             <Search
-              className="text-muted-foreground pointer-events-none absolute top-1/2 start-2.5 h-4 w-4 -translate-y-1/2"
+              className="text-muted-foreground pointer-events-none absolute start-2.5 top-1/2 h-4 w-4 -translate-y-1/2"
               aria-hidden
             />
             <Input
@@ -92,6 +97,19 @@ export function QuickReplyPicker({
           {loading ? (
             <div className="flex justify-center py-8">
               <Loader2 className="text-muted-foreground h-5 w-5 animate-spin" />
+            </div>
+          ) : failed && items.length === 0 ? (
+            <div className="py-8 text-center" role="alert">
+              <p className="text-muted-foreground text-sm">
+                {tMenu('quickRepliesFailed')}
+              </p>
+              <button
+                type="button"
+                onClick={() => setAttempt((n) => n + 1)}
+                className="text-primary mt-2 text-sm font-medium hover:underline"
+              >
+                {tMenu('quickRepliesRetry')}
+              </button>
             </div>
           ) : items.length === 0 ? (
             <p className="text-muted-foreground py-8 text-center text-sm">

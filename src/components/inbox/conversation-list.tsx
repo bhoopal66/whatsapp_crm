@@ -612,9 +612,11 @@ async function searchConversations(p: ListQueryParams) {
 /**
  * The contacts a search term finds, ranked: migration 193's close-match
  * RPC (as the caller, so RLS decides), else, before 193 or for a term
- * too short for it, the plain ilike filter, every row exact.
+ * too short for it, the plain ilike filter, every row exact. Null when
+ * the contacts could not be read; the message match still runs, and the
+ * list says what may be missing.
  */
-async function fetchInboxSearchHits(term: string): Promise<SearchHit[]> {
+async function fetchInboxSearchHits(term: string): Promise<SearchHit[] | null> {
   const supabase = createClient();
   const rpcTerm = searchRpcTerm(term);
   if (rpcTerm) {
@@ -623,11 +625,9 @@ async function fetchInboxSearchHits(term: string): Promise<SearchHit[]> {
       p_limit: INBOX_SEARCH_HIT_LIMIT,
     });
     if (!error) return parseSearchHits(data);
-    // Any other failure: no contacts, and the message match still runs
-    // (the contact picker does the same).
     if (!isMissingSearchRpc(error)) {
       logFetchError('Failed to search contacts:', error);
-      return [];
+      return null;
     }
   }
   const or = contactSearchFilter(term);
@@ -639,7 +639,7 @@ async function fetchInboxSearchHits(term: string): Promise<SearchHit[]> {
     .limit(INBOX_SEARCH_HIT_LIMIT);
   if (error) {
     logFetchError('Failed to search contacts:', error);
-    return [];
+    return null;
   }
   return (data ?? []).map((r) => ({ contactId: r.id, score: 1, exact: true }));
 }
@@ -738,6 +738,9 @@ export function ConversationList({
   // The contacts that term finds; the list is asked for once they are
   // in. A response for a term since replaced is dropped.
   const [searchHits, setSearchHits] = useState<InboxSearchHits | null>(null);
+  /** The term whose contacts could not be read. */
+  const [contactsFailed, setContactsFailed] = useState<string | null>(null);
+  const [searchAttempt, setSearchAttempt] = useState(0);
   useEffect(() => {
     if (!serverSearch) {
       setSearchHits(null);
@@ -745,12 +748,14 @@ export function ConversationList({
     }
     let stale = false;
     void fetchInboxSearchHits(serverSearch).then((hits) => {
-      if (!stale) setSearchHits(inboxSearchHits(serverSearch, hits));
+      if (stale) return;
+      setContactsFailed(hits ? null : serverSearch);
+      setSearchHits(inboxSearchHits(serverSearch, hits ?? []));
     });
     return () => {
       stale = true;
     };
-  }, [serverSearch]);
+  }, [serverSearch, searchAttempt]);
   // Hits answering the term in the box right now, for the held rows'
   // match, rank and marks; none while a newer term is on its way.
   const liveHits =
@@ -2305,6 +2310,21 @@ export function ConversationList({
           space — the list then overflows and gets clipped by the
           parent's overflow-hidden with no scrollbar (issue #229). */}
       <ScrollArea className="min-h-0 flex-1">
+        {liveHits && contactsFailed === liveHits.term && (
+          <div
+            role="alert"
+            className="text-wa-text-secondary border-wa-divider border-b px-4 py-2 text-xs"
+          >
+            {tSearch('contactsFailed')}{' '}
+            <button
+              type="button"
+              onClick={() => setSearchAttempt((n) => n + 1)}
+              className="text-wa-teal font-medium hover:underline"
+            >
+              {t('retry')}
+            </button>
+          </div>
+        )}
         {body === 'loading' ? (
           <div className="flex items-center justify-center py-12">
             <div className="border-wa-green h-5 w-5 animate-spin rounded-full border-2 border-t-transparent" />

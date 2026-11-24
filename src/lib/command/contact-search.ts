@@ -61,7 +61,8 @@ function rows(data: unknown): ContactRow[] {
  * Contacts matching `query`, as the caller's RLS shows them: the
  * close-match RPC (migration 193), else the plain ilike filter when the
  * RPC is missing. `isCurrent` is asked after each round trip so a
- * superseded search stops early and returns null.
+ * superseded search stops early and returns null. Throws when the
+ * contacts could not be read: that is not "nobody".
  */
 export async function searchContactsForBar(
   supabase: SupabaseClient,
@@ -78,8 +79,9 @@ export async function searchContactsForBar(
       p_limit: COMMAND_SEARCH_LIMIT,
     });
     if (!isCurrent()) return null;
-    if (!rpc.error || !isMissingSearchRpc(rpc.error)) {
-      const hits = rpc.error ? [] : parseSearchHits(rpc.data);
+    if (rpc.error && !isMissingSearchRpc(rpc.error)) throw rpc.error;
+    if (!rpc.error) {
+      const hits = parseSearchHits(rpc.data);
       if (hits.length) {
         const res = await supabase
           .from('contacts')
@@ -89,6 +91,7 @@ export async function searchContactsForBar(
             hits.map((h) => h.contactId)
           );
         if (!isCurrent()) return null;
+        if (res.error) throw res.error;
         found = rankByHits(rows(res.data), hits);
       } else {
         found = [];
@@ -105,6 +108,7 @@ export async function searchContactsForBar(
     if (or) q = q.or(or);
     const res = await q;
     if (!isCurrent()) return null;
+    if (res.error) throw res.error;
     found = rows(res.data).map((r) => ({ ...r, closeMatch: false }));
   }
 

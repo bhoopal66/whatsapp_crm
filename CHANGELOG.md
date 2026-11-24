@@ -34,6 +34,11 @@ and polish.
 
 ### Fixed
 
+- **Forward a WhatsApp message to any chat.** The dialog's search reaches
+  every chat you may open, not only the 200 latest.
+- **A failed search or list no longer looks empty.** The inbox search and
+  the command bar say when contacts could not be searched; quick replies
+  that did not load offer Retry.
 - **A template Meta refuses says why.** Meta's answer is "Invalid
   parameter" with the reason in a second text that was dropped; both are
   shown now.
