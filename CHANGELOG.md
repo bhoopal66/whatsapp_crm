@@ -82,7 +82,8 @@ and polish.
 - **An automation's "Send template" never sends a literal `{{1}}`.** A step
   whose template has a placeholder (body or text header) without a value
   fails with the reason in the run log, and an automation with one cannot
-  be activated. No migration.
+  be activated. Values saved under other keys (a list, keys counted from 0)
+  go by position, and any other shape counts as no value. No migration.
 - **"Assign to a specific person" skips someone who left** (deactivated, not
   staff, or no longer in the workspace), with the reason in the run log,
   instead of giving them the chat. No migration.
