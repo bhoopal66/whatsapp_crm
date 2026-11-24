@@ -29,7 +29,8 @@ export async function GET(
       .is('personal_owner_id', null)
       .maybeSingle();
 
-    if (error) {
+    // 22P02: not a uuid, so nothing has that id.
+    if (error && error.code !== '22P02') {
       console.error('[api/v1/conversations] read error:', error);
       return fail('internal', 'Failed to read conversation', 500);
     }

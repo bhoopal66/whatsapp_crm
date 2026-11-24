@@ -286,6 +286,19 @@ describe('handleStatusUpdate — messages.status is forward-only in SQL', () => 
     );
   });
 
+  it("stays silent for a chat on somebody's own number", async () => {
+    world({
+      messages: [
+        {
+          ...OUTBOUND,
+          conversations: { account_id: ACCOUNT, personal_owner_id: 'u-1' },
+        },
+      ],
+    });
+    await handleStatusUpdate(status({ status: 'read' }), ACCOUNT);
+    expect(h.webhook).not.toHaveBeenCalled();
+  });
+
   it('stays silent for a late sent that lands after read', async () => {
     // The WHERE matched nothing: the message is already further along.
     world({ messages: [OUTBOUND], movedIds: [] });

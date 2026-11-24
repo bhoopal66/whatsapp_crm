@@ -34,7 +34,8 @@ export async function GET(
       .eq('account_id', ctx.accountId)
       .maybeSingle();
 
-    if (error) {
+    // 22P02: not a uuid, so nothing has that id.
+    if (error && error.code !== '22P02') {
       console.error('[api/v1/broadcasts] read error:', error);
       return fail('internal', 'Failed to read broadcast', 500);
     }

@@ -555,6 +555,33 @@ describe('POST /api/v1/submission-groups', () => {
     );
   });
 
+  it("a repeat call that names another number links only the group's own customer", async () => {
+    m.store.findByRef.mockResolvedValue(group());
+    m.service.openForSubmission.mockResolvedValue({
+      consentRequired: false,
+      created: false,
+      group: group(),
+      inviteLink: group().inviteLink,
+      refusedParticipants: [],
+    });
+    m.store.contactConsent.mockResolvedValue({
+      allowed: true,
+      phone: '+971 50 123 4567',
+    });
+    const res = await post({
+      ...body,
+      customer: { phone: '+971 55 999 9999', name: 'Someone' },
+    });
+    expect(res.status).toBe(200);
+    expect(m.store.contactConsent).toHaveBeenCalledWith('c1');
+    const linked = m.rpc.mock.calls.filter(
+      ([fn]) => fn === 'compass_link_contact_by_phone'
+    );
+    expect(linked.map(([, args]) => args.p_phone_digits)).toEqual([
+      '971501234567',
+    ]);
+  });
+
   it('a repeat call (200) fills the case through open() and returns it', async () => {
     m.store.findByRef.mockResolvedValue(group());
     m.service.openForSubmission.mockResolvedValue({

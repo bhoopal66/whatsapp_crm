@@ -220,7 +220,7 @@ export async function handleStatusUpdate(
   let rowsQuery = supabaseAdmin()
     .from('messages')
     .select(
-      'id, conversation_id, ai_generated, sender_type, conversations!inner(account_id)'
+      'id, conversation_id, ai_generated, sender_type, conversations!inner(account_id, personal_owner_id)'
     )
     .eq('message_id', status.messageId);
   if (accountId)
@@ -377,7 +377,8 @@ export async function handleStatusUpdate(
 
   // 5) Webhook fan-out for messages we store (inbox / API sends).
   //    Runs last so a slow subscriber can't delay the mirrors above.
-  const first = moved[0];
+  //    Never for a chat on somebody's own number.
+  const first = moved.find((row) => !rowIsPersonal(row));
   if (first) {
     const ownerAccountId = accountId ?? rowAccountId(first);
     if (ownerAccountId) {
@@ -403,6 +404,13 @@ interface StatusMessageRow {
   ai_generated?: boolean | null;
   sender_type?: string | null;
   conversations: unknown;
+}
+
+function rowIsPersonal(row: StatusMessageRow): boolean {
+  const rawConv = row.conversations;
+  const conv = (Array.isArray(rawConv) ? rawConv[0] : rawConv) as
+    { personal_owner_id?: string | null } | null | undefined;
+  return !!conv?.personal_owner_id;
 }
 
 function rowAccountId(row: StatusMessageRow): string | undefined {

@@ -32,7 +32,8 @@ export async function GET(
       .eq('account_id', ctx.accountId)
       .maybeSingle();
 
-    if (error) {
+    // 22P02: not a uuid, so nothing has that id.
+    if (error && error.code !== '22P02') {
       console.error('[api/v1/webhooks] read error:', error);
       return fail('internal', 'Failed to read webhook', 500);
     }
@@ -116,7 +117,8 @@ export async function PATCH(
       .select(WEBHOOK_PUBLIC_COLUMNS)
       .maybeSingle();
 
-    if (error) {
+    // 22P02: not a uuid, so nothing has that id.
+    if (error && error.code !== '22P02') {
       console.error('[api/v1/webhooks] update error:', error);
       return fail('internal', 'Failed to update webhook', 500);
     }
@@ -144,7 +146,8 @@ export async function DELETE(
       .select('id')
       .maybeSingle();
 
-    if (error) {
+    // 22P02: not a uuid, so nothing has that id.
+    if (error && error.code !== '22P02') {
       console.error('[api/v1/webhooks] delete error:', error);
       return fail('internal', 'Failed to delete webhook', 500);
     }

@@ -39,6 +39,11 @@ and polish.
 
 ### Fixed
 
+- **API, smaller points.** A repeated submission call that names another
+  number links only the group's own customer to Compass;
+  `message.status_updated` no longer fires for chats on staff members' own
+  numbers; a malformed id answers 404 (a malformed `contact_id` filter 400)
+  instead of 500.
 - **HR screens say when something could not be read.** Hire fast no longer
   says "no access" for a failed read, HR tasks offer Retry, and the message
   history says that only the newest 100 are shown.
