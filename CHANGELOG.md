@@ -34,6 +34,11 @@ and polish.
 
 ### Fixed
 
+- **AI usage counts calls the provider billed but cut off or answered
+  empty.** The reply bot, Draft with AI, the playground and both
+  translations now record the tokens of a call that ended in an error, so
+  Settings -> AI usage no longer under-reports spend. The answer to the
+  agent or customer is unchanged.
 - **A candidate's message is no longer read as a sales lead.** Smart
   insights, automatic chat tags, the attention pin and campaign reply
   sorting now leave HR chats, other departments' chats and HR lines alone

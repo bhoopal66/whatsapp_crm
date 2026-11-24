@@ -5,7 +5,7 @@ import { loadAiConfig } from '@/lib/ai/config'
 import { supabaseAdmin } from '@/lib/ai/admin-client'
 import { retrieveKnowledgeScored } from '@/lib/ai/knowledge'
 import { generateReply } from '@/lib/ai/generate'
-import { logAiUsage } from '@/lib/ai/usage'
+import { logAiUsage, logFailedAiUsage } from '@/lib/ai/usage'
 import { buildSystemPrompt } from '@/lib/ai/defaults'
 import { latestUserMessage } from '@/lib/ai/query'
 import { matchEscalationKeyword } from '@/lib/ai/escalation'
@@ -145,6 +145,16 @@ export async function POST(request: Request) {
       config,
       systemPrompt,
       messages,
+    }).catch(async (err) => {
+      // Billed even when the answer was cut off or empty.
+      await logFailedAiUsage(supabaseAdmin, err, {
+        accountId,
+        conversationId: null,
+        mode: 'draft',
+        provider: config.provider,
+        model: config.model,
+      })
+      throw err
     })
     // Recorded as a draft (ai_usage_log's mode CHECK knows only
     // auto_reply and draft): playground tokens are real spend on the

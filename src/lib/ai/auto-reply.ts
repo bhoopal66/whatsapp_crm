@@ -25,7 +25,7 @@ import {
 } from './handoff';
 import type { AiDispatchOutcome, AiReplyTier, AiRouteSource } from './outcomes';
 import { matchEscalationKeyword } from './escalation';
-import { logAiUsage } from './usage';
+import { logAiUsage, logFailedAiUsage } from './usage';
 import { latestUserMessage } from './query';
 import {
   enforcedPartnerBanks,
@@ -1465,6 +1465,16 @@ export async function dispatchInboundToAiReply(
         messages,
         model,
         timeoutMs,
+      }).catch(async (err) => {
+        // Billed even when the answer was cut off or empty.
+        await logFailedAiUsage(() => dbc, err, {
+          accountId,
+          conversationId,
+          mode: 'auto_reply',
+          provider: config.provider,
+          model,
+        });
+        throw err;
       });
       // Record token spend on the account's BYO key, per generation and
       // under the model that produced it. Fire-and-forget so it never

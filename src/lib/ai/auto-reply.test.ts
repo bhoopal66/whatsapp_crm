@@ -25,6 +25,7 @@ const h = vi.hoisted(() => ({
   runGuardrailGate: vi.fn(),
   markOptedOut: vi.fn(),
   logAiUsage: vi.fn(),
+  logFailedAiUsage: vi.fn(),
   state: {
     conv: null as Record<string, unknown> | null,
     autoResponders: [] as Record<string, unknown>[],
@@ -100,7 +101,10 @@ vi.mock('./typesafe-gates', async (importOriginal) => ({
 vi.mock('./opt-out', () => ({
   markOptedOut: h.markOptedOut,
 }));
-vi.mock('./usage', () => ({ logAiUsage: h.logAiUsage }));
+vi.mock('./usage', () => ({
+  logAiUsage: h.logAiUsage,
+  logFailedAiUsage: h.logFailedAiUsage,
+}));
 // TypeSafe unavailable: the model router falls back to its heuristic,
 // so "hi" is the small tier and two questions the large one.
 vi.mock('@/lib/typesafe', async (importOriginal) => ({
@@ -2021,6 +2025,8 @@ describe('dispatchInboundToAiReply — model routing and escalation', () => {
   beforeEach(() => {
     h.logAiUsage.mockReset();
     h.logAiUsage.mockResolvedValue(undefined);
+    h.logFailedAiUsage.mockReset();
+    h.logFailedAiUsage.mockResolvedValue(undefined);
     // Drop any queued once-values a failing test left unconsumed.
     h.generateReply.mockReset();
     h.generateReply.mockResolvedValue(reply);
@@ -2123,6 +2129,28 @@ describe('dispatchInboundToAiReply — model routing and escalation', () => {
       model: 'gpt-large',
       escalated: false,
     });
+  });
+
+  it('a billed call that fails is logged once under the model that ran, and the hand-off is unchanged', async () => {
+    h.loadAiConfig.mockResolvedValue(routed());
+    say(TWO_QUESTIONS);
+    // A key failure is not retried, so there is exactly one call.
+    const err = new AiError('bad key', {
+      code: 'invalid_key',
+      status: 401,
+      usage: { promptTokens: 1, completionTokens: 2, totalTokens: 3 },
+    });
+    h.generateReply.mockRejectedValue(err);
+    expect(await dispatchInboundToAiReply(ARGS)).toBe('handed_off');
+    expect(h.state.updatePayload).toMatchObject({ ai_handoff_reason: 'error' });
+    expect(h.logFailedAiUsage).toHaveBeenCalledTimes(1);
+    const [, loggedErr, args] = h.logFailedAiUsage.mock.calls[0];
+    expect(loggedErr).toBe(err);
+    expect(args).toMatchObject({
+      mode: 'auto_reply',
+      model: 'gpt-large',
+    });
+    expect(h.logAiUsage).not.toHaveBeenCalled();
   });
 
   it('a rate limit is not retried either', async () => {

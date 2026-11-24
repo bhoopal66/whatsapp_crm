@@ -191,6 +191,7 @@ export async function translateText(
     throw new AiError('The AI returned no translation.', {
       code: 'translate_empty',
       status: 502,
+      usage: result.usage,
     });
   }
   if (!draft) return { text: translated, model, usage: result.usage };

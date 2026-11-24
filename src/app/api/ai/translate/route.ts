@@ -6,8 +6,8 @@ import {
   RATE_LIMITS,
 } from '@/lib/rate-limit';
 import { loadAiConfig } from '@/lib/ai/config';
-import { translateText } from '@/lib/ai/translate';
-import { logAiUsage } from '@/lib/ai/usage';
+import { translateText, translationModel } from '@/lib/ai/translate';
+import { logAiUsage, logFailedAiUsage } from '@/lib/ai/usage';
 import { supabaseAdmin } from '@/lib/ai/admin-client';
 import { AiError } from '@/lib/ai/types';
 import { isUuid } from '@/lib/coordinators/errors';
@@ -104,7 +104,19 @@ export async function POST(request: Request) {
       );
     }
 
-    const result = await translateText({ config, text, target: 'ar' });
+    const result = await translateText({ config, text, target: 'ar' }).catch(
+      async (err) => {
+        // Billed even when the translation was cut off or unusable.
+        await logFailedAiUsage(supabaseAdmin, err, {
+          accountId,
+          conversationId,
+          mode: 'translate',
+          provider: config.provider,
+          model: translationModel(config, 'ar'),
+        });
+        throw err;
+      }
+    );
 
     try {
       void logAiUsage(supabaseAdmin(), {

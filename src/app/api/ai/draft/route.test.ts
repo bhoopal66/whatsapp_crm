@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   retrieveKnowledge: vi.fn(),
   loadCampaignContext: vi.fn(),
   logAiUsage: vi.fn(),
+  logFailedAiUsage: vi.fn(),
   calls: [] as unknown[][],
 }));
 
@@ -34,8 +35,12 @@ vi.mock('@/lib/ai/knowledge', () => ({
 vi.mock('@/lib/ai/auto-reply', () => ({
   loadCampaignContext: mocks.loadCampaignContext,
 }));
-vi.mock('@/lib/ai/usage', () => ({ logAiUsage: mocks.logAiUsage }));
+vi.mock('@/lib/ai/usage', () => ({
+  logAiUsage: mocks.logAiUsage,
+  logFailedAiUsage: mocks.logFailedAiUsage,
+}));
 
+import { AiError } from '@/lib/ai/types';
 import { POST } from './route';
 
 const CONV = 'conv-1';
@@ -157,6 +162,29 @@ describe('POST /api/ai/draft', () => {
     expect(mocks.retrieveKnowledge.mock.calls[0][3]).toBe(
       'What documents do you need?'
     );
+  });
+
+  it('logs the usage of a billed draft that failed, once, and still answers the error', async () => {
+    const err = new AiError('cut off', {
+      code: 'truncated',
+      status: 502,
+      usage: { promptTokens: 1, completionTokens: 2, totalTokens: 3 },
+    });
+    mocks.generateReply.mockRejectedValue(err);
+    const res = await post({ conversation_id: CONV });
+    expect(res.status).toBe(502);
+    expect((await res.json()).code).toBe('truncated');
+    expect(mocks.logFailedAiUsage).toHaveBeenCalledTimes(1);
+    const [, loggedErr, args] = mocks.logFailedAiUsage.mock.calls[0];
+    expect(loggedErr).toBe(err);
+    expect(args).toEqual({
+      accountId: 'account-1',
+      conversationId: CONV,
+      mode: 'draft',
+      provider: 'anthropic',
+      model: 'm',
+    });
+    expect(mocks.logAiUsage).not.toHaveBeenCalled();
   });
 
   it('writes the reply from what the agent typed', async () => {

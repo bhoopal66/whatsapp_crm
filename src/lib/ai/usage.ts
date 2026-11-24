@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { AiProvider, AiUsage } from './types';
+import { AiError, type AiProvider, type AiUsage } from './types';
 
 export interface LogAiUsageArgs {
   accountId: string;
@@ -47,5 +47,26 @@ export async function logAiUsage(
     }
   } catch (err) {
     console.error('[ai usage] log insert threw:', err);
+  }
+}
+
+/**
+ * Record the tokens of a billed call that ended in an `AiError` (cut
+ * off, empty, unsafe): the provider charged for it all the same. A no-op
+ * for any other error or when the provider reported no usage. NEVER
+ * throws: `db` is a factory because building the service-role client
+ * throws when its key is unset, and the caller is already on its way to
+ * rethrowing the original error.
+ */
+export async function logFailedAiUsage(
+  db: () => SupabaseClient,
+  err: unknown,
+  args: Omit<LogAiUsageArgs, 'usage'>
+): Promise<void> {
+  if (!(err instanceof AiError) || !err.usage) return;
+  try {
+    await logAiUsage(db(), { ...args, usage: err.usage });
+  } catch (logErr) {
+    console.error('[ai usage] failed-call log skipped:', logErr);
   }
 }

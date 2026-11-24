@@ -6,6 +6,8 @@ const mocks = vi.hoisted(() => ({
   loadAiConfig: vi.fn(),
   translateText: vi.fn(),
   logAiUsage: vi.fn(),
+  logFailedAiUsage: vi.fn(),
+  translationModel: vi.fn(),
   admin: null as unknown,
   limits: [] as string[],
   limitFail: null as string | null,
@@ -29,8 +31,14 @@ vi.mock('@/lib/rate-limit', () => ({
 }));
 vi.mock('@/lib/ai/config', () => ({ loadAiConfig: mocks.loadAiConfig }));
 vi.mock('@/lib/ai/admin-client', () => ({ supabaseAdmin: () => mocks.admin }));
-vi.mock('@/lib/ai/translate', () => ({ translateText: mocks.translateText }));
-vi.mock('@/lib/ai/usage', () => ({ logAiUsage: mocks.logAiUsage }));
+vi.mock('@/lib/ai/translate', () => ({
+  translateText: mocks.translateText,
+  translationModel: mocks.translationModel,
+}));
+vi.mock('@/lib/ai/usage', () => ({
+  logAiUsage: mocks.logAiUsage,
+  logFailedAiUsage: mocks.logFailedAiUsage,
+}));
 
 import { AiError } from '@/lib/ai/types';
 import { POST } from './route';
@@ -122,6 +130,8 @@ beforeEach(() => {
     usage: USAGE,
   });
   mocks.logAiUsage.mockReset().mockResolvedValue(undefined);
+  mocks.logFailedAiUsage.mockReset().mockResolvedValue(undefined);
+  mocks.translationModel.mockReset().mockReturnValue('gpt-small');
   mocks.limits = [];
   mocks.limitFail = null;
 });
@@ -288,6 +298,30 @@ describe('POST /api/ai/translate/message', () => {
       model: 'gpt-small',
       usage: USAGE,
     });
+  });
+
+  it('logs the usage of a billed translation that failed, once, and still answers the error', async () => {
+    setup();
+    const err = new AiError('cut off', {
+      code: 'truncated',
+      status: 502,
+      usage: USAGE,
+    });
+    mocks.translateText.mockRejectedValue(err);
+    const res = await post({ message_id: MSG });
+    expect(res.status).toBe(502);
+    expect((await res.json()).code).toBe('truncated');
+    expect(mocks.logFailedAiUsage).toHaveBeenCalledTimes(1);
+    const [, loggedErr, args] = mocks.logFailedAiUsage.mock.calls[0];
+    expect(loggedErr).toBe(err);
+    expect(args).toEqual({
+      accountId: ACCOUNT,
+      conversationId: CONV,
+      mode: 'translate',
+      provider: 'openai',
+      model: 'gpt-small',
+    });
+    expect(mocks.logAiUsage).not.toHaveBeenCalled();
   });
 
   it('treats a failed cache read as a miss and a failed write as non-fatal', async () => {
