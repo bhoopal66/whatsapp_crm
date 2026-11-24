@@ -36,17 +36,19 @@ const db = {
       h.reads.push({ table, filters });
       const error = h.errors[table]?.shift() ?? null;
       if (error) return { data: null, error };
-      const data =
-        table === 'hr_conversations'
-          ? h.hrChat
-          : table === 'hr_lines'
-            ? h.hrLine
-            : h.contact;
+      // `hr_lines` itself: no role has SELECT on it (213).
+      if (table === 'hr_lines') return { data: null, error: { code: '42501' } };
+      const data = table === 'hr_conversations' ? h.hrChat : h.contact;
       return { data, error: null };
     };
     return q;
   },
   rpc: async (fn: string, args: unknown) => {
+    if (fn === 'hr_is_line') {
+      h.reads.push({ table: fn, filters: args as Record<string, unknown> });
+      const error = h.errors[fn]?.shift() ?? null;
+      return { data: error ? null : h.hrLine !== null, error };
+    }
     h.rpcs.push({ fn, args });
     return { data: 0, error: h.rpcError };
   },
@@ -100,10 +102,7 @@ describe('recordHrStop', () => {
         table: 'hr_conversations',
         filters: { conversation_id: 'conv-1', account_id: 'acct-1' },
       },
-      {
-        table: 'hr_lines',
-        filters: { channel_id: 'ch-1', account_id: 'acct-1' },
-      },
+      { table: 'hr_is_line', filters: { p_channel: 'ch-1' } },
     ]);
     expect(h.optOut).not.toHaveBeenCalled();
     expect(h.rpcs).toEqual([]);
@@ -136,10 +135,10 @@ describe('recordHrStop', () => {
     expect(err).not.toHaveBeenCalled();
   });
 
-  it.each(['hr_conversations', 'hr_lines', 'contacts'])(
+  it.each(['hr_conversations', 'hr_is_line', 'contacts'])(
     'a failed read of %s is tried again',
     async (table) => {
-      if (table === 'hr_lines') {
+      if (table === 'hr_is_line') {
         h.hrChat = null;
         h.hrLine = { channel_id: 'ch-1' };
       }
@@ -173,7 +172,7 @@ describe('recordHrStop', () => {
 
   it('an install without the HR tables owes nothing', async () => {
     h.errors.hr_conversations = [{ code: 'PGRST205' }];
-    h.errors.hr_lines = [{ code: 'PGRST205' }];
+    h.errors.hr_is_line = [{ code: 'PGRST202' }];
     expect(await run('STOP')).toBe(true);
     expect(h.optOut).not.toHaveBeenCalled();
   });

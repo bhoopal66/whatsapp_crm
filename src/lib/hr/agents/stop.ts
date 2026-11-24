@@ -23,33 +23,30 @@ export interface HrStopArgs {
   retry?: boolean;
 }
 
-/** An install without the HR tables (200, 213) has no HR chat or line. */
+/** An install without the HR table (200) has no HR chat. */
 const tableMissing = (error: { code?: string }) =>
   error.code === 'PGRST205' || error.code === '42P01';
 
-async function found(
-  query: PromiseLike<{ data: unknown; error: { code?: string } | null }>
-): Promise<boolean> {
-  const { data, error } = await query;
-  if (error && !tableMissing(error)) throw error;
-  return !error && data != null;
-}
+/** An install without `hr_is_line` (279) has no HR line. */
+const functionMissing = (error: { code?: string }) =>
+  error.code === 'PGRST202' || error.code === '42883';
 
+/**
+ * `hr_lines` is readable only through `hr_is_line`: nobody, the service
+ * role included, has SELECT on it.
+ */
 async function isHr(db: SupabaseClient, args: HrStopArgs): Promise<boolean> {
-  const chat = db
+  const chat = await db
     .from('hr_conversations')
     .select('conversation_id')
     .eq('conversation_id', args.conversationId)
     .eq('account_id', args.accountId)
     .maybeSingle();
-  if (await found(chat)) return true;
-  const line = db
-    .from('hr_lines')
-    .select('channel_id')
-    .eq('channel_id', args.channelId)
-    .eq('account_id', args.accountId)
-    .maybeSingle();
-  return found(line);
+  if (chat.error && !tableMissing(chat.error)) throw chat.error;
+  if (!chat.error && chat.data) return true;
+  const line = await db.rpc('hr_is_line', { p_channel: args.channelId });
+  if (line.error && !functionMissing(line.error)) throw line.error;
+  return !line.error && line.data === true;
 }
 
 /**
