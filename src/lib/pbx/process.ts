@@ -1266,87 +1266,107 @@ async function closeOwnMissedTask(
 /**
  * Somebody spoke to the customer, so nobody need call them back: closes
  * the open missed-call tasks of this contact, else of this number,
- * opened before the call started, whoever holds them. A task holding a
- * call missed since is left: that one is still owed. Only open tasks
- * close, so a redelivered event finds nothing to do.
+ * opened before the call started, whoever holds them. A task holding
+ * another call missed since is left: that one is still owed. A call
+ * answered after all is not, so neither is this one, whose NO ANSWER leg
+ * may have folded in first (its row says answered by now). A task this call closed and a person opened again stays
+ * open when its end is redelivered. A task written meanwhile (this
+ * call's other leg, or a repeat call, folding in) is read again.
  */
 async function closeSpokenMissedTasks(
   ctx: Ctx,
   call: CallEndWrite
 ): Promise<void> {
-  const { ws, match, remote, startedAt, spoke } = call;
+  const { callRowId, ws, match, remote, startedAt, spoke } = call;
   if (!spoke) return;
-  const open = () =>
-    ctx.db
-      .from('tasks')
-      .select('id, contact_id, note, meta, source_ref, updated_at')
-      .eq('account_id', ws.accountId)
-      .eq('source', 'pbx')
-      .eq('kind', 'missed_call')
-      .eq('status', 'open')
-      .lt('created_at', startedAt);
-  const tasks = new Map<string, Row>();
-  const keep = (res: {
-    data: unknown;
-    error: { message: string; code?: string } | null;
-  }) => {
-    if (res.error) fail('tasks read', res.error);
-    for (const t of (res.data ?? []) as Row[]) tasks.set(String(t.id), t);
-  };
-  if (match.contactId) keep(await open().eq('contact_id', match.contactId));
-  if (remote) {
-    // A number the CRM knew no contact for when it was missed; another
-    // contact's task on a shared number is theirs.
-    const byNumber = open().eq('meta->>remote_number', remote.number);
-    keep(await (match.contactId ? byNumber.is('contact_id', null) : byNumber));
-  }
-  if (!tasks.size) return;
-
-  let who = `ext. ${spoke.extension}`;
-  if (spoke.userId) {
-    const { data, error } = await ctx.db
-      .from('profiles')
-      .select('full_name')
-      .eq('account_id', ws.accountId)
-      .eq('user_id', spoke.userId)
-      .maybeSingle();
-    if (error) fail('profiles read', error);
-    who = str((data as Row | null)?.full_name)?.trim() || who;
-  }
-  const said = `Spoke at ${clock(spoke.at, DEFAULT_TIME_ZONE)} (${who})`;
-
-  for (const task of tasks.values()) {
-    const ids = foldedCallIds(task.meta);
-    if (ids.length) {
-      const since = await ctx.db
-        .from('calls')
-        .select('id')
+  let said: string | null = null;
+  for (let attempt = 0; attempt < FOLD_ATTEMPTS; attempt++) {
+    const open = () =>
+      ctx.db
+        .from('tasks')
+        .select('id, contact_id, note, meta, source_ref, updated_at')
         .eq('account_id', ws.accountId)
-        .in('id', ids)
-        .gte('started_at', startedAt)
-        .limit(1);
-      if (since.error) fail('calls read', since.error);
-      if (((since.data ?? []) as unknown[]).length) continue;
+        .eq('source', 'pbx')
+        .eq('kind', 'missed_call')
+        .eq('status', 'open')
+        .lt('created_at', startedAt);
+    const tasks = new Map<string, Row>();
+    const keep = (res: {
+      data: unknown;
+      error: { message: string; code?: string } | null;
+    }) => {
+      if (res.error) fail('tasks read', res.error);
+      for (const t of (res.data ?? []) as Row[]) tasks.set(String(t.id), t);
+    };
+    if (match.contactId) keep(await open().eq('contact_id', match.contactId));
+    if (remote) {
+      // A number the CRM knew no contact for when it was missed. A task
+      // of another contact on a shared number is theirs, and when several
+      // contacts share it nobody can say which of them this was.
+      const byNumber = open().eq('meta->>remote_number', remote.number);
+      const shared = !!match.contactId || match.candidates.length > 0;
+      keep(await (shared ? byNumber.is('contact_id', null) : byNumber));
     }
-    const note = str(task.note);
-    await closeSystemTasks(
-      ctx.db,
-      {
-        accountId: ws.accountId,
-        source: 'pbx',
-        sourceRef: String(task.source_ref),
-      },
-      {
-        note: note ? `${said}\n${note}` : said,
-        meta: {
-          ...(isRecord(task.meta) ? task.meta : {}),
-          spoke_call_id: call.callRowId,
-          spoke_user_id: spoke.userId,
-        },
-        updatedAt: String(task.updated_at),
+    if (!tasks.size) return;
+    said ??= `Spoke at ${clock(spoke.at, DEFAULT_TIME_ZONE)} (${await spokeName(ctx, ws.accountId, spoke)})`;
+
+    let lost = false;
+    for (const task of tasks.values()) {
+      const taskMeta = isRecord(task.meta) ? task.meta : {};
+      if (taskMeta.spoke_call_id === callRowId) continue;
+      const ids = foldedCallIds(task.meta);
+      if (ids.length) {
+        const since = await ctx.db
+          .from('calls')
+          .select('id')
+          .eq('account_id', ws.accountId)
+          .in('id', ids)
+          .gte('started_at', startedAt)
+          .neq('status', 'answered')
+          .limit(1);
+        if (since.error) fail('calls read', since.error);
+        if (((since.data ?? []) as unknown[]).length) continue;
       }
-    );
+      const note = str(task.note);
+      const closed = await closeSystemTasks(
+        ctx.db,
+        {
+          accountId: ws.accountId,
+          source: 'pbx',
+          sourceRef: String(task.source_ref),
+        },
+        {
+          note: note ? `${said}\n${note}` : said,
+          meta: {
+            ...taskMeta,
+            spoke_call_id: callRowId,
+            spoke_user_id: spoke.userId,
+          },
+          updatedAt: String(task.updated_at),
+        }
+      );
+      if (!closed) lost = true;
+    }
+    if (!lost) return;
   }
+}
+
+/** Who spoke, for the task's note: their name, else their extension. */
+async function spokeName(
+  ctx: Ctx,
+  accountId: string,
+  spoke: Spoke
+): Promise<string> {
+  const ext = `ext. ${spoke.extension}`;
+  if (!spoke.userId) return ext;
+  const { data, error } = await ctx.db
+    .from('profiles')
+    .select('full_name')
+    .eq('account_id', accountId)
+    .eq('user_id', spoke.userId)
+    .maybeSingle();
+  if (error) fail('profiles read', error);
+  return str((data as Row | null)?.full_name)?.trim() || ext;
 }
 
 /**
@@ -1549,6 +1569,10 @@ async function onCallEnd(ctx: Ctx, ev: CallEndEvent): Promise<void> {
       const ids = foldedCallIds(held.meta);
       // Folded by a concurrent delivery of the same end.
       if (ids.includes(callRowId)) return;
+      // Answered meanwhile: owes nobody a call back. Read after the task
+      // and before the write: an ANSWERED leg landing later reads the
+      // fold, or closes the task first and this write changes nothing.
+      if (!(await stillMissed(ctx, ws.accountId, callRowId))) return;
       const callIds = [...ids, callRowId];
       const folded = await ctx.db
         .from('tasks')
@@ -1595,8 +1619,8 @@ async function onCallEnd(ctx: Ctx, ev: CallEndEvent): Promise<void> {
     },
   });
   // Read again now the task exists, which is also right before the
-  // bell: an answered call rings nobody. A fold above skips this, as
-  // closeOwnMissedTask never closes a task other calls share.
+  // bell: an answered call rings nobody. (A fold above checks before it
+  // writes instead.)
   if (!(await stillMissed(ctx, ws.accountId, callRowId))) {
     await closeOwnMissedTask(ctx, ws.accountId, callRowId);
     return;

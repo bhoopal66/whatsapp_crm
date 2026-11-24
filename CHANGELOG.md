@@ -22,6 +22,14 @@ and polish.
 
 ### Fixed
 
+- **Speaking to a customer closes their missed-call task also when the call
+  rang several extensions**: the one that did not pick up had counted the
+  call as still owed, so nothing closed the task. A number several contacts
+  share no longer closes another contact's task, and a task someone opened
+  again stays open. No migration.
+- **A video call no longer ends on two refusals with a dropped network in
+  between**: only two in a row end it, and a failed account read is "try
+  again" (503), not a refusal. No migration.
 - **The call reports start the day at midnight in Dubai**, also for
   someone whose computer is set to another time zone: their report days
   held other calls than everyone else's. No migration.
