@@ -1,3 +1,5 @@
+import type { CaseRecord } from './case-page';
+import type { CaseDetail } from './case-page';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -21,6 +23,7 @@ import {
   normaliseAmount,
   OUTCOME_REASON_CODES,
   parseCaseDetail,
+  reasonOwed,
   resolveCaseTab,
   runningTimers,
   slaChipTone,
@@ -562,5 +565,50 @@ describe('lead tabs (130)', () => {
     expect(caseTabDisabled('conversation', false)).toBe(false);
     expect(resolveCaseTab('conversation', false, true)).toBe('overview');
     expect(resolveCaseTab('conversation', false, false)).toBe('conversation');
+  });
+});
+
+describe('reasonOwed', () => {
+  const d = (over: Partial<CaseDetail>, c: Partial<CaseRecord> = {}) =>
+    ({
+      case: { closedAt: '2026-11-20T00:00:00Z', outcome: 'Declined', ...c },
+      permissions: { canWrite: true, canReassign: false, canSeeAudit: false },
+      outcomeReason: null,
+      locked: false,
+      ...over,
+    }) as CaseDetail;
+  it('names the outcome of a closed case with no reason yet', () => {
+    expect(reasonOwed(d({}))).toBe('Declined');
+    expect(reasonOwed(d({}, { stage: 'Closed', outcome: 'Withdrawn' }))).toBe(
+      'Withdrawn'
+    );
+  });
+  it('is null when there is nothing to record or nobody to record it', () => {
+    for (const outcome of ['Approved', null])
+      expect(reasonOwed(d({}, { outcome }))).toBeNull();
+    expect(reasonOwed(d({}, { closedAt: null }))).toBeNull();
+    expect(reasonOwed(d({ locked: true }))).toBeNull();
+    expect(
+      reasonOwed(
+        d({
+          outcomeReason: {
+            reasonCode: 'OTHER',
+            reasonText: null,
+            createdAt: '',
+          },
+        })
+      )
+    ).toBeNull();
+    expect(
+      reasonOwed(
+        d({
+          permissions: {
+            canWrite: false,
+            canReassign: true,
+            canSeeAudit: true,
+          },
+        })
+      )
+    ).toBeNull();
   });
 });

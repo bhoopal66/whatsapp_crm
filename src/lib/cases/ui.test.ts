@@ -12,6 +12,7 @@ import {
   moreFiltersCount,
   appendRows,
   DEFAULT_STAGES,
+  effectiveSnoozed,
   EMPTY_FILTERS,
   filtersFromSearch,
   filtersToSearch,
@@ -471,5 +472,25 @@ describe('moreFiltersCount', () => {
     expect(
       moreFiltersCount({ ...EMPTY_FILTERS, snoozed: 'all', noActivityDays: 3 })
     ).toBe(2);
+  });
+});
+
+describe('snoozed cases while searching', () => {
+  const q = { ...EMPTY_FILTERS, q: 'acme' };
+  it('shows them when no mode was chosen, and counts no filter for it', () => {
+    expect(effectiveSnoozed(q)).toBe('all');
+    expect(effectiveSnoozed(EMPTY_FILTERS)).toBe('hide');
+    expect(filtersToSearch(q)).toBe('q=acme');
+    expect(activeFilterCount(q)).toBe(1);
+    expect(moreFiltersCount(q)).toBe(0);
+    expect(activeFilterCount({ ...q, snoozed: 'all' })).toBe(1);
+    expect(moreFiltersCount({ ...q, snoozed: 'all' })).toBe(0);
+  });
+  it('a chosen Hide is sent, counted and read back from the URL', () => {
+    const hide = { ...q, snoozed: 'hide' as const };
+    expect(filtersToSearch(hide)).toBe('q=acme&snoozed=hide');
+    expect(filtersFromSearch(search('q=acme&snoozed=hide'))).toEqual(hide);
+    expect(activeFilterCount(hide)).toBe(2);
+    expect(moreFiltersCount(hide)).toBe(1);
   });
 });

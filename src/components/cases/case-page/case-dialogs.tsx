@@ -92,17 +92,21 @@ export function MoveStageDialog({
   onOpenChange,
   detail,
   onChanged,
-}: DialogProps) {
+  reasonFor,
+}: DialogProps & {
+  /** The outcome of a closed case whose reason is still to be recorded. */
+  reasonFor?: string;
+}) {
   const t = useTranslations('CasePage');
   const c = detail.case;
-  const [step, setStep] = useState<MoveStep>('pick');
+  const [step, setStep] = useState<MoveStep>(reasonFor ? 'reason' : 'pick');
   const [stage, setStage] = useState('');
   // The stage the person chose from, not whatever `detail` becomes under
   // the open dialog: the dialog is mounted when it opens.
   const [from, setFrom] = useState(c.stage);
   const [busy, setBusy] = useState(false);
   const [group, setGroup] = useState<GroupEndView | null>(null);
-  const [moved, setMoved] = useState('');
+  const [moved, setMoved] = useState(reasonFor ?? '');
   const [code, setCode] = useState<OutcomeReasonCode | ''>('');
   const [text, setText] = useState('');
 
@@ -178,7 +182,9 @@ export function MoveStageDialog({
           <DialogTitle>
             {step === 'pick'
               ? t('move.title')
-              : t('move.movedTitle', { stage: moved })}
+              : reasonFor
+                ? t('actions.addReason')
+                : t('move.movedTitle', { stage: moved })}
           </DialogTitle>
           <DialogDescription>
             {step === 'pick'
@@ -273,7 +279,7 @@ export function MoveStageDialog({
                 disabled={busy}
                 onClick={() => onOpenChange(false)}
               >
-                {t('move.later')}
+                {reasonFor ? t('cancel') : t('move.later')}
               </Button>
               <Button
                 disabled={!code || busy || locks.outcomeReason}

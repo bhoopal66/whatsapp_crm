@@ -16,12 +16,15 @@ import {
   SNOOZED_MODES,
   type InboxFilters,
   type InboxRow,
+  type InboxSnoozed,
   type InboxSort,
 } from './ui';
 import type { CaseRole } from './types';
 
 /** The search box is a moment's question, never part of a saved view. */
-export type ViewFilters = Omit<InboxFilters, 'sort' | 'q'>;
+export type ViewFilters = Omit<InboxFilters, 'sort' | 'q' | 'snoozed'> & {
+  snoozed: InboxSnoozed;
+};
 
 export interface SavedView {
   viewId: string;
@@ -109,7 +112,7 @@ export function viewFiltersFromInbox(f: InboxFilters): ViewFilters {
   const { sort: _sort, q: _q, ...rest } = f;
   void _sort;
   void _q;
-  return rest;
+  return { ...rest, snoozed: f.snoozed ?? 'hide' };
 }
 
 /** The sort a view stores: null when it is the inbox default. */
@@ -121,7 +124,13 @@ export function viewSortFromInbox(f: InboxFilters): InboxSort | null {
 export function inboxFiltersFromView(
   view: Pick<SavedView, 'filters' | 'sort'>
 ): InboxFilters {
-  return { ...view.filters, q: null, sort: view.sort ?? EMPTY_FILTERS.sort };
+  return {
+    ...view.filters,
+    // 'hide' is what a view stores when no mode was chosen.
+    snoozed: view.filters.snoozed === 'hide' ? null : view.filters.snoozed,
+    q: null,
+    sort: view.sort ?? EMPTY_FILTERS.sort,
+  };
 }
 
 /* ---- snooze ---- */
