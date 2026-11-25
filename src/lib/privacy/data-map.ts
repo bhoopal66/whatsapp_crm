@@ -991,6 +991,9 @@ export const NOT_PERSONAL: Readonly<Record<string, string>> =
             // and identifiers; a name nobody saved, or a nickname, can still
             // be in one, which is why an admin must read every draft.
             'kb_learned_drafts',
+            // 318: general rules distilled from admins' reviews; a CHECK refuses
+            // e-mails, links, long numbers and redaction masks.
+            'kb_learn_skills',
             'kb_learn_looks',
             'ai_knowledge_chunks',
             'ai_knowledge_documents',
