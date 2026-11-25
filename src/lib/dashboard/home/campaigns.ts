@@ -76,7 +76,7 @@ export interface WeekSummary {
  * one stopped before its first send is not a campaign that went out.
  */
 export function weekCampaigns<
-  T extends Pick<CampaignRow, 'sent_count'> & { status: string },
+  T extends { status: string; sent_count: number | null },
 >(rows: readonly T[]): T[] {
   return rows.filter(
     (r) =>
