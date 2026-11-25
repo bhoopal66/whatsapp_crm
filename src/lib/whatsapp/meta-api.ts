@@ -88,6 +88,14 @@ export class MetaError extends Error {
     return this.status === 401 || this.code === 190 || this.code === 200
   }
 
+  /**
+   * True when the sending number itself cannot send: not registered with
+   * the Cloud API (#133010), or its WhatsApp account is locked (#131031).
+   */
+  get isNumberUnavailable(): boolean {
+    return this.code === 133010 || this.code === 131031
+  }
+
   /** True when the WABA hit its messaging or template rate limit. */
   get isRateLimited(): boolean {
     return this.status === 429 || this.code === 4 || this.code === 80007

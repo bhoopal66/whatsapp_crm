@@ -31,6 +31,8 @@ import {
 import { runBroadcastPass } from './broadcast-pass';
 import { markBroadcastSending, planBroadcastResume } from './broadcast-resume';
 import { MetaError } from './meta-api';
+import { OpenWAError } from './openwa-api';
+import { WhapiError } from './whapi-api';
 import {
   SEND_UNCONFIRMED_REASON,
   SENT_NOT_RECORDED_REASON,
@@ -702,5 +704,115 @@ describe('Stop (migration 301)', () => {
       'utf8'
     );
     expect(sql).toContain(`NEW.error_message = '${SEND_UNCONFIRMED_REASON}'`);
+  });
+});
+
+describe('a gateway that is down', () => {
+  const caused = <E extends Error>(err: E, cause: unknown): E =>
+    Object.assign(err, { cause });
+  const refused = Object.assign(new Error('connect ECONNREFUSED'), {
+    code: 'ECONNREFUSED',
+    syscall: 'connect',
+  });
+  const timedOut = Object.assign(new Error('timed out'), {
+    name: 'TimeoutError',
+  });
+
+  it.each<[string, Error]>([
+    [
+      'OpenWA 409 not connected',
+      new OpenWAError(
+        'Session is not connected. The WhatsApp client is not ready.',
+        409
+      ),
+    ],
+    [
+      'OpenWA 400 not started',
+      new OpenWAError(
+        "Session 'x' is not active. Start the session first.",
+        400
+      ),
+    ],
+    [
+      'OpenWA page reload',
+      new OpenWAError('WhatsApp Web is reloading', 409, {
+        code: 'ENGINE_PAGE_RELOADING',
+      }),
+    ],
+    [
+      'OpenWA refused connection',
+      caused(new OpenWAError('fetch failed', 503), refused),
+    ],
+    [
+      'Whapi refused connection',
+      caused(new WhapiError('fetch failed', 503), refused),
+    ],
+    ['Meta refused connection', caused(new TypeError('fetch failed'), refused)],
+    ['Meta number not registered', new MetaError('x', 400, 133010)],
+    ['Meta account locked', new MetaError('x', 403, 131031)],
+  ])('%s: pauses, everyone stays pending', async (_name, err) => {
+    const w = world(3);
+    sendTemplate.mockRejectedValue(err);
+    await deliverBroadcast(fakeDb(w), planFor(w));
+    expect(sendTemplate).toHaveBeenCalledTimes(1);
+    expect(statuses(w)).toEqual(['pending', 'pending', 'pending']);
+    expect(w.broadcasts[0].status).toBe('sending');
+    // The reason shows, and is not the "may have been sent" mark.
+    expect(w.broadcast_recipients[0].error_message).toBeTruthy();
+    expect(w.broadcast_recipients[0].error_message).not.toBe(
+      SEND_UNCONFIRMED_REASON
+    );
+    // Back up: the same people get it, once.
+    sendTemplate.mockReset();
+    sendTemplate.mockImplementation(async () => ({ messageId: 'wamid.2' }));
+    const { plan } = await resume(fakeDb(w));
+    expect(plan.planned).toHaveLength(3);
+  });
+
+  it.each<[string, Error]>([
+    ['Whapi 503', new WhapiError('Service unavailable', 503)],
+    ['OpenWA 503', new OpenWAError('Transport died', 503)],
+  ])('%s: pauses, the one it was at is never resent', async (_name, err) => {
+    const w = world(3);
+    sendTemplate.mockRejectedValue(err);
+    await deliverBroadcast(fakeDb(w), planFor(w));
+    expect(sendTemplate).toHaveBeenCalledTimes(1);
+    expect(statuses(w)).toEqual(['failed', 'pending', 'pending']);
+    expect(w.broadcast_recipients[0].error_message).toBe(
+      SEND_UNCONFIRMED_REASON
+    );
+    expect(w.broadcast_recipients[1].error_message).toBeTruthy();
+    const { plan } = await resume(fakeDb(w));
+    expect(plan.planned.map((p) => p.recipientRowId)).toEqual([
+      'r00001',
+      'r00002',
+    ]);
+  });
+
+  it.each<[string, Error, boolean]>([
+    ['a bad number', new OpenWAError('Invalid chatId', 400), false],
+    ['Whapi bad number', new WhapiError('bad to', 400), false],
+    ['Meta bad number', new MetaError('x', 400, 131026), false],
+    [
+      'a timeout after sending',
+      caused(new OpenWAError('timeout', 503), timedOut),
+      true,
+    ],
+    [
+      'an OpenWA send cut short',
+      new OpenWAError(
+        'WhatsApp Web reloaded its page while the message was being sent, and it may or may not have been sent. Check the chat before sending it again.',
+        409
+      ),
+      true,
+    ],
+  ])('%s: fails one recipient and goes on', async (_name, err, unconfirmed) => {
+    const w = world(2);
+    sendTemplate.mockRejectedValueOnce(err);
+    await deliverBroadcast(fakeDb(w), planFor(w));
+    expect(statuses(w)).toEqual(['failed', 'sent']);
+    expect(
+      w.broadcast_recipients[0].error_message === SEND_UNCONFIRMED_REASON
+    ).toBe(unconfirmed);
   });
 });

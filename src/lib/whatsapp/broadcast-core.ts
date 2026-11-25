@@ -23,6 +23,7 @@ import {
   describeSendFailure,
   isChannelLevelFailure,
   isDefiniteSendRefusal,
+  isGatewayUnavailable,
 } from '@/lib/whatsapp/provider';
 import {
   resolveChannelForSurface,
@@ -596,11 +597,14 @@ export async function deliverBroadcast(
   // Set when the delivery lock is no longer certainly this pass's: the
   // campaign is then another pass's to send and to settle.
   let lockLost = false;
+  // Set when the gateway answered that it is unavailable: the recipient it
+  // was at may have the message, the ones after it are left pending.
+  let unavailable: string | null = null;
   let attempted = 0;
   let refreshedAt = Date.now();
   let refreshedAtAttempt = 0;
 
-  for (const recipient of plan.planned) {
+  for (const [index, recipient] of plan.planned.entries()) {
     if (
       opts.keepLock &&
       (attempted - refreshedAtAttempt >= LOCK_REFRESH_SENDS ||
@@ -756,6 +760,9 @@ export async function deliverBroadcast(
             describeSendFailure(error)
           );
           lastError = SEND_UNCONFIRMED_REASON;
+          if (isGatewayUnavailable(error)) {
+            unavailable = describeSendFailure(error);
+          }
           break;
         }
         // Provider-aware: names Meta's closed 24-hour window and
@@ -818,6 +825,22 @@ export async function deliverBroadcast(
           error_message: lastError || 'Unknown error',
         })
         .eq('id', recipient.recipientRowId);
+    }
+
+    if (unavailable) {
+      stopped = unavailable;
+      // On the next recipient, as this one is never sent to again: the
+      // reason shows, and the cron waits before it continues.
+      const next = plan.planned[index + 1];
+      if (next) {
+        await db
+          .from('broadcast_recipients')
+          .update({ error_message: unavailable })
+          .eq('id', next.recipientRowId)
+          .in('status', ['pending', 'failed'])
+          .or(RESENDABLE_FILTER);
+      }
+      break;
     }
   }
 

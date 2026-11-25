@@ -35,6 +35,7 @@ vi.mock('@/lib/whatsapp/provider', () => ({
   // Every other error here stands for a refusal the gateway answered;
   // unconfirmed sends are in broadcast-delivery.test.ts.
   isDefiniteSendRefusal: () => true,
+  isGatewayUnavailable: () => false,
 }));
 // The reconcile RPC (migration 066) goes through the service-role client.
 const rpc = vi.fn<

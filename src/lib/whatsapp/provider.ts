@@ -785,19 +785,44 @@ export async function getNumberSafetyRating(
  * A fan-out loop uses this to stop instead of burning one gateway call
  * — and one permanently "failed" recipient — per remaining row. Read
  * off the raw error, never the `describeSendFailure` wording.
+ *
+ * True only of failures `isDefiniteSendRefusal` agrees on: the caller
+ * leaves the recipient to be sent to again.
  */
 export function isChannelLevelFailure(err: unknown): boolean {
+  // Whoever the recipient is, the gateway cannot be reached.
+  if (neverConnected(err)) return true;
   if (err instanceof whapi.WhapiError) {
     return err.isAuthError || err.isUnknownChannel || err.isBillingError;
   }
   if (err instanceof meta.MetaError) {
-    return err.isAuthError;
+    return err.isAuthError || err.isNumberUnavailable;
   }
   if (err instanceof openwa.OpenWAError) {
     // The pacing governor is per number, so the next send refuses too.
-    return err.isAuthError || err.isSessionNotFound || err.isPacingLimited;
+    return (
+      err.isAuthError ||
+      err.isSessionNotFound ||
+      err.isSessionNotConnected ||
+      err.isPacingLimited
+    );
   }
   return false;
+}
+
+/**
+ * True when the gateway itself answered 503: the number cannot send right
+ * now, but whether this one message went out is not known. A fan-out stops
+ * here too, without ever repeating the recipient it was at. Not our own
+ * 503 for a missing answer (it has a `cause`): one slow media link makes
+ * that timeout.
+ */
+export function isGatewayUnavailable(err: unknown): boolean {
+  return (
+    (err instanceof whapi.WhapiError || err instanceof openwa.OpenWAError) &&
+    err.status === 503 &&
+    err.cause === undefined
+  );
 }
 
 /**
@@ -830,13 +855,15 @@ export function isChannelLevelFailure(err: unknown): boolean {
  *
  * OpenWA follows the same rule: its 409 ("engine not ready") and 429
  * (pacing) are refusals before anything was sent, while its synthetic
- * 503 (lost connection, timeout) and 502 (no message id) are not.
+ * 503 (lost connection, timeout) and 502 (no message id) are not, nor is
+ * the 409 of a send cut short, which says it may have been sent.
  *
  * A retry decision reads this. Read off the raw error, never the
  * `describeSendFailure` wording.
  */
 export function isDefiniteSendRefusal(err: unknown): boolean {
   if (neverConnected(err)) return true;
+  if (err instanceof openwa.OpenWAError && err.mayHaveBeenSent) return false;
   if (
     err instanceof whapi.WhapiError ||
     err instanceof meta.MetaError ||
@@ -927,7 +954,7 @@ export function describeSendFailure(error: unknown): string {
         (minutes ? `retry in about ${minutes} minutes.` : 'retry later.')
       );
     }
-    if (error.isNotReady) {
+    if (error.isNotReady || error.isSessionNotConnected) {
       return (
         'The OpenWA number is not connected to WhatsApp right now (starting, ' +
         'or logged out on the phone); an admin should check Settings → WhatsApp.'
