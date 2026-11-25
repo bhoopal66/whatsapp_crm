@@ -15,43 +15,74 @@ import {
 } from '@/lib/groups/member-requests';
 import {
   channelForGroup,
-  GroupHttpError,
   groupErrorResponse,
   loadGroupForCaller,
 } from '@/lib/groups/server';
-import { deleteIcon, getIcon, setIcon } from '@/lib/whatsapp/groups';
+import {
+  deleteIcon,
+  describeGroupFailure,
+  getIcon,
+  setIcon,
+} from '@/lib/whatsapp/groups';
 import { inlineImageType } from '@/lib/whatsapp/media-headers';
 
 export const maxDuration = 60;
 
 type Params = { params: Promise<{ id: string }> };
 
-const noIcon = () => new GroupHttpError(404, 'no_icon', 'No group picture');
+/**
+ * A 404, so the <img> falls back to initials. Kept by the browser for an
+ * hour: every avatar shown is otherwise one gateway call.
+ */
+const noIcon = (cacheable: boolean) =>
+  NextResponse.json(
+    { error: 'No group picture', code: 'no_icon' },
+    {
+      status: 404,
+      headers: {
+        'Cache-Control': cacheable ? 'private, max-age=3600' : 'no-store',
+      },
+    }
+  );
 
-export async function GET(_request: Request, { params }: Params) {
+export async function GET(request: Request, { params }: Params) {
+  // `v` counts the changes made on one screen and starts over on the next
+  // visit: an answer for 1 kept from before would hide a new picture.
+  const v = new URL(request.url).searchParams.get('v');
+  const cacheable = v === null || v === '0';
   try {
     const ctx = assertSalesAccess(await getCurrentAccount());
     const { id } = await params;
     const group = await loadGroupForCaller(ctx, id);
-    if (!group.channel_id) throw noIcon();
+    if (!group.channel_id) return noIcon(cacheable);
     const channel = await channelForGroup(group);
-    const icon = await getIcon({ channel, groupId: group.wa_group_id });
-    if (!icon) throw noIcon();
+    const icon = await getIcon({
+      channel,
+      groupId: group.wa_group_id,
+    }).catch((err) => {
+      // A gateway's 404 for the picture is no picture either.
+      if (describeGroupFailure(err) === 'group_not_found') return null;
+      throw err;
+    });
+    if (!icon) return noIcon(cacheable);
     // The bytes come from the gateway: only a raster image is passed
     // through. An SVG is a document that runs script when the link is
     // opened on our origin, whatever nosniff says.
     const type = inlineImageType(icon.contentType);
-    if (!type) throw noIcon();
+    if (!type) return noIcon(cacheable);
     return new NextResponse(icon.bytes, {
       headers: {
         'Content-Type': type,
         'Content-Security-Policy': "default-src 'none'; sandbox",
         'X-Content-Type-Options': 'nosniff',
-        'Cache-Control': 'private, max-age=300',
+        'Cache-Control': cacheable ? 'private, max-age=300' : 'no-store',
       },
     });
   } catch (err) {
-    return groupErrorResponse(err);
+    // next.config.ts leaves this path's header to the route.
+    const res = groupErrorResponse(err);
+    res.headers.set('Cache-Control', 'no-store');
+    return res;
   }
 }
 

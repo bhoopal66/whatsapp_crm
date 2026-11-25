@@ -183,12 +183,18 @@ export function parseJoinDecision(raw: unknown): {
 export const MAX_MANAGERS = 50;
 
 /** PUT managers: `{ userIds }`, the whole new set. */
-export function parseManagerSet(raw: unknown): { userIds: string[] } {
-  const userIds = uuidList(asObject(raw).userIds, 'userIds');
+export function parseManagerSet(raw: unknown): {
+  userIds: string[];
+  /** The set the tab loaded; absent from a tab of an older build. */
+  base?: string[];
+} {
+  const b = asObject(raw);
+  const userIds = uuidList(b.userIds, 'userIds');
   if (userIds.length > MAX_MANAGERS) {
     throw bad(`At most ${MAX_MANAGERS} managers`);
   }
-  return { userIds };
+  if (b.base === undefined) return { userIds };
+  return { userIds, base: uuidList(b.base, 'base') };
 }
 
 /** An uploaded icon's type and size, checked before Whapi sees it. */

@@ -187,7 +187,9 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
-        source: '/api/:path*',
+        // A group's picture sets its own (no-store or a short private
+        // life): a header set here replaces the route's.
+        source: '/api/:path((?!whatsapp/groups/[^/]+/icon$).*)',
         headers: [{ key: 'Cache-Control', value: 'no-store' }],
       },
       {

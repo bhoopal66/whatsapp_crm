@@ -7,6 +7,7 @@
 // mirror is never left.
 // ============================================================
 
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 
 import { getCurrentAccount, assertSalesAccess } from '@/lib/auth/account';
@@ -42,6 +43,64 @@ export const maxDuration = 60;
 
 type Params = { params: Promise<{ id: string }> };
 
+const unavailable = () =>
+  new GroupHttpError(503, 'unavailable', 'Could not load the group');
+
+interface ParticipantRow {
+  wa_id: string;
+  contact_id: string | null;
+  role: string;
+  added_at: string;
+}
+
+const PAGE = 1000;
+const MAX_IN = 200;
+
+/** Everyone in the group: paged, since one read answers 1,000 at most. */
+async function loadParticipants(
+  supabase: SupabaseClient,
+  groupId: string
+): Promise<ParticipantRow[]> {
+  const out: ParticipantRow[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabase
+      .from('whatsapp_group_participants')
+      .select('wa_id, contact_id, role, added_at')
+      .eq('group_id', groupId)
+      .order('role', { ascending: false })
+      .order('wa_id')
+      .range(from, from + PAGE - 1);
+    if (error) {
+      console.error('[groups] participants read failed', error);
+      throw unavailable();
+    }
+    const rows = (data ?? []) as ParticipantRow[];
+    out.push(...rows);
+    if (rows.length < PAGE) return out;
+  }
+}
+
+/**
+ * Rows for a list of ids, in chunks an `.in()` URL can carry. A failed
+ * read throws: names left out would show people as bare numbers, and the
+ * screen keeps what it has on a 503.
+ */
+async function readByIds<T>(
+  ids: string[],
+  read: (chunk: string[]) => PromiseLike<{ data: unknown; error: unknown }>
+): Promise<T[]> {
+  const out: T[] = [];
+  for (let i = 0; i < ids.length; i += MAX_IN) {
+    const { data, error } = await read(ids.slice(i, i + MAX_IN));
+    if (error) {
+      console.error('[groups] names read failed', error);
+      throw unavailable();
+    }
+    out.push(...((data ?? []) as T[]));
+  }
+  return out;
+}
+
 /** Each action and whether WhatsApp lets only a group admin do it. */
 function adminOnlyActions(settings: GroupSettings) {
   return {
@@ -76,26 +135,14 @@ export async function GET(request: Request, { params }: Params) {
         (await persistGroupSnapshot(supabaseAdmin(), channel, fresh)) ?? group;
     }
 
-    const [parts, mgrs] = await Promise.all([
-      ctx.supabase
-        .from('whatsapp_group_participants')
-        .select('wa_id, contact_id, role, added_at')
-        .eq('group_id', id)
-        .order('role', { ascending: false }),
+    const [participants, mgrs] = await Promise.all([
+      loadParticipants(ctx.supabase, id),
       ctx.supabase
         .from('whatsapp_group_managers')
         .select('user_id')
         .eq('group_id', id),
     ]);
-    if (parts.error || mgrs.error) {
-      throw new GroupHttpError(503, 'unavailable', 'Could not load the group');
-    }
-    const participants = (parts.data ?? []) as Array<{
-      wa_id: string;
-      contact_id: string | null;
-      role: string;
-      added_at: string;
-    }>;
+    if (mgrs.error) throw unavailable();
     const managerIds = (mgrs.data ?? []).map((m) => m.user_id as string);
     const contactIds = [
       ...new Set(participants.map((p) => p.contact_id).filter(Boolean)),
@@ -104,30 +151,21 @@ export async function GET(request: Request, { params }: Params) {
     // Contact names under the caller's RLS: a customer they cannot see
     // stays a bare number. Manager names are staff names, workspace-wide.
     const [contacts, profiles] = await Promise.all([
-      contactIds.length
-        ? ctx.supabase.from('contacts').select('id, name').in('id', contactIds)
-        : Promise.resolve({ data: [] }),
-      managerIds.length
-        ? supabaseAdmin()
+      readByIds<{ id: string; name: string | null }>(contactIds, (ids) =>
+        ctx.supabase.from('contacts').select('id, name').in('id', ids)
+      ),
+      readByIds<{ user_id: string; full_name: string | null }>(
+        managerIds,
+        (ids) =>
+          supabaseAdmin()
             .from('profiles')
             .select('user_id, full_name')
             .eq('account_id', ctx.accountId)
-            .in('user_id', managerIds)
-        : Promise.resolve({ data: [] }),
+            .in('user_id', ids)
+      ),
     ]);
-    const nameOf = new Map(
-      ((contacts.data ?? []) as Array<{ id: string; name: string | null }>).map(
-        (c) => [c.id, c.name]
-      )
-    );
-    const staffName = new Map(
-      (
-        (profiles.data ?? []) as Array<{
-          user_id: string;
-          full_name: string | null;
-        }>
-      ).map((p) => [p.user_id, p.full_name])
-    );
+    const nameOf = new Map(contacts.map((c) => [c.id, c.name]));
+    const staffName = new Map(profiles.map((p) => [p.user_id, p.full_name]));
 
     const facts = {
       createdBy: group.created_by,

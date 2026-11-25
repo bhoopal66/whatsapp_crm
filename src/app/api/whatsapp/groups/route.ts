@@ -138,13 +138,13 @@ async function createdSnapshot(
  * role. The account pin matters: the read rule is not limited to the
  * active workspace. Only a group that exists on WhatsApp and is ACTIVE
  * (an ENDED group's reads are audited, on the Submission groups page).
- * Agents and up, as the page behind the row. A failed read is an empty
- * list: the rest of the page must still answer.
+ * Agents and up, as the page behind the row. A failed read is `null`: the
+ * rest of the page still answers, marked `partial`.
  */
 async function listedSubmissionRows(
   ctx: AccountContext,
   q: string | null
-): Promise<SubmissionListRow[]> {
+): Promise<SubmissionListRow[] | null> {
   const searching = nameSearchPattern(q) !== null;
   // `searchTerm`, not the name pattern: this one goes inside `or()`.
   const term = searching ? searchTerm(q) : null;
@@ -165,7 +165,7 @@ async function listedSubmissionRows(
     .limit(LIST_LIMIT);
   if (error) {
     console.error('[groups] submission groups failed', error);
-    return [];
+    return null;
   }
   return (data ?? []) as unknown as SubmissionListRow[];
 }
@@ -180,7 +180,7 @@ export async function GET(request: Request) {
       .select(GROUP_COLUMNS)
       .eq('account_id', ctx.accountId);
     if (pattern) query = query.ilike('name', pattern);
-    const [list, manageable, submissionRows, unread, mirrorWaIds] =
+    const [list, manageable, submissions, unread, mirrorWaIds] =
       await Promise.all([
         query
           .order('last_message_at', { ascending: false, nullsFirst: false })
@@ -199,6 +199,7 @@ export async function GET(request: Request) {
       throw unavailable('load the groups');
     }
     const groups = (list.data ?? []) as unknown as WhatsappGroupRow[];
+    const submissionRows = submissions ?? [];
     const canManage = idSet(manageable.data);
 
     // Display columns only: the caller may not read whatsapp_config,
@@ -244,6 +245,8 @@ export async function GET(request: Request) {
         canManage,
         channelOf,
       }),
+      // The client keeps the submission rows it has.
+      ...(submissions ? {} : { partial: true }),
     });
   } catch (err) {
     return groupErrorResponse(err);

@@ -12,7 +12,7 @@
 import { customerNotInGroup } from '@/lib/submission-groups/ui';
 
 import type { WhatsappGroupRow } from './types';
-import type { GroupListItem } from './ui';
+import { byActivity, type GroupListItem } from './ui';
 
 /** The `submission_groups` columns a list row needs, and no more. */
 export const SUBMISSION_ROW_COLUMNS =
@@ -44,9 +44,6 @@ export interface MergeGroupListInput {
 export function submissionRowName(row: SubmissionListRow): string {
   return row.subject?.trim() || row.customer_name?.trim() || row.submission_ref;
 }
-
-const activityOf = (g: GroupListItem): number =>
-  g.last_message_at ? Date.parse(g.last_message_at) || 0 : 0;
 
 export function mergeGroupList(input: MergeGroupListInput): GroupListItem[] {
   const { submissionRows, unread, canManage, channelOf } = input;
@@ -100,7 +97,5 @@ export function mergeGroupList(input: MergeGroupListInput): GroupListItem[] {
     }),
   }));
 
-  return [...normal, ...submission].sort(
-    (a, b) => activityOf(b) - activityOf(a) || a.name.localeCompare(b.name)
-  );
+  return [...normal, ...submission].sort(byActivity);
 }

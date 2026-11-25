@@ -8714,6 +8714,10 @@
     "syncing": "Syncing…",
     "syncDone": "{synced, plural, =1 {# group} other {# groups}} synced · {created} new · {left} left",
     "syncIncomplete": "The gateway's list looked incomplete; nothing was marked as left. Try again in a few minutes.",
+    "syncFailedNumbers": "Couldn't read these numbers: {names}. Their groups are unchanged.",
+    "syncFailedGroups": "{count, plural, =1 {# group} other {# groups}} couldn't be saved. Try again in a few minutes.",
+    "syncTruncated": "Not every group could be read this time; the ones missed are unchanged.",
+    "listPartial": "Submission groups couldn't be refreshed. What you see may be out of date.",
     "syncFailed": "Couldn't sync groups: {reason}",
     "loadFailed": "Couldn't load groups. Try again in a moment.",
     "emptyTitle": "No groups yet",
@@ -8833,6 +8837,7 @@
       "createAnother": "Create another",
       "syncNow": "Sync now",
       "syncNowFailed": "Couldn't sync. Try again, or run a sync from the Groups screen.",
+      "syncNowPartial": "The sync didn't read every group, so the new one may still be missing. Check the list, then sync again if needed.",
       "resultWarnings": "Created, with a few things to check",
       "warnings": {
         "adds_stopped": "Adding people stopped early. Send the rest the invite link.",

@@ -444,14 +444,20 @@ export async function persistGroupSnapshot(
     );
     if (up.error) throw up.error;
   }
-  const cur = await admin
-    .from('whatsapp_group_participants')
-    .select('wa_id')
-    .eq('group_id', saved.id);
-  if (cur.error) throw cur.error;
-  const gone = ((cur.data ?? []) as Array<{ wa_id: string }>)
-    .map((r) => r.wa_id)
-    .filter((w) => !people.has(w));
+  // Paged: a group may hold more people than PostgREST answers at once.
+  const gone: string[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const cur = await admin
+      .from('whatsapp_group_participants')
+      .select('wa_id')
+      .eq('group_id', saved.id)
+      .order('wa_id')
+      .range(from, from + PAGE - 1);
+    if (cur.error) throw cur.error;
+    const rows = (cur.data ?? []) as Array<{ wa_id: string }>;
+    for (const r of rows) if (!people.has(r.wa_id)) gone.push(r.wa_id);
+    if (rows.length < PAGE) break;
+  }
   // Dropping everyone here would have the next good snapshot INSERT them
   // again, and 219's AFTER INSERT trigger would hand back the manager
   // access an admin had removed. A real emptying arrives person by person

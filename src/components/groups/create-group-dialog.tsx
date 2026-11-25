@@ -47,6 +47,8 @@ import {
   GROUP_DESCRIPTION_MAX,
   GROUP_NAME_MAX,
   isCreatedButUnsaved,
+  isWholeSync,
+  parseSyncProblems,
   mergeMembers,
   nameLength,
   parseCreateResult,
@@ -207,7 +209,14 @@ export function CreateGroupDialog({
     try {
       const res = await fetch('/api/whatsapp/groups/sync', { method: 'POST' });
       if (!res.ok) throw new Error(String(res.status));
+      const problems = parseSyncProblems(await res.json().catch(() => null));
       onCreated(null);
+      if (!isWholeSync(problems)) {
+        // The new group may be among what was missed: not done yet.
+        toast.warning(t('syncNowPartial'), { duration: 10_000 });
+        setPhase({ kind: 'unsaved', syncing: false });
+        return;
+      }
       onOpenChange(false);
     } catch {
       toast.error(t('syncNowFailed'));

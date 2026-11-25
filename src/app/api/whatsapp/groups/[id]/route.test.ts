@@ -61,6 +61,8 @@ vi.mock('@/lib/groups/server', async (importOriginal) => ({
   }),
 }));
 
+import { fakeSupabase, type FakeDb } from '@/lib/groups/test-db';
+
 import { DELETE, GET, PATCH } from './route';
 
 const G = '22222222-2222-4222-8222-222222222222';
@@ -71,7 +73,7 @@ const params = { params: Promise.resolve({ id: G }) };
 const rlsClient = {
   from: () => {
     const q: Record<string, unknown> = {};
-    for (const m of ['select', 'eq', 'order']) q[m] = () => q;
+    for (const m of ['select', 'eq', 'order', 'range', 'in']) q[m] = () => q;
     q.maybeSingle = async () => ({ data: mocks.group, error: null });
     // The participant and manager lists await the query itself.
     q.then = (done: (v: unknown) => void) => done({ data: [], error: null });
@@ -148,6 +150,77 @@ describe('GET /api/whatsapp/groups/[id]', () => {
     mocks.submissionRead = { data: null, error: new Error('down') };
     const res = await GET(new Request('http://x'), params);
     expect(res.status).toBe(503);
+  });
+});
+
+describe('GET: the people in a group', () => {
+  let rls: FakeDb;
+  const uuid = (n: number) =>
+    `44444444-4444-4444-8444-${String(n).padStart(12, '0')}`;
+  const read = async (rows: number) => {
+    rls.tables.whatsapp_group_participants = Array.from(
+      { length: rows },
+      (_, i) => ({
+        group_id: G,
+        wa_id: String(i).padStart(5, '0'),
+        contact_id: i < 450 ? uuid(i) : null,
+        role: 'member',
+      })
+    );
+    const ctx = await mocks.getCurrentAccount();
+    mocks.getCurrentAccount.mockResolvedValue({
+      ...ctx,
+      supabase: fakeSupabase(rls),
+    });
+    return GET(new Request('http://x'), params);
+  };
+
+  beforeEach(() => {
+    rls = {
+      maxRows: 1000,
+      rpc: { whatsapp_group_can_manage: () => ({ data: true }) },
+      tables: {
+        whatsapp_groups: [mocks.group!],
+        whatsapp_group_managers: [],
+        contacts: Array.from({ length: 450 }, (_, i) => ({
+          id: uuid(i),
+          name: `C${i}`,
+        })),
+      },
+    };
+  });
+
+  it('lists everyone past the first thousand, each once', async () => {
+    const { participants } = await (await read(1024)).json();
+    expect(participants).toHaveLength(1024);
+    expect(
+      new Set(participants.map((p: { wa_id: string }) => p.wa_id)).size
+    ).toBe(1024);
+  });
+
+  it('chunks the contact ids', async () => {
+    const sizes: number[] = [];
+    const client = fakeSupabase(rls);
+    const from = client.from;
+    client.from = (table: string) => {
+      const q = from(table);
+      const real = q.in.bind(q);
+      q.in = (col: string, vs: unknown[]) => {
+        if (table === 'contacts') sizes.push(vs.length);
+        return real(col, vs);
+      };
+      return q;
+    };
+    await read(450);
+    const ctx = await mocks.getCurrentAccount();
+    mocks.getCurrentAccount.mockResolvedValue({ ...ctx, supabase: client });
+    await GET(new Request('http://x'), params);
+    expect(sizes).toEqual([200, 200, 50]);
+  });
+
+  it('answers 503 when the names cannot be read', async () => {
+    rls.errors = { 'contacts:select': { message: 'timeout' } };
+    expect((await read(3)).status).toBe(503);
   });
 });
 
