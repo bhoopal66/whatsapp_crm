@@ -39,6 +39,7 @@ import {
 } from '@/components/ui/dialog';
 import { useGuestRefresh, useTableSignal } from '@/hooks/use-deal-rooms';
 import { useAuth } from '@/hooks/use-auth';
+import { draftAfterSend } from '@/lib/chat/composer';
 import { markRoomBellsRead } from '@/lib/deal-rooms/bells';
 import type { MessagePage, RoomDetail } from '@/lib/deal-rooms/reads';
 import {
@@ -145,16 +146,23 @@ export function DealRoomView({
     !isBankGuest
   );
   // A guest cannot read `deal_rooms`, so that signal never reaches them.
-  useGuestRefresh(detail?.access === 'guest', reload);
+  // On the viewer, not the detail: a failed first read has no detail yet.
+  useGuestRefresh(isBankGuest, reload);
 
   if (!detail) {
+    if (state === 'error')
+      return (
+        <LoadFailed
+          message={t('rooms.loadFailed')}
+          onRetry={() => {
+            setState('loading');
+            void reload();
+          }}
+        />
+      );
     return (
       <p className="text-muted-foreground p-8 text-center text-sm">
-        {state === 'gone'
-          ? t('rooms.notFound')
-          : state === 'error'
-            ? t('rooms.loadFailed')
-            : ''}
+        {state === 'gone' ? t('rooms.notFound') : ''}
       </p>
     );
   }
@@ -273,11 +281,6 @@ export function DealRoomView({
               </p>
             )}
             <GroupTimeline roomId={roomId} />
-            <GroupComposer
-              roomId={roomId}
-              mode={mode}
-              audience={groupAudience(room.participantCount)}
-            />
           </>
         ) : (
           <>
@@ -299,6 +302,17 @@ export function DealRoomView({
             </div>
           </>
         )}
+        {/* Hidden, not unmounted, on Team notes: the typed text, the staged
+            file, the template values and the "unconfirmed, do not resend"
+            warning are the sender's, and a tab switch must not lose them.
+            `hidden` also takes it out of focus order and the a11y tree. */}
+        <div hidden={tab !== 'group'}>
+          <GroupComposer
+            roomId={roomId}
+            mode={mode}
+            audience={groupAudience(room.participantCount)}
+          />
+        </div>
       </div>
       {threadRoot && (
         <ThreadPanel
@@ -559,12 +573,21 @@ function GroupComposer({
   const { sb } = useChatWorkspaceContext();
   const { accountId } = useAuth();
   const [text, setText] = useState('');
+  // What is in the box now: the box stays live while a send is in flight.
+  const textRef = useRef(text);
   const [busy, setBusy] = useState(false);
   // The last send may be in the group: said until the next one starts.
   const [unconfirmed, setUnconfirmed] = useState(false);
   const [templates, setTemplates] = useState<RoomTemplateRow[] | null>(null);
   const [picked, setPicked] = useState('');
   const [values, setValues] = useState<string[]>([]);
+  const valuesRef = useRef(values);
+  const pickedRef = useRef(picked);
+  useEffect(() => {
+    textRef.current = text;
+    valuesRef.current = values;
+    pickedRef.current = picked;
+  }, [text, values, picked]);
   const [confirming, setConfirming] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -679,15 +702,24 @@ function GroupComposer({
           className="mt-2 flex items-end gap-2"
           onSubmit={async (e) => {
             e.preventDefault();
+            // What was typed on while the post was in flight stays.
+            const left = (sent: string) =>
+              draftAfterSend(
+                { text: textRef.current, picked: [] },
+                { text: sent, picked: [] }
+              ).text;
+            const sent = text;
             if (file) {
               const form = new FormData();
               form.set('file', file);
               if (text.trim()) form.set('caption', text);
               if (await send(form)) {
                 setFile(null);
-                setText('');
+                setText(left(sent));
               }
-            } else if (text.trim() && (await send({ text }))) setText('');
+            } else if (text.trim() && (await send({ text }))) {
+              setText(left(sent));
+            }
           }}
         >
           <input
@@ -832,6 +864,8 @@ function GroupComposer({
               disabled={busy || !ready}
               onClick={async () => {
                 if (!template) return;
+                const sentPicked = picked;
+                const sentValues = values;
                 const ok = await send({
                   templateName: template.name,
                   language: template.language,
@@ -839,8 +873,14 @@ function GroupComposer({
                 });
                 if (ok) {
                   setConfirming(false);
-                  setPicked('');
-                  setValues([]);
+                  // Only what was sent is cleared, not a pick made since.
+                  if (
+                    pickedRef.current === sentPicked &&
+                    valuesRef.current === sentValues
+                  ) {
+                    setPicked('');
+                    setValues([]);
+                  }
                 }
               }}
               className="bg-amber-800 text-white hover:bg-amber-900"

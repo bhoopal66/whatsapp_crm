@@ -27,6 +27,7 @@ import { cn } from '@/lib/utils';
 import { ChatFileChip, ChatImageThumb, ChatVideo } from './attachment-views';
 import { useChatWorkspaceContext } from './chat-context';
 import { ImageLightbox } from './image-lightbox';
+import { LoadFailed } from './load-failed';
 import { ChatVoiceNote } from './voice-note';
 
 const PAGE = 40;
@@ -42,6 +43,8 @@ interface TabState {
   items: ChannelFile[];
   before: string | null;
   loading: boolean;
+  /** The first page could not be read: not the same as an empty tab. */
+  failed?: boolean;
 }
 
 /**
@@ -57,6 +60,7 @@ export function FilesPanel({ channelId, onClose, onJump }: FilesPanelProps) {
   const [tab, setTab] = useState<FileTab>('all');
   const [state, setState] = useState<TabState | null>(null);
   const [viewing, setViewing] = useState<number | null>(null);
+  const [attempt, setAttempt] = useState(0);
   // The list on screen; a page asked for under another one is dropped.
   const current = useRef<FilesRequest>({ tab: 'all', gen: 0 });
 
@@ -88,13 +92,13 @@ export function FilesPanel({ channelId, onClose, onJump }: FilesPanelProps) {
       .then((s) => !stale() && setState(s))
       .catch((err) => {
         if (stale()) return;
-        setState({ items: [], before: null, loading: false });
+        setState({ items: [], before: null, loading: false, failed: true });
         fail(err);
       });
     return () => {
       off = true;
     };
-  }, [load, tab, fail]);
+  }, [load, tab, fail, attempt]);
 
   const more = () => {
     if (!state?.before || state.loading) return;
@@ -132,7 +136,7 @@ export function FilesPanel({ channelId, onClose, onJump }: FilesPanelProps) {
   const download = (f: ChannelFile) =>
     signedFileUrl(sb, f.storagePath)
       .then((url) => downloadUrlAs(url, f.name))
-      .catch(() => {});
+      .catch(fail);
   const jump = (f: ChannelFile) =>
     onJump({ id: f.messageId, threadRootId: f.threadRootId });
 
@@ -234,6 +238,14 @@ export function FilesPanel({ channelId, onClose, onJump }: FilesPanelProps) {
           <p className="text-muted-foreground p-6 text-center text-sm">
             {t('loading')}
           </p>
+        ) : state.failed ? (
+          <LoadFailed
+            message={t('loadFailed')}
+            onRetry={() => {
+              setState(null);
+              setAttempt((n) => n + 1);
+            }}
+          />
         ) : items.length === 0 ? (
           <p className="text-muted-foreground p-6 text-center text-sm">
             {t(`empty.${tab}`)}

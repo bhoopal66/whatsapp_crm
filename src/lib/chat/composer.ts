@@ -268,6 +268,27 @@ export function draftAfterSend(
     : { text: '', picked: [] };
 }
 
+/**
+ * What a server refusal was about. A refusal (removed, archived, posting
+ * rule) is kept while it holds; when this changes the channel is not
+ * what was refused, and the composer asks again rather than stay shut.
+ */
+export function refusalScope(
+  channel: {
+    membership: unknown;
+    archivedAt: string | null;
+    posting: unknown;
+  } | null,
+  block: ComposerBlock | null
+): string {
+  return JSON.stringify([
+    !!channel?.membership,
+    channel?.archivedAt ?? null,
+    channel?.posting ?? null,
+    block,
+  ]);
+}
+
 /** The chips left once a send succeeded: only those that were sent go. */
 export function chipsAfterSend<T extends { id: string }>(
   current: readonly T[],

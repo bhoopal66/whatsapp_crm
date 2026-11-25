@@ -6196,7 +6196,8 @@
         "archive": "Archive",
         "text": "Text",
         "other": "File"
-      }
+      },
+      "loadFailed": "Couldn't load the files."
     },
     "pins": {
       "title": "Pinned messages",
@@ -6205,7 +6206,8 @@
       "empty": "Nothing is pinned yet. Pin a message from its ⋯ menu to keep it here.",
       "jump": "Jump to the message from {name}",
       "inThread": "In a thread",
-      "noText": "Attachment"
+      "noText": "Attachment",
+      "loadFailed": "Couldn't load the pinned messages."
     },
     "picker": {
       "search": "Search people",
@@ -6262,7 +6264,8 @@
       "remove": "Remove",
       "inThread": "in a thread",
       "erased": "This message was erased.",
-      "noText": "Attachment or shared conversation"
+      "noText": "Attachment or shared conversation",
+      "loadFailed": "Couldn't load your saved messages."
     },
     "rooms": {
       "new": "New deal room",
