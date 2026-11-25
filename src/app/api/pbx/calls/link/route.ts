@@ -68,7 +68,7 @@ export async function POST(request: Request) {
       !call.user_id &&
       ['ringing', 'in_progress'].includes(call.status)
     ) {
-      return NextResponse.json({ linked: false });
+      return NextResponse.json({ linked: false, atEnd: true });
     }
     return linked instanceof NextResponse
       ? linked

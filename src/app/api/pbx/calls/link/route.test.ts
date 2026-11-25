@@ -146,7 +146,10 @@ describe('POST /api/pbx/calls/link', () => {
     Object.assign(rls.tables.calls[0], { status: 'ringing', user_id: null });
     const res = await post(asked);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ linked: false });
+    expect(await res.json()).toEqual({
+      linked: false,
+      atEnd: true,
+    });
     // Answered by a colleague, or ended with nobody on it: refused.
     Object.assign(rls.tables.calls[0], {
       status: 'in_progress',

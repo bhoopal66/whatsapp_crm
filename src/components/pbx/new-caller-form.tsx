@@ -45,7 +45,10 @@ export function useNewCallerForm() {
     // 200 { linked: false }: not a call of mine, or it has a customer.
     const body = (await res.json().catch(() => null)) as {
       linked?: unknown;
+      atEnd?: unknown;
     } | null;
+    // Still ringing: its number is matched to the contact when it ends.
+    if (body?.atEnd === true) return;
     if (body?.linked !== true) toast.warning(t('linkSkipped'));
   };
 
