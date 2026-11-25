@@ -2,7 +2,7 @@ import { createBrowserClient } from '@supabase/ssr'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { createSessionFetch } from './session-fetch'
-import { AUTH_COOKIE_NAME, publicSupabaseUrl } from './urls'
+import { authCookieOptions, publicSupabaseUrl } from './urls'
 
 // Singleton instance — one client shared across the whole browser session.
 // Creating multiple clients causes auth-lock contention ("Lock was released
@@ -21,7 +21,7 @@ export function createClient() {
     // Pin the session cookie name — the default is derived from the
     // URL, which differs between browser and server here. See urls.ts.
     {
-      cookieOptions: { name: AUTH_COOKIE_NAME },
+      cookieOptions: authCookieOptions(),
       global: { fetch: createSessionFetch() },
     }
   )

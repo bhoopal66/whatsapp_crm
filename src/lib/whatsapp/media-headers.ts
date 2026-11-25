@@ -37,6 +37,18 @@ const OFFICE_FILE =
  * `private` keeps a shared cache from handing one tenant's media to
  * another (the response is behind a session cookie).
  */
+/**
+ * The bare raster type of a Content-Type, when it is one a browser may
+ * show inline from our origin; null otherwise. SVG is not on the list: it
+ * is a document that can carry script.
+ */
+export function inlineImageType(
+  rawType: string | null | undefined
+): string | null {
+  const type = (rawType ?? '').split(';')[0]!.trim().toLowerCase();
+  return INLINE_IMAGES.has(type) ? type : null;
+}
+
 export function mediaResponseHeaders(
   rawType: string | null | undefined
 ): Record<string, string> {

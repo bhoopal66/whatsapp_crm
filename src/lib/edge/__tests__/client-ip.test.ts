@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { clientIp } from '../client-ip';
 
@@ -55,5 +55,21 @@ describe('clientIp', () => {
         '1.1.1.1'
       );
     }
+  });
+});
+
+describe('clientIp without EDGE_CLIENT_IP_HEADER', () => {
+  it('warns once in production, never in development', async () => {
+    const { clientIp, resetClientIpWarning } = await import('../client-ip');
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    resetClientIpWarning();
+    const h = new Headers({ 'cf-connecting-ip': '1.2.3.4' });
+    expect(clientIp(h, { NODE_ENV: 'development' })).toBeUndefined();
+    expect(warn).not.toHaveBeenCalled();
+    clientIp(h, { NODE_ENV: 'production' });
+    clientIp(h, { NODE_ENV: 'production' });
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0]![0])).toMatch(/EDGE_CLIENT_IP_HEADER/);
+    warn.mockRestore();
   });
 });

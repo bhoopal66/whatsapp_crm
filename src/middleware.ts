@@ -4,7 +4,11 @@ import {
   createServerRefresh,
   REFRESH_UNANSWERED_COOKIE,
 } from '@/lib/supabase/session-fetch'
-import { AUTH_COOKIE_NAME, serverSupabaseUrl } from '@/lib/supabase/urls'
+import {
+  AUTH_COOKIE_NAME,
+  authCookieOptions,
+  serverSupabaseUrl,
+} from '@/lib/supabase/urls'
 import {
   authUnavailableResponse,
   isAuthUnavailable,
@@ -12,6 +16,7 @@ import {
 import { safeNextPath } from '@/lib/auth/login-client'
 import { supabaseAdmin } from '@/lib/automations/admin-client'
 import { contentSecurityPolicy } from '@/lib/csp'
+import { isCrossSiteApiWrite } from '@/lib/edge/same-origin'
 import { createFrameOriginsLookup } from '@/lib/web-form/frame-lookup'
 import {
   frameHeadersFor,
@@ -48,6 +53,22 @@ async function webFormFrameHeaders(pathname: string) {
 }
 
 export async function middleware(request: NextRequest) {
+  // A state-changing /api call a browser made from another site or
+  // subdomain (CSRF): refused before any session work. Webhooks, crons
+  // and API-key callers send no browser headers and are not affected.
+  if (
+    isCrossSiteApiWrite({
+      method: request.method,
+      pathname: request.nextUrl.pathname,
+      headers: request.headers,
+    })
+  ) {
+    return NextResponse.json(
+      { error: 'Cross-site request refused' },
+      { status: 403 }
+    )
+  }
+
   let supabaseResponse = NextResponse.next({ request })
 
   const refresh = createServerRefresh()
@@ -58,7 +79,7 @@ export async function middleware(request: NextRequest) {
       // Must match the browser's cookie name — see urls.ts. Without
       // this the middleware cannot see the session and redirects every
       // signed-in request straight back to /login.
-      cookieOptions: { name: AUTH_COOKIE_NAME },
+      cookieOptions: authCookieOptions(),
       global: { fetch: refresh.fetch },
       cookies: {
         getAll() {

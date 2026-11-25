@@ -18,7 +18,10 @@ export function clientIp(
   env: Record<string, string | undefined> = process.env
 ): string | undefined {
   const name = env.EDGE_CLIENT_IP_HEADER?.trim().toLowerCase();
-  if (!name) return undefined;
+  if (!name) {
+    warnUnsetOnce(env);
+    return undefined;
+  }
   const raw = headers.get(name);
   if (!raw) return undefined;
   if (name !== 'x-forwarded-for') return raw.trim() || undefined;
@@ -29,4 +32,25 @@ export function clientIp(
   // Fewer entries than proxies: the request did not come through them all.
   const i = entries.length - trusted;
   return i >= 0 ? entries[i] || undefined : undefined;
+}
+
+let warned = false;
+
+/**
+ * A production server without EDGE_CLIENT_IP_HEADER keys every sign-in
+ * and webhook limit on one shared bucket (docs/security.md, "Client
+ * IP"): said once per process, loudly, so it is not discovered after an
+ * attack.
+ */
+function warnUnsetOnce(env: Record<string, string | undefined>): void {
+  if (warned || env.NODE_ENV !== 'production') return;
+  warned = true;
+  console.warn(
+    '[edge] EDGE_CLIENT_IP_HEADER is not set: per-IP sign-in lockouts and webhook limits cannot tell callers apart. Set it to the header your proxy writes (cf-connecting-ip behind Cloudflare). docs/security.md'
+  );
+}
+
+/** Tests only. */
+export function resetClientIpWarning(): void {
+  warned = false;
 }

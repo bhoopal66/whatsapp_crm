@@ -444,8 +444,9 @@ export async function POST(request: Request) {
     console.error('Error saving template:', error);
     return NextResponse.json(
       {
-        error:
-          error instanceof Error ? error.message : 'Failed to save template.',
+        // The detail is logged above; raw database text never
+        // reaches the browser.
+        error: 'Failed to save template.',
       },
       { status: 500 }
     );

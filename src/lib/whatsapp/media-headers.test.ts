@@ -49,3 +49,14 @@ describe('mediaResponseHeaders', () => {
     );
   });
 });
+
+describe('inlineImageType', () => {
+  it('passes raster images only, never SVG', async () => {
+    const { inlineImageType } = await import('./media-headers');
+    expect(inlineImageType('image/JPEG; charset=x')).toBe('image/jpeg');
+    expect(inlineImageType('image/png')).toBe('image/png');
+    expect(inlineImageType('image/svg+xml')).toBeNull();
+    expect(inlineImageType('text/html')).toBeNull();
+    expect(inlineImageType(null)).toBeNull();
+  });
+});

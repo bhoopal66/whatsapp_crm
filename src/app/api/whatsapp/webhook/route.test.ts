@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { resetWebhookSecretIndexes } from '@/lib/whatsapp/webhook-secret-lookup';
 import { FakeInbox } from '@/lib/whatsapp/webhook-inbox.fake';
 
 /**
@@ -82,34 +83,50 @@ vi.mock('@supabase/supabase-js', () => ({
           g.select = () => Promise.resolve({ data: [], error: null });
           return g;
         }
-        case 'whatsapp_config':
-          // The Whapi route resolves tenancy from the webhook SECRET,
-          // not from a payload field, so it loads the Whapi rows and
-          // compares decrypted verify_tokens. Since migration 046 that
-          // read is `.select('*').eq('provider', 'whapi')` — a Meta
-          // row's verify_token is a different credential entirely.
+        case 'whatsapp_config': // The Whapi route resolves tenancy from the webhook SECRET,
+        // not from a payload field, so it loads the Whapi rows and
+        // compares decrypted verify_tokens. Since migration 046 that
+        // read is `.select('*').eq('provider', 'whapi')` — a Meta
+        // row's verify_token is a different credential entirely.
+        {
+          const result = () => ({
+            data: [
+              {
+                id: 'cfg-1',
+                account_id: 'acc-1',
+                user_id: 'user-1',
+                provider: 'whapi',
+                label: 'Support',
+                phone_number_id: h.state.channelId,
+                waba_id: h.state.wabaId,
+                access_token: 'enc:plain-token',
+                verify_token: `enc:${WEBHOOK_SECRET}`,
+                is_primary: true,
+                mirror_inbound_media: h.state.mirrorInboundMedia,
+                status: 'connected',
+              },
+            ],
+            error: h.state.configError,
+          });
+          // The secret index reads `.select('id, verify_token').eq(...)`
+          // (all rows); a hit then reads that one row with
+          // `.select('*').eq('id').eq('provider').maybeSingle()`.
           return {
             select: () => ({
-              eq: () =>
-                Promise.resolve({
-                  data: [
-                    {
-                      id: 'cfg-1',
-                      account_id: 'acc-1',
-                      user_id: 'user-1',
-                      provider: 'whapi',
-                      label: 'Support',
-                      phone_number_id: h.state.channelId,
-                      waba_id: h.state.wabaId,
-                      access_token: 'enc:plain-token',
-                      verify_token: `enc:${WEBHOOK_SECRET}`,
-                      is_primary: true,
-                      mirror_inbound_media: h.state.mirrorInboundMedia,
-                      status: 'connected',
+              eq: () => {
+                const all = Promise.resolve(result());
+                return Object.assign(all, {
+                  eq: () => ({
+                    maybeSingle: () => {
+                      const r = result();
+                      return Promise.resolve({
+                        data: r.error ? null : r.data[0],
+                        error: r.error,
+                      });
                     },
-                  ],
-                  error: h.state.configError,
-                }),
+                  }),
+                });
+              },
             }),
             // `adoptChannelId` writes the real channel id back once an
             // authenticated callback reveals it.
@@ -120,6 +137,7 @@ vi.mock('@supabase/supabase-js', () => ({
               },
             }),
           };
+        }
         case 'conversations':
           // findOrCreateConversation: select().eq().eq().order().limit()
           // plus the channel stamp (migration 060): update().eq()
@@ -439,6 +457,7 @@ async function runWebhook(message?: Record<string, unknown>) {
 }
 
 beforeEach(() => {
+  resetWebhookSecretIndexes();
   vi.clearAllMocks();
   h.screenWebhook.mockImplementation(screenAs(() => 'accept'));
   h.confirmAccepted.mockResolvedValue({ unconfirmed: [] });

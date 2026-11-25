@@ -141,3 +141,19 @@ describe('resolveInboundMediaUrl', () => {
     }
   );
 });
+
+describe('httpUrlOrNull', () => {
+  it('keeps http(s) links and drops script or data links', async () => {
+    const { httpUrlOrNull } = await import('./inbound-pipeline');
+    expect(httpUrlOrNull('https://cdn.example/a.jpg')).toBe(
+      'https://cdn.example/a.jpg'
+    );
+    expect(httpUrlOrNull('http://127.0.0.1:2785/m/1')).toBe(
+      'http://127.0.0.1:2785/m/1'
+    );
+    expect(httpUrlOrNull('javascript:alert(1)')).toBeNull();
+    expect(httpUrlOrNull('data:text/html,<script>')).toBeNull();
+    expect(httpUrlOrNull('')).toBeNull();
+    expect(httpUrlOrNull(null)).toBeNull();
+  });
+});
