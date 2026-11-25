@@ -153,7 +153,6 @@ export function AiThreadBanner({
   );
   const [override, setOverride] =
     useState<BannerOverride<AiBannerPatch> | null>(null);
-  const { editing } = memory;
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
 
   useEffect(() => {
@@ -174,7 +173,7 @@ export function AiThreadBanner({
   const textKey = `${conversationId}:${conversation.ai_pending_draft_at ?? ''}:${
     conversation.ai_pending_draft ?? conversation.ai_handoff_summary ?? ''
   }`;
-  const editText = editing?.key === textKey ? editing.text : null;
+  const editText = memory.editing[textKey] ?? null;
   const expanded = expandedKey === textKey;
 
   const applied = useCallback(
@@ -284,7 +283,7 @@ export function AiThreadBanner({
             }
           }
         }
-        remember({ type: 'editDone' });
+        remember({ type: 'editDone', key: textKey });
         remember({ type: 'confirmed', conv: conversationId });
         applied(DRAFT_CLEARED);
         toast.success(action === 'send' ? t('draftSent') : t('draftDiscarded'));
@@ -296,7 +295,7 @@ export function AiThreadBanner({
         setBusy(null);
       }
     },
-    [conversationId, draftAt, serverDraft, applied, remember, t]
+    [conversationId, textKey, draftAt, serverDraft, applied, remember, t]
   );
 
   // Account has no auto-reply → nothing to show. (Still loading → nothing.)
@@ -450,7 +449,7 @@ export function AiThreadBanner({
               ) : (
                 <>
                   <BannerButton
-                    onClick={() => remember({ type: 'editDone' })}
+                    onClick={() => remember({ type: 'editDone', key: textKey })}
                     busy={false}
                     disabled={disabled}
                     icon={X}
