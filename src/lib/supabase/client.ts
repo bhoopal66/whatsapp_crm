@@ -6,7 +6,7 @@ import {
 } from '@supabase/ssr'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-import { createSessionFetch } from './session-fetch'
+import { createBrowserSessionFetch } from './session-fetch'
 import { authCookieOptions, publicSupabaseUrl, sessionCookiesToWrite } from './urls'
 
 // Singleton instance — one client shared across the whole browser session.
@@ -46,7 +46,7 @@ export function createClient() {
       cookieOptions: authCookieOptions(),
       // Not while pre-rendering: there is no document, and no cookie.
       ...(typeof document === 'undefined' ? {} : { cookies: browserCookies }),
-      global: { fetch: createSessionFetch() },
+      global: { fetch: createBrowserSessionFetch(() => browserClient) },
     }
   )
 

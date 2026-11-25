@@ -12,6 +12,13 @@ and polish.
 
 ## [Unreleased]
 
+### Fixed: a PC with a slow clock lost the CRM for minutes every hour
+
+A browser whose PC clock runs behind kept using a sign-in the server had
+already ended ("JWT expired"): for that many minutes, every hour, nothing
+loaded. Sign-ins are now renewed by the PC's own clock, and a refused
+request is sent again with a renewed one. No migration.
+
 ### Fixed: an open chat could keep its unread count
 
 When our own "read" and the next message reached the screen together, the
