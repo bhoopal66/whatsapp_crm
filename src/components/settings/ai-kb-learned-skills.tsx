@@ -15,7 +15,7 @@ import {
 import { cn } from '@/lib/utils';
 
 /**
- * "What it has learned" (migration 290 §5): the rules the learner
+ * "What it has learned" (migration 318): the rules the learner
  * distilled from how admins reviewed its drafts. An admin retires a rule
  * that is wrong (it stops shaping drafts and is never added again) or
  * restores it. Rendered under the switch, for admins only.
