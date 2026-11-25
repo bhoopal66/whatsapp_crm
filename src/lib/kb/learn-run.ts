@@ -37,10 +37,12 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { supabaseAdmin } from '@/lib/ai/admin-client';
 import { loadAiConfig } from '@/lib/ai/config';
+import { aiRequestTimeoutMs } from '@/lib/ai/defaults';
 import { generateReply } from '@/lib/ai/generate';
 import { AiError, type AiConfig } from '@/lib/ai/types';
 import { notSalesChat } from '@/lib/ai/not-sales-chat';
 import { logAiUsage, type LogAiUsageArgs } from '@/lib/ai/usage';
+import { TRANSFER_REFUSED_CODE } from '@/lib/privacy/ai-transfer';
 
 import {
   ANSWER_WINDOW_MS,
@@ -77,6 +79,7 @@ import {
   prepareExamples,
   renderSkills,
   safeSkills,
+  safeTitles,
   selectSkills,
   type EvolveReason,
   type ReviewOutcome,
@@ -95,8 +98,11 @@ export const MAX_MODEL_FAILURES = 3;
 /** The skill library is asked about only with this much left: a topic
  *  still fits after it. */
 export const EVOLVE_MIN_BUDGET_MS = 2 * TOPIC_MIN_BUDGET_MS;
+/** Kept back from the call's timeout besides a topic's budget, for the
+ *  reads and writes around it. */
+const EVOLVE_MARGIN_MS = 2_000;
 /** …and not again this soon after the last time (a day short of the
- *  weekly run, so that one is never missed by seconds). */
+ *  weekly run, so that one is never missed by seconds; 318 refuses it too). */
 export const EVOLVE_INTERVAL_MS = (KB_LEARN_INTERVAL_DAYS - 1) * 86_400_000;
 /** Gaps of a topic read to find answers. */
 const MAX_GAPS_READ = 25;
@@ -197,9 +203,11 @@ export interface KbLearnStore {
   recordDraft(args: RecordDraftArgs): Promise<RecordDraftResult>;
   /** The skill library (318): the active skills. */
   activeSkills(accountId: string): Promise<Skill[]>;
-  /** Every skill's kind and title, retired ones included (what an admin
-   *  retired is not added again). */
-  skillTitles(accountId: string): Promise<{ kind: SkillKind; title: string }[]>;
+  /** Every skill's title, newest first, retired ones included (what an
+   *  admin retired is not added again). */
+  skillTitles(
+    accountId: string
+  ): Promise<{ title: string; status: 'active' | 'retired' }[]>;
   /** The latest drafts, newest first, each with its entry as it is now. */
   reviewRows(accountId: string): Promise<ReviewRow[]>;
   /** Stamps the outcome of rows not classified yet. */
@@ -211,7 +219,8 @@ export interface KbLearnStore {
   distillState(
     accountId: string
   ): Promise<{ enabled: boolean; lastDistilledAt: string | null }>;
-  /** kb_learn_add_skills: adds up to three, marks the reviews distilled. */
+  /** kb_learn_add_skills: adds up to three, marks the reviews distilled and
+   *  stamps the cycle (with neither, that a cycle was tried); once a week. */
   addSkills(
     accountId: string,
     skills: Skill[],
@@ -267,6 +276,9 @@ const ASKED = new Set([
   'unrecorded',
 ]);
 
+/** Errors raised before the provider was called (provider-call.ts). */
+const NOT_SENT = new Set([TRANSFER_REFUSED_CODE, 'unsupported_provider']);
+
 const message = (err: unknown) =>
   err instanceof Error ? err.message : String(err);
 
@@ -292,14 +304,16 @@ export function topicKey(accountId: string, label: string): string {
 /**
  * The one model call. generateReply runs assertAiTransfer (purpose
  * 'kb_learn') first; a call the provider answered is logged, a failed one
- * (cut off, empty) included, as it was billed all the same.
+ * (cut off, empty) included, as it was billed all the same. 'not_sent':
+ * it failed before anything went out; 'model' may have been billed.
  */
 async function askModel(
   deps: KbLearnDeps,
   accountId: string,
   config: AiConfig,
-  prompt: LearnPrompt
-): Promise<{ text: string } | 'unusable' | 'model'> {
+  prompt: LearnPrompt,
+  timeoutMs?: number
+): Promise<{ text: string } | 'unusable' | 'model' | 'not_sent'> {
   const model = config.modelSmall || config.model;
   const logUsage = (usage: LogAiUsageArgs['usage']) =>
     deps.logUsage({
@@ -317,6 +331,7 @@ async function askModel(
       messages: [{ role: 'user', content: prompt.userMessage }],
       model,
       purpose: 'kb_learn',
+      timeoutMs,
     });
     await logUsage(result.usage);
     return { text: result.text };
@@ -325,10 +340,10 @@ async function askModel(
       `[kb-learn] model call failed for account ${accountId}: ${message(err)}`
     );
     if (err instanceof AiError && err.usage) await logUsage(err.usage);
-    return err instanceof AiError &&
-      (err.code === 'truncated' || err.code === 'empty_response')
-      ? 'unusable'
-      : 'model';
+    if (!(err instanceof AiError)) return 'model';
+    if (err.code === 'truncated' || err.code === 'empty_response')
+      return 'unusable';
+    return NOT_SENT.has(err.code) ? 'not_sent' : 'model';
   }
 }
 
@@ -447,7 +462,8 @@ export async function learnTopic(
   };
   const asked = await askModel(deps, accountId, config, prompt);
   if (asked === 'unusable') return backOff('unusable');
-  if (asked === 'model') return { drafted: false, reason: 'model' };
+  if (asked === 'model' || asked === 'not_sent')
+    return { drafted: false, reason: 'model' };
   const answer = parseLearnedAnswer(asked.text, arabic, matcher);
   if (answer === 'unusable' || answer === 'discarded') return backOff(answer);
 
@@ -582,7 +598,7 @@ export async function learnAccount(
 export interface EvolveResult {
   /** Reviews classified this run. */
   classified: number;
-  /** The model was asked. */
+  /** The model answered, usably or not. */
   evolved: boolean;
   reason: EvolveReason | null;
   added: number;
@@ -593,7 +609,8 @@ export interface EvolveResult {
  * when evolveDecision says so, ask the model for at most three new
  * general rules from the masked examples. One call at most, guarded as a
  * topic's: names known (`matcher`), time left, switch still on, once a
- * week. Never throws, and a failure never stops the drafting.
+ * week, a failed call included. Its timeout leaves a topic its time. Never
+ * throws, and a failure never stops the drafting.
  */
 export async function evolveSkills(
   deps: KbLearnDeps,
@@ -633,8 +650,9 @@ export async function evolveSkills(
     );
     result.reason = decision.reason;
     if (!decision.evolve) return result;
-    const examples = prepareExamples(
+    const { examples, usedIds } = prepareExamples(
       undistilled.map((r) => ({
+        id: r.id,
         topic: r.entry?.question ?? '',
         outcome: r.outcome,
         draft: r.draftAnswer,
@@ -651,15 +669,32 @@ export async function evolveSkills(
     const last = state.lastDistilledAt ? Date.parse(state.lastDistilledAt) : 0;
     if (!state.enabled) return result;
     if (last > 0 && now() - last < EVOLVE_INTERVAL_MS) return result;
-    if (deadlineAt - now() < EVOLVE_MIN_BUDGET_MS) return result;
+    const budget = deadlineAt - now();
+    if (budget < EVOLVE_MIN_BUDGET_MS) return result;
 
     const answer = await askModel(
       deps,
       accountId,
       config,
-      buildDistillPrompt(examples, safeSkills(active, matcher))
+      buildDistillPrompt(
+        examples,
+        safeSkills(active, matcher),
+        safeTitles(
+          known.flatMap((k) => (k.status === 'retired' ? [k.title] : [])),
+          matcher
+        )
+      ),
+      Math.min(
+        aiRequestTimeoutMs(),
+        budget - TOPIC_MIN_BUDGET_MS - EVOLVE_MARGIN_MS
+      )
     );
-    if (answer === 'model') return result;
+    if (answer === 'not_sent') return result;
+    if (answer === 'model') {
+      // The run's retries do not repeat the call; the reviews wait.
+      await store.addSkills(accountId, [], []);
+      return result;
+    }
     result.evolved = true;
     // An unusable answer marks the reviews too, as a topic's backs off.
     result.added = await store.addSkills(
@@ -667,7 +702,7 @@ export async function evolveSkills(
       answer === 'unusable'
         ? []
         : parseSkillUpdate(answer.text, known, examples.length, matcher),
-      undistilled.map((r) => r.id)
+      usedIds
     );
   } catch (err) {
     console.warn(
@@ -1066,11 +1101,12 @@ export function supabaseKbLearnStore(db: SupabaseClient): KbLearnStore {
     async skillTitles(accountId) {
       const { data, error } = await db
         .from('kb_learn_skills')
-        .select('kind, title')
+        .select('title, status')
         .eq('account_id', accountId)
+        .order('created_at', { ascending: false })
         .limit(500);
       if (error) throw new Error(`skill titles: ${error.message}`);
-      return (data ?? []) as { kind: SkillKind; title: string }[];
+      return (data ?? []) as { title: string; status: 'active' | 'retired' }[];
     },
     async reviewRows(accountId) {
       const { data, error } = await db

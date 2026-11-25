@@ -2,9 +2,10 @@
 -- verify-kb-learn-skills.sql — assertions for migration 318.
 --
 -- A learned draft keeps its drafted answer, which goes when a subject
--- erase leaves it one chat; the skill library refuses identifiers, adds
--- at most three per cycle and 24 in all, skips one bad skill without
--- losing the others, never re-adds what an admin retired, and only an
+-- erase takes any of its gaps; the skill library refuses identifiers, adds
+-- at most three per cycle and 24 in all, one cycle in six days, skips one
+-- bad skill without losing the others, never re-adds what an admin retired
+-- (under another kind, or spelled with other punctuation), and only an
 -- admin of the workspace reads or retires; the writers are service role.
 --
 -- ONE statement on purpose; fixtures are rolled back through a sentinel.
@@ -67,7 +68,7 @@ BEGIN
   UPDATE profiles SET account_id = a_acct, account_role = 'admin' WHERE user_id = u_admin;
   UPDATE profiles SET account_id = a_acct, account_role = 'agent' WHERE user_id = u_agent;
 
-  FOR i IN 1..2 LOOP
+  FOR i IN 1..3 LOOP
     INSERT INTO contacts (user_id, account_id, phone) VALUES (u_owner, a_acct, '97150318000' || i) RETURNING id INTO c_id;
     INSERT INTO conversations (user_id, account_id, contact_id) VALUES (u_owner, a_acct, c_id) RETURNING id INTO v_id;
     INSERT INTO ai_knowledge_gaps (account_id, conversation_id, question) VALUES (a_acct, v_id, 'Licence ' || i) RETURNING id INTO g1;
@@ -117,7 +118,24 @@ BEGIN
      OR EXISTS (SELECT 1 FROM kb_learned_drafts WHERE account_id = a_acct AND distilled_at IS NULL)
      OR (SELECT last_distilled_at FROM kb_learn_settings WHERE account_id = a_acct) IS NULL THEN
     failed := failed || ('add_skills: ' || k); END IF; n := n + 1;
-  k := kb_learn_add_skills(a_acct, '{"kind":"general"}', NULL) + kb_learn_add_skills(a_acct, NULL, NULL);
+  -- ---------- one cycle in six days, and what it did not use stays unmarked ----------
+  UPDATE kb_learned_drafts SET distilled_at = NULL WHERE account_id = a_acct;
+  UPDATE kb_learn_settings SET last_distilled_at = now() - interval '6 days' + interval '1 second' WHERE account_id = a_acct;
+  k := kb_learn_add_skills(a_acct, '[{"kind":"general","title":"Too soon","principle":"P"}]',
+    (SELECT array_agg(id) FROM kb_learned_drafts WHERE account_id = a_acct));
+  IF k <> 0 OR EXISTS (SELECT 1 FROM kb_learned_drafts WHERE account_id = a_acct AND distilled_at IS NOT NULL)
+     OR (SELECT last_distilled_at FROM kb_learn_settings WHERE account_id = a_acct) > now() - interval '5 days' THEN
+    failed := failed || ('a second cycle in six days: ' || k); END IF; n := n + 1;
+  -- A cycle that added nothing (a failed call) counts too, after six days.
+  UPDATE kb_learn_settings SET last_distilled_at = now() - interval '6 days' WHERE account_id = a_acct;
+  k := kb_learn_add_skills(a_acct, '[]', '{}');
+  IF k <> 0 OR (SELECT last_distilled_at FROM kb_learn_settings WHERE account_id = a_acct) IS DISTINCT FROM now()
+     OR EXISTS (SELECT 1 FROM kb_learned_drafts WHERE account_id = a_acct AND distilled_at IS NOT NULL) THEN
+    failed := failed || 'a failed cycle was not stamped'::text; END IF; n := n + 1;
+  UPDATE kb_learn_settings SET last_distilled_at = NULL WHERE account_id = a_acct;
+  k := kb_learn_add_skills(a_acct, '{"kind":"general"}', NULL);
+  UPDATE kb_learn_settings SET last_distilled_at = NULL WHERE account_id = a_acct;
+  k := k + kb_learn_add_skills(a_acct, NULL, NULL);
   IF k <> 0 THEN failed := failed || 'not a list'::text; END IF; n := n + 1;
 
   -- ---------- who reads and retires ----------
@@ -136,22 +154,40 @@ BEGIN
 
   -- ---------- an admin retires it; the next cycle does not add it back ----------
   r := pg_temp.kl_try(u_admin, 'select (public.kb_learn_skill_set_status(''' || sk || ''', ''retired''))->>''status''');
+  UPDATE kb_learn_settings SET last_distilled_at = NULL WHERE account_id = a_acct;
   k := kb_learn_add_skills(a_acct, jsonb_build_array(
-    jsonb_build_object('kind', 'mistake', 'title', ' promising  APPROVAL ', 'principle', 'Again.')), '{}');
+    jsonb_build_object('kind', 'mistake', 'title', ' promising  APPROVAL ', 'principle', 'Again.'),
+    jsonb_build_object('kind', 'general', 'title', 'Promising approval', 'principle', 'Again.'),
+    jsonb_build_object('kind', 'category', 'category', 'loans', 'title', '“Promising-approval”…', 'principle', 'Again.'),
+    jsonb_build_object('kind', 'general', 'title', '?!', 'principle', 'No title.')), '{}');
   IF r <> 'retired' OR k <> 0 OR (SELECT count(*) FROM kb_learn_skills WHERE account_id = a_acct AND status = 'active') <> 2
      OR (SELECT retired_by FROM kb_learn_skills WHERE id = sk) IS DISTINCT FROM u_admin THEN
     failed := failed || ('retire: ' || r || ' / re-added ' || k); END IF; n := n + 1;
 
+  -- An Arabic title is compared by its letters, not dropped as marks.
+  UPDATE kb_learn_settings SET last_distilled_at = NULL WHERE account_id = a_acct;
+  k := kb_learn_add_skills(a_acct, jsonb_build_array(
+    jsonb_build_object('kind', 'general', 'title', 'اذكر الرسوم', 'principle', 'p'),
+    jsonb_build_object('kind', 'mistake', 'title', 'اذكر، الرسوم؟', 'principle', 'p'),
+    jsonb_build_object('kind', 'general', 'title', 'اذكر المدة', 'principle', 'p')), '{}');
+  IF k <> 2 THEN failed := failed || ('Arabic titles: ' || k); END IF; n := n + 1;
+
   -- ---------- at most 24 active ----------
   INSERT INTO kb_learn_skills (account_id, kind, title, principle)
-    SELECT a_acct, 'general', 'filler ' || i, 'p' FROM generate_series(1, 22) i;
+    SELECT a_acct, 'general', 'filler ' || i, 'p' FROM generate_series(1, 20) i;
+  UPDATE kb_learn_settings SET last_distilled_at = NULL WHERE account_id = a_acct;
   k := kb_learn_add_skills(a_acct, jsonb_build_array(
     jsonb_build_object('kind', 'general', 'title', 'One too many', 'principle', 'p')), '{}');
   r := pg_temp.kl_try(u_admin, 'select (public.kb_learn_skill_set_status(''' || sk || ''', ''active''))->>''status''');
   IF k <> 0 OR r NOT LIKE 'ERROR:%' THEN failed := failed || ('cap: ' || k || ' ' || r); END IF; n := n + 1;
 
-  -- ---------- an erase that leaves one chat takes the drafted answer ----------
+  -- ---------- an erased gap takes the drafted answer, the last but one the draft ----------
   DELETE FROM ai_knowledge_gaps WHERE id = gs[1];
+  IF EXISTS (SELECT 1 FROM kb_learned_drafts WHERE account_id = a_acct AND draft_answer_en IS NOT NULL)
+     OR NOT EXISTS (SELECT 1 FROM kb_entries WHERE account_id = a_acct)
+     OR NOT EXISTS (SELECT 1 FROM kb_learned_drafts WHERE account_id = a_acct AND cardinality(gap_ids) = 2) THEN
+    failed := failed || 'a draft with two chats left kept its drafted answer'::text; END IF; n := n + 1;
+  DELETE FROM ai_knowledge_gaps WHERE id = gs[2];
   IF EXISTS (SELECT 1 FROM kb_learned_drafts WHERE account_id = a_acct AND draft_answer_en IS NOT NULL)
      OR EXISTS (SELECT 1 FROM kb_entries WHERE account_id = a_acct) THEN
     failed := failed || 'an erase left the drafted answer'::text; END IF; n := n + 1;
@@ -179,7 +215,7 @@ BEGIN
     IF SQLERRM <> 'KL318_ROLLBACK' THEN RAISE; END IF;
   END;
 
-  IF n <> 15 THEN RAISE EXCEPTION 'verify-kb-learn-skills: only % checks ran', n; END IF;
+  IF n <> 19 THEN RAISE EXCEPTION 'verify-kb-learn-skills: only % checks ran', n; END IF;
   IF cardinality(failed) > 0 THEN
     RAISE EXCEPTION 'verify-kb-learn-skills: % failed: %', cardinality(failed), array_to_string(failed, '; ');
   END IF;

@@ -1,6 +1,6 @@
 /**
- * The learned skill list as the settings panel shows it (migration 318
- * §5). Dependency-free: the client component imports it.
+ * The learned skill list as the settings panel shows it (migration 318).
+ * Dependency-free: the client component imports it.
  */
 
 export type SkillViewKind = 'general' | 'category' | 'mistake';

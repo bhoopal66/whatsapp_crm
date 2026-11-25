@@ -10,7 +10,7 @@ import { parseSkillList } from '@/lib/kb/skills-view';
  * GET /api/ai/kb/learn/skills  (admin+)
  *
  * The skill library the learner built from admins' reviews (migration
- * 290 §5), active first. Read through RLS (admin+ only). A failed read
+ * 318), active first. Read through RLS (admin+ only). A failed read
  * is a 500 with a generic message, never an empty list: the screen shows
  * an error with Retry, and the switch only mounts the list once the
  * migration is known to be applied.
