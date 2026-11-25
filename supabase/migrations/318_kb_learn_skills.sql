@@ -8,14 +8,15 @@
 --  1. kb_learned_drafts: draft_answer_en (the answer as drafted, screened
 --     model output), reviewed_outcome, reviewed_at, distilled_at.
 --  2. kb_learn_record_draft(): 290's body, storing draft_answer_en too.
---  3. kb_learn_gaps_deleted(): 290's body; when a subject erase leaves a
---     draft fewer than two chats, the stored drafted answer goes as well.
+--  3. kb_learn_gaps_deleted(): 290's body; a draft that loses any gap (a
+--     subject erase deletes them) loses its stored drafted answer too.
 --  4. kb_learn_skills, kb_learn_settings.last_distilled_at,
 --     kb_learn_skill_set_status() and kb_learn_add_skills().
 --
 -- Re-runnable. 2 and 3 restate functions of 290: RE-RUN 318 AFTER 290.
 -- Every refusal comes before the first DDL and turns the session
--- read-only (130's way). Asserted by
+-- read-only (130's way); so does a column section 1 could not add (a lock
+-- timeout), before a function that needs it replaces 290's. Asserted by
 -- supabase/ci/verify-kb-learn-skills.sql.
 -- ============================================================
 
@@ -56,6 +57,35 @@ ALTER TABLE public.kb_learned_drafts
   -- When the skill library learned from this review.
   ADD COLUMN IF NOT EXISTS distilled_at     timestamptz NULL;
 
+-- The skill library's last cycle.
+ALTER TABLE public.kb_learn_settings
+  ADD COLUMN IF NOT EXISTS last_distilled_at timestamptz NULL;
+
+-- Without one of them a later section would replace a working function
+-- with one that fails on every call, so nothing more is applied.
+DO $$
+DECLARE
+  v_missing text;
+BEGIN
+  SELECT string_agg(x.t || '.' || x.c, ', ') INTO v_missing
+    FROM (VALUES ('kb_learned_drafts', 'draft_answer_en'), ('kb_learned_drafts', 'reviewed_outcome'),
+                 ('kb_learned_drafts', 'reviewed_at'), ('kb_learned_drafts', 'distilled_at'),
+                 ('kb_learn_settings', 'last_distilled_at')) AS x(t, c)
+   WHERE NOT EXISTS (SELECT 1 FROM pg_attribute a
+                      WHERE a.attrelid = ('public.' || x.t)::regclass AND a.attname = x.c AND NOT a.attisdropped);
+  IF v_missing IS NOT NULL THEN
+    PERFORM set_config('kb318.refusal', '318 stopped (this session is now read-only; reconnect and re-run it): no column '
+                       || v_missing, false);
+    PERFORM set_config('default_transaction_read_only', 'on', false);
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF coalesce(current_setting('kb318.refusal', true), '') <> '' THEN
+    RAISE EXCEPTION '%', current_setting('kb318.refusal');
+  END IF;
+END $$;
+
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'public.kb_learned_drafts'::regclass
                    AND conname = 'kb_learned_drafts_outcome_check') THEN
@@ -70,7 +100,7 @@ DO $$ BEGIN
 END $$;
 
 COMMENT ON TABLE public.kb_learned_drafts IS
-  'Learn from team answers (290, 318): which gap topic was drafted into which kb_entries row, so a topic is drafted once, and how the review went. Holds gap ids (a deleted gap leaves them), a keyed hash of the topic label and the drafted answer (screened model output, gone with the draft''s second chat), no team or customer message text. Admin+ read; written by kb_learn_record_draft() and the service role.';
+  'Learn from team answers (290, 318): which gap topic was drafted into which kb_entries row, so a topic is drafted once, and how the review went. Holds gap ids (a deleted gap leaves them), a keyed hash of the topic label and the drafted answer (screened model output, gone with the first gap the draft loses), no team or customer message text. Admin+ read; written by kb_learn_record_draft() and the service role.';
 
 -- ------------------------------------------------------------
 -- 2. The one writer, storing the drafted answer
@@ -174,11 +204,9 @@ BEGIN
   WITH cut AS (
     UPDATE public.kb_learned_drafts l
        SET gap_ids = coalesce((SELECT array_agg(g) FROM unnest(l.gap_ids) g WHERE g <> ALL (v_ids)), '{}'),
-           -- 318: the drafted answer goes by the same rule as the draft.
-           draft_answer_en = CASE
-             WHEN (SELECT count(DISTINCT k.conversation_id) FROM public.ai_knowledge_gaps k
-                    WHERE k.id = ANY (l.gap_ids) AND k.account_id = l.account_id) >= 2
-             THEN l.draft_answer_en END
+           -- 318: whoever was erased is off the list names are masked
+           -- with, so their draft's review is not learned from.
+           draft_answer_en = NULL
      WHERE l.gap_ids && v_ids
     RETURNING l.id)
   SELECT array_agg(id) INTO v_cut FROM cut;
@@ -250,9 +278,6 @@ COMMENT ON TABLE public.kb_learn_skills IS
 CREATE INDEX IF NOT EXISTS idx_kb_learn_skills_account
   ON public.kb_learn_skills (account_id, status, kind);
 
-ALTER TABLE public.kb_learn_settings
-  ADD COLUMN IF NOT EXISTS last_distilled_at timestamptz NULL;
-
 ALTER TABLE public.kb_learn_skills ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS kb_learn_skills_select ON public.kb_learn_skills;
@@ -305,10 +330,12 @@ GRANT EXECUTE ON FUNCTION public.kb_learn_skill_set_status(uuid, text) TO authen
 -- p_review_ids (this account's, reviewed) are marked distilled, p_skills
 -- (at most 3: SkillRL's max_new_skills) are added while the switch is on
 -- and the account has fewer than 24 active skills. A skill whose title a
--- skill of the same kind already has, active OR retired, is skipped: an
--- admin's retirement is not undone by the next cycle. One skill a CHECK
--- refuses is skipped, not the whole call. An unknown account has no
--- switch: 0. Answers the number added.
+-- skill of any kind already has, active OR retired (case, whitespace and
+-- punctuation aside: norm() in skills.ts), is skipped: an admin's
+-- retirement is not undone by the next cycle. One skill a CHECK refuses is
+-- skipped, not the whole call. Nothing is added or marked within 6 days of
+-- the last cycle (EVOLVE_INTERVAL_MS), however often the switch went off
+-- and on. An unknown account has no switch: 0. Answers the number added.
 CREATE OR REPLACE FUNCTION public.kb_learn_add_skills(
   p_account    uuid,
   p_skills     jsonb,
@@ -323,9 +350,14 @@ DECLARE
   v_skill  jsonb;
   v_added  integer := 0;
   v_active integer;
+  v_title  text;
+  -- Not a letter or digit, spelled out: [:alnum:] needs the locale's help
+  -- with Arabic.
+  c_marks  constant text := '[[:space:][:punct:]$+<=>^`|~،؛؟٪٫٬۔«»“”‘’‚„…–—‐‑‒―•·\u200B-\u200F\u2060\uFEFF]+';
 BEGIN
   PERFORM pg_advisory_xact_lock(hashtext('kb_learn:' || coalesce(p_account::text, '')));
-  IF NOT EXISTS (SELECT 1 FROM public.kb_learn_settings WHERE account_id = p_account AND enabled) THEN
+  IF NOT EXISTS (SELECT 1 FROM public.kb_learn_settings WHERE account_id = p_account AND enabled
+                    AND (last_distilled_at > now() - interval '6 days') IS NOT TRUE) THEN
     RETURN 0;
   END IF;
   SELECT count(*) INTO v_active FROM public.kb_learn_skills
@@ -334,12 +366,12 @@ BEGIN
     CASE WHEN jsonb_typeof(p_skills) = 'array' THEN p_skills ELSE '[]'::jsonb END) x
   LOOP
     EXIT WHEN v_added >= 3 OR v_active >= 24;
-    CONTINUE WHEN jsonb_typeof(v_skill) <> 'object' OR EXISTS (
+    CONTINUE WHEN jsonb_typeof(v_skill) <> 'object';
+    v_title := regexp_replace(lower(normalize(coalesce(v_skill->>'title', ''), NFKC)), c_marks, '', 'g');
+    CONTINUE WHEN v_title = '' OR EXISTS (
       SELECT 1 FROM public.kb_learn_skills k
        WHERE k.account_id = p_account
-         AND k.kind = v_skill->>'kind'
-         AND lower(btrim(regexp_replace(k.title, '\s+', ' ', 'g')))
-             = lower(btrim(regexp_replace(v_skill->>'title', '\s+', ' ', 'g'))));
+         AND regexp_replace(lower(normalize(k.title, NFKC)), c_marks, '', 'g') = v_title);
     BEGIN
       INSERT INTO public.kb_learn_skills
         (account_id, kind, category, title, principle, when_to_apply, evidence_count)
@@ -366,3 +398,5 @@ END $$;
 
 REVOKE ALL ON FUNCTION public.kb_learn_add_skills(uuid, jsonb, uuid[]) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.kb_learn_add_skills(uuid, jsonb, uuid[]) TO service_role;
+
+RESET lock_timeout;
