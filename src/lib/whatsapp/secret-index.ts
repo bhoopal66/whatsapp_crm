@@ -15,7 +15,11 @@
  *   - a miss reloads the rows at most once per `minReloadMs` (a new
  *     number's first webhook waits a few seconds at worst, and a flood of
  *     wrong secrets costs one reload per window, not one per request);
- *   - the whole index is refreshed after `ttlMs`.
+ *   - the whole index is refreshed after `ttlMs`;
+ *   - `invalidate()` after a save: the new secret's first callback is
+ *     looked up afresh instead of refused for the rest of the window;
+ *   - a secret that is not found while the last read failed is `failed`
+ *     (the route answers 503), not unknown: the sender has to come back.
  *
  * Only hashes of secrets are kept, never the secrets. Never throws.
  */
@@ -42,6 +46,9 @@ export class SecretIndex<Row> {
   private byHash = new Map<string, string>();
   private loadedAt = -Infinity;
   private loaded = false;
+  private lastReadFailed = false;
+  /** Bumped by invalidate(): a read started before it is not kept. */
+  private generation = 0;
   private inflight: Promise<boolean> | null = null;
 
   constructor(private readonly deps: SecretIndexDeps<Row>) {}
@@ -52,7 +59,11 @@ export class SecretIndex<Row> {
 
   /** Reloads once even when many requests ask at the same moment. */
   private reload(): Promise<boolean> {
-    this.inflight ??= (async () => {
+    if (this.inflight) return this.inflight;
+    const generation = this.generation;
+    const current = () => generation === this.generation;
+    const read = (async () => {
+      let ok = false;
       try {
         const rows = await this.deps.loadAll();
         if (!rows) return false;
@@ -66,24 +77,34 @@ export class SecretIndex<Row> {
           }
           if (secret) next.set(hash(secret), this.deps.idOf(row));
         }
-        this.byHash = next;
-        this.loaded = true;
+        ok = true;
+        if (current()) {
+          this.byHash = next;
+          this.loaded = true;
+        }
         return true;
       } catch {
         return false;
       } finally {
-        // A failed read also counts: it is not retried on every request.
-        this.loadedAt = this.now();
-        this.inflight = null;
+        if (current()) {
+          // A failed read also counts: it is not retried on every request.
+          this.loadedAt = this.now();
+          this.lastReadFailed = !ok;
+          this.inflight = null;
+        }
       }
     })();
-    return this.inflight;
+    this.inflight = read;
+    return read;
   }
 
   /** Forget everything (a channel's secret was just changed). */
   invalidate(): void {
+    this.generation += 1;
+    this.inflight = null;
     this.byHash = new Map();
     this.loaded = false;
+    this.lastReadFailed = false;
     this.loadedAt = -Infinity;
   }
 
@@ -96,9 +117,19 @@ export class SecretIndex<Row> {
     if (this.loaded && age < ttl && this.byHash.has(h))
       return { failed: false, id: this.byHash.get(h)! };
     if (!this.loaded || age >= ttl || age >= minReload) {
-      const ok = await this.reload();
-      if (!ok && !this.loaded) return { failed: true, id: null };
+      let generation = this.generation;
+      let ok = await this.reload();
+      // Saved while that read was running: its answer is not current. A
+      // newer read may already be in.
+      if (generation !== this.generation) {
+        generation = this.generation;
+        ok = this.loaded || (await this.reload());
+      }
+      if (generation !== this.generation || (!ok && !this.loaded))
+        return { failed: true, id: null };
     }
-    return { failed: false, id: this.byHash.get(h) ?? null };
+    const id = this.byHash.get(h) ?? null;
+    if (id === null && this.lastReadFailed) return { failed: true, id: null };
+    return { failed: false, id };
   }
 }

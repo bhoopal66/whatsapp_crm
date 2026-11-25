@@ -377,6 +377,17 @@ describe('POST /api/whatsapp/config — failed reads and a failed save', () => {
     expect(second).toContain('secret=secret');
   });
 
+  it('the webhook looks a saved secret up afresh, and not after a failed save', async () => {
+    const lookup = await import('@/lib/whatsapp/webhook-secret-lookup');
+    const changed = vi.spyOn(lookup, 'webhookSecretsChanged');
+    h.fail.update = { message: 'write failed' };
+    await save({ rotate_secret: true });
+    expect(changed).not.toHaveBeenCalled();
+    delete (h.fail as Record<string, unknown>).update;
+    await save({ rotate_secret: true });
+    expect(changed).toHaveBeenCalledWith('whapi');
+  });
+
   it('does not restore when the secret was kept', async () => {
     h.fail.update = { message: 'write failed' };
     await save();

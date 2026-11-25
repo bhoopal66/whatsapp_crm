@@ -17,6 +17,7 @@ vi.mock('sonner', () => ({ toast }));
 
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
+import { AiKbLearnedSkills } from './ai-kb-learned-skills';
 import { findElements, render, resetHooks, settle } from '@/test/hook-renderer';
 import { AiKbLearnSwitch } from './ai-kb-learn-switch';
 
@@ -83,5 +84,21 @@ describe('AiKbLearnSwitch', () => {
       vi.fn(answer(200, { enabled: true, lastRunError: 'no_ai', nextRunAt }))
     );
     expect(JSON.stringify(await drawn())).toContain('failedNoAi triesAgain');
+  });
+
+  it('lists what it has learned only once the setting is available', async () => {
+    const fetch = vi.fn<() => Promise<unknown>>(
+      answer(200, { enabled: true, available: true })
+    );
+    vi.stubGlobal('fetch', fetch);
+    const has = (tree: ReturnType<typeof draw>) =>
+      findElements(tree, (el) => el.type === AiKbLearnedSkills).length;
+    expect(has(await drawn())).toBe(1);
+    resetHooks();
+    fetch.mockImplementation(answer(200, { enabled: true, available: false }));
+    expect(has(await drawn())).toBe(0);
+    resetHooks();
+    fetch.mockImplementation(answer(500, {}));
+    expect(has(await drawn())).toBe(0);
   });
 });

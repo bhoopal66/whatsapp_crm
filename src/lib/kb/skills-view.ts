@@ -57,3 +57,15 @@ export function sortSkills(list: readonly SkillView[]): SkillView[] {
     (a, b) => Number(a.status === 'retired') - Number(b.status === 'retired')
   );
 }
+
+/** The catalogue key (`KbLearn.skills.*`) that explains a refused
+ *  retire/restore. The server's own wording is English and generic, so
+ *  the screen goes by status: 409 is the active-rule cap, 404 a rule that
+ *  is gone (or not the caller's to change). */
+export function skillSaveFailureKey(
+  status: number | null
+): 'capReached' | 'gone' | 'saveFailed' {
+  if (status === 409) return 'capReached';
+  if (status === 404) return 'gone';
+  return 'saveFailed';
+}

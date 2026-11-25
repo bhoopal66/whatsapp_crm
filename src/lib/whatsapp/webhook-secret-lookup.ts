@@ -16,10 +16,25 @@ import { SecretIndex } from './secret-index';
 type Provider = 'whapi' | 'meta';
 type KeyRow = { id: string; verify_token: string | null };
 
-const indexes = new Map<Provider, SecretIndex<KeyRow>>();
+// One per process, on globalThis: Next.js may bundle this module once per
+// route, and a save on one route must reach the index of another.
+const GLOBAL_KEY = '__wacrmWebhookSecretIndexes';
+
+function indexes(): Map<Provider, SecretIndex<KeyRow>> {
+  const g = globalThis as unknown as Record<
+    string,
+    Map<Provider, SecretIndex<KeyRow>> | undefined
+  >;
+  return (g[GLOBAL_KEY] ??= new Map());
+}
+
+/** A number of this provider was saved: its secret may be new. */
+export function webhookSecretsChanged(provider: Provider): void {
+  indexes().get(provider)?.invalidate();
+}
 
 function indexFor(provider: Provider, db: () => SupabaseClient) {
-  let idx = indexes.get(provider);
+  let idx = indexes().get(provider);
   if (!idx) {
     idx = new SecretIndex<KeyRow>({
       loadAll: async () => {
@@ -41,14 +56,14 @@ function indexFor(provider: Provider, db: () => SupabaseClient) {
       // skipped, as before.
       secretOf: (r) => (r.verify_token ? decrypt(r.verify_token) : null),
     });
-    indexes.set(provider, idx);
+    indexes().set(provider, idx);
   }
   return idx;
 }
 
 /** Tests: start each case from an empty index. */
 export function resetWebhookSecretIndexes(): void {
-  indexes.clear();
+  indexes().clear();
 }
 
 /** The whole row whose secret this is, or null; `failed` when the

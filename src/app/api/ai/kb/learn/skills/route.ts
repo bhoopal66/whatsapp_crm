@@ -10,7 +10,10 @@ import { parseSkillList } from '@/lib/kb/skills-view';
  * GET /api/ai/kb/learn/skills  (admin+)
  *
  * The skill library the learner built from admins' reviews (migration
- * 290 §5), active first. Read through RLS (admin+ only).
+ * 290 §5), active first. Read through RLS (admin+ only). A failed read
+ * is a 500 with a generic message, never an empty list: the screen shows
+ * an error with Retry, and the switch only mounts the list once the
+ * migration is known to be applied.
  */
 export async function GET() {
   try {
@@ -27,8 +30,6 @@ export async function GET() {
       .order('created_at', { ascending: false })
       .limit(200);
     if (error) {
-      if (['42P01', 'PGRST205'].includes(error.code ?? ''))
-        return NextResponse.json({ skills: [] });
       console.error('[ai/kb/learn/skills GET] error:', error);
       return NextResponse.json(
         { error: 'Failed to load what it has learned' },

@@ -27,6 +27,7 @@ import {
 } from '@/lib/whatsapp/whapi-webhook-auth'
 import { withChannelSecrets } from '@/lib/whatsapp/channel-secrets'
 import { encrypt, decrypt } from '@/lib/whatsapp/encryption'
+import { webhookSecretsChanged } from '@/lib/whatsapp/webhook-secret-lookup'
 import { nextHealth, syncPairedNumber } from '@/lib/whatsapp/channel-health'
 import { serverSupabaseUrl } from '@/lib/supabase/urls'
 import {
@@ -861,6 +862,8 @@ export async function POST(request: Request) {
       }
     }
 
+    // The webhook looks the secret up in memory: the new one counts now.
+    webhookSecretsChanged('whapi')
     return NextResponse.json({
       success: !registrationError && channel.authorized,
       saved: true,
