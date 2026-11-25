@@ -12,6 +12,7 @@ import {
   campaignProgress,
   scheduleDay,
   sortInFlight,
+  weekCampaigns,
   weekSummary,
   type CampaignRow,
   type WeekSummary,
@@ -53,8 +54,8 @@ async function loadCampaigns(): Promise<Campaigns> {
       .limit(IN_FLIGHT_LIMIT),
     supabase
       .from('broadcasts')
-      .select('sent_count, delivered_count, read_count')
-      .eq('status', 'sent')
+      .select('status, sent_count, delivered_count, read_count')
+      .in('status', ['sent', 'stopped'])
       // A scheduled campaign goes out at `scheduled_at` and `broadcasts`
       // has no sent-at column, so that is its send day; created_at covers the rest.
       .or(
@@ -66,7 +67,9 @@ async function loadCampaigns(): Promise<Campaigns> {
   return {
     now,
     inFlight: sortInFlight((live.data ?? []) as CampaignRow[]),
-    week: weekSummary((sent.data ?? []) as CampaignRow[]),
+    week: weekSummary(
+      weekCampaigns((sent.data ?? []) as (CampaignRow & { status: string })[])
+    ),
   };
 }
 

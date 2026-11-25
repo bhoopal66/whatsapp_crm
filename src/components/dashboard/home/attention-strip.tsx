@@ -44,6 +44,7 @@ import {
   insightTileHref,
   pinnedTileHref,
 } from '@/lib/insights/customer-view';
+import { readPages, type ReadPagesResult } from '@/lib/inbox/read-pages';
 import { createClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
 import { Skeleton } from '../skeleton';
@@ -67,6 +68,8 @@ type UnreadRow = CampaignInboxFields &
 
 interface ChatCounts {
   unreadRows: UnreadRow[];
+  /** The unread read hit its page cap: the figure is a floor. */
+  unreadTruncated: boolean;
   handoffs: number;
   drafts: number;
 }
@@ -75,10 +78,18 @@ interface ChatCounts {
 async function loadChatCounts(): Promise<ChatCounts> {
   const supabase = createClient();
   const [unread, handoffs, drafts] = await Promise.all([
-    supabase
-      .from('conversations')
-      .select(UNREAD_ROW_COLUMNS)
-      .gt('unread_count', 0),
+    readPages<UnreadRow>(
+      (from, to) =>
+        supabase
+          .from('conversations')
+          .select(UNREAD_ROW_COLUMNS)
+          .gt('unread_count', 0)
+          .order('id')
+          .range(from, to) as unknown as PromiseLike<{
+          data: UnreadRow[] | null;
+          error: unknown;
+        }>
+    ),
     supabase
       .from('conversations')
       .select('id', { count: 'exact', head: true })
@@ -88,11 +99,11 @@ async function loadChatCounts(): Promise<ChatCounts> {
       .select('id', { count: 'exact', head: true })
       .not('ai_pending_draft', 'is', null),
   ]);
-  if (unread.error) throw unread.error;
   if (handoffs.error) throw handoffs.error;
   if (drafts.error) throw drafts.error;
   return {
-    unreadRows: (unread.data ?? []) as unknown as UnreadRow[],
+    unreadRows: unread.rows,
+    unreadTruncated: unread.truncated,
     handoffs: handoffs.count ?? 0,
     drafts: drafts.count ?? 0,
   };
@@ -108,15 +119,21 @@ type InsightRow = UnreadRow & {
  * or upset. Counted at render with the unread tile's own Campaign inbox
  * rule (`countInsightTiles`), so each tile matches the list it opens.
  */
-async function loadInsightRows(): Promise<InsightRow[]> {
+async function loadInsightRows(): Promise<ReadPagesResult<InsightRow>> {
   const supabase = createClient();
-  const { data, error } = await supabase
-    .from('conversations')
-    .select(`${UNREAD_ROW_COLUMNS}, ${INSIGHT_TILE_COLUMNS}`)
-    .gt('unread_count', 0)
-    .or(INSIGHT_TILE_OR);
-  if (error) throw error;
-  return (data ?? []) as unknown as InsightRow[];
+  return readPages<InsightRow>(
+    (from, to) =>
+      supabase
+        .from('conversations')
+        .select(`${UNREAD_ROW_COLUMNS}, ${INSIGHT_TILE_COLUMNS}`)
+        .gt('unread_count', 0)
+        .or(INSIGHT_TILE_OR)
+        .order('id')
+        .range(from, to) as unknown as PromiseLike<{
+        data: InsightRow[] | null;
+        error: unknown;
+      }>
+  );
 }
 
 type PinRow = Parameters<typeof countPinnedTile>[0][number];
@@ -127,14 +144,28 @@ type PinRow = Parameters<typeof countPinnedTile>[0][number];
  * the list's Campaign inbox rule, so the tile matches the "N pinned"
  * chip of the list it opens.
  */
-async function loadPinRows(): Promise<PinRow[]> {
+async function loadPinRows(): Promise<ReadPagesResult<PinRow>> {
   const supabase = createClient();
-  const { data, error } = await supabase
-    .from('conversations')
-    .select(PIN_TILE_COLUMNS)
-    .or(PIN_TILE_OR);
-  if (error) throw error;
-  return (data ?? []) as unknown as PinRow[];
+  return readPages<PinRow>(
+    (from, to) =>
+      supabase
+        .from('conversations')
+        .select(PIN_TILE_COLUMNS)
+        .or(PIN_TILE_OR)
+        .order('id')
+        .range(from, to) as unknown as PromiseLike<{
+        data: PinRow[] | null;
+        error: unknown;
+      }>
+  );
+}
+
+/** A tile's figure from a paged read: "12+" when the read was cut short. */
+function cutFigure(
+  count: number | undefined,
+  read: { truncated: boolean } | null
+): string | undefined {
+  return count === undefined ? undefined : formatCount(count, read?.truncated);
 }
 
 type Tone = 'destructive' | 'warning' | 'info' | 'success';
@@ -214,10 +245,16 @@ export function AttentionStrip({
   );
   const wideView = inboxHref === '/team-inbox';
   const pinCounts = pins.data
-    ? countPinnedTile(pins.data, aiLive, userId, wideView, ownDepartment)
+    ? countPinnedTile(pins.data.rows, aiLive, userId, wideView, ownDepartment)
     : null;
   const insightCounts = insights.data
-    ? countInsightTiles(insights.data, aiLive, userId, wideView, ownDepartment)
+    ? countInsightTiles(
+        insights.data.rows,
+        aiLive,
+        userId,
+        wideView,
+        ownDepartment
+      )
     : null;
   // "Now" for the overdue split, taken once per refresh.
   const [clock, setClock] = useState({ refreshKey, now: new Date() });
@@ -247,6 +284,10 @@ export function AttentionStrip({
       label: t('unread.label'),
       tone: 'info',
       count: unread,
+      display:
+        unread === null
+          ? undefined
+          : formatCount(unread, chats.data?.unreadTruncated),
       error: chatError,
       hint: t('unread.hint'),
     },
@@ -275,6 +316,7 @@ export function AttentionStrip({
         label: ti('hot.label'),
         tone: 'success',
         count: insightCounts?.hotWaiting ?? null,
+        display: cutFigure(insightCounts?.hotWaiting, insights.data),
         error: insightError,
         hint: ti('hot.hint'),
       },
@@ -285,6 +327,7 @@ export function AttentionStrip({
         label: ti('upset.label'),
         tone: 'warning',
         count: insightCounts?.upsetWaiting ?? null,
+        display: cutFigure(insightCounts?.upsetWaiting, insights.data),
         error: insightError,
         hint: ti('upset.hint'),
       },
@@ -295,6 +338,7 @@ export function AttentionStrip({
         label: ti('pinned.label'),
         tone: pinCounts && pinCounts.urgent > 0 ? 'destructive' : 'warning',
         count: pinCounts?.pinned ?? null,
+        display: cutFigure(pinCounts?.pinned, pins.data),
         error: pins.error && !pins.data,
         hint: ti('pinned.hint'),
       }

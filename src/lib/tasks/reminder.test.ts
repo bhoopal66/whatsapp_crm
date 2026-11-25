@@ -4,6 +4,7 @@ import type { Profile } from '@/types';
 
 import {
   canMarkReminderDone,
+  loadUpcomingReminders,
   parseCustomReminderDue,
   savedToastKey,
   REMINDER_HOUR,
@@ -188,5 +189,41 @@ describe('canMarkReminderDone', () => {
       )
     ).toBe(false);
     expect(canMarkReminderDone(task, null, null)).toBe(false);
+  });
+});
+
+describe('loadUpcomingReminders', () => {
+  const res = (ok: boolean, body: unknown) =>
+    (async () =>
+      ({
+        ok,
+        json: async () => body,
+      }) as Response) as unknown as typeof fetch;
+
+  it("asks for the contact's open tasks", async () => {
+    let url = '';
+    const f = (async (u: string) => {
+      url = u;
+      return { ok: true, json: async () => ({ tasks: [] }) } as Response;
+    }) as unknown as typeof fetch;
+    await expect(loadUpcomingReminders('c1', f)).resolves.toEqual([]);
+    expect(url).toContain('contactId=c1');
+    expect(url).toContain('status=open');
+  });
+
+  it('an empty list is [], a failed read is null', async () => {
+    await expect(
+      loadUpcomingReminders('c', res(true, { tasks: [] }))
+    ).resolves.toEqual([]);
+    await expect(
+      loadUpcomingReminders('c', res(false, {}))
+    ).resolves.toBeNull();
+    await expect(
+      loadUpcomingReminders('c', res(true, { error: 'x' }))
+    ).resolves.toBeNull();
+    const boom = (async () => {
+      throw new Error('net');
+    }) as unknown as typeof fetch;
+    await expect(loadUpcomingReminders('c', boom)).resolves.toBeNull();
   });
 });

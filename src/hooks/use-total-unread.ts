@@ -19,6 +19,7 @@ import {
   unreadRose,
   type UnreadMirrorAction,
 } from '@/lib/inbox/unread-mirror';
+import { readPages } from '@/lib/inbox/read-pages';
 import { viewerInboxDepartment } from '@/lib/inbox/departments';
 import type { Conversation } from '@/types';
 
@@ -145,12 +146,16 @@ export function useUnreadChats(
       read: async () => {
         const seq = ++reads;
         mirror = unreadMirrorReducer(mirror, { type: 'readStarted', seq });
-        const { data, error } = await supabase
-          .from('conversations')
-          .select(UNREAD_ROW_COLUMNS)
-          .gt('unread_count', 0);
-        if (error || !data) throw error ?? new Error('no unread rows');
-        return { seq, rows: data as UnreadRow[] };
+        // Paged: one request is cut at 1,000 rows without a word.
+        const { rows } = await readPages((from, to) =>
+          supabase
+            .from('conversations')
+            .select(UNREAD_ROW_COLUMNS)
+            .gt('unread_count', 0)
+            .order('id')
+            .range(from, to)
+        );
+        return { seq, rows: rows as unknown as UnreadRow[] };
       },
       apply: ({ seq, rows: read }) =>
         update({ type: 'readLanded', seq, rows: read }),

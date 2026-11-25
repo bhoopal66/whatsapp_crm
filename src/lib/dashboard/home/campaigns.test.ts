@@ -4,6 +4,7 @@ import {
   campaignProgress,
   scheduleDay,
   sortInFlight,
+  weekCampaigns,
   weekSummary,
   type CampaignRow,
 } from './campaigns';
@@ -91,5 +92,29 @@ describe('scheduleDay', () => {
 
   it('flags a time already passed', () => {
     expect(scheduleDay(new Date(2026, 9, 28, 9, 0), now)).toBe('past');
+  });
+});
+
+describe('weekCampaigns', () => {
+  const row = (status: string, sent_count: number | null) => ({
+    status,
+    sent_count,
+  });
+
+  it('keeps sent ones, even a fully failed one', () => {
+    expect(weekCampaigns([row('sent', 0), row('sent', 5)])).toHaveLength(2);
+  });
+
+  it('keeps a stopped campaign only when it sent something', () => {
+    const out = weekCampaigns([
+      row('stopped', 12),
+      row('stopped', 0),
+      row('stopped', null),
+    ]);
+    expect(out).toEqual([row('stopped', 12)]);
+  });
+
+  it('ignores any other status', () => {
+    expect(weekCampaigns([row('draft', 3)])).toEqual([]);
   });
 });
