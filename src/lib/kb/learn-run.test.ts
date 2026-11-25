@@ -1353,6 +1353,116 @@ describe('evolveSkills (the skill library, 318)', () => {
     ]);
   });
 
+  it('a slow distillation leaves the topic its time, and is asked once', async () => {
+    let clock = 0;
+    const draft = deps(fakeStore()).generate;
+    const timeouts: (number | undefined)[] = [];
+    let last: string | null = null;
+    const { store, added } = skillStore(five(), {
+      addSkills: async (_a, skills, reviewIds) => {
+        added.push({ skills, reviewIds });
+        last = new Date(clock).toISOString();
+        return 0;
+      },
+      distillState: async () => ({ enabled: true, lastDistilledAt: last }),
+    });
+    let distilled = 0;
+    const d = deps(store, {
+      now: () => clock,
+      generate: async (args) => {
+        if (!args.systemPrompt.includes('style guide')) return draft(args);
+        distilled++;
+        timeouts.push(args.timeoutMs);
+        // A provider that needs 30 s, cut off as the adapters do.
+        const limit = args.timeoutMs ?? 30_000;
+        clock += Math.min(30_000, limit);
+        if (limit < 30_000) throw new AiError('slow', { code: 'timeout' });
+        return { text: '{"skills":[]}', handoff: false, usage: null };
+      },
+    });
+    const run = () => learnAccount(d, ACCOUNT, CONFIG, clock + 40_000);
+    const ok = { drafted: 1, tried: 1, error: null };
+    expect(await run()).toEqual(ok);
+    expect(timeouts).toEqual([40_000 - TOPIC_MIN_BUDGET_MS - 2_000]);
+    // The reviews wait, and the hour's retry does not ask again.
+    expect(added).toEqual([{ skills: [], reviewIds: [] }]);
+    clock += 3_600_000;
+    expect(await run()).toEqual(ok);
+    expect(distilled).toBe(1);
+    clock += EVOLVE_INTERVAL_MS;
+    await run();
+    expect(distilled).toBe(2);
+  });
+
+  it('never allows the call more than the configured timeout', async () => {
+    const { store } = skillStore(five());
+    const d = deps(store, { generate: skillModel([]) });
+    await evolve(d, 1e9);
+    expect(d.generate).toHaveBeenCalledWith(
+      expect.objectContaining({ timeoutMs: 30_000 })
+    );
+  });
+
+  it('a failed call starts the wait, one never sent does not', async () => {
+    for (const [err, stamped] of [
+      [new AiError('x', { code: 'timeout' }), 1],
+      [new AiError('x', { code: 'provider_error' }), 1],
+      [new AiError('x', { code: 'network_error' }), 1],
+      [new Error('who knows'), 1],
+      [new AiError('x', { code: 'transfer_basis_required', status: 451 }), 0],
+      [new AiError('x', { code: 'unsupported_provider' }), 0],
+    ] as const) {
+      const { store, added } = skillStore(five());
+      const d = deps(store, {
+        generate: async () => {
+          throw err;
+        },
+      });
+      expect(await evolve(d)).toMatchObject({ evolved: false, added: 0 });
+      expect(added).toEqual(
+        Array.from({ length: stamped }, () => ({ skills: [], reviewIds: [] }))
+      );
+    }
+  });
+
+  it('marks only the reviews it used; the rest wait for the next cycle', async () => {
+    const { store, added } = skillStore([
+      row('unscreenable', entry('approved'), {
+        draftAnswer: 42 as unknown as string,
+        outcome: 'removed',
+      }),
+      ...Array.from({ length: 14 }, (_, i) => row(`r${i}`, entry('approved'))),
+    ]);
+    await evolve(deps(store, { generate: skillModel([]) }));
+    expect(added[0]!.reviewIds).toEqual([
+      'unscreenable',
+      ...Array.from({ length: 10 }, (_, i) => `r${i}`),
+    ]);
+  });
+
+  it('tells the model the retired titles, screened, and refuses them', async () => {
+    const sent: string[] = [];
+    const { store, added } = skillStore(five(), {
+      skillTitles: async () => [
+        { title: 'Promising approval', status: 'retired' },
+        { title: 'Ask Haddad', status: 'retired' },
+        { title: 'Name the documents', status: 'active' },
+      ],
+    });
+    const d = deps(store, {
+      generate: skillModel(
+        [{ kind: 'general', title: 'Promising approval!', principle: 'x' }],
+        sent
+      ),
+    });
+    await evolve(d);
+    const retired = sent[1]!.split('retired_rules>')[1]!;
+    expect(retired).toContain('- Promising approval');
+    expect(retired).not.toContain('Name the documents');
+    expect(sent.join('\n')).not.toContain('Haddad');
+    expect(added[0]!.skills).toEqual([]);
+  });
+
   it('a failure never stops the drafting', async () => {
     const fail = async () => {
       throw new Error('db down');
