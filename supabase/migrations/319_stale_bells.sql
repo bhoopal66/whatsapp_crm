@@ -48,6 +48,8 @@ RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public, pg_temp
+-- A lock on the bells is caught below; a wait for one would hold the change.
+SET lock_timeout = '1s'
 AS $$
 BEGIN
   -- Never in the way of the change itself.
@@ -106,6 +108,8 @@ RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public, pg_temp
+-- A lock on the bells is caught below; a wait for one would hold the change.
+SET lock_timeout = '1s'
 AS $$
 DECLARE
   -- The end of a repeat rule; without it, the rule's pattern.

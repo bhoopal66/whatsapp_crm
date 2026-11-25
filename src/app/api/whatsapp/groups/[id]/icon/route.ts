@@ -31,8 +31,9 @@ export const maxDuration = 60;
 type Params = { params: Promise<{ id: string }> };
 
 /**
- * A 404, so the <img> falls back to initials. Kept by the browser for an
- * hour: every avatar shown is otherwise one gateway call.
+ * A 404, so the <img> falls back to initials. Kept by the browser for ten
+ * minutes: every avatar shown is otherwise one gateway call. Not for the
+ * next person on this browser (`Vary`).
  */
 const noIcon = (cacheable: boolean) =>
   NextResponse.json(
@@ -40,7 +41,8 @@ const noIcon = (cacheable: boolean) =>
     {
       status: 404,
       headers: {
-        'Cache-Control': cacheable ? 'private, max-age=3600' : 'no-store',
+        'Cache-Control': cacheable ? 'private, max-age=600' : 'no-store',
+        Vary: 'Cookie',
       },
     }
   );
@@ -54,7 +56,8 @@ export async function GET(request: Request, { params }: Params) {
     const ctx = assertSalesAccess(await getCurrentAccount());
     const { id } = await params;
     const group = await loadGroupForCaller(ctx, id);
-    if (!group.channel_id) return noIcon(cacheable);
+    // No number to ask yet: not an answer about the picture.
+    if (!group.channel_id) return noIcon(false);
     const channel = await channelForGroup(group);
     const icon = await getIcon({
       channel,
@@ -76,6 +79,7 @@ export async function GET(request: Request, { params }: Params) {
         'Content-Security-Policy': "default-src 'none'; sandbox",
         'X-Content-Type-Options': 'nosniff',
         'Cache-Control': cacheable ? 'private, max-age=300' : 'no-store',
+        Vary: 'Cookie',
       },
     });
   } catch (err) {

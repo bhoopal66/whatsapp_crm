@@ -91,6 +91,7 @@ describe('GET', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toBe('image/jpeg');
     expect(res.headers.get('cache-control')).toBe('private, max-age=300');
+    expect(res.headers.get('vary')).toBe('Cookie');
     expect(new Uint8Array(await res.arrayBuffer())).toEqual(
       new Uint8Array([1, 2, 3])
     );
@@ -129,11 +130,11 @@ describe('GET', () => {
     mocks.getIcon.mockResolvedValue(null);
     const none = await GET(new Request('http://x/icon?v=0'), params);
     expect(none.status).toBe(404);
-    expect(none.headers.get('cache-control')).toBe('private, max-age=3600');
+    expect(none.headers.get('cache-control')).toBe('private, max-age=600');
     // A gateway's own 404 is the same answer.
     mocks.getIcon.mockRejectedValue(new WhapiError('not found', 404));
     const gone = await GET(new Request('http://x/icon?v=0'), params);
-    expect(gone.headers.get('cache-control')).toBe('private, max-age=3600');
+    expect(gone.headers.get('cache-control')).toBe('private, max-age=600');
     // After a change on the screen: never an answer kept from before.
     const changed = await GET(new Request('http://x/icon?v=1'), params);
     expect(changed.headers.get('cache-control')).toBe('no-store');
