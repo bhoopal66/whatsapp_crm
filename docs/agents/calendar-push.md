@@ -43,6 +43,12 @@
   30 min and not after their end; a heads-up, event or meeting past its
   first 5 minutes only if it was set before its time. The sweep and
   `reminders.ts` state the same rules: change both.
+- **Stale bells (319).** Triggers on `tasks`, `meetings` and
+  `calendar_events` read a row's unread reminder bells when it is finished,
+  moved, cancelled or deleted (an ended meeting keeps its bell), so every
+  writer closes the alarm card. A new reminder type goes into the index, the
+  triggers and `ALARM_TYPES`. Done on the card checks the task first
+  (`stillDue`). `verify-stale-bells.sql`.
 - **117** makes two meeting FKs `DEFERRABLE INITIALLY DEFERRED`, because
   a same-transaction insert-then-cascade-delete failed after a
   `pg_dump` restore. The migration explains why no other FK was

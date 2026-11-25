@@ -1639,6 +1639,11 @@ jobs:
       - name: Verify bells at the end of a submission group
         run: supabase db query --local --file supabase/ci/verify-sg-end-bells.sql
 
+      # Migration 319: reminder bells are read when their task, meeting or
+      # event is finished, moved, cancelled or deleted. Rolled back.
+      - name: Verify stale reminder bells
+        run: supabase db query --local --file supabase/ci/verify-stale-bells.sql
+
       # Migration 316: the rest of the case desk findings.
       - name: Verify the rest of the case desk
         run: supabase db query --local --file supabase/ci/verify-desk-rest.sql

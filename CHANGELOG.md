@@ -12,6 +12,14 @@ and polish.
 
 ## [Unreleased]
 
+### Fixed: a reminder kept ringing after it was done, moved or cancelled
+
+The ringing card closes on every screen when its task is finished, moved,
+cancelled or deleted, or its meeting or event is moved, cancelled or deleted.
+Done on an old card no longer closes a task that was moved to a later time.
+
+**Migration required: 319** (`319_stale_bells.sql`, after 268).
+
 ### Fixed: Settings no longer puts old values back or hides a failed read
 
 Editing a member sends only what you changed, so fixing a name on an old

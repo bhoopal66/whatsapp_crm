@@ -140,6 +140,8 @@ export interface AlarmActionDeps {
   /** The account's zone: "tomorrow" is its 09:00. */
   timeZone: string;
   now?: () => Date;
+  /** `readTaskDue`; tests pass their own. */
+  readTask?: typeof readTaskDue;
 }
 
 export interface AlarmActions {
@@ -163,6 +165,35 @@ async function patchTask(
   } catch {
     return false;
   }
+}
+
+/** The task as it is now; null: it is gone or not readable here. */
+async function readTaskDue(
+  taskId: string
+): Promise<{ status: string; due_at: string | null } | null> {
+  const { data, error } = await createClient()
+    .from('tasks')
+    .select('status, due_at')
+    .eq('id', taskId)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+/** The clocks of the sweep and of the database may differ a little. */
+const DUE_SLACK_MS = 60_000;
+
+/**
+ * Whether the task is still open and due by the time its card rang.
+ * Moved to a later time, it has a reminder of its own to come, which
+ * Done on the old card would close.
+ */
+export function stillDue(
+  task: { status: string; due_at: string | null } | null,
+  rangAt: number
+): boolean {
+  if (!task || task.status !== 'open' || !task.due_at) return false;
+  return Date.parse(task.due_at) <= rangAt + DUE_SLACK_MS;
 }
 
 /**
@@ -205,6 +236,17 @@ export function alarmActions(deps: AlarmActionDeps): AlarmActions {
     },
     done: async () => {
       if (!alarm.taskId) return;
+      try {
+        const task = await (deps.readTask ?? readTaskDue)(alarm.taskId);
+        if (!stillDue(task, alarm.createdAt)) {
+          close();
+          toast.info(t('changed'));
+          return;
+        }
+      } catch {
+        toast.error(t('failed'));
+        return;
+      }
       if (!(await patchTask(alarm.taskId, { status: 'done' }))) {
         toast.error(t('failed'));
         return;
@@ -445,7 +487,7 @@ export function ReminderAlarmStack({
   return (
     <div
       data-reminder-alarms
-      className="fixed top-[68px] end-4 z-[56] flex w-[360px] max-w-[calc(100vw-24px)] flex-col gap-2 max-sm:top-auto max-sm:end-3 max-sm:bottom-[calc(4.25rem+env(safe-area-inset-bottom))] max-sm:start-3 max-sm:w-auto max-sm:max-w-none"
+      className="fixed top-[68px] end-4 z-[56] flex w-[360px] max-w-[calc(100vw-24px)] flex-col gap-2 max-sm:start-3 max-sm:end-3 max-sm:top-auto max-sm:bottom-[calc(4.25rem+env(safe-area-inset-bottom))] max-sm:w-auto max-sm:max-w-none"
     >
       {shown.map((alarm) => (
         <div key={alarm.id}>{renderCard(alarm)}</div>
