@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createBrowserSessionFetch } from './session-fetch';
@@ -56,7 +56,7 @@ const at = (server: number) => {
 
 function make() {
   const store = new Map<string, string>();
-  const client = createClient('http://sb.test', 'anon', {
+  const client: SupabaseClient = createClient('http://sb.test', 'anon', {
     auth: {
       autoRefreshToken: false,
       storage: {

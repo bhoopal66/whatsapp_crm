@@ -71,7 +71,7 @@ function usedKeys(file: string, source: string) {
     ) {
       const ns = node.initializer ? namespaceOf(node.initializer) : undefined;
       // Any other variable of that name hides an outer translator.
-      scope[node.name.text] = ns ?? (ns === '' ? '' : null);
+      scope[node.name.text] = ns ?? null;
     }
     if (ts.isCallExpression(node) && node.arguments[0]) {
       let callee: ts.Expression = node.expression;
