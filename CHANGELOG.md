@@ -40,6 +40,27 @@ alone. The members list, invitations, My WhatsApp and the Meta connection
 show an error with Retry when they cannot be read. The member buttons fit a
 phone. A failed workspace read no longer signs a person out. No migration.
 
+### Fixed: the whole-app check of 2026-11-25
+
+Migrations 319 and 320 (their own entries); the rest needs none.
+
+- **Inbox:** a link to a chat (a bell, a notification click, search)
+  opens it while the Inbox is on screen; a notification click no longer
+  reloads the page and loses half-written replies; on a phone Back
+  returns to the list, and a tap on a bubble's first line no longer
+  presses an invisible button; document captions are shown in full;
+  pickers, uploads and AI drafts stay with the chat they belong to.
+- **Calls:** a call the phone system says is over can be closed at once;
+  Hold keeps the call window; missed calls get their task and bell when
+  the end was lost, and a customer already spoken to leaves none open.
+- **Campaigns:** a gateway outage pauses a campaign instead of failing
+  everybody; one due without a connected number waits for it.
+- **Groups, submission groups, cases, desk, deal rooms, team chat,
+  contacts, settings:** failed loads are said (with Retry) instead of
+  looking empty, changes by two people no longer undo each other (group
+  managers, member details, group names), searches and lists no longer
+  miss rows, and work that was lost on a tab switch is kept.
+
 ### Fixed: a PC with a slow clock lost the CRM for minutes every hour
 
 A browser whose PC clock runs behind kept using a sign-in the server had
