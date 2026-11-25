@@ -15,7 +15,8 @@
 //
 // `caseId` is the group's case (019a), or null when none was opened yet:
 // looked up on the service role only once the checks above let the
-// caller in, pinned to their account.
+// caller in, pinned to their account, and only when the caller holds a role
+// on that case (case_role), so "Open case" is never a dead link.
 // ============================================================
 
 import { NextResponse } from 'next/server';
@@ -124,7 +125,7 @@ export async function GET(request: Request, { params }: Params) {
         ...access.map((a) => a.userId),
         ...messages.map((m) => m.senderUserId),
       ]),
-      loadCaseId(admin, ctx.accountId, group.id),
+      loadCaseId(admin, ctx.accountId, group.id, ctx.userId),
       loadBanks(admin, ctx.accountId, [group.id]),
     ]);
     const active = group.status === 'ACTIVE';
@@ -159,7 +160,8 @@ export async function GET(request: Request, { params }: Params) {
 async function loadCaseId(
   admin: ReturnType<typeof supabaseAdmin>,
   accountId: string,
-  groupId: string
+  groupId: string,
+  userId: string
 ): Promise<string | null> {
   const { data, error } = await admin
     .from('cases')
@@ -169,5 +171,10 @@ async function loadCaseId(
     .maybeSingle();
   if (error) throw new Error(`cases: ${error.message}`);
   const id = (data as { id?: unknown } | null)?.id;
-  return typeof id === 'string' ? id : null;
+  if (typeof id !== 'string') return null;
+  // case_role (161) is narrower than the group's own access: someone on the
+  // access list may hold no role on the case, and /cases/<id> would 404.
+  // Only a definite "no role" hides the link; a failed read keeps it.
+  const role = await admin.rpc('case_role', { p_case: id, p_user: userId });
+  return !role.error && role.data == null ? null : id;
 }
