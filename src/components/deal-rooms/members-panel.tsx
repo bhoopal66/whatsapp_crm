@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { UserMinus } from 'lucide-react';
 import { toast } from 'sonner';
@@ -23,6 +23,7 @@ import { hasMinRole } from '@/lib/auth/roles';
 import { channelMembers } from '@/lib/chat/api';
 import { offersParticipantCall } from '@/lib/deal-rooms/call';
 import { failedJoinBlock } from '@/lib/deal-rooms/join-blocks';
+import { decisionSkipped, resendNotice } from '@/lib/deal-rooms/notices';
 import type { ChannelMember } from '@/lib/chat/types';
 import {
   listedPeople,
@@ -76,6 +77,7 @@ export function DealRoomMembersPanel({ detail, reload }: RoomContext) {
   const ws = useChatWorkspaceContext();
   const { account, workspaces, activeWorkspaceId, accountRole } = useAuth();
   const [link, setLink] = useState<string | null>(null);
+  const linkInput = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const [reason, setReason] = useState('');
@@ -160,11 +162,33 @@ export function DealRoomMembersPanel({ detail, reload }: RoomContext) {
   // Answered 200 and still not done: WhatsApp or the admit rule refused.
   const decided = (b: Record<string, unknown>) => {
     const first = Array.isArray(b.failed) ? b.failed[0] : undefined;
-    if (!first) return;
-    const block = failedJoinBlock(b.failed);
-    decideFailed(
-      block ? t(`members.joinBlocks.${block}`) : String(first.error ?? '')
-    );
+    if (first) {
+      const block = failedJoinBlock(b.failed);
+      decideFailed(
+        block ? t(`members.joinBlocks.${block}`) : String(first.error ?? '')
+      );
+    }
+    // Not pending any more: another manager got there first.
+    if (decisionSkipped(b)) toast.warning(t('members.alreadyDecided'));
+  };
+
+  const resent = (b: Record<string, unknown>) => {
+    const n = resendNotice(b);
+    if (n.level === 'success') {
+      toast.success(t('members.resent', { sent: n.sent, failed: 0 }));
+    } else if (n.level === 'error') {
+      toast.error(t('members.resent', { sent: n.sent, failed: n.failed }));
+    } else {
+      toast.warning(
+        n.reasons.length
+          ? t('members.resentNone', {
+              reasons: n.reasons
+                .map((r) => t(`members.resentReasons.${r}`))
+                .join('; '),
+            })
+          : t('members.resentNothingDue')
+      );
+    }
   };
 
   const fetchLink = async () => {
@@ -176,15 +200,25 @@ export function DealRoomMembersPanel({ detail, reload }: RoomContext) {
       setLink(b.inviteLink);
       return b.inviteLink;
     } catch (err) {
+      // Never keep handing out what may be a revoked link.
+      setLink(null);
       toast.error(t('members.linkFailed', { error: (err as Error).message }));
       return null;
     }
   };
   const copy = async () => {
-    const value = link ?? (await fetchLink());
+    // Asked every time: a cached link may have been reset by someone else.
+    const value = await fetchLink();
     if (!value) return;
-    await navigator.clipboard.writeText(value).catch(() => undefined);
-    toast.success(t('members.copied'));
+    try {
+      await navigator.clipboard.writeText(value);
+      toast.success(t('members.copied'));
+    } catch {
+      // The clipboard refused (Safari/iOS drop the tap after the fetch):
+      // the link is in the box, selected, to copy by hand.
+      toast.error(t('members.copyFailed'));
+      setTimeout(() => linkInput.current?.select(), 0);
+    }
   };
 
   const confirmAction = () => {
@@ -206,7 +240,11 @@ export function DealRoomMembersPanel({ detail, reload }: RoomContext) {
           setLink(typeof b.inviteLink === 'string' ? b.inviteLink : null);
           toast.success(t('actions.resetDone'));
         },
-        (error) => toast.error(t('actions.resetFailed', { error }))
+        (error) => {
+          // The old link may or may not still work: show neither.
+          setLink(null);
+          toast.error(t('actions.resetFailed', { error }));
+        }
       );
       setConfirm(null);
     } else if (confirm.kind === 'cancel') {
@@ -403,6 +441,7 @@ export function DealRoomMembersPanel({ detail, reload }: RoomContext) {
           </h4>
           <div className="flex gap-2">
             <input
+              ref={linkInput}
               readOnly
               aria-label={t('members.inviteLink')}
               value={link ?? ''}
@@ -442,17 +481,8 @@ export function DealRoomMembersPanel({ detail, reload }: RoomContext) {
             variant="outline"
             disabled={busy || !open}
             onClick={() =>
-              void run(
-                `${base}/invites`,
-                undefined,
-                (b) =>
-                  toast.success(
-                    t('members.resent', {
-                      sent: Number(b.sent ?? 0),
-                      failed: Number(b.failed ?? 0),
-                    })
-                  ),
-                (error) => toast.error(t('members.resendFailed', { error }))
+              void run(`${base}/invites`, undefined, resent, (error) =>
+                toast.error(t('members.resendFailed', { error }))
               )
             }
           >

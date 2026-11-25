@@ -6490,7 +6490,19 @@
         "removeTitle": "Remove {name}?",
         "removeBody": "They leave the WhatsApp group and cannot rejoin through the invite link.",
         "removed": "{name} was removed. A removed person cannot rejoin through the invite link.",
-        "removeFailed": "Couldn't remove {name}: {error}"
+        "removeFailed": "Couldn't remove {name}: {error}",
+        "alreadyDecided": "Someone else already decided this request.",
+        "copyFailed": "Couldn't copy the link. It is shown in the box: select it and copy by hand.",
+        "resentNone": "No invites were sent. Skipped: {reasons}.",
+        "resentNothingDue": "No invites were sent: nobody is due one.",
+        "resentReasons": {
+          "already": "already invited (copy the link and send it)",
+          "waiting": "waiting for a team leader's approval",
+          "opted_out": "opted out or do-not-contact",
+          "no_consent": "no recorded consent",
+          "bank_guests_off": "bank officers cannot join customer groups",
+          "other": "not allowed to be invited now"
+        }
       },
       "actions": {
         "title": "Room actions",
@@ -7975,7 +7987,11 @@
     },
     "ended": {
       "title": "This meeting has ended",
-      "viewSummary": "View summary"
+      "viewSummary": "View summary",
+      "unsavedTitle": "Minutes that were not saved",
+      "unsavedCopy": "Copy",
+      "unsavedCopied": "Minutes copied",
+      "unsavedCopyFailed": "Couldn't copy the minutes."
     },
     "left": {
       "title": "You left the meeting",

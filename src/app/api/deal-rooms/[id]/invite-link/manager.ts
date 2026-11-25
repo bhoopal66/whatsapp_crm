@@ -23,7 +23,20 @@ export async function asManager(
     const { data, error } = await ctx.supabase.rpc('deal_room_can_manage', {
       p_room: roomId,
     });
-    if (error) console.error('[deal-rooms] can_manage failed:', error.message);
+    if (error) {
+      // Unanswered is not "no": the caller may retry.
+      console.error('[deal-rooms] can_manage failed:', error.message);
+      return NextResponse.json(
+        {
+          error: 'Could not check your access to this deal room. Try again.',
+          code: 'check_failed',
+        },
+        {
+          status: 503,
+          headers: { 'Retry-After': '2', 'Cache-Control': 'no-store' },
+        }
+      );
+    }
     if (data !== true) {
       return NextResponse.json(
         {

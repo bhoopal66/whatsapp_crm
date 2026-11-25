@@ -53,6 +53,7 @@ import {
   useFullscreen,
   usePictureInPicture,
 } from './control-bar';
+import { KeptMinutes } from './kept-minutes';
 import { RoomEndScreen, type EndAction } from './room-end-screen';
 import { RoomLobby } from './room-lobby';
 import { RoomPanels } from './room-side-panel';
@@ -199,7 +200,9 @@ function ClaimedRoom({
         title={t('ended.title')}
         body={call.meeting?.title}
         actions={[{ label: t('ended.viewSummary'), href: back }, toMeetings]}
-      />
+      >
+        <KeptMinutes meetingId={meetingId} />
+      </RoomEndScreen>
     );
   }
   // Nothing to go back to: the app refuses this person now.

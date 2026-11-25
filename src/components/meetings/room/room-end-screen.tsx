@@ -2,6 +2,7 @@
 
 import type { LucideIcon } from 'lucide-react';
 import Link from 'next/link';
+import type { ReactNode } from 'react';
 
 import { Button, buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -54,6 +55,7 @@ export function RoomEndScreen({
   title,
   body,
   actions,
+  children,
 }: {
   icon: LucideIcon;
   /** `warning` is for something that went wrong, not for a normal end. */
@@ -61,6 +63,8 @@ export function RoomEndScreen({
   title: string;
   body?: string;
   actions: readonly EndAction[];
+  /** Extra content between the text and the actions. */
+  children?: ReactNode;
 }) {
   return (
     <div className="h-full min-h-0 flex-1 overflow-y-auto">
@@ -84,6 +88,7 @@ export function RoomEndScreen({
               {body}
             </p>
           )}
+          {children}
           <div className="mt-6 flex w-full flex-col justify-center gap-2 sm:flex-row sm:flex-wrap">
             {actions.map((action, i) => (
               <ActionControl
