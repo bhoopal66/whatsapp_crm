@@ -11,7 +11,10 @@ import { chunkIds } from './chat-tag-column';
 import { dedupeByPhone, isUniqueViolation, normalizeKey } from './dedupe';
 import type { ParsedContactRow } from './parse-contact-csv';
 import { storedForms } from './phone-match';
-import { partitionRowsByPhone } from './phone-validation';
+import {
+  partitionRowsByPhone,
+  type PhoneValidationReason,
+} from './phone-validation';
 
 /** Numbers per `.in()` filter: 200 of them stay well inside a URL. */
 export const LOOKUP_CHUNK = 200;
@@ -28,6 +31,8 @@ export interface ImportProblem {
   reason: 'unreadable' | 'no_phone' | 'phone' | 'save';
   /** The phone rule's sentence, or the database's message. */
   detail?: string;
+  /** For `phone`: the rule's code, which the screen translates. */
+  phoneReason?: PhoneValidationReason;
 }
 
 /** A number already a customer, stored in another form. */
@@ -120,11 +125,12 @@ export async function planImport(
       phone: '',
       reason: 'no_phone' as const,
     })),
-    ...rejected.map(({ row, error }) => ({
+    ...rejected.map(({ row, error, reason }) => ({
       line: row.line ?? null,
       phone: row.phone,
       reason: 'phone' as const,
       detail: error,
+      phoneReason: reason,
     })),
   ].sort((a, b) => (a.line ?? 0) - (b.line ?? 0));
   return {

@@ -1069,9 +1069,9 @@
     },
     "form": {
       "addTitle": "연락처 추가",
-      "addDesc": "새 연락처를 만듭니다. 이름은 필수입니다.",
+      "addDesc": "새 연락처를 만듭니다. 전화번호는 필수이고 이름은 선택입니다.",
       "editTitle": "연락처 수정",
-      "editDesc": "연락처 정보와 태그를 업데이트합니다.",
+      "editDesc": "연락처의 전화번호, 이름, 이메일, 회사를 업데이트합니다.",
       "nameLabel": "이름",
       "namePlaceholder": "홍길동",
       "phoneLabel": "전화번호",

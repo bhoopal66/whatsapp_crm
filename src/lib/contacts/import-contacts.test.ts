@@ -104,6 +104,21 @@ describe('planImport', () => {
     ]);
   });
 
+  it('carries the phone rule code so the screen can translate it', async () => {
+    const plan = await planImport(
+      {
+        rows: [{ phone: '12', values: {}, line: 3 }],
+        badLines: [],
+        noPhoneLines: [],
+      },
+      async () => ({ data: [], error: null })
+    );
+    expect(plan.problems[0]).toMatchObject({
+      reason: 'phone',
+      phoneReason: 'too_short',
+    });
+  });
+
   it('does not call numbers new when the read failed', async () => {
     await expect(
       planImport(file(rows(1)), async () => ({
