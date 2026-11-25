@@ -4,9 +4,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import { ChevronRight, Loader2 } from 'lucide-react';
+import { ErrorState } from '@/components/dashboard/error-state';
 import { Button } from '@/components/ui/button';
 import {
   parseSkillList,
+  skillSaveFailureKey,
   sortSkills,
   type SkillView,
 } from '@/lib/kb/skills-view';
@@ -21,69 +23,100 @@ import { cn } from '@/lib/utils';
 export function AiKbLearnedSkills({ accountId }: { accountId: string | null }) {
   const t = useTranslations('KbLearn.skills');
   const [skills, setSkills] = useState<SkillView[]>([]);
-  const [loading, setLoading] = useState(true);
+  // A failed read is its own state: never drawn as an empty list.
+  const [state, setState] = useState<'loading' | 'ready' | 'failed'>('loading');
   const [busy, setBusy] = useState<string | null>(null);
   const loadedRef = useRef<string | null>(null);
+  // Bumped by every read and every saved change: an older read answering
+  // late (or after a change was saved) must not overwrite what is newer.
+  const seqRef = useRef(0);
+  const savingRef = useRef(false);
 
   const load = useCallback(async () => {
-    setLoading(true);
+    const seq = ++seqRef.current;
+    setState('loading');
+    let next: SkillView[] | null = null;
     try {
       const res = await fetch('/api/ai/kb/learn/skills', { cache: 'no-store' });
       const data = await res.json().catch(() => null);
-      if (res.ok) setSkills(parseSkillList(data?.skills));
-      else toast.error(data?.error ?? t('loadFailed'));
+      if (res.ok && Array.isArray(data?.skills))
+        next = parseSkillList(data.skills);
     } catch {
-      toast.error(t('loadFailed'));
-    } finally {
-      setLoading(false);
+      next = null;
     }
-  }, [t]);
+    if (seq !== seqRef.current) return;
+    if (next) {
+      setSkills(next);
+      setState('ready');
+    } else setState('failed');
+  }, []);
 
   useEffect(() => {
     if (!accountId || loadedRef.current === accountId) return;
     loadedRef.current = accountId;
+    setSkills([]);
     void load();
   }, [accountId, load]);
 
   const setStatus = async (skill: SkillView, status: SkillView['status']) => {
+    // A ref, not `busy`: a second click can land before the re-render.
+    if (savingRef.current) return;
+    savingRef.current = true;
     setBusy(skill.id);
+    let failedStatus: number | null = null;
     try {
       const res = await fetch(`/api/ai/kb/learn/skills/${skill.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status }),
       });
-      const data = await res.json().catch(() => null);
-      if (!res.ok) {
-        toast.error(data?.error ?? t('saveFailed'));
+      if (res.ok) {
+        seqRef.current++;
+        setSkills((list) =>
+          sortSkills(
+            list.map((s) => (s.id === skill.id ? { ...s, status } : s))
+          )
+        );
         return;
       }
-      setSkills((list) =>
-        sortSkills(list.map((s) => (s.id === skill.id ? { ...s, status } : s)))
-      );
+      failedStatus = res.status;
     } catch {
-      toast.error(t('saveFailed'));
+      failedStatus = null;
     } finally {
+      savingRef.current = false;
       setBusy(null);
     }
+    // The list stays as it was; the reason is said.
+    toast.error(t(skillSaveFailureKey(failedStatus)));
+    if (failedStatus === 404) void load();
   };
 
   const active = skills.filter((s) => s.status === 'active').length;
 
   return (
     <details className="group border-border bg-card rounded-md border">
-      <summary className="text-foreground flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-sm font-medium select-none">
-        <ChevronRight className="h-4 w-4 transition-transform group-open:rotate-90 rtl:rotate-180 rtl:group-open:rotate-90" />
-        {t('title', { count: active })}
+      <summary className="text-foreground flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-start text-sm font-medium select-none">
+        <ChevronRight className="h-4 w-4 shrink-0 transition-transform group-open:rotate-90 rtl:rotate-180 rtl:group-open:rotate-90" />
+        {state === 'ready' ? t('title', { count: active }) : t('titlePlain')}
       </summary>
-      <div className="space-y-2 border-t px-3 py-3">
-        <p className="text-muted-foreground text-xs">{t('description')}</p>
-        {loading ? (
-          <p className="text-muted-foreground flex items-center gap-2 text-xs">
-            <Loader2 className="h-3 w-3 animate-spin" /> {t('loading')}
+      <div className="border-border space-y-2 border-t px-3 py-3">
+        <p className="text-muted-foreground text-start text-xs">
+          {t('description')}
+        </p>
+        {state === 'loading' ? (
+          <p
+            role="status"
+            className="text-muted-foreground flex items-center gap-2 text-xs"
+          >
+            <Loader2 className="h-3 w-3 animate-spin" aria-hidden />{' '}
+            {t('loading')}
           </p>
+        ) : state === 'failed' ? (
+          <ErrorState message={t('loadFailed')} onRetry={() => void load()} />
         ) : skills.length === 0 ? (
-          <p className="text-muted-foreground text-xs">{t('empty')}</p>
+          <p className="text-muted-foreground text-start text-xs">
+            {t('empty')}
+          </p>
         ) : (
           <ul className="divide-border divide-y">
             {skills.map((s) => (
@@ -94,7 +127,7 @@ export function AiKbLearnedSkills({ accountId }: { accountId: string | null }) {
                   s.status === 'retired' && 'opacity-60'
                 )}
               >
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1 text-start break-words">
                   <p className="text-foreground text-sm font-medium">
                     <span className="bg-card-2 text-muted-foreground me-2 rounded px-1.5 py-0.5 text-[11px] font-normal">
                       {s.kind === 'category' && s.category
@@ -115,7 +148,8 @@ export function AiKbLearnedSkills({ accountId }: { accountId: string | null }) {
                 <Button
                   size="sm"
                   variant="outline"
-                  disabled={busy === s.id}
+                  className="shrink-0"
+                  disabled={busy !== null}
                   onClick={() =>
                     void setStatus(
                       s,

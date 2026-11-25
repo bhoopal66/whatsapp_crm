@@ -90,4 +90,26 @@ describe('PATCH /api/ai/kb/learn/skills/[id]', () => {
     });
     expect((await patch({ status: 'active' })).status).toBe(409);
   });
+
+  it('an unexpected database error is a generic 500', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    mocks.requireRole.mockResolvedValue({
+      supabase: client({
+        data: null,
+        error: { code: 'XX000', message: 'kb_learn_skills internals' },
+      }).supabase,
+      userId: 'u',
+    });
+    const res = await patch({ status: 'retired' });
+    expect(res.status).toBe(500);
+    expect(JSON.stringify(await res.json())).not.toContain('kb_learn_skills');
+  });
+
+  it('a skill the function does not return is a 404, not a 200 null', async () => {
+    mocks.requireRole.mockResolvedValue({
+      supabase: client({ data: null, error: null }).supabase,
+      userId: 'u',
+    });
+    expect((await patch({ status: 'retired' })).status).toBe(404);
+  });
 });

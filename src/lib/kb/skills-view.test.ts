@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseSkillList } from './skills-view';
+import { parseSkillList, skillSaveFailureKey } from './skills-view';
 
 describe('parseSkillList', () => {
   it('reads rows, drops broken ones, puts active first', () => {
@@ -35,5 +35,14 @@ describe('parseSkillList', () => {
     });
     expect(list[1]).toMatchObject({ status: 'retired', evidenceCount: 2 });
     expect(parseSkillList('nope')).toEqual([]);
+  });
+});
+
+describe('skillSaveFailureKey', () => {
+  it('explains the cap and a missing rule, else a plain failure', () => {
+    expect(skillSaveFailureKey(409)).toBe('capReached');
+    expect(skillSaveFailureKey(404)).toBe('gone');
+    expect(skillSaveFailureKey(500)).toBe('saveFailed');
+    expect(skillSaveFailureKey(null)).toBe('saveFailed');
   });
 });

@@ -59,6 +59,8 @@ export async function PATCH(
         { status: 500 }
       );
     }
+    if (!data)
+      return NextResponse.json({ error: 'Unknown skill' }, { status: 404 });
     return NextResponse.json(data);
   } catch (err) {
     return toErrorResponse(err);

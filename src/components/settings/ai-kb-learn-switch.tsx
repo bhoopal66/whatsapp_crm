@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { GraduationCap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
+import { AiKbLearnedSkills } from '@/components/settings/ai-kb-learned-skills';
 import {
   KB_LEARN_SWITCH_LOADING,
   kbLearnSwitchReduce,
@@ -101,52 +102,57 @@ export function AiKbLearnSwitch({
   };
 
   return (
-    <div className="border-border bg-card flex items-start justify-between gap-4 rounded-md border p-3">
-      <div className="flex min-w-0 gap-2">
-        <GraduationCap
-          className="text-primary mt-0.5 h-4 w-4 shrink-0"
-          aria-hidden
-        />
-        <div className="min-w-0">
-          <p className="text-foreground text-sm font-medium">{t('title')}</p>
-          <p className="text-muted-foreground text-xs">{t('description')}</p>
-          {view.kind === 'failed' ? (
-            <p role="alert" className="text-destructive mt-1 text-xs">
-              {t('loadFailed')}
-            </p>
-          ) : view.kind === 'switch' && view.line ? (
-            <p
-              className={
-                view.line.key === 'notApplied' || 'retryAt' in view.line
-                  ? 'text-warning mt-1 text-xs'
-                  : 'text-muted-foreground mt-1 text-xs'
-              }
-            >
-              {lineText(view.line)}
-            </p>
-          ) : null}
+    <div className="space-y-2">
+      <div className="border-border bg-card flex items-start justify-between gap-4 rounded-md border p-3">
+        <div className="flex min-w-0 gap-2">
+          <GraduationCap
+            className="text-primary mt-0.5 h-4 w-4 shrink-0"
+            aria-hidden
+          />
+          <div className="min-w-0">
+            <p className="text-foreground text-sm font-medium">{t('title')}</p>
+            <p className="text-muted-foreground text-xs">{t('description')}</p>
+            {view.kind === 'failed' ? (
+              <p role="alert" className="text-destructive mt-1 text-xs">
+                {t('loadFailed')}
+              </p>
+            ) : view.kind === 'switch' && view.line ? (
+              <p
+                className={
+                  view.line.key === 'notApplied' || 'retryAt' in view.line
+                    ? 'text-warning mt-1 text-xs'
+                    : 'text-muted-foreground mt-1 text-xs'
+                }
+              >
+                {lineText(view.line)}
+              </p>
+            ) : null}
+          </div>
         </div>
+        {view.kind === 'failed' ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              dispatch({ type: 'load' });
+              void load();
+            }}
+          >
+            {ts('retry')}
+          </Button>
+        ) : (
+          <Switch
+            checked={view.kind === 'switch' && view.checked}
+            onCheckedChange={(v) => void save(v)}
+            disabled={view.kind !== 'switch' || view.disabled}
+            aria-label={t('title')}
+          />
+        )}
       </div>
-      {view.kind === 'failed' ? (
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            dispatch({ type: 'load' });
-            void load();
-          }}
-        >
-          {ts('retry')}
-        </Button>
-      ) : (
-        <Switch
-          checked={view.kind === 'switch' && view.checked}
-          onCheckedChange={(v) => void save(v)}
-          disabled={view.kind !== 'switch' || view.disabled}
-          aria-label={t('title')}
-        />
-      )}
+      {view.kind === 'switch' && state.settings?.available ? (
+        <AiKbLearnedSkills accountId={accountId} />
+      ) : null}
     </div>
   );
 }
