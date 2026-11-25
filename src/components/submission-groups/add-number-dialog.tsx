@@ -61,7 +61,8 @@ export function AddNumberDialog({
       } | null;
       if (!res.ok) {
         const why = addNumberFailure(res.status, json);
-        setError('refusal' in why ? tRefusal(why.refusal) : t(why.key));
+        if ('refusal' in why) setError(tRefusal(why.refusal));
+        else setError([t(why.key), why.why].filter(Boolean).join(' '));
         return;
       }
       onAdded();

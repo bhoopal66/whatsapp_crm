@@ -749,10 +749,15 @@ export function refusalCode(
 export function addNumberFailure(
   status: number,
   body: { error?: unknown; code?: unknown } | null
-): { refusal: SgRefusalCode } | { key: 'failed' | 'maybeAdded' } {
+):
+  | { refusal: SgRefusalCode }
+  // `why`: the server's own words, shown under the generic text.
+  | { key: 'failed' | 'maybeAdded'; why?: string } {
   if (body?.code === SEND_UNCONFIRMED) return { key: 'maybeAdded' };
   const refusal = refusalCode(body);
   if (refusal) return { refusal };
-  if (typeof body?.error === 'string') return { key: 'failed' };
+  if (typeof body?.error === 'string') {
+    return { key: 'failed', why: body.error };
+  }
   return { key: status >= 500 ? 'maybeAdded' : 'failed' };
 }

@@ -459,9 +459,14 @@ export function SubmissionGroupPage({
       else {
         const json = (await res.json().catch(() => null)) as {
           code?: unknown;
+          error?: unknown;
         } | null;
         const code = refusalCode(json);
-        toast.error(code ? tRefusal(code) : t('inviteResendFailed'));
+        // A reason without a code (the gateway's own words) still says more
+        // than "failed": shown under it.
+        const why = typeof json?.error === 'string' ? json.error : undefined;
+        if (code) toast.error(tRefusal(code));
+        else toast.error(t('inviteResendFailed'), { description: why });
       }
     } catch {
       toast.error(t('inviteResendFailed'));

@@ -737,6 +737,7 @@ describe('addNumberFailure', () => {
     expect(addNumberFailure(413, null)).toEqual({ key: 'failed' });
     expect(addNumberFailure(409, { error: 'Ended' })).toEqual({
       key: 'failed',
+      why: 'Ended',
     });
   });
 
