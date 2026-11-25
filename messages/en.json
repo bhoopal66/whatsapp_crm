@@ -13431,7 +13431,9 @@
     "result": {
       "case": "Case",
       "code": "caption code",
-      "replayed": "(already uploaded; this is the first result)"
+      "replayed": "(already uploaded; this is the first result)",
+      "replayedDifferent": "It was already uploaded earlier with {what}. Your changes were not applied; change it in My uploads.",
+      "noDetails": "the details you sent first"
     },
     "reason": {
       "NO_KIND": "No type was chosen.",

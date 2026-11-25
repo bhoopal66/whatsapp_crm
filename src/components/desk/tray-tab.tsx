@@ -34,6 +34,7 @@ import {
 import { deskApi } from './desk-api';
 import { FilePreview } from './file-preview';
 import { DisabledHint } from './disabled-hint';
+import { LoadFailed } from './load-failed';
 import { TrayCaseFinder } from './tray-case-finder';
 
 export function TrayTab({ isLead }: { isLead: boolean }) {
@@ -44,6 +45,10 @@ export function TrayTab({ isLead }: { isLead: boolean }) {
   const [total, setTotal] = useState(0);
   const [limit, setLimit] = useState(TRAY_PAGE);
   const [settings, setSettings] = useState<DeskSettings | null>(null);
+  // A failed read keeps what is on screen (the picked case, the typed
+  // confirmation) and offers Retry; it never reads as an empty tray.
+  const [trayFailed, setTrayFailed] = useState(false);
+  const [settingsFailed, setSettingsFailed] = useState(false);
 
   const load = useCallback(
     () =>
@@ -52,11 +57,15 @@ export function TrayTab({ isLead }: { isLead: boolean }) {
           if (r.ok) {
             setItems(r.data.items);
             setTotal(r.data.total);
+            setTrayFailed(false);
           } else {
             toast.error(r.error);
-            setItems([]);
+            setTrayFailed(true);
           }
-          if (s.ok) setSettings(s.data.settings);
+          if (s.ok) {
+            setSettings(s.data.settings);
+            setSettingsFailed(false);
+          } else setSettingsFailed(true);
         }
       ),
     [limit]
@@ -67,11 +76,13 @@ export function TrayTab({ isLead }: { isLead: boolean }) {
 
   const duty = settings?.dutyUserId ?? null;
   const dutyLabel =
-    duty === null
-      ? t('tray.dutyNobody')
-      : duty === user?.id
-        ? t('tray.dutyYou')
-        : t('tray.dutyOther');
+    settings === null
+      ? null
+      : duty === null
+        ? t('tray.dutyNobody')
+        : duty === user?.id
+          ? t('tray.dutyYou')
+          : t('tray.dutyOther');
   const setDuty = async (userId: string | null) => {
     const r = await deskApi.setDuty(userId);
     if (!r.ok) toast.error(r.error);
@@ -98,10 +109,15 @@ export function TrayTab({ isLead }: { isLead: boolean }) {
                 )}
               </span>
             )}
-            <span className="text-muted-foreground">
-              {t('tray.duty')}: {dutyLabel}
-            </span>
-            {isLead && user && duty !== user.id && (
+            {settings !== null && (
+              <span className="text-muted-foreground">
+                {t('tray.duty')}: {dutyLabel}
+              </span>
+            )}
+            {settings === null && settingsFailed && (
+              <LoadFailed title={t('tray.duty')} onRetry={load} />
+            )}
+            {settings !== null && isLead && user && duty !== user.id && (
               <Button
                 size="sm"
                 variant="outline"
@@ -110,7 +126,7 @@ export function TrayTab({ isLead }: { isLead: boolean }) {
                 {t('tray.takeDuty')}
               </Button>
             )}
-            {isLead && duty !== null && (
+            {settings !== null && isLead && duty !== null && (
               <Button size="sm" variant="ghost" onClick={() => setDuty(null)}>
                 {t('tray.clearDuty')}
               </Button>
@@ -118,10 +134,11 @@ export function TrayTab({ isLead }: { isLead: boolean }) {
           </div>
         </CardContent>
       </Card>
-      {items === null && (
+      {trayFailed && <LoadFailed onRetry={load} />}
+      {items === null && !trayFailed && (
         <p className="text-muted-foreground text-sm">{t('loading')}</p>
       )}
-      {items !== null && items.length === 0 && (
+      {items !== null && items.length === 0 && !trayFailed && (
         <p className="text-muted-foreground text-sm">{t('tray.empty')}</p>
       )}
       {items?.map((item) => (
