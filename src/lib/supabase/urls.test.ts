@@ -19,6 +19,20 @@ describe('authCookieOptions', () => {
   });
   it('keeps local http development working', () => {
     expect(authCookieOptions('http://localhost:8000').secure).toBe(false);
-    expect(authCookieOptions(undefined).secure).toBe(false);
+    // No public URL configured at all. (Passing `undefined` would take
+    // the default, the env's URL, which CI sets to an https one.)
+    expect(authCookieOptions('').secure).toBe(false);
+  });
+  it('follows the configured public URL by default', () => {
+    const before = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    try {
+      process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://crm.example.com';
+      expect(authCookieOptions().secure).toBe(true);
+      process.env.NEXT_PUBLIC_SUPABASE_URL = 'http://localhost:8000';
+      expect(authCookieOptions().secure).toBe(false);
+    } finally {
+      if (before === undefined) delete process.env.NEXT_PUBLIC_SUPABASE_URL;
+      else process.env.NEXT_PUBLIC_SUPABASE_URL = before;
+    }
   });
 });
