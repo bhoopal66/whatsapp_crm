@@ -60,3 +60,4 @@ calibration/
 
 # pg_dump backups written by scripts/apply-migrations.sh
 backups/
+kb-learn-eval.md

@@ -1555,6 +1555,12 @@ jobs:
       - name: Verify kb learn
         run: supabase db query --local --file supabase/ci/verify-kb-learn.sql
 
+      # Migration 318: the learner's skill library. Refuses identifiers, at
+      # most three a cycle, admin reads and retires, service role writes;
+      # an erase takes the stored drafted answer. Rolled back.
+      - name: Verify kb learn skills (318)
+        run: supabase db query --local --file supabase/ci/verify-kb-learn-skills.sql
+
       # Migration 296: the home screen's figures. A failed send is no
       # outgoing message and no answer; open deals are totalled per
       # currency; a deal created without one takes its account's.

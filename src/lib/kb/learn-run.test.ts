@@ -5,8 +5,13 @@ const loadAiConfig = vi.hoisted(() => vi.fn(async () => null));
 vi.mock('@/lib/ai/config', () => ({ loadAiConfig }));
 
 import { AiError, type AiConfig } from '@/lib/ai/types';
+import { buildNameMatcher } from './known-names';
+import type { Skill } from './skills';
 import {
+  EVOLVE_INTERVAL_MS,
+  EVOLVE_MIN_BUDGET_MS,
   defaultDeps,
+  evolveSkills,
   learnAccount,
   learnTopic as learnTopicWith,
   supabaseKbLearnStore,
@@ -18,6 +23,7 @@ import {
   type LearnGap,
   type LearnThread,
   type RecordDraftArgs,
+  type ReviewRow,
 } from './learn-run';
 import type { ThreadMessage } from './learn';
 
@@ -137,6 +143,12 @@ function fakeStore(
     knownNames: async () => [],
     recordDiscard: async () => {},
     noteLook: async () => {},
+    activeSkills: async () => [],
+    skillTitles: async () => [],
+    reviewRows: async () => [],
+    markReviewed: async () => {},
+    distillState: async () => ({ enabled: true, lastDistilledAt: null }),
+    addSkills: async () => 0,
     recordDraft: async (args) => {
       recorded.push(args);
       return 'drafted';
@@ -891,6 +903,14 @@ function fakeDb(
         return q;
       },
     };
+    q.is = (col: string, v: unknown) => {
+      rows = rows.filter((r) => (r[col] ?? null) === v);
+      return q;
+    };
+    q.not = (col: string, _op: string, v: unknown) => {
+      rows = rows.filter((r) => (r[col] ?? null) !== v);
+      return q;
+    };
     for (const name of ['select', 'eq', 'in', 'order']) q[name] = () => q;
     return q;
   };
@@ -1133,5 +1153,301 @@ describe('looks and claims', () => {
     delete process.env.ENCRYPTION_KEY;
     expect(() => topicKey(ACCOUNT, 'x')).toThrow();
     process.env.ENCRYPTION_KEY = before;
+  });
+});
+
+describe('evolveSkills (the skill library, 318)', () => {
+  const NAMES = buildNameMatcher(['Sara Haddad', 'Al Noor Trading']);
+  const ANSWER = 'A freelance permit works instead of a trade licence.';
+  const entry = (status: string, over = {}): ReviewRow['entry'] => ({
+    status,
+    question: 'Account without a trade licence?',
+    answer_en: ANSWER,
+    ...over,
+  });
+  const row = (
+    id: string,
+    e: ReviewRow['entry'],
+    over: Partial<ReviewRow> = {}
+  ): ReviewRow => ({
+    id,
+    draftAnswer: ANSWER,
+    outcome: null,
+    distilled: false,
+    entry: e,
+    ...over,
+  });
+  const five = () =>
+    ['a', 'b', 'c', 'd', 'e'].map((id) => row(id, entry('approved')));
+
+  function skillStore(rows: ReviewRow[], over: Partial<KbLearnStore> = {}) {
+    const marked: { id: string; outcome: string }[] = [];
+    const added: { skills: Skill[]; reviewIds: string[] }[] = [];
+    const store = fakeStore({
+      reviewRows: async () => rows,
+      markReviewed: async (_a, r) => {
+        marked.push(...r);
+      },
+      addSkills: async (_a, skills, reviewIds) => {
+        added.push({ skills, reviewIds });
+        return skills.length;
+      },
+      ...over,
+    });
+    return { store, marked, added };
+  }
+  const skillModel = (skills: unknown[], sent: string[] = []) =>
+    vi.fn(
+      async (a: { systemPrompt: string; messages: { content: string }[] }) => {
+        sent.push(a.systemPrompt, ...a.messages.map((m) => m.content));
+        return {
+          text: JSON.stringify({ skills }),
+          handoff: false,
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+        };
+      }
+    ) as unknown as KbLearnDeps['generate'];
+  const evolve = (d: KbLearnDeps, deadline = 1e9) =>
+    evolveSkills(d, ACCOUNT, CONFIG, NAMES, deadline);
+  const stored = (over: Partial<Skill>): Skill => ({
+    kind: 'general',
+    category: null,
+    title: 'Name the documents',
+    principle: 'List what to bring.',
+    whenToApply: null,
+    evidenceCount: 3,
+    ...over,
+  });
+
+  it('classifies reviews and waits for enough of them', async () => {
+    const { store, marked, added } = skillStore([
+      row('r1', entry('approved')),
+      row('r2', entry('draft')),
+      row('r3', null),
+    ]);
+    const d = deps(store);
+    expect(await evolve(d)).toMatchObject({
+      classified: 2,
+      evolved: false,
+      added: 0,
+    });
+    expect(marked).toEqual([
+      { id: 'r1', outcome: 'approved' },
+      { id: 'r3', outcome: 'deleted' },
+    ]);
+    expect(d.generate).not.toHaveBeenCalled();
+    expect(added).toHaveLength(0);
+  });
+
+  it('an erased or pre-318 draft is never a rejection', async () => {
+    const gone = { draftAnswer: null };
+    const { store, marked } = skillStore([
+      ...['a', 'b', 'c', 'd', 'e'].map((id) => row(id, null, gone)),
+      row('f', null, { ...gone, outcome: 'deleted' }),
+    ]);
+    const d = deps(store);
+    expect(await evolve(d)).toMatchObject({ classified: 0, reason: null });
+    expect(marked).toEqual([]);
+    expect(d.generate).not.toHaveBeenCalled();
+  });
+
+  it('on a low approval rate sends masked examples only, adds safe rules', async () => {
+    const { store, added } = skillStore(
+      [
+        row('r1', null, {
+          draftAnswer:
+            'Sara Haddad said: call +971 50 123 4567 or sara.ali@example.com',
+        }),
+        row('r2', entry('remove', { question: 'Is Al Noor Trading ok?' })),
+        row('r3', entry('remove')),
+        row('r4', entry('remove')),
+        row('r5', entry('approved'), { outcome: 'approved', distilled: true }),
+      ],
+      {
+        activeSkills: async () => [
+          stored({}),
+          stored({ title: 'About Haddad' }),
+        ],
+      }
+    );
+    const sent: string[] = [];
+    const d = deps(store, {
+      generate: skillModel(
+        [
+          {
+            kind: 'mistake',
+            title: 'Promising approval',
+            principle: 'Do not promise approval; the bank decides.',
+          },
+          { kind: 'general', title: 'Leaky', principle: '+971 50 123 4567.' },
+          { kind: 'general', title: 'Named', principle: 'Ask Haddad first.' },
+        ],
+        sent
+      ),
+    });
+    expect(await evolve(d)).toMatchObject({
+      evolved: true,
+      reason: 'low_approval',
+      added: 1,
+    });
+    const all = sent.join('\n');
+    expect(all).toContain('REJECTED (deleted)');
+    expect(all).toContain('[general] Name the documents');
+    for (const bad of ['Sara', 'Haddad', 'Noor', '123 4567', 'sara.ali'])
+      expect(all).not.toContain(bad);
+    expect(added[0]!.skills.map((s) => s.title)).toEqual([
+      'Promising approval',
+    ]);
+    // Only the reviews not distilled yet are marked.
+    expect(added[0]!.reviewIds).toEqual(['r1', 'r2', 'r3', 'r4']);
+    expect(d.logUsage).toHaveBeenCalledTimes(1);
+    expect(d.logUsage).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: 'kb_learn' })
+    );
+  });
+
+  it('asks nothing: no time, switch off, learned this week, no room', async () => {
+    const now = Date.parse('2026-11-24T10:00:00Z');
+    const last = (ms: number) => async () => ({
+      enabled: true,
+      lastDistilledAt: new Date(now - ms).toISOString(),
+    });
+    const full = Array.from({ length: 24 }, (_, i) =>
+      stored({ title: `${i}` })
+    );
+    const cases: [boolean, Partial<KbLearnStore>, number?][] = [
+      [true, {}, EVOLVE_MIN_BUDGET_MS],
+      [false, {}, EVOLVE_MIN_BUDGET_MS - 1],
+      [
+        false,
+        {
+          distillState: async () => ({ enabled: false, lastDistilledAt: null }),
+        },
+      ],
+      [false, { distillState: last(EVOLVE_INTERVAL_MS - 1) }],
+      [true, { distillState: last(EVOLVE_INTERVAL_MS) }],
+      [false, { activeSkills: async () => full }],
+    ];
+    for (const [asks, over, budget = 1e9] of cases) {
+      const { store } = skillStore(five(), over);
+      const d = deps(store, { generate: skillModel([]), now: () => now });
+      expect((await evolve(d, now + budget)).evolved).toBe(asks);
+      expect(d.generate).toHaveBeenCalledTimes(asks ? 1 : 0);
+    }
+  });
+
+  it('logs a failed call that was billed, and does not ask it again', async () => {
+    const usage = { promptTokens: 9, completionTokens: 1, totalTokens: 10 };
+    const { store, added } = skillStore(five());
+    const d = deps(store, {
+      generate: async () => {
+        throw new AiError('cut', { code: 'truncated', usage });
+      },
+    });
+    expect(await evolve(d)).toMatchObject({ evolved: true, added: 0 });
+    expect(d.logUsage).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: 'kb_learn', usage })
+    );
+    expect(added).toEqual([
+      { skills: [], reviewIds: ['a', 'b', 'c', 'd', 'e'] },
+    ]);
+  });
+
+  it('a failure never stops the drafting', async () => {
+    const fail = async () => {
+      throw new Error('db down');
+    };
+    for (const over of [
+      { reviewRows: fail },
+      { distillState: fail },
+      { activeSkills: fail },
+      { addSkills: fail },
+    ]) {
+      const { store } = skillStore(five(), over);
+      expect(await learnAccount(deps(store), ACCOUNT, CONFIG, 1e9)).toEqual({
+        drafted: 1,
+        tried: 1,
+        error: null,
+      });
+    }
+  });
+
+  it('no names, no topics or no calls left this week: no call', async () => {
+    for (const over of [
+      {
+        knownNames: async () => {
+          throw new Error('timeout');
+        },
+      },
+      { openTopics: async () => [] },
+      { askedThisWeek: async () => 10 },
+    ]) {
+      const { store, marked } = skillStore(five(), over);
+      const d = deps(store);
+      await learnAccount(d, ACCOUNT, CONFIG, 1e9);
+      expect(d.generate).not.toHaveBeenCalled();
+      expect(marked).toEqual([]);
+    }
+  });
+
+  it('a draft’s prompt gets the rules that fit, screened again', async () => {
+    const store = fakeStore({
+      openTopics: async () => [
+        {
+          id: 't1',
+          label: 'Monthly fee zebra?',
+          coverage: 'none',
+          gapIds: ['g1', 'g2'],
+        },
+      ],
+      knownNames: async () => ['Sara Haddad'],
+      activeSkills: async () => [
+        stored({}),
+        stored({ title: 'Ask Haddad' }),
+        // A name of one of the topic's own chats.
+        stored({ title: 'Ask Fatima' }),
+        stored({ kind: 'category', category: 'fees', title: 'Fee rule' }),
+        stored({ kind: 'category', category: 'pos', title: 'POS rule' }),
+      ],
+    });
+    const d = deps(store);
+    await learnAccount(d, ACCOUNT, CONFIG, 1e9);
+    const system = d.sent[0]!;
+    expect(system).toContain('House rules');
+    expect(system).toContain('Name the documents');
+    expect(system).toContain('Fee rule');
+    expect(system).not.toContain('POS rule');
+    for (const bad of ['Haddad', 'Fatima', 'zebra'])
+      expect(d.sent.join('\n')).not.toContain(bad);
+  });
+
+  it('the store reads reviewed drafts only, and the erase race as neither', async () => {
+    const base = {
+      draft_answer_en: ANSWER,
+      entry_id: null,
+      discarded_at: null,
+      reviewed_outcome: null,
+      distilled_at: null,
+    };
+    const store = supabaseKbLearnStore(
+      fakeDb({
+        kb_learned_drafts: [
+          { ...base, id: 'deleted' },
+          { ...base, id: 'kept', entry_id: 'e1', distilled_at: 'x' },
+          { ...base, id: 'gone', entry_id: 'e2' },
+          { ...base, id: 'discarded', discarded_at: 'x' },
+          { ...base, id: 'erased', draft_answer_en: null },
+        ],
+        kb_entries: [{ id: 'e1', ...entry('approved') }],
+      })
+    );
+    expect(await store.reviewRows(ACCOUNT)).toEqual([
+      row('deleted', null),
+      row('kept', entry('approved'), { distilled: true }),
+    ]);
+    expect(await store.distillState(ACCOUNT)).toEqual({
+      enabled: false,
+      lastDistilledAt: null,
+    });
   });
 });

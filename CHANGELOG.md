@@ -50,6 +50,18 @@ checklist for exposing an install.
 
 ### Added
 
+- **Learn from team answers also learns from your reviews.** Each week it
+  looks at which drafts admins approved, edited or rejected, and writes
+  short general rules for the next drafts: at most 3 at a time, 24 in use.
+  They are listed under the switch (**What it has learned**); **Retire**
+  stops one, and it is not added again. Names and numbers are masked before
+  the AI sees a review, and a rule holding an e-mail address, a long
+  number, a link or a known name is refused. Rules only shape drafts; an
+  admin still approves every answer. `npm run eval:kb-learn` runs the
+  learner over a set of made-up chats and writes a report; the same
+  check runs with `npm test` and fails on any leak. **Migration required:
+  318** (`318_kb_learn_skills.sql`, before the build, as a superuser or
+  BYPASSRLS role; re-run it after any re-run of 290).
 - **An integration can send a message without the risk of sending it
   twice.** `POST /api/v1/messages` takes an `Idempotency-Key` header (or
   `idempotency_key` field): a repeat is answered as the first request was,
