@@ -241,7 +241,7 @@ export function ForwardDialog({
       toast.error(
         thrownSendKind(offlineBefore, isOffline()) === 'offline'
           ? t('failed', {
-              reason: err instanceof Error ? err.message : 'network error',
+              reason: err instanceof Error ? err.message : t('networkError'),
             })
           : t('maybeSent')
       );

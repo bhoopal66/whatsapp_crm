@@ -137,6 +137,7 @@ import {
   beginWork,
   endWork,
   hasWork,
+  isOpenFor,
   NO_CHAT_WORK,
 } from '@/lib/inbox/chat-work';
 import {
@@ -706,7 +707,14 @@ export function MessageComposer({
   const [interactivePayload, setInteractivePayload] =
     useState<InteractiveMessagePayload>(blankButtonsPayload);
   const [savingQuickReply, setSavingQuickReply] = useState(false);
-  const [quickReplyOpen, setQuickReplyOpen] = useState(false);
+  // Opened for one chat: a switch closes it (isOpenFor), so a pick made
+  // after it cannot land in the next chat.
+  const [quickReplyFor, setQuickReplyFor] = useState<string | null>(null);
+  const quickReplyOpen = isOpenFor(quickReplyFor, conversationId);
+  const setQuickReplyOpen = useCallback(
+    (open: boolean) => setQuickReplyFor(open ? conversationId : null),
+    [conversationId]
+  );
 
   // The chats a file is being uploaded for.
   const [uploads, setUploads] = useState(NO_CHAT_WORK);
@@ -714,6 +722,14 @@ export function MessageComposer({
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const documentInputRef = useRef<HTMLInputElement>(null);
+  // The chat a native file dialog was opened in: the answer can come
+  // after a switch, and the file is that chat's (parked for it by
+  // landUpload when it is no longer open), not the open one's.
+  const dialogChatRef = useRef<string | null>(null);
+  const openFileDialog = (input: HTMLInputElement | null) => {
+    dialogChatRef.current = openChatRef.current;
+    input?.click();
+  };
 
   // Voice notes: the recorder itself is further down (useVoiceRecorder).
   // `voiceWork` is, by chat, a recording being sent or made ready;
@@ -1080,7 +1096,7 @@ export function MessageComposer({
         }
       });
     },
-    [openInteractiveBuilder, adjustHeight, setText]
+    [openInteractiveBuilder, adjustHeight, setText, setQuickReplyOpen]
   );
 
   // ---- "/" quick replies ---------------------------------------------
@@ -1246,7 +1262,7 @@ export function MessageComposer({
 
   // Upload a captured file to chat-media and stage it as a draft.
   const stageUpload = useCallback(
-    async (kind: ComposerMediaKind, file: File) => {
+    async (kind: ComposerMediaKind, file: File, chat?: string | null) => {
       // Per-kind ceiling mirrors Meta's caps (image 5 MB, etc.) so we
       // reject before upload rather than orphaning an object that Meta
       // would then refuse at send.
@@ -1259,7 +1275,7 @@ export function MessageComposer({
         );
         return;
       }
-      const startedIn = openChatRef.current;
+      const startedIn = chat ?? openChatRef.current;
       const owner = parkedFor;
       setUploads((w) => beginWork(w, startedIn));
       try {
@@ -1286,7 +1302,9 @@ export function MessageComposer({
 
   const handlePicked = useCallback(
     (kind: 'image' | 'video' | 'document', file: File | undefined) => {
-      if (file) void stageUpload(kind, file);
+      const chat = dialogChatRef.current;
+      dialogChatRef.current = null;
+      if (file) void stageUpload(kind, file, chat);
     },
     [stageUpload]
   );
@@ -1568,7 +1586,11 @@ export function MessageComposer({
   }, []);
 
   // Voice-note library: sent through onSendMedia like a recorded note.
-  const [voiceLibraryOpen, setVoiceLibraryOpen] = useState(false);
+  // Tied to the chat it was opened for, like the quick-reply picker.
+  const [voiceLibraryFor, setVoiceLibraryFor] = useState<string | null>(null);
+  const voiceLibraryOpen = isOpenFor(voiceLibraryFor, conversationId);
+  const setVoiceLibraryOpen = (open: boolean) =>
+    setVoiceLibraryFor(open ? conversationId : null);
   const voiceLibraryItem = useVoiceLibraryMenuItem(
     () => setVoiceLibraryOpen(true),
     freeTextBlocked
@@ -1842,19 +1864,19 @@ export function MessageComposer({
                 className="border-border bg-popover w-auto min-w-40"
               >
                 <DropdownMenuItem
-                  onClick={() => imageInputRef.current?.click()}
+                  onClick={() => openFileDialog(imageInputRef.current)}
                 >
                   <ImageIcon className="me-2 h-4 w-4" />
                   {t('photo')}
                 </DropdownMenuItem>
                 <DropdownMenuItem
-                  onClick={() => videoInputRef.current?.click()}
+                  onClick={() => openFileDialog(videoInputRef.current)}
                 >
                   <Video className="me-2 h-4 w-4" />
                   {t('video')}
                 </DropdownMenuItem>
                 <DropdownMenuItem
-                  onClick={() => documentInputRef.current?.click()}
+                  onClick={() => openFileDialog(documentInputRef.current)}
                 >
                   <FileText className="me-2 h-4 w-4" />
                   {t('document')}
@@ -2035,6 +2057,9 @@ export function MessageComposer({
         }}
         onSend={(note) => {
           if (refuseBlocked()) return;
+          // A render still in flight for the chat left: this closure is
+          // that chat's, so it is dropped rather than sent to the open one.
+          if (openChatRef.current !== conversationId) return;
           onSendMedia({
             kind: 'audio',
             mediaUrl: note.mediaUrl,

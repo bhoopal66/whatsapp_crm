@@ -21,6 +21,7 @@ import { useAuth } from '@/hooks/use-auth';
 import {
   aiBannerState,
   bannerSnapshot,
+  setPerChat,
   withOverride,
   type BannerOverride,
 } from '@/lib/ai/banner-state';
@@ -148,11 +149,16 @@ export function AiThreadBanner({
   // Every piece of local state remembers the chat (and, where it
   // matters, the server snapshot) it belongs to, and is ignored once
   // that changes — derived on render instead of reset in an effect.
-  const [busy, setBusy] = useState<{ conv: string; action: Action } | null>(
-    null
+  // Both are kept per chat: an answer for A settles A's slot only.
+  const [busyBy, setBusyBy] = useState<Readonly<Record<string, Action>>>({});
+  const [overrideBy, setOverrideBy] = useState<
+    Readonly<Record<string, BannerOverride<AiBannerPatch>>>
+  >({});
+  const setBusy = useCallback(
+    (v: { conv: string; action: Action } | { conv: string; action: null }) =>
+      setBusyBy((b) => setPerChat(b, v.conv, v.action)),
+    []
   );
-  const [override, setOverride] =
-    useState<BannerOverride<AiBannerPatch> | null>(null);
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
 
   useEffect(() => {
@@ -166,8 +172,12 @@ export function AiThreadBanner({
   }, [accountId, salesRestricted]);
 
   const snapshot = bannerSnapshot(server);
-  const conversation = withOverride(conversationId, server, override);
-  const busyAction = busy?.conv === conversationId ? busy.action : null;
+  const conversation = withOverride(
+    conversationId,
+    server,
+    overrideBy[conversationId] ?? null
+  );
+  const busyAction = busyBy[conversationId] ?? null;
   // Which text the expand / edit state belongs to: a newer draft or
   // note starts collapsed and unedited.
   const textKey = `${conversationId}:${conversation.ai_pending_draft_at ?? ''}:${
@@ -178,11 +188,13 @@ export function AiThreadBanner({
 
   const applied = useCallback(
     (patch: AiBannerPatch) => {
-      setOverride({
-        forConversation: conversationId,
-        forSnapshot: snapshot,
-        value: patch,
-      });
+      setOverrideBy((o) =>
+        setPerChat(o, conversationId, {
+          forConversation: conversationId,
+          forSnapshot: snapshot,
+          value: patch,
+        })
+      );
       onChange?.(patch);
     },
     [conversationId, snapshot, onChange]
@@ -218,10 +230,10 @@ export function AiThreadBanner({
       } catch {
         toast.error(t('networkError'));
       } finally {
-        setBusy(null);
+        setBusy({ conv: conversationId, action: null });
       }
     },
-    [conversationId, currentUserId, applied, t]
+    [conversationId, currentUserId, applied, setBusy, t]
   );
 
   const draftAt = conversation.ai_pending_draft_at ?? null;
@@ -292,10 +304,19 @@ export function AiThreadBanner({
         keepText();
         toast.error(t('networkError'));
       } finally {
-        setBusy(null);
+        setBusy({ conv: conversationId, action: null });
       }
     },
-    [conversationId, textKey, draftAt, serverDraft, applied, remember, t]
+    [
+      conversationId,
+      textKey,
+      draftAt,
+      serverDraft,
+      applied,
+      remember,
+      setBusy,
+      t,
+    ]
   );
 
   // Account has no auto-reply → nothing to show. (Still loading → nothing.)
