@@ -190,6 +190,41 @@ export function appendPage(
   return [...current, ...next.filter((g) => !seen.has(g.id))];
 }
 
+/**
+ * A refresh's fresh first page over what is already loaded. A refresh
+ * restarts from page one; replacing the list would drop every row the
+ * reader scrolled to. With more than one page loaded, the fresh page wins
+ * for everything it covers (moved, new and removed rows), the old rows
+ * past its last row stay, and the old `next` cursor is kept. With one page
+ * loaded, or a fresh page that is the whole list, the fresh page replaces.
+ */
+export function mergeFirstPage(
+  old: { groups: readonly SgListItem[]; next: string | null },
+  fresh: { groups: readonly SgListItem[]; next: string | null },
+  status: 'active' | 'ended'
+): { groups: SgListItem[]; next: string | null } {
+  const last = fresh.groups[fresh.groups.length - 1];
+  if (
+    !fresh.next ||
+    !old.next ||
+    !last ||
+    old.groups.length <= fresh.groups.length
+  )
+    return { groups: [...fresh.groups], next: fresh.next };
+  const at = (g: SgListItem) =>
+    (status === 'active' ? g.last_activity_at : g.ended_at) ?? '';
+  const after = (g: SgListItem) =>
+    at(g) < at(last) || (at(g) === at(last) && g.id < last.id);
+  const seen = new Set(fresh.groups.map((g) => g.id));
+  return {
+    groups: [
+      ...fresh.groups,
+      ...old.groups.filter((g) => !seen.has(g.id) && after(g)),
+    ],
+    next: old.next,
+  };
+}
+
 export type BubbleKind = 'staff' | 'customer' | 'coordinator' | 'other';
 
 /** Which bubble a message gets: ours (staff), the customer, the coordinator's own phone, anyone else. */
