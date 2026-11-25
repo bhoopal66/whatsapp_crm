@@ -12,6 +12,12 @@ and polish.
 
 ## [Unreleased]
 
+### Fixed: an open chat could keep its unread count
+
+When our own "read" and the next message reached the screen together, the
+open chat's unread count stayed, and grew with each message, until the
+tab was hidden or the chat reopened. No migration.
+
 ### Security: ready for the internet
 
 No migration. **Check before upgrading:** the Docker app port, sessions,

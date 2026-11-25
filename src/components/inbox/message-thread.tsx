@@ -79,7 +79,11 @@ import { AiThreadBanner, type AiBannerPatch } from './ai-thread-banner';
 import { NO_DRAFT_MEMORY, draftMemoryReducer } from '@/lib/ai/pending-draft';
 import { needsAttention } from '@/lib/inbox/attention';
 import { pageWithUnsettled, sentRowId } from '@/lib/inbox/optimistic';
-import { shouldMarkRead, startUnreadReset } from '@/lib/inbox/read-state';
+import {
+  shouldMarkRead,
+  startUnreadReset,
+  unreadResetKey,
+} from '@/lib/inbox/read-state';
 import {
   bottomGap,
   isNearBottom,
@@ -667,7 +671,7 @@ export function MessageThread({
   const conversationId = conversation?.id;
   const threadKnown = isKnown(threadLoad, conversationId);
   const threadFailed = isFailed(threadLoad, conversationId);
-  const hasUnread = (conversation?.unread_count ?? 0) > 0;
+  const unreadKey = unreadResetKey(conversation ?? null);
   const hasOlder =
     !!conversationId &&
     olderState?.conversationId === conversationId &&
@@ -927,7 +931,7 @@ export function MessageThread({
   // Fetch the latest page whenever the selected conversation changes.
   // Kept separate from the unread-reset effect so that incoming messages
   // arriving while the thread is open don't trigger a full refetch —
-  // they only flip hasUnread, which only the reset effect listens to.
+  // they only change unreadKey, which only the reset effect listens to.
   //
   // One page, not the whole history: a long-running customer thread was
   // thousands of rows on the critical path of opening it. Reactions come
@@ -1352,7 +1356,7 @@ export function MessageThread({
   // unread_count to N+1; the realtime UPDATE propagates it into the
   // client, which re-runs this effect and flips it back to 0).
   //
-  // Guarding on hasUnread prevents the eq-update loop: once unread_count
+  // Guarding on unreadKey prevents the eq-update loop: once unread_count
   // is 0 the condition is false, so no further UPDATE is issued.
   //
   // Only while the tab is on screen, and again when it comes back. A
@@ -1360,7 +1364,7 @@ export function MessageThread({
   // the tokens) or the next time the tab is shown.
   const pageVisible = usePageVisible();
   useEffect(() => {
-    if (!shouldMarkRead({ conversationId, hasUnread, visible: pageVisible })) {
+    if (!shouldMarkRead({ conversationId, unreadKey, visible: pageVisible })) {
       return;
     }
     return startUnreadReset(async () => {
@@ -1371,7 +1375,7 @@ export function MessageThread({
       if (error) console.error('Failed to reset unread_count:', error);
       return !error;
     });
-  }, [conversationId, hasUnread, pageVisible, resyncToken, deltaSyncToken]);
+  }, [conversationId, unreadKey, pageVisible, resyncToken, deltaSyncToken]);
 
   // Where the reader last left the thread, in pixels above its end. Read
   // from scroll events, so content growing under someone at the bottom

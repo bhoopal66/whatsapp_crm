@@ -12,10 +12,25 @@ export const UNREAD_RESET_RETRY_MS = 3_000;
 /** Whether to zero the open chat's unread count on the server. */
 export function shouldMarkRead(chat: {
   conversationId: string | undefined;
-  hasUnread: boolean;
+  /** `unreadResetKey`: null when there is nothing unread. */
+  unreadKey: string | null;
   visible: boolean;
 }): boolean {
-  return !!chat.conversationId && chat.hasUnread && chat.visible;
+  return !!chat.conversationId && chat.unreadKey !== null && chat.visible;
+}
+
+/**
+ * What the reset depends on: a new value for every change of an unread
+ * chat, null once it is read. "Is it unread" alone was not enough: our
+ * reset and the next message can reach the screen in one render (0, then
+ * 1), which never looks read, and the count then stayed up, and grew,
+ * until the tab was hidden or the chat reopened.
+ */
+export function unreadResetKey(
+  chat: { unread_count?: number | null; updated_at?: string | null } | null
+): string | null {
+  const unread = chat?.unread_count ?? 0;
+  return unread > 0 ? `${unread}@${chat?.updated_at ?? ''}` : null;
 }
 
 /** A list row's unread count after a realtime message INSERT in it. */

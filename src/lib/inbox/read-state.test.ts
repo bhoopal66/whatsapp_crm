@@ -6,6 +6,7 @@ import {
   startUnreadReset,
   unreadAfterInsert,
   unreadAfterUpdate,
+  unreadResetKey,
   zeroUnreadOf,
 } from './read-state';
 
@@ -17,10 +18,10 @@ const agent = { sender_type: 'agent' as const };
 
 describe('a chat open in a hidden tab stays unread', () => {
   it('on the server', () => {
-    const chat = { conversationId: 'c1', hasUnread: true, visible: true };
+    const chat = { conversationId: 'c1', unreadKey: '1@t', visible: true };
     expect(shouldMarkRead(chat)).toBe(true);
     expect(shouldMarkRead({ ...chat, visible: false })).toBe(false);
-    expect(shouldMarkRead({ ...chat, hasUnread: false })).toBe(false);
+    expect(shouldMarkRead({ ...chat, unreadKey: null })).toBe(false);
     expect(shouldMarkRead({ ...chat, conversationId: undefined })).toBe(false);
   });
 
@@ -42,6 +43,20 @@ describe('a chat open in a hidden tab stays unread', () => {
     expect(zeroUnreadOf(list, 'c1').map((c) => c.unread_count)).toEqual([0, 1]);
     expect(zeroUnreadOf(list, 'c9')).toBe(list);
     expect(zeroUnreadOf(list, undefined)).toBe(list);
+  });
+});
+
+describe('unreadResetKey', () => {
+  const at = (unread_count: number, updated_at = 't1') =>
+    unreadResetKey({ unread_count, updated_at });
+  it('is null for a read chat, so the reset does not repeat itself', () => {
+    expect(at(0)).toBeNull();
+    expect(unreadResetKey(null)).toBeNull();
+  });
+  it('changes when a reset and the next message arrive in one render', () => {
+    // unread 1 → our 0 and the next message's 1, only the last one drawn.
+    expect(at(1, 't3')).not.toBe(at(1, 't1'));
+    expect(at(2)).not.toBe(at(1));
   });
 });
 
