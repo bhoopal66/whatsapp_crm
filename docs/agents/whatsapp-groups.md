@@ -52,7 +52,7 @@ the contract.
   `failedGroups`; the list returns `partial: true` when the submission read
   failed, and the client keeps its submission rows. The managers PUT takes
   `base` (the set the tab loaded) and applies the difference only.
-- **Group pictures**: "no picture" is a 404 kept an hour, `?v=0` only; the
+- **Group pictures**: "no picture" is a 404 kept ten minutes, `?v=0` only; the
   `/api` no-store rule in `next.config.ts` leaves the icon path to its route.
 - **An unconfirmed create** (`create-outcome.ts`): only a definite refusal is
   retryable; else 502 `create_unconfirmed`, and the same name within 5 minutes

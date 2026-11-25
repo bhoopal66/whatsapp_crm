@@ -1998,10 +1998,16 @@ export function ConversationList({
   // the viewport. Re-created after every page (see `pageCount`) so a
   // sentinel still visible — a short list, or client-side filters that
   // hide most of a page — keeps pulling until the list fills or ends.
+  // Not while an Important or Pinned view is empty: those chats are read
+  // beside the first page, wherever their last message falls, so paging
+  // could only pull in the whole account without ever filling it.
+  const emptyChipView =
+    (showImportantOnly || showPinnedOnly) && shown.length === 0;
   const sentinelRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = sentinelRef.current;
-    if (!el || !hasFoot || typeof IntersectionObserver === 'undefined') return;
+    if (!el || !hasFoot || emptyChipView) return;
+    if (typeof IntersectionObserver === 'undefined') return;
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries.some((e) => e.isIntersecting)) void loadMore();
@@ -2016,7 +2022,7 @@ export function ConversationList({
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, [hasFoot, pageCount, loadMore]);
+  }, [hasFoot, emptyChipView, pageCount, loadMore]);
 
   return (
     // w-full on mobile so the list occupies the whole viewport when it's

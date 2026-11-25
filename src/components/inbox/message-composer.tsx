@@ -1589,6 +1589,15 @@ export function MessageComposer({
   // Tied to the chat it was opened for, like the quick-reply picker.
   const [voiceLibraryFor, setVoiceLibraryFor] = useState<string | null>(null);
   const voiceLibraryOpen = isOpenFor(voiceLibraryFor, conversationId);
+  // The pickers close with the chat they were opened in, for good: coming
+  // back to it does not bring them up again. (The message builder does
+  // come back: it holds typed work.)
+  const [pickersOf, setPickersOf] = useState(conversationId);
+  if (pickersOf !== conversationId) {
+    setPickersOf(conversationId);
+    setQuickReplyFor(null);
+    setVoiceLibraryFor(null);
+  }
   const setVoiceLibraryOpen = (open: boolean) =>
     setVoiceLibraryFor(open ? conversationId : null);
   const voiceLibraryItem = useVoiceLibraryMenuItem(

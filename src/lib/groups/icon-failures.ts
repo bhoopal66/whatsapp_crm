@@ -1,9 +1,9 @@
 /**
  * Group pictures that did not load, so an avatar shown again (opening a
  * group mounts two) does not ask the gateway again. Memory only, and for
- * an hour, as long as the icon route lets a browser keep "no picture".
+ * ten minutes, as long as the icon route lets a browser keep "no picture".
  */
-const TTL_MS = 60 * 60_000;
+const TTL_MS = 10 * 60_000;
 
 const failedAt = new Map<string, number>();
 
@@ -26,7 +26,7 @@ export function iconFailed(groupId: string, version: number): boolean {
 /**
  * The picture was changed on this screen. `version` starts at 0 again on
  * the next visit, so what is remembered for 0 goes: here, and in the
- * browser, which may hold "no picture" for an hour. (The route lets only
+ * browser, which may hold "no picture" for ten minutes. (The route lets only
  * version 0 be cached, so later versions need nothing.)
  */
 export function iconChanged(

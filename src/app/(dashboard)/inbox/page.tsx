@@ -411,6 +411,9 @@ export function InboxPageInner({
   // back to the deep-linked conversation if they've already clicked
   // elsewhere.
   const autoSelectedForDeepLinkRef = useRef<string | null>(null);
+  /** The header arrow asked the browser to go back and the URL has not
+   *  followed yet; a chat tapped meanwhile stays open. */
+  const backPendingRef = useRef(false);
   /** The list has loaded once: from here a new `?c=` is a link followed
    *  with the Inbox on screen (see the effect below). */
   const listLoadedRef = useRef(false);
@@ -1079,6 +1082,7 @@ export function InboxPageInner({
       // into a team thread needs the fallback below.
       if (
         deepLinkConvId &&
+        !backPendingRef.current &&
         autoSelectedForDeepLinkRef.current !== deepLinkConvId
       ) {
         autoSelectedForDeepLinkRef.current = deepLinkConvId;
@@ -1115,6 +1119,8 @@ export function InboxPageInner({
   // (lib/inbox/chat-history.ts); otherwise it replaces the current one.
   const writeSelection = useCallback(
     (convId: string) => {
+      // The header arrow's way back is still on its way: `onPop` writes it.
+      if (backPendingRef.current) return;
       const { method, state } = chatUrlWrite({
         twoPane: window.matchMedia(TWO_PANE_QUERY).matches,
         chatOpen: !!activeConversation,
@@ -1236,13 +1242,33 @@ export function InboxPageInner({
       return;
     }
     closeChat();
+    backPendingRef.current = true;
     window.history.back();
+    // Should the browser not answer with a popstate.
+    window.setTimeout(() => {
+      backPendingRef.current = false;
+    }, 1_500);
   }, [closeChat, handleCloseConversation]);
 
   // The phone's Back and Forward. Next's router follows the same event
   // and moves `useSearchParams`; nothing here writes the URL.
   useEffect(() => {
     const onPop = () => {
+      if (backPendingRef.current) {
+        backPendingRef.current = false;
+        // Tapped between the arrow and here: it goes in as from the list.
+        const openId = autoSelectedForDeepLinkRef.current;
+        if (openId && window.location.pathname === basePath) {
+          const { method, state } = chatUrlWrite({
+            twoPane: window.matchMedia(TWO_PANE_QUERY).matches,
+            chatOpen: false,
+            urlChat: new URLSearchParams(window.location.search).get('c'),
+            historyState: window.history.state,
+          });
+          window.history[method](state, '', selectionUrl(openId));
+        }
+        return;
+      }
       const action = chatPopAction({
         twoPane: window.matchMedia(TWO_PANE_QUERY).matches,
         screenPath: basePath,
@@ -1262,7 +1288,13 @@ export function InboxPageInner({
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
-  }, [basePath, activeConversation?.id, closeChat, openConversationById]);
+  }, [
+    basePath,
+    activeConversation?.id,
+    closeChat,
+    openConversationById,
+    selectionUrl,
+  ]);
 
   // A link to a chat followed while this screen is already open. Only
   // when the URL's chat changes, so the rest is read through a ref: the

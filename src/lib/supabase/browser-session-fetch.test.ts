@@ -95,6 +95,29 @@ describe('a PC whose clock runs slow', () => {
     expect(restTokens).toEqual([jwt(2)]);
   });
 
+  it('also in a browser without Response.json (Safari 16)', async () => {
+    const real = Response.json;
+    const { client } = make();
+    const answered = token();
+    issued = 0;
+    server.mockImplementationOnce(async () => {
+      const res = real.call(Response, { ...answered });
+      // From here on the browser's own code runs.
+      (Response as { json?: unknown }).json = undefined;
+      return res;
+    });
+    try {
+      const { data, error } = await client.auth.signInWithPassword({
+        email: 'a@b.c',
+        password: 'x',
+      });
+      expect(error).toBeNull();
+      expect(data.session?.expires_at).toBe(SERVER_NOW - SLOW + 3600);
+    } finally {
+      (Response as { json?: unknown }).json = real;
+    }
+  });
+
   it('sends a refused request once more with a renewed token', async () => {
     const { client, store } = make();
     await client.auth.signInWithPassword({ email: 'a@b.c', password: 'x' });

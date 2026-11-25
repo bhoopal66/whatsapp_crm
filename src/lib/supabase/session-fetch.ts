@@ -95,10 +95,13 @@ async function byOwnClock(res: Response): Promise<Response> {
   }
   const own = Math.floor(Date.now() / 1000) + expires_in;
   if (own >= expires_at) return res;
-  return Response.json(
-    { ...body, expires_at: own },
-    { status: res.status, statusText: res.statusText }
-  );
+  // Not `Response.json`: Safari before 17 (an iPhone 8 stays on iOS 16)
+  // does not have it, and a refresh that throws is sent again.
+  return new Response(JSON.stringify({ ...body, expires_at: own }), {
+    status: res.status,
+    statusText: res.statusText,
+    headers: { 'content-type': 'application/json' },
+  });
 }
 
 const DEFAULT_PAUSE_S = 5;

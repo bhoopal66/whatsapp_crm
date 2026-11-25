@@ -13,12 +13,12 @@ const { pathToRegexp } = createRequire(import.meta.url)(
 afterEach(() => vi.useRealTimers());
 
 describe('group pictures that did not load', () => {
-  it('are remembered for an hour, per group', () => {
+  it('are remembered for ten minutes, per group', () => {
     vi.useFakeTimers();
     markIconFailed('g1', 0);
     expect(iconFailed('g1', 0)).toBe(true);
     expect(iconFailed('g2', 0)).toBe(false);
-    vi.advanceTimersByTime(60 * 60_000);
+    vi.advanceTimersByTime(10 * 60_000);
     expect(iconFailed('g1', 0)).toBe(false);
   });
 
