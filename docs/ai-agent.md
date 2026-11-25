@@ -328,6 +328,40 @@ backed off) count toward the ten, so retries never ask more than ten a
 week. Switching it off and on forgets the last run and starts again
 within the hour.
 
+**What it has learned (the skill library).** The learner also learns
+from your review, the idea of SkillRL (aiming-lab/SkillRL) applied at
+prompt level, with no model training. Each run first looks at how admins
+treated earlier learned drafts: approved as drafted, approved after
+editing, set to Remove, or deleted. When 5 new reviews have come in, or
+the approval rate of the latest 20 is below 40%, the AI is shown the
+redacted drafts, the edited versions and the rejections, and proposes
+at most 3 new rules per run (24 active in all):
+
+- **Every answer** rules (tone, length, what to always include);
+- **Category** rules (account opening, documents, fees, POS, loans,
+  cards, transfers, timelines), used only for topics of that category;
+- **Mistakes to avoid**, learned from rejected drafts.
+
+The next drafts get the general rules, their category's rules and the
+closest mistakes in the prompt. Every rule is listed under the switch
+(**What it has learned**); **Retire** stops a wrong rule being used,
+and the learner never adds it again. A rule cannot hold an e-mail, a
+long number or a mask (checked in code and by a database CHECK), and
+rules only shape drafts: nothing is approved or sent because of them.
+
+**Evaluation harness.** `src/lib/kb/learn-eval/` runs a corpus of
+realistic chats (English, Arabic, holding replies, split bubbles,
+ineligible chats, every kind of identifier, injection attempts) through
+the real pipeline with scripted models (faithful, echo, leaky,
+declining). It scores leaks (must be 0), database ids sent (0), outcome,
+answer picking, the evidence fence and draft safety (all 100%), runs
+the skill library's cycle against the same bar (no identifier sent or
+stored, at most three rules, none unsafe), and
+reports documented gaps (a name nobody in the chat is known by) without
+failing. It runs with `npm test`, so CI fails on a regression;
+`npm run eval:kb-learn` also writes the report to `kb-learn-eval.md`. A
+new failure seen in production becomes a new case in `corpus.ts`.
+
 A topic is drafted once (`kb_learned_drafts`): the same gaps (half or
 more) or the same label (kept only as an HMAC with
 `ENCRYPTION_KEY`, which the database does not hold) under a new topic id
