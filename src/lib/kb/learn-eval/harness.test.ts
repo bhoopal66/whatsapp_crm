@@ -1,4 +1,5 @@
-import { writeFileSync } from 'node:fs';
+import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { join, sep } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/lib/ai/admin-client', () => ({ supabaseAdmin: () => ({}) }));
@@ -85,6 +86,19 @@ describe('learn-from-team-answers evaluation', () => {
     const r = await runCase(planted);
     expect(r.leaks).toEqual(['freelance permit']);
     expect(casePassed(r)).toBe(false);
+  });
+
+  it('stays out of the app: only its own files import it', () => {
+    const src = join(process.cwd(), 'src');
+    const files = readdirSync(src, { recursive: true, encoding: 'utf8' });
+    const importers = files
+      .filter((f) => /\.tsx?$/.test(f) && !/\.test\.tsx?$/.test(f))
+      .filter((f) => !f.includes(`${sep}learn-eval${sep}`))
+      .filter((f) =>
+        /['"`][^'"`\n]*learn-eval/.test(readFileSync(join(src, f), 'utf8'))
+      );
+    expect(files.length).toBeGreaterThan(500);
+    expect(importers).toEqual([]);
   });
 
   it('catches a wrong outcome and a broken pick', async () => {

@@ -1,5 +1,6 @@
 /**
- * Evaluation harness for "learn from team answers" (migration 290).
+ * Evaluation harness for "learn from team answers" (migrations 290, 318).
+ * Test-only: no app code imports it (harness.test.ts checks).
  *
  * Runs a corpus of realistic chat cases (`corpus.ts`) through the real
  * pipeline (`learnTopic`: eligibility, answer picking, redaction, prompt,
@@ -9,11 +10,13 @@
  *
  * The scripted models are chosen to stress the pipeline, not to judge a
  * real model's prose:
- *   faithful  answers with the case's general answer (the happy path)
- *   echo      copies the whole prompt into its answer: the worst a model
- *             can do with what it was sent
- *   leaky     answers with a phone number and an e-mail of its own
- *   decline   answers {"answer_en": null}: the replies do not answer
+ *   faithful        the case's general question and answer (happy path)
+ *   echo            copies the whole prompt into its answer: the worst a
+ *                   model can do with what it was sent
+ *   echo-question   copies it into the question instead
+ *   leaky           an answer with a phone number and an e-mail of its own
+ *   leaky-question  the same in the question
+ *   decline         nulls: the replies do not answer
  *
  * What is scored (`scoreCase`, `summarise`):
  *   leaks          a case secret found in anything sent to the model or in
@@ -24,30 +27,44 @@
  *   picking        the team answers the model saw contain what the case
  *                  says they must, and none of what they must not.
  *   fence          every prompt fences the chat text exactly once, with
- *                  all of it inside the fence.
+ *                  all of it inside the fence (the topic's label is not
+ *                  sent at all).
  *   draftSafety    a stored draft is status-neutral text with no mask,
  *                  identifier or instruction echo.
  *   knownGapLeaks  secrets the pipeline is documented NOT to catch (a
- *                  name nobody in the chat is known by). Reported, not
+ *                  name the workspace does not know). Reported, not
  *                  failed: the admin's review is the control there.
  */
 import type { AiConfig, ChatMessage, GenerateResult } from '@/lib/ai/types';
 import { echoesRedaction } from '@/lib/ai/redact-input';
 import { brainRedact } from '@/lib/brain/redact';
 
-import { isLearnableChat, type ThreadMessage } from '../learn';
-import type { Skill } from '../skills';
+import { buildNameMatcher, type KnownName } from '../known-names';
+import {
+  MAX_QUESTION_CHARS,
+  isLearnableChat,
+  type ThreadMessage,
+} from '../learn';
+import { MAX_NEW_SKILLS, type Skill } from '../skills';
 import {
   evolveSkills,
   learnTopic,
   type KbLearnDeps,
   type KbLearnStore,
   type LearnGap,
+  type LearnTopic,
   type RecordDraftArgs,
+  type ReviewRow,
   type TopicOutcome,
 } from '../learn-run';
 
-export type ScriptedModel = 'faithful' | 'echo' | 'leaky' | 'decline';
+export type ScriptedModel =
+  | 'faithful'
+  | 'echo'
+  | 'echo-question'
+  | 'leaky'
+  | 'leaky-question'
+  | 'decline';
 
 /** One message in a case's chat, minutes after the customer's question. */
 export interface CaseMessage {
@@ -80,10 +97,14 @@ export interface EvalCase {
   note: string;
   topic: { label: string; coverage?: string };
   chats: CaseChat[];
-  /** Team members' names, by agent key. */
+  /** Team members' names, by agent key ('agent-1' has one by default: the
+   *  run skips a reply whose sender it cannot name). */
   agents?: Record<string, string>;
+  /** Other names the workspace knows (contacts, companies, cases…). */
+  accountNames?: KnownName[];
   model: ScriptedModel;
-  /** The general answer a faithful model gives. */
+  /** The general answer a faithful model gives (its question is
+   *  MODEL_QUESTION). */
   modelAnswer?: { en: string; ar?: string };
   expect: {
     outcome: ExpectedOutcome;
@@ -98,7 +119,7 @@ export interface EvalCase {
   secrets: string[];
   /** Documented limits: reported when they get through, not failed. */
   knownGapSecrets?: string[];
-  /** The workspace's active skill library (290 §5). */
+  /** The workspace's active skill library (318). */
   skills?: Skill[];
   /** Skill titles that must / must not be in the draft prompt. */
   expectSkills?: { inPrompt?: string[]; notInPrompt?: string[] };
@@ -155,6 +176,11 @@ const GAP_AT = Date.parse('2026-11-10T10:00:00.000Z');
 const iso = (minutes: number) =>
   new Date(GAP_AT + minutes * 60_000).toISOString();
 
+/** The general question every scripted model but an echo or leak asks. */
+const MODEL_QUESTION = 'What does the bank ask for?';
+/** A name no case's text holds, so it changes nothing it is not meant to. */
+const DEFAULT_AGENTS = { 'agent-1': 'Zaki Burhani' };
+
 const CONFIG = {
   accountId: ACCOUNT,
   provider: 'openai',
@@ -167,7 +193,7 @@ const CONFIG = {
 function idsFor(c: EvalCase) {
   const chatIds = c.chats.map((_, i) => `conv-${c.id}-${i}`);
   const gapIds = c.chats.map((_, i) => `gap-${c.id}-${i}`);
-  const agentIds = Object.keys({ 'agent-1': '', ...(c.agents ?? {}) }).map(
+  const agentIds = Object.keys({ ...DEFAULT_AGENTS, ...c.agents }).map(
     (k) => `user-${k}`
   );
   return { chatIds, gapIds, agentIds, topicId: `topic-${c.id}` };
@@ -183,28 +209,38 @@ function toThreadMessage(m: CaseMessage): ThreadMessage {
     content_text: m.text,
     template_name: m.from === 'template' ? 'eval_template' : null,
     created_at: iso(m.minutes),
+    status: 'delivered',
   };
 }
 
-/** The store, in memory, with the same eligibility and window rules as
- *  `supabaseKbLearnStore`. */
+/** The case's topic, as `openTopics` hands it over. */
+function topicOf(c: EvalCase): LearnTopic {
+  const { topicId, gapIds } = idsFor(c);
+  return {
+    id: topicId,
+    label: c.topic.label,
+    coverage: c.topic.coverage ?? 'none',
+    gapIds,
+  };
+}
+
+/** The store, in memory, with the eligibility and window rules of
+ *  `supabaseKbLearnStore` that a case can set. */
 function memoryStore(c: EvalCase, drafts: RecordDraftArgs[]): KbLearnStore {
-  const { chatIds, gapIds, topicId } = idsFor(c);
+  const { chatIds, gapIds } = idsFor(c);
   const names: Record<string, string> = {};
-  for (const [k, v] of Object.entries(c.agents ?? {})) names[`user-${k}`] = v;
+  for (const [k, v] of Object.entries({ ...DEFAULT_AGENTS, ...c.agents }))
+    names[`user-${k}`] = v;
   return {
     dueAccounts: async () => [ACCOUNT],
     claimRun: async () => true,
     finishRun: async () => {},
-    openTopics: async () => [
-      {
-        id: topicId,
-        label: c.topic.label,
-        coverage: c.topic.coverage ?? 'none',
-      },
-    ],
-    topicGapIds: async () => gapIds,
+    askedThisWeek: async () => 0,
+    openTopics: async () => [topicOf(c)],
     topicDrafted: async () => false,
+    knownNames: async () => c.accountNames ?? [],
+    recordDiscard: async () => {},
+    noteLook: async () => {},
     gaps: async (_a, ids): Promise<LearnGap[]> =>
       c.chats
         .map((chat, i) => ({
@@ -249,6 +285,7 @@ function memoryStore(c: EvalCase, drafts: RecordDraftArgs[]): KbLearnStore {
       (c.skills ?? []).map((s) => ({ kind: s.kind, title: s.title })),
     reviewRows: async () => [],
     markReviewed: async () => {},
+    distillState: async () => ({ enabled: true, lastDistilledAt: null }),
     addSkills: async () => 0,
   };
 }
@@ -266,25 +303,39 @@ function scriptedModel(c: EvalCase, sent: string[]) {
     const user = userText(args.messages);
     sent.push(args.systemPrompt, user);
     const wantsAr = args.systemPrompt.includes('answer_ar');
+    const LEAK =
+      'Call our officer on +971 50 765 4321 or write to officer@bank.example.';
     let body: Record<string, unknown>;
     switch (c.model) {
       case 'faithful':
         body = {
+          question: MODEL_QUESTION,
           answer_en: c.modelAnswer?.en ?? 'Yes. Please check the requirements.',
           ...(wantsAr ? { answer_ar: c.modelAnswer?.ar ?? 'نعم.' } : {}),
         };
         break;
       case 'echo':
-        body = { answer_en: user, ...(wantsAr ? { answer_ar: user } : {}) };
-        break;
-      case 'leaky':
         body = {
-          answer_en:
-            'Call our officer on +971 50 765 4321 or write to officer@bank.example.',
+          question: MODEL_QUESTION,
+          answer_en: user,
+          ...(wantsAr ? { answer_ar: user } : {}),
         };
         break;
+      case 'echo-question':
+        // Short enough that only its content can have it refused.
+        body = {
+          question: user.slice(0, MAX_QUESTION_CHARS).trim(),
+          answer_en: 'Yes.',
+        };
+        break;
+      case 'leaky':
+        body = { question: MODEL_QUESTION, answer_en: LEAK };
+        break;
+      case 'leaky-question':
+        body = { question: LEAK, answer_en: 'Yes.' };
+        break;
       case 'decline':
-        body = { answer_en: null };
+        body = { question: null, answer_en: null };
         break;
     }
     return {
@@ -307,12 +358,7 @@ function fenceHolds(user: string): boolean {
   const end = user.indexOf(closes[0]!);
   if (start < 0 || end < start) return false;
   const outside = user.slice(0, start) + user.slice(end + closes[0]!.length);
-  // Only the topic line may sit outside; no reply or question text.
-  const outsideLines = outside
-    .split('\n')
-    .map((l) => l.trim())
-    .filter((l) => l && !l.startsWith('Topic:'));
-  return outsideLines.length === 0;
+  return outside.trim() === '';
 }
 
 /** The team-replies part of the prompt. */
@@ -332,8 +378,7 @@ function draftProblems(d: RecordDraftArgs): string[] {
     if (echoesRedaction(text) || /\[NAME\]|\[ID\]/.test(text))
       out.push(`${field} carries a mask`);
     const r = brainRedact(text);
-    if (field !== 'question' && (!r.ok || r.text !== text))
-      out.push(`${field} carries an identifier`);
+    if (!r.ok || r.text !== text) out.push(`${field} carries an identifier`);
     if (/<\/?\s*evidence/i.test(text)) out.push(`${field} echoes the fence`);
   }
   if (!/^LRN-[A-Z0-9]{6,12}$/.test(d.ref)) out.push('bad ref');
@@ -363,17 +408,14 @@ export async function runCase(c: EvalCase): Promise<CaseResult> {
     // Deterministic refs: same corpus, same report.
     random: () => (seq = (seq * 9301 + 49297) % 233280) / 233280,
   };
-  const { topicId } = idsFor(c);
   const outcome = await learnTopic(
     deps,
     ACCOUNT,
     CONFIG,
-    {
-      id: topicId,
-      label: c.topic.label,
-      coverage: c.topic.coverage ?? 'none',
-    },
-    c.skills ?? []
+    topicOf(c),
+    await deps.store.knownNames(ACCOUNT),
+    undefined,
+    await deps.store.activeSkills(ACCOUNT)
   );
   const got: string = outcome.drafted ? 'drafted' : (outcome.reason ?? '?');
   const draft = drafts[0] ?? null;
@@ -567,10 +609,11 @@ export async function runEval(
 }
 
 // ---------------------------------------------------------------------
-// The skill library (290 §5): the evolution cycle under the same bar.
+// The skill library (318): the evolution cycle under the same bar.
 // ---------------------------------------------------------------------
 
 export interface DistillReview {
+  /** The entry's question (there is none once the draft was deleted). */
   topic: string;
   draft: string;
   /** The entry now: null = deleted. */
@@ -585,6 +628,8 @@ export interface DistillCase {
   tags: string[];
   note: string;
   reviews: DistillReview[];
+  /** The names the workspace knows. */
+  accountNames?: KnownName[];
   /** What the model proposes ('echo' copies its prompt into a skill). */
   model: 'propose' | 'echo' | 'leaky';
   proposed?: {
@@ -608,13 +653,12 @@ export interface DistillResult {
 export async function runDistillCase(c: DistillCase): Promise<DistillResult> {
   const sent: string[] = [];
   const stored: Skill[] = [];
-  const rows = c.reviews.map((r, i) => ({
+  const rows: ReviewRow[] = c.reviews.map((r, i) => ({
     id: `review-${c.id}-${i}`,
-    topicLabel: r.topic,
     draftAnswer: r.draft,
     outcome: r.outcome ?? null,
     distilled: r.distilled ?? false,
-    entry: r.entry,
+    entry: r.entry && { ...r.entry, question: r.topic },
   }));
   const store: KbLearnStore = {
     ...memoryStore(
@@ -632,8 +676,9 @@ export async function runDistillCase(c: DistillCase): Promise<DistillResult> {
     ),
     reviewRows: async () => rows,
     addSkills: async (_a, skills) => {
-      stored.push(...skills.slice(0, 3));
-      return Math.min(3, skills.length);
+      const added = skills.slice(0, MAX_NEW_SKILLS);
+      stored.push(...added);
+      return added.length;
     },
   };
   const deps: KbLearnDeps = {
@@ -666,7 +711,13 @@ export async function runDistillCase(c: DistillCase): Promise<DistillResult> {
     logUsage: async () => {},
     now: () => GAP_AT,
   };
-  const res = await evolveSkills(deps, ACCOUNT, CONFIG, GAP_AT + 60_000);
+  const res = await evolveSkills(
+    deps,
+    ACCOUNT,
+    CONFIG,
+    buildNameMatcher(c.accountNames ?? []),
+    GAP_AT + 60_000
+  );
   const problems: string[] = [];
   if (res.evolved !== c.expect.evolved)
     problems.push(`evolved ${res.evolved}, expected ${c.expect.evolved}`);

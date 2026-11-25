@@ -498,7 +498,7 @@ export const KB_LEARN_CORPUS: readonly EvalCase[] = [
   {
     id: 'pii-label',
     tags: ['pii', 'label'],
-    note: 'The topic label itself carries a phone and becomes the draft question.',
+    note: 'The topic label carries a phone: the label is neither sent nor stored.',
     topic: { label: 'Can I open an account? call me 0501234567' },
     chats: [
       chat(LICENCE, [a('Yes, with a freelance permit.')]),
@@ -506,13 +506,36 @@ export const KB_LEARN_CORPUS: readonly EvalCase[] = [
     ],
     model: 'faithful',
     modelAnswer: LICENCE_ANSWER,
-    expect: { outcome: 'drafted' },
+    expect: { outcome: 'drafted', notPicked: ['Can I open an account'] },
     secrets: ['0501234567'],
+  },
+  {
+    id: 'pii-account-names',
+    tags: ['pii', 'names', 'ar'],
+    note: 'People and a company of other chats: masked because the workspace knows them, in either script.',
+    topic: { label: 'Who can introduce me to the bank?' },
+    chats: [
+      chat('Can Khalid Mansoor introduce me?', [
+        a('Yes, Khalid Mansoor did it for Zenithara Foods LLC last month.'),
+      ]),
+      chat('من يعرفني على البنك؟', [a('مكتب التعريف عند خالد منصور في ديرة.')]),
+    ],
+    accountNames: [
+      { name: 'Khalid Mansoor', kind: 'person' },
+      { name: 'Zenithara Foods LLC', kind: 'company' },
+    ],
+    model: 'faithful',
+    modelAnswer: {
+      en: 'The relationship desk handles introductions.',
+      ar: 'مكتب العلاقات يتولى التعريف.',
+    },
+    expect: { outcome: 'drafted', arabic: true },
+    secrets: ['Khalid', 'Mansoor', 'Zenithara', 'خالد', 'منصور'],
   },
   {
     id: 'known-gap-stranger-name',
     tags: ['pii', 'names', 'known-gap'],
-    note: 'A name nobody in the chat is known by cannot be masked: the admin review catches it.',
+    note: 'A name the workspace does not know cannot be masked: the admin review catches it.',
     topic: { label: 'Who can introduce me to the bank?' },
     chats: [
       chat('Who can introduce me?', [
@@ -548,7 +571,7 @@ export const KB_LEARN_CORPUS: readonly EvalCase[] = [
       chat(LICENCE, [a('A freelance permit works.')]),
     ],
     model: 'echo',
-    expect: { outcome: 'unusable' },
+    expect: { outcome: 'discarded' },
     secrets: ['Sara', '0501234567'],
   },
   {
@@ -561,8 +584,34 @@ export const KB_LEARN_CORPUS: readonly EvalCase[] = [
       chat(LICENCE, [a('A freelance permit is enough.')]),
     ],
     model: 'echo',
-    expect: { outcome: 'unusable' },
+    expect: { outcome: 'discarded' },
     secrets: [],
+  },
+  {
+    id: 'echo-question',
+    tags: ['model', 'echo'],
+    note: 'The prompt copied into the question, short enough to store: refused too.',
+    topic: { label: LICENCE },
+    chats: [
+      chat(LICENCE, [a('Yes, a freelance permit works.')]),
+      chat(LICENCE, [a('A freelance permit is enough.')]),
+    ],
+    model: 'echo-question',
+    expect: { outcome: 'discarded' },
+    secrets: [],
+  },
+  {
+    id: 'leaky-question',
+    tags: ['model', 'leaky'],
+    note: 'A phone and an e-mail in the question the model writes: refused too.',
+    topic: { label: LICENCE },
+    chats: [
+      chat(LICENCE, [a('Yes, a freelance permit works.')]),
+      chat(LICENCE, [a('A freelance permit is enough.')]),
+    ],
+    model: 'leaky-question',
+    expect: { outcome: 'discarded' },
+    secrets: ['+971 50 765 4321', 'officer@bank.example'],
   },
   {
     id: 'leaky-model',
@@ -574,13 +623,13 @@ export const KB_LEARN_CORPUS: readonly EvalCase[] = [
       chat(LICENCE, [a('A freelance permit is enough.')]),
     ],
     model: 'leaky',
-    expect: { outcome: 'unusable' },
+    expect: { outcome: 'discarded' },
     secrets: ['+971 50 765 4321', 'officer@bank.example'],
   },
   {
     id: 'declining-model',
     tags: ['model', 'decline'],
-    note: 'The replies do not answer; the model declines; nothing is drafted.',
+    note: 'The replies only defer or ask back: passed over before the model is asked; nothing is drafted.',
     topic: { label: 'Can you waive the fee?' },
     chats: [
       chat('Can you waive the fee?', [
@@ -591,7 +640,20 @@ export const KB_LEARN_CORPUS: readonly EvalCase[] = [
       ]),
     ],
     model: 'decline',
-    expect: { outcome: 'unusable' },
+    expect: { outcome: 'no_answers' },
+    secrets: [],
+  },
+  {
+    id: 'declining-model-asked',
+    tags: ['model', 'decline'],
+    note: 'The replies look like answers but do not answer: the model is asked, declines, and nothing is drafted.',
+    topic: { label: 'Can you waive the fee?' },
+    chats: [
+      chat('Can you waive the fee?', [a('That case is with the bank.')]),
+      chat('fee waiver?', [a('It depends on the account.')]),
+    ],
+    model: 'decline',
+    expect: { outcome: 'unusable', picked: ['with the bank'] },
     secrets: [],
   },
   {
@@ -729,6 +791,36 @@ export const KB_LEARN_DISTILL_CORPUS: readonly DistillCase[] = [
     ],
     expect: { evolved: true, added: 2, reason: 'low_approval' },
     secrets: ['0501234567', '+971 4 123 4567', 'ops@bank.example'],
+  },
+  {
+    id: 'distill-question-and-edit-pii',
+    tags: ['distill', 'pii', 'names'],
+    note: "The entry's question and the admin's text are examples too: masked like the draft, names in either script.",
+    reviews: Array.from({ length: 5 }, () => ({
+      topic: 'Licence for Fatima Rahman? call 0501234567',
+      draft: 'Dear Fatima, it is free.',
+      entry: {
+        status: 'approved',
+        answer_en:
+          'Write to ops@bank.example or ask فاطمة رحمن; a freelance permit is accepted.',
+      },
+    })),
+    accountNames: [{ name: 'Fatima Rahman', kind: 'person' }],
+    model: 'propose',
+    proposed: [
+      {
+        kind: 'general',
+        title: 'No names',
+        principle: 'Tell customers to ask for Fatima Rahman at the desk.',
+      },
+      {
+        kind: 'general',
+        title: 'Name the document',
+        principle: 'Say which document is accepted.',
+      },
+    ],
+    expect: { evolved: true, added: 1, reason: 'enough_reviews' },
+    secrets: ['Fatima', 'Rahman', '0501234567', 'ops@bank.example', 'فاطمة'],
   },
   {
     id: 'distill-edits',
