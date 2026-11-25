@@ -472,8 +472,9 @@ run.
 
 **Calls whose events were lost.** At most every 15 minutes the cron also
 reads the last hour of call records and adds the calls the CRM has no
-trace of (the PBX could not reach it), once they have been over for 10
-minutes. They are added quietly, except that a customer call nobody
+trace of (the PBX could not reach it), or still shows ringing or in
+progress although the PBX no longer has them up, once they have been
+over for 10 minutes. They are added quietly, except that a customer call nobody
 answered that ended within the hour opens its usual missed-call task and
 bell, once. Calls that started over an hour ago are not found this way:
 the gateway's backfill or the CDR import below covers them.

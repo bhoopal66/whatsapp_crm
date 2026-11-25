@@ -39,9 +39,11 @@ parser, signature check, WebSocket helpers, token manager and CDR helpers.
   `pbx_events_raw` hash upsert, then writes `calls`, live state, presence, a
   `missed_call` task and a `call_missed` bell, and settles call-backs; a bad
   event never throws. A later customer call with talk at a known extension
-  closes the open `missed_call` tasks of that contact or number opened before
-  it started, whoever holds them (`closeSpokenMissedTasks`, meta
+  closes the open `missed_call` tasks of that contact or number whose
+  calls started before it, whoever holds them (`closeSpokenMissedTasks`, meta
   `spoke_call_id` / `spoke_user_id`); one holding a call missed since stays.
+  A missed end handled after such a call opens and folds nothing
+  (`spokenSince`, read again once the task is written).
   The Calls screen's badges are read on the service role (`missed-tasks.ts`)
   for calls the caller's RLS read returned.
 - **Recordings** are fetched one at a time (the PBX refuses a second
@@ -99,10 +101,13 @@ parser, signature check, WebSocket helpers, token manager and CDR helpers.
   writes its row (`late`: no task, bell or call-back), and an old ring or
   a superseded status is stamped without running.
 - **Lost events.** The cron's `reconcile` step (`reconcile-calls.ts`,
-  every 15 minutes) ingests calls with no `calls` row from the last hour's
-  CDR, 10 minutes after they end and decided on the merged call: all legs
+  every 15 minutes) ingests calls with no `calls` row, or a live one whose
+  end was lost (`lostCalls`: off the PBX's own list of calls up, read
+  before the CDR, since a finished leg has its record while the customer is
+  still on the line), from the last hour's CDR, 10 minutes after they end and decided on the merged call: all legs
   `historical`, except the last leg of a missed inbound call, which rings
-  once; `keepClock` leaves `last_event_at` alone. Calls that started over
+  once (an answered one under an hour old also closes the customer's
+  missed-call tasks); `keepClock` leaves `last_event_at` alone. Calls that started over
   an hour ago are not recovered here (the gateway's 24 h backfill covers
   those when the gateway runs).
 - **Chats follow the caller.** `assignChatFromCallHistory`
