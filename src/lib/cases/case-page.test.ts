@@ -12,6 +12,7 @@ import {
   canTakeOver,
   docRequestKey,
   detailsErrorKey,
+  detailsPatch,
   fromLocalInput,
   groupEndView,
   isFinalStage,
@@ -480,6 +481,63 @@ describe('inputs', () => {
     expect(normaliseAmount('150,000.50')).toBe('150000.50');
     expect(normaliseAmount('12.345')).toBeNull();
     expect(normaliseAmount('abc')).toBeNull();
+  });
+});
+
+describe('detailsPatch', () => {
+  const c = {
+    bankCode: 'ENBD',
+    product: 'Loan',
+    amount: '1000',
+    priority: 'normal' as CaseRecord['priority'],
+    dueAt: '2026-10-20T10:30:45.678Z',
+  };
+  const form = {
+    bank: 'ENBD',
+    product: 'Loan',
+    amount: '1000',
+    priority: 'normal',
+    due: toLocalInput(c.dueAt),
+  };
+  const read = (change: Partial<typeof form>, locked = false, over = {}) =>
+    detailsPatch({ ...c, ...over }, { ...form, ...change }, locked);
+
+  it('an untouched form sends nothing, the due seconds included', () => {
+    expect(read({})).toEqual({ patch: {} });
+  });
+  it('a changed or cleared due date is sent', () => {
+    const due = '2026-11-01T09:00';
+    expect(read({ due })).toEqual({ patch: { due_at: fromLocalInput(due) } });
+    expect(read({ due: '' })).toEqual({ patch: { due_at: null } });
+    expect(read({ due: 'x' })).toEqual({ error: 'dueInvalid' });
+  });
+  it('an emptied product or amount is refused', () => {
+    expect(read({ product: ' ' })).toEqual({
+      error: 'cannotEmpty',
+      field: 'product',
+    });
+    expect(read({ amount: '' })).toEqual({
+      error: 'cannotEmpty',
+      field: 'amount',
+    });
+    // Never set, or Compass's to change.
+    expect(
+      read({ product: '', amount: '' }, false, { product: null, amount: null })
+    ).toEqual({ patch: {} });
+    expect(read({ product: '', amount: '' }, true)).toEqual({ patch: {} });
+  });
+  it('sends what changed', () => {
+    expect(
+      read({ bank: 'FAB', product: 'Card', amount: '2,500', priority: 'high' })
+    ).toEqual({
+      patch: {
+        bank_code: 'FAB',
+        product: 'Card',
+        amount: '2500',
+        priority: 'high',
+      },
+    });
+    expect(read({ amount: 'abc' })).toEqual({ error: 'amountInvalid' });
   });
 });
 

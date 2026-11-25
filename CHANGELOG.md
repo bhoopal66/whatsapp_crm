@@ -12,6 +12,18 @@ and polish.
 
 ## [Unreleased]
 
+### Fixed: going back to an earlier case document had no effect
+
+Attaching a good document again after a bad upload, or one whose expiry date
+was mistyped, makes it the newest version, so the case becomes ready. Attach
+and Upload now say when the document failed its checks or was replaced
+meanwhile. File names carry the Dubai date. In Edit details an emptied amount
+or product is refused instead of silently kept, an untouched due date is not
+sent, and a bank list that could not be read offers Retry. The reviewer's
+note keeps its buttons after a lost connection and says when it cannot load.
+
+**Migration required: 320** (`320_case_file_versions.sql`, after 270).
+
 ### Fixed: a reminder kept ringing after it was done, moved or cancelled
 
 The ringing card closes on every screen when its task is finished, moved,

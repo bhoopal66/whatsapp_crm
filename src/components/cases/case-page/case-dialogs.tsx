@@ -28,11 +28,10 @@ import {
   allowedNextStages,
   caseLocks,
   detailsErrorKey,
-  fromLocalInput,
+  detailsPatch,
   groupEndView,
   isFinalStage,
   needsOutcomeReason,
-  normaliseAmount,
   outcomeReasonCodes,
   OUTCOME_REASON_TEXT_MAX,
   reasonErrorKey,
@@ -315,6 +314,9 @@ export function EditDetailsDialog({
   const t = useTranslations('CasePage');
   const c = detail.case;
   const [banks, setBanks] = useState<Bank[] | null>(null);
+  const [banksFailed, setBanksFailed] = useState(false);
+  // Retry: one more reads the list again.
+  const [banksRead, setBanksRead] = useState(0);
   const [bank, setBank] = useState(c.bankCode ?? '');
   const [product, setProduct] = useState(c.product ?? '');
   const [amount, setAmount] = useState(c.amount ?? '');
@@ -331,13 +333,15 @@ export function EditDetailsDialog({
     void fetch('/api/cases/config/banks', { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : null))
       .then((j: { banks?: Bank[] } | null) => {
-        if (!cancelled) setBanks(Array.isArray(j?.banks) ? j.banks : []);
+        if (cancelled) return;
+        if (Array.isArray(j?.banks)) setBanks(j.banks);
+        setBanksFailed(!Array.isArray(j?.banks));
       })
-      .catch(() => !cancelled && setBanks([]));
+      .catch(() => !cancelled && setBanksFailed(true));
     return () => {
       cancelled = true;
     };
-  }, [open]);
+  }, [open, banksRead]);
 
   const bankName = (code: string) =>
     banks?.find((b) => b.code === code)?.name ??
@@ -345,20 +349,23 @@ export function EditDetailsDialog({
     code;
 
   const save = async () => {
-    const patch: Record<string, unknown> = {};
-    if (!locked && bank && bank !== (c.bankCode ?? '')) patch.bank_code = bank;
-    if (!locked && product.trim() && product.trim() !== (c.product ?? ''))
-      patch.product = product.trim();
-    if (!locked && amount.trim() && amount.trim() !== (c.amount ?? '')) {
-      const a = normaliseAmount(amount);
-      if (a === null) return setError(t('errors.amountInvalid'));
-      if (a !== c.amount) patch.amount = a;
-    }
-    if (priority !== c.priority) patch.priority = priority;
-    const dueIso = fromLocalInput(due);
-    if (due && dueIso === null) return setError(t('errors.dueInvalid'));
-    if (dueIso !== (c.dueAt ? new Date(c.dueAt).toISOString() : null))
-      patch.due_at = dueIso;
+    const read = detailsPatch(
+      c,
+      { bank, product, amount, priority, due },
+      locked
+    );
+    if ('error' in read)
+      return setError(
+        read.error === 'cannotEmpty'
+          ? t('errors.cannotEmpty', {
+              field:
+                read.field === 'amount'
+                  ? t('edit.amountAed')
+                  : t('fields.product'),
+            })
+          : t(`errors.${read.error}`)
+      );
+    const { patch } = read;
     if (Object.keys(patch).length === 0) return onOpenChange(false);
 
     setBusy(true);
@@ -406,6 +413,23 @@ export function EditDetailsDialog({
                 ))}
               </SelectContent>
             </Select>
+            {banksFailed && !locked && (
+              <div className="flex items-center gap-2 text-xs">
+                <p role="alert" className="text-destructive">
+                  {t('edit.banksFailed')}
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setBanksFailed(false);
+                    setBanksRead((n) => n + 1);
+                  }}
+                >
+                  {t('retry')}
+                </Button>
+              </div>
+            )}
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="case-product">{t('fields.product')}</Label>

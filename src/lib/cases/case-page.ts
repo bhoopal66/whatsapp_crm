@@ -678,3 +678,51 @@ export function normaliseAmount(raw: string): string | null {
   const v = raw.replace(/[,\s]/g, '');
   return /^\d+(\.\d{1,2})?$/.test(v) ? v : null;
 }
+
+export interface DetailsForm {
+  bank: string;
+  product: string;
+  amount: string;
+  priority: string;
+  /** A `datetime-local` value. */
+  due: string;
+}
+
+/**
+ * The PATCH body of Edit details: only what was changed. The route cannot
+ * empty a product or an amount, so an emptied one is an error, not a no-op.
+ * The input has no seconds, so the due date is compared as it was shown.
+ */
+export function detailsPatch(
+  c: Pick<CaseRecord, 'bankCode' | 'product' | 'amount' | 'priority' | 'dueAt'>,
+  form: DetailsForm,
+  locked: boolean
+):
+  | { patch: Record<string, unknown> }
+  | { error: 'cannotEmpty'; field: 'product' | 'amount' }
+  | { error: 'amountInvalid' | 'dueInvalid' } {
+  const patch: Record<string, unknown> = {};
+  if (!locked) {
+    const product = form.product.trim();
+    const amount = form.amount.trim();
+    if (form.bank && form.bank !== (c.bankCode ?? ''))
+      patch.bank_code = form.bank;
+    if (!product && c.product?.trim())
+      return { error: 'cannotEmpty', field: 'product' };
+    if (product && product !== (c.product ?? '')) patch.product = product;
+    if (!amount && c.amount?.trim())
+      return { error: 'cannotEmpty', field: 'amount' };
+    if (amount && amount !== (c.amount ?? '')) {
+      const a = normaliseAmount(amount);
+      if (a === null) return { error: 'amountInvalid' };
+      if (a !== c.amount) patch.amount = a;
+    }
+  }
+  if (form.priority !== c.priority) patch.priority = form.priority;
+  if (form.due !== toLocalInput(c.dueAt)) {
+    const dueIso = fromLocalInput(form.due);
+    if (form.due && dueIso === null) return { error: 'dueInvalid' };
+    patch.due_at = dueIso;
+  }
+  return { patch };
+}
