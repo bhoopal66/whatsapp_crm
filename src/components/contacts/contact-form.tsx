@@ -75,7 +75,7 @@ function FloatingContent({
         data-slot="dialog-content"
         data-floating-contact-form=""
         className={cn(
-          'fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground shadow-2xl ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95',
+          'bg-popover text-popover-foreground ring-foreground/10 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl p-4 text-sm shadow-2xl ring-1 duration-100 outline-none sm:max-w-sm',
           className
         )}
       >
@@ -84,7 +84,7 @@ function FloatingContent({
           render={
             <Button
               variant="ghost"
-              className="absolute top-2 end-2"
+              className="absolute end-2 top-2"
               size="icon-sm"
             />
           }
@@ -121,10 +121,10 @@ export function ContactForm({
   // hard-blocks the save; a fuzzy trunk-variant match only warns. The
   // DB unique index (migration 022) is the real backstop — this is the
   // friendly heads-up before we get there.
-  const [dupMatch, setDupMatch] = useState<
-    { contact: ExistingContact; exact: boolean } | null
-  >(null);
-  const [checkingDup, setCheckingDup] = useState(false);
+  const [dupMatch, setDupMatch] = useState<{
+    contact: ExistingContact;
+    exact: boolean;
+  } | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -137,7 +137,10 @@ export function ContactForm({
   }, [open, contact, initialPhone]);
 
   // Look up an existing contact with this number (new contacts only).
-  // Runs on blur so we don't query on every keystroke.
+  // Runs on blur so we don't query on every keystroke. It never disables
+  // the submit button: that blur fires on mousedown, and a disabled button
+  // swallows the click. A save racing the check ends in the unique-index
+  // (23505) path below, which shows the same duplicate notice.
   async function checkDuplicate() {
     if (isEdit || !accountId) return;
     const typed = phone.trim();
@@ -149,21 +152,18 @@ export function ContactForm({
     // 97150…), so the exact/similar verdict matches what the save does.
     const checked = validateContactPhone(typed);
     const value = checked.ok ? checked.normalized : typed;
-    setCheckingDup(true);
     try {
       const existing = await findExistingContact(supabase, accountId, value);
       setDupMatch(
         existing
           ? { contact: existing, exact: isExactMatch(existing, value) }
-          : null,
+          : null
       );
     } catch (err) {
       // Only a warning ahead of the save; the unique index still refuses
       // a duplicate.
       console.error('[contact-form] duplicate check failed:', err);
       setDupMatch(null);
-    } finally {
-      setCheckingDup(false);
     }
   }
 
@@ -182,7 +182,7 @@ export function ContactForm({
     // gateway's number, and a rename must not demand a phone fix.
     const checkedPhone = validatePhoneToSave(
       isEdit ? contact?.phone : null,
-      phone,
+      phone
     );
     if (!checkedPhone.ok) {
       // `error` is the English sentence; the code is what translates.
@@ -219,7 +219,7 @@ export function ContactForm({
           supabase,
           contact,
           { name, phone, email, company },
-          phoneToSave,
+          phoneToSave
         );
         if (res.kind === 'failed') throw res.error;
         if (res.kind === 'none') {
@@ -264,7 +264,7 @@ export function ContactForm({
             existing = await findExistingContact(
               supabase,
               accountId,
-              phoneToSave,
+              phoneToSave
             );
           } catch (lookupErr) {
             console.error('[contact-form] lookup failed:', lookupErr);
@@ -325,9 +325,7 @@ export function ContactForm({
             {isEdit ? t('editTitle') : t('addTitle')}
           </DialogTitle>
           <DialogDescription className="text-muted-foreground">
-            {isEdit
-              ? t('editDesc')
-              : t('addDesc')}
+            {isEdit ? t('editDesc') : t('addDesc')}
           </DialogDescription>
         </DialogHeader>
 
@@ -370,26 +368,22 @@ export function ContactForm({
               >
                 <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
                 <div className="space-y-1">
-                  <p>
-                    {dupMatch.exact
-                      ? t('dupExact')
-                      : t('dupSimilar')}
-                  </p>
+                  <p>{dupMatch.exact ? t('dupExact') : t('dupSimilar')}</p>
                   {onViewExisting && (
                     <button
                       type="button"
                       onClick={() => onViewExisting(dupMatch.contact.id)}
                       className="font-medium underline underline-offset-2 hover:no-underline"
                     >
-                      {t('viewExisting', { name: dupMatch.contact.name || dupMatch.contact.phone })}
+                      {t('viewExisting', {
+                        name: dupMatch.contact.name || dupMatch.contact.phone,
+                      })}
                     </button>
                   )}
                 </div>
               </div>
             ) : (
-              <p className="text-xs text-muted-foreground">
-                {t('phoneHint')}
-              </p>
+              <p className="text-muted-foreground text-xs">{t('phoneHint')}</p>
             )}
           </div>
 
@@ -432,7 +426,7 @@ export function ContactForm({
             </Button>
             <Button
               type="submit"
-              disabled={saving || checkingDup || (!isEdit && !!dupMatch?.exact)}
+              disabled={saving || (!isEdit && !!dupMatch?.exact)}
               className="bg-primary hover:bg-primary/90 text-primary-foreground"
             >
               {saving && <Loader2 className="size-4 animate-spin" />}

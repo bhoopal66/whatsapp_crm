@@ -1070,9 +1070,9 @@
     },
     "form": {
       "addTitle": "Add Contact",
-      "addDesc": "Create a new contact. Name is required.",
+      "addDesc": "Create a new contact. The phone number is required; the name is optional.",
       "editTitle": "Edit Contact",
-      "editDesc": "Update contact details and tags.",
+      "editDesc": "Update the contact's phone number, name, email and company.",
       "nameLabel": "Name",
       "namePlaceholder": "Jane Doe",
       "phoneLabel": "Phone Number",

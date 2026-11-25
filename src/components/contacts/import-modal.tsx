@@ -3,6 +3,7 @@
 import { useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
+import { PHONE_EXAMPLE } from '@/lib/contacts/phone-validation';
 import {
   insertContacts,
   planImport,
@@ -48,6 +49,7 @@ const SAVED_ELSEWHERE_LIMIT = 20;
 /** The rows that gave no contact, each with its line and reason. */
 function ProblemList({ problems }: { problems: ImportProblem[] }) {
   const t = useTranslations('Contacts.importModal');
+  const tForm = useTranslations('Contacts.form');
   if (problems.length === 0) return null;
   return (
     <div className="space-y-1 text-xs">
@@ -71,7 +73,11 @@ function ProblemList({ problems }: { problems: ImportProblem[] }) {
                 ? t('problemNoPhone')
                 : p.reason === 'save'
                   ? t('problemNotSaved', { reason: p.detail ?? '' })
-                  : p.detail}
+                  : !p.phoneReason || p.phoneReason === 'required'
+                    ? t('problemNoPhone')
+                    : tForm(`phoneError.${p.phoneReason}`, {
+                        example: PHONE_EXAMPLE,
+                      })}
           </li>
         ))}
       </ul>

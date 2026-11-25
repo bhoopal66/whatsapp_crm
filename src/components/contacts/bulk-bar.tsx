@@ -139,6 +139,17 @@ function ChatTagPickerDialog({
   const [sub, setSub] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
+  // Cancel, Apply, Esc and the backdrop all end in `open` going false (some
+  // without passing through the dialog's own handler), so the choice is
+  // cleared whenever `open` changes, keeping a reopen from showing the
+  // last one.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (wasOpen !== open) {
+    setWasOpen(open);
+    setMain('none');
+    setSub(null);
+  }
+
   const mainTag = tree.mains.find((m) => m.id === main) ?? null;
 
   async function apply() {
@@ -158,16 +169,7 @@ function ChatTagPickerDialog({
   }
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        if (!next) {
-          setMain('none');
-          setSub(null);
-        }
-        onOpenChange(next);
-      }}
-    >
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="bg-popover border-border text-popover-foreground sm:max-w-sm">
         <DialogHeader>
           <DialogTitle className="text-popover-foreground">

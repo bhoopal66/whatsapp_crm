@@ -111,6 +111,8 @@ import {
   toContactListRows,
   type ContactListRow,
   type ContactWithConversations,
+  isRangeNotSatisfiable,
+  pageToRecoverTo,
 } from '@/lib/contacts/list-query';
 import {
   isMissingSortRpc,
@@ -639,8 +641,24 @@ export function ContactsPageInner({
 
   // A failed load keeps what the view showed before (or nothing).
   useEffect(() => {
-    if (list.error) toast.error(t('toastFailedLoad'));
+    if (list.error && !isRangeNotSatisfiable(list.error)) {
+      toast.error(t('toastFailedLoad'));
+    }
   }, [list.error, t]);
+
+  // Deleting or retagging a whole last page leaves `page` past the end
+  // (an empty list, or a refused range): step back to a page that exists.
+  const recoverTo = pageToRecoverTo({
+    page,
+    pageSize: PAGE_SIZE,
+    loading: list.loading,
+    rowCount: contacts.length,
+    total: totalCount,
+    error: list.error,
+  });
+  useEffect(() => {
+    if (recoverTo !== null) setPage(recoverTo);
+  }, [recoverTo]);
 
   // The visible rows change with the view: drop any selection that
   // referred to the old page/search results so the bulk bar can't act
@@ -1432,7 +1450,7 @@ export function ContactsPageInner({
                     contact={contact}
                     teamView={teamView}
                     onOpen={() => openDetail(contact.id)}
-                    onEdit={() => openEditForm(contact)}
+                    onEdit={canEdit ? () => openEditForm(contact) : undefined}
                     onDelete={
                       canDelete ? () => confirmDelete(contact) : undefined
                     }
@@ -1587,19 +1605,23 @@ export function ContactsPageInner({
                           align="end"
                           className="bg-popover border-border"
                         >
-                          <DropdownMenuItem
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openEditForm(contact);
-                            }}
-                            className="text-popover-foreground focus:bg-muted focus:text-foreground"
-                          >
-                            <Pencil className="size-4" />
-                            {t('editAction')}
-                          </DropdownMenuItem>
+                          {canEdit && (
+                            <DropdownMenuItem
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openEditForm(contact);
+                              }}
+                              className="text-popover-foreground focus:bg-muted focus:text-foreground"
+                            >
+                              <Pencil className="size-4" />
+                              {t('editAction')}
+                            </DropdownMenuItem>
+                          )}
                           {canDelete && (
                             <>
-                              <DropdownMenuSeparator className="bg-border" />
+                              {canEdit && (
+                                <DropdownMenuSeparator className="bg-border" />
+                              )}
                               <DropdownMenuItem
                                 variant="destructive"
                                 onClick={(e) => {
@@ -1764,7 +1786,8 @@ function ContactRow({
   contact: Contact;
   teamView: boolean;
   onOpen: () => void;
-  onEdit: () => void;
+  /** Absent for someone who may not edit a customer. */
+  onEdit?: () => void;
   /** Absent for someone who may not delete a customer. */
   onDelete?: () => void;
   children: ReactNode;
@@ -1810,15 +1833,15 @@ function ContactRow({
         onSelect: () => void copyWithToast(email, copied),
       });
     }
-    items.push(
-      { type: 'separator' },
-      {
+    if (onEdit || onDelete) items.push({ type: 'separator' });
+    if (onEdit) {
+      items.push({
         id: 'edit',
         label: tMenu('records.edit'),
         icon: Pencil,
         onSelect: onEdit,
-      }
-    );
+      });
+    }
     if (onDelete) {
       items.push({
         id: 'delete',

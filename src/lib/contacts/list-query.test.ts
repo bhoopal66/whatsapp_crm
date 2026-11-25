@@ -12,6 +12,8 @@ import {
   contactSearchTerms,
   contactSortLabel,
   inIdOrder,
+  isRangeNotSatisfiable,
+  pageToRecoverTo,
   lastActivityByContact,
   toContactListRows,
   type ContactListView,
@@ -365,5 +367,35 @@ describe('close-match search paging', () => {
       ])
     ).toBe('c');
     expect(firstCloseMatchId([{ id: 'a' }])).toBeNull();
+  });
+});
+
+describe('pageToRecoverTo', () => {
+  const base = {
+    page: 2,
+    pageSize: 25,
+    loading: false,
+    rowCount: 0,
+    total: 30,
+    error: null as unknown,
+  };
+
+  it('steps back to the real last page when the shown one is empty', () => {
+    expect(pageToRecoverTo(base)).toBe(1);
+    expect(pageToRecoverTo({ ...base, page: 5, total: 25 })).toBe(0);
+  });
+
+  it('leaves a page that has rows, the first page, and a load in flight', () => {
+    expect(pageToRecoverTo({ ...base, rowCount: 5 })).toBeNull();
+    expect(pageToRecoverTo({ ...base, page: 0 })).toBeNull();
+    expect(pageToRecoverTo({ ...base, loading: true })).toBeNull();
+    expect(pageToRecoverTo({ ...base, total: 0 })).toBeNull();
+  });
+
+  it('goes to the first page when PostgREST refuses the range', () => {
+    expect(pageToRecoverTo({ ...base, error: { code: 'PGRST103' } })).toBe(0);
+    expect(pageToRecoverTo({ ...base, error: { status: 416 } })).toBe(0);
+    expect(pageToRecoverTo({ ...base, error: new Error('x') })).toBeNull();
+    expect(isRangeNotSatisfiable(null)).toBe(false);
   });
 });
