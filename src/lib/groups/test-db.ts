@@ -14,6 +14,8 @@ export interface FakeDb {
   rpc?: Record<string, (args: Row) => { data?: unknown; error?: unknown }>;
   /** Table → primary-key columns an insert may not repeat (23505). */
   unique?: Record<string, string[]>;
+  /** Rows one read answers at most, as PostgREST's cap. */
+  maxRows?: number;
   /** Every write, in order: [table, op, values]. */
   writes?: [table: string, op: string, values: unknown][];
 }
@@ -50,6 +52,7 @@ class FakeQuery {
   private returning = false;
   private orderBy: [string, boolean][] = [];
   private max: number | null = null;
+  private from = 0;
   private counting = false;
   private head = false;
   private conflict: string[] = [];
@@ -113,6 +116,11 @@ class FakeQuery {
   }
   limit(n: number) {
     this.max = n;
+    return this;
+  }
+  range(from: number, to: number) {
+    this.from = from;
+    this.max = to - from + 1;
     return this;
   }
   update(v: Row) {
@@ -207,7 +215,8 @@ class FakeQuery {
         return (x < y ? -1 : x > y ? 1 : 0) * (asc ? 1 : -1);
       });
     }
-    if (this.max !== null) view = view.slice(0, this.max);
+    const cap = Math.min(this.max ?? Infinity, this.db.maxRows ?? Infinity);
+    view = view.slice(this.from, this.from + cap);
     if (this.counting) {
       return { data: this.head ? null : view, error: null, count: view.length };
     }

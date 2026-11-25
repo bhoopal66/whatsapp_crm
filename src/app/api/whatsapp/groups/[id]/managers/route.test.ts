@@ -229,6 +229,27 @@ describe('PUT', () => {
     expect(managerIds()).toEqual([CREATOR, U1].sort());
   });
 
+  it('keeps a colleague added since the tab loaded its base', async () => {
+    mocks.admin.tables.whatsapp_group_managers.push({
+      group_id: G,
+      account_id: 'acct-1',
+      user_id: U2,
+    });
+    const res = await put({ userIds: [], base: [U1] });
+    expect(res.status).toBe(200);
+    expect(managerIds()).toEqual([CREATOR, U2].sort());
+  });
+
+  it('does not bring back a manager a colleague removed since', async () => {
+    mocks.admin.tables.whatsapp_group_managers.pop();
+    expect((await put({ userIds: [U1, U2], base: [U1] })).status).toBe(200);
+    expect(managerIds()).toEqual([CREATOR, U2].sort());
+  });
+
+  it('refuses a base that is not ids', async () => {
+    expect((await put({ userIds: [U1], base: ['me'] })).status).toBe(400);
+  });
+
   it('drops a manager who was deactivated since, instead of refusing', async () => {
     mocks.admin.tables.profiles.find((p) => p.user_id === U1)!.deactivated_at =
       '2026-11-01T00:00:00Z';

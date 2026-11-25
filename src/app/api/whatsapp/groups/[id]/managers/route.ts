@@ -1,7 +1,9 @@
 // ============================================================
 // /api/whatsapp/groups/[id]/managers — who works a group (114).
-// GET is open to anyone who can see the group. PUT replaces the whole
-// set and is for owners/admins and the group's creator only; every new
+// GET is open to anyone who can see the group. PUT takes the new set and
+// the set it was edited from (`base`): only `base − userIds` is dropped and
+// only `userIds − base` added, so a colleague added meanwhile stays. Without
+// `base` (an older tab) it replaces the whole set. It is for owners/admins and the group's creator only; every new
 // id must be a live, non-guest member of the account (400
 // `invalid_manager`). A manager who no longer is one (deactivated) is
 // dropped from the set instead: the picker sends them back unseen, and
@@ -27,6 +29,7 @@ import { NextResponse } from 'next/server';
 import { assertSalesAccess, getCurrentAccount } from '@/lib/auth/account';
 import { canViewAllGroups } from '@/lib/auth/roles';
 import { diffManagers } from '@/lib/groups/manager-numbers';
+import { wantedManagers } from '@/lib/groups/manager-set';
 import { syncManagerNumbers } from '@/lib/groups/manager-sync';
 import { parseManagerSet } from '@/lib/groups/member-requests';
 import {
@@ -116,7 +119,9 @@ export async function PUT(request: Request, { params }: Params) {
   try {
     const ctx = assertSalesAccess(await getCurrentAccount());
     const { id } = await params;
-    const { userIds } = parseManagerSet(await request.json().catch(() => null));
+    const { userIds, base } = parseManagerSet(
+      await request.json().catch(() => null)
+    );
     const group = await loadGroupForCaller(ctx, id);
     // The creator keeps this only while they can still manage the group
     // (an agent whose access lapsed must not edit its managers).
@@ -144,7 +149,7 @@ export async function PUT(request: Request, { params }: Params) {
     const before = ((current ?? []) as { user_id: string }[]).map(
       (r) => r.user_id
     );
-    let wanted = [...new Set(userIds)];
+    let wanted = wantedManagers({ before, userIds, base });
     if (wanted.length > 0) {
       const { data, error } = await admin
         .from('profiles')

@@ -80,6 +80,9 @@ export async function POST() {
     let incomplete = false;
     let done = 0;
     let firstFailure: unknown = null;
+    /** Labels only: what the screen may name. */
+    const failedNumbers: string[] = [];
+    let failedGroups = 0;
 
     for (const channel of channels) {
       if (elapsed() > START_BUDGET_MS) {
@@ -128,6 +131,9 @@ export async function POST() {
         // sets a number is not walked at all: it could bring groups back.
         console.error('[groups] sync listing failed', channel.id, err);
         firstFailure ??= err;
+        failedNumbers.push(
+          channel.label || channel.wabaId || 'WhatsApp number'
+        );
         continue;
       }
       done++;
@@ -158,6 +164,7 @@ export async function POST() {
           synced++;
           if (!knownIds.has(group.id)) created++;
         } catch (err) {
+          failedGroups++;
           console.error('[groups] sync persist failed', group.id, err);
         }
       }
@@ -186,6 +193,8 @@ export async function POST() {
       left,
       truncated,
       channels: done,
+      failedNumbers,
+      failedGroups,
       ...(incomplete ? { incomplete } : {}),
     });
   } catch (err) {

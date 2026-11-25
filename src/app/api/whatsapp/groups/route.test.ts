@@ -334,9 +334,17 @@ describe('GET /api/whatsapp/groups: submission groups', () => {
         ? { data: null, error: { message: 'boom' } }
         : { data: [G], error: null }
     );
-    const { status, groups } = await list();
-    expect(status).toBe(200);
-    expect(groups.map((g: { id: string }) => g.id)).toEqual([G, 'other']);
+    const res = await GET(new Request('http://x/api/whatsapp/groups'));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.groups.map((g: { id: string }) => g.id)).toEqual([G, 'other']);
+    // Not "there are none": the client keeps the rows it has.
+    expect(body.partial).toBe(true);
+  });
+
+  it('is not partial when the submission read worked', async () => {
+    const res = await GET(new Request('http://x/api/whatsapp/groups'));
+    expect((await res.json()).partial).toBeUndefined();
   });
 
   it('searches subject and customer name with a term safe inside or()', async () => {

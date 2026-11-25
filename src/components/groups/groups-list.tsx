@@ -37,7 +37,10 @@ import {
   groupHref,
   groupInitials,
   groupNumbers,
+  isPartialList,
+  keepSubmissionRows,
   parseGroupList,
+  parseSyncProblems,
   relativeActivity,
   type GroupListChip,
   type GroupListItem,
@@ -78,6 +81,8 @@ export const AVATAR_TONES = [
 interface Loaded {
   groups: GroupListItem[];
   failed: boolean;
+  /** The submission groups could not be read; the rows shown are older. */
+  partial?: boolean;
 }
 
 /**
@@ -125,11 +130,15 @@ export function GroupsList({ selectedId }: { selectedId: string | null }) {
     try {
       const res = await fetch('/api/whatsapp/groups', { cache: 'no-store' });
       if (!res.ok) throw new Error(String(res.status));
-      const groups = clearUnread(
-        parseGroupList(await res.json()),
-        reads.current
-      );
-      if (mounted.current) setLoaded({ groups, failed: false });
+      const json: unknown = await res.json();
+      const groups = clearUnread(parseGroupList(json), reads.current);
+      const partial = isPartialList(json);
+      if (mounted.current)
+        setLoaded((prev) => ({
+          groups: keepSubmissionRows(prev?.groups ?? [], groups, partial),
+          failed: false,
+          partial,
+        }));
     } catch {
       // Keep what is on screen on a failed refresh; fail only a first load.
       if (mounted.current)
@@ -234,9 +243,18 @@ export function GroupsList({ selectedId }: { selectedId: string | null }) {
           left: n(json.left),
         })
       );
-      if (json.incomplete === true) {
-        toast.warning(t('syncIncomplete'), { duration: 10_000 });
+      const missed = parseSyncProblems(json);
+      const warn = (text: string) => toast.warning(text, { duration: 10_000 });
+      if (missed.failedNumbers.length > 0) {
+        warn(
+          t('syncFailedNumbers', { names: missed.failedNumbers.join(', ') })
+        );
       }
+      if (missed.failedGroups > 0) {
+        warn(t('syncFailedGroups', { count: missed.failedGroups }));
+      }
+      if (missed.incomplete) warn(t('syncIncomplete'));
+      if (missed.truncated) warn(t('syncTruncated'));
       void load();
     } catch {
       toast.error(t('syncFailed', { reason: 'network' }));
@@ -454,6 +472,17 @@ export function GroupsList({ selectedId }: { selectedId: string | null }) {
           is the page, so rows far down the list made the document
           taller than the screen and scrolling moved the whole page. */}
       <div className="relative min-h-0 flex-1 overflow-y-auto">
+        {loaded?.partial && (
+          <div
+            role="alert"
+            className="border-warning/30 bg-warning-soft text-foreground m-3 flex items-center gap-2 rounded-lg border px-3 py-2 text-sm"
+          >
+            <span className="min-w-0 flex-1">{t('listPartial')}</span>
+            <Button variant="outline" size="sm" onClick={() => void load()}>
+              {t('page.retry')}
+            </Button>
+          </div>
+        )}
         {!loaded || hasWhapi === null ? (
           <LoadingState />
         ) : loaded.failed ? (
@@ -463,7 +492,8 @@ export function GroupsList({ selectedId }: { selectedId: string | null }) {
             className="m-3"
           />
         ) : loaded.groups.length === 0 ? (
-          !hasWhapi ? (
+          // With the read failed, nobody can say there are none.
+          loaded.partial ? null : !hasWhapi ? (
             <EmptyState
               icon={UsersRound}
               title={t('noWhapiTitle')}

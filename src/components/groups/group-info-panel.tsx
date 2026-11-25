@@ -14,6 +14,12 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import type { InfoSection } from '@/lib/groups/group-page';
+import {
+  groupIconUrl,
+  iconChanged,
+  iconFailed,
+  markIconFailed,
+} from '@/lib/groups/icon-failures';
 import { avatarToneIndex, groupInitials } from '@/lib/groups/ui';
 import { cn } from '@/lib/utils';
 
@@ -40,7 +46,8 @@ export function GroupAvatar({
   version: number;
   className?: string;
 }) {
-  const [failed, setFailed] = useState(false);
+  const [failed, setFailed] = useState(() => iconFailed(groupId, version));
+  useEffect(() => iconChanged(groupId, version), [groupId, version]);
   return (
     <div
       className={cn(
@@ -55,10 +62,13 @@ export function GroupAvatar({
       ) : (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={`/api/whatsapp/groups/${groupId}/icon?v=${version}`}
+          src={groupIconUrl(groupId, version)}
           alt=""
           className="size-full object-cover"
-          onError={() => setFailed(true)}
+          onError={() => {
+            markIconFailed(groupId, version);
+            setFailed(true);
+          }}
         />
       )}
     </div>

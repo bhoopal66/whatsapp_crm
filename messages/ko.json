@@ -8712,6 +8712,10 @@
     "syncing": "동기화 중…",
     "syncDone": "그룹 {synced}개 동기화 · 신규 {created} · 나감 {left}",
     "syncIncomplete": "게이트웨이의 목록이 불완전해 보여 나간 것으로 표시된 그룹이 없습니다. 몇 분 후 다시 시도하세요.",
+    "syncFailedNumbers": "다음 번호를 읽지 못했습니다: {names}. 해당 번호의 그룹은 변경되지 않았습니다.",
+    "syncFailedGroups": "그룹 {count}개를 저장하지 못했습니다. 몇 분 후 다시 시도하세요.",
+    "syncTruncated": "이번에는 모든 그룹을 읽지 못했습니다. 읽지 못한 그룹은 변경되지 않았습니다.",
+    "listPartial": "제출 그룹을 새로 고치지 못했습니다. 표시된 내용이 최신이 아닐 수 있습니다.",
     "syncFailed": "그룹을 동기화하지 못했습니다: {reason}",
     "loadFailed": "그룹을 불러오지 못했습니다. 잠시 후 다시 시도하세요.",
     "emptyTitle": "아직 그룹이 없습니다",
@@ -8831,6 +8835,7 @@
       "createAnother": "하나 더 만들기",
       "syncNow": "지금 동기화",
       "syncNowFailed": "동기화하지 못했습니다. 다시 시도하거나 그룹 화면에서 동기화를 실행하세요.",
+      "syncNowPartial": "모든 그룹을 읽지 못해 새 그룹이 아직 없을 수 있습니다. 목록을 확인한 뒤 필요하면 다시 동기화하세요.",
       "resultWarnings": "만들었지만 확인할 사항이 있습니다",
       "warnings": {
         "adds_stopped": "사람 추가가 중간에 멈췄습니다. 나머지에게는 초대 링크를 보내세요.",

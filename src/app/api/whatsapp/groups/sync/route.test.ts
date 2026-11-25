@@ -126,6 +126,8 @@ describe('POST /api/whatsapp/groups/sync', () => {
     const res = await POST();
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
+      failedNumbers: [],
+      failedGroups: 0,
       synced: 2,
       created: 1,
       left: 1,
@@ -250,6 +252,37 @@ describe('POST /api/whatsapp/groups/sync', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('names a number that failed beside one that worked', async () => {
+    mocks.loadChannels.mockResolvedValue([
+      {
+        id: 'ch-bad',
+        accountId: 'acct-1',
+        provider: 'whapi',
+        status: 'connected',
+        label: 'Sales',
+      },
+      { id: CH, accountId: 'acct-1', provider: 'whapi', status: 'connected' },
+    ]);
+    mocks.listGroups.mockRejectedValueOnce(new Error('token abc'));
+    const res = await POST();
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      synced: 2,
+      channels: 1,
+      failedNumbers: ['Sales'],
+      failedGroups: 0,
+    });
+  });
+
+  it('counts the groups it could not save', async () => {
+    mocks.persist.mockRejectedValueOnce(new Error('db'));
+    expect(await (await POST()).json()).toMatchObject({
+      synced: 1,
+      failedNumbers: [],
+      failedGroups: 1,
+    });
   });
 
   it('marks nothing left when the listing was incomplete', async () => {

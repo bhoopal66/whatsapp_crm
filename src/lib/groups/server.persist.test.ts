@@ -104,6 +104,18 @@ describe('persistGroupSnapshot participants', () => {
     expect(ids.length).toBeGreaterThan(0);
   });
 
+  it('drops someone gone from past the first thousand people', async () => {
+    const d = db();
+    d.maxRows = 1000;
+    const admin = fakeSupabase(d) as never;
+    const many = Array.from({ length: 1100 }, (_, i) => `${971500000000 + i}`);
+    await persistGroupSnapshot(admin, channel, group(many));
+    await persistGroupSnapshot(admin, channel, group(many.slice(0, -1)));
+    expect(
+      d.tables.whatsapp_group_participants.map((r) => r.wa_id)
+    ).not.toContain(many[1099]);
+  });
+
   it('keeps a still-listed row in place and drops only who left', async () => {
     const d = db();
     const admin = fakeSupabase(d) as never;

@@ -31,6 +31,7 @@ vi.mock('@/lib/whatsapp/groups', async (importOriginal) => ({
   deleteIcon: mocks.deleteIcon,
 }));
 
+import { WhapiError } from '@/lib/whatsapp/whapi-api';
 import { DELETE, GET, PUT } from './route';
 
 const G = '22222222-2222-4222-8222-222222222222';
@@ -122,6 +123,25 @@ describe('GET', () => {
     });
     const ok = await GET(new Request('http://x'), params);
     expect(ok.headers.get('content-security-policy')).toContain('sandbox');
+  });
+
+  it('lets a browser keep "no picture" for an hour, but no other 404', async () => {
+    mocks.getIcon.mockResolvedValue(null);
+    const none = await GET(new Request('http://x/icon?v=0'), params);
+    expect(none.status).toBe(404);
+    expect(none.headers.get('cache-control')).toBe('private, max-age=3600');
+    // A gateway's own 404 is the same answer.
+    mocks.getIcon.mockRejectedValue(new WhapiError('not found', 404));
+    const gone = await GET(new Request('http://x/icon?v=0'), params);
+    expect(gone.headers.get('cache-control')).toBe('private, max-age=3600');
+    // After a change on the screen: never an answer kept from before.
+    const changed = await GET(new Request('http://x/icon?v=1'), params);
+    expect(changed.headers.get('cache-control')).toBe('no-store');
+
+    mocks.rls.tables.whatsapp_groups = [];
+    const hidden = await GET(new Request('http://x/icon?v=0'), params);
+    expect(hidden.status).toBe(404);
+    expect(hidden.headers.get('cache-control')).toBe('no-store');
   });
 
   it('answers 404 when there is no picture', async () => {

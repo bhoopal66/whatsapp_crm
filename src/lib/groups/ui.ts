@@ -89,6 +89,69 @@ export function parseGroupList(json: unknown): GroupListItem[] {
   return out;
 }
 
+const activityOf = (g: GroupListItem): number =>
+  g.last_message_at ? Date.parse(g.last_message_at) || 0 : 0;
+
+/** Latest activity first. */
+export const byActivity = (a: GroupListItem, b: GroupListItem): number =>
+  activityOf(b) - activityOf(a) || a.name.localeCompare(b.name);
+
+/** The answer could not read the submission groups. */
+export function isPartialList(json: unknown): boolean {
+  return (json as { partial?: unknown } | null)?.partial === true;
+}
+
+/**
+ * The list to show after a read: for a partial answer, the submission
+ * rows already on screen stay, in their place by latest activity.
+ */
+export function keepSubmissionRows(
+  prev: readonly GroupListItem[],
+  next: readonly GroupListItem[],
+  partial: boolean
+): GroupListItem[] {
+  if (!partial) return [...next];
+  const kept = prev.filter((g) => g.kind === 'submission');
+  return [...next.filter((g) => g.kind !== 'submission'), ...kept].sort(
+    byActivity
+  );
+}
+
+export interface SyncProblems {
+  /** Names of the numbers that could not be read. */
+  failedNumbers: string[];
+  failedGroups: number;
+  incomplete: boolean;
+  /** Not every group was reached, and `incomplete` does not say so already. */
+  truncated: boolean;
+}
+
+/** What a Sync's answer admits it missed. An unreadable answer is cut. */
+export function parseSyncProblems(json: unknown): SyncProblems {
+  const readable = typeof json === 'object' && json !== null;
+  const r = (readable ? json : { truncated: true }) as Record<string, unknown>;
+  const incomplete = r.incomplete === true;
+  return {
+    failedNumbers: strings(r.failedNumbers),
+    failedGroups:
+      typeof r.failedGroups === 'number' && r.failedGroups > 0
+        ? r.failedGroups
+        : 0,
+    incomplete,
+    truncated: r.truncated === true && !incomplete,
+  };
+}
+
+/** Whether a Sync read everything: only then is a missing group missing. */
+export function isWholeSync(p: SyncProblems): boolean {
+  return (
+    p.failedNumbers.length === 0 &&
+    p.failedGroups === 0 &&
+    !p.incomplete &&
+    !p.truncated
+  );
+}
+
 /** Where a list row opens; a submission group has its own detail route. */
 export function groupHref(g: Pick<GroupListItem, 'id' | 'kind'>): string {
   return g.kind === 'submission'

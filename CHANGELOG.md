@@ -12,6 +12,14 @@ and polish.
 
 ## [Unreleased]
 
+### Fixed: WhatsApp groups lost managers, names and failed numbers silently
+
+Saving a group's managers no longer drops a colleague added meanwhile. Sync
+names the numbers it could not read and counts the groups it could not save.
+Submission groups stay listed, with a retry, when they cannot be read. Groups
+past 1,000 people show everyone. A missing group picture is asked for once an
+hour, not on every open. No migration.
+
 ### Fixed: an open chat could keep its unread count
 
 When our own "read" and the next message reached the screen together, the

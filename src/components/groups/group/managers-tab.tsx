@@ -14,6 +14,11 @@ import { useAuth } from '@/hooks/use-auth';
 import { canEditSettings } from '@/lib/auth/roles';
 import { pickableManagers } from '@/lib/groups/ui';
 import { reasonKey } from '@/lib/groups/group-page';
+import {
+  baseManagers,
+  managerSaveBody,
+  managersEdited,
+} from '@/lib/groups/manager-set';
 import type { ManagerNumbersReport } from '@/lib/groups/manager-numbers';
 
 import type { GroupTabProps } from '../group-page';
@@ -45,10 +50,20 @@ export function ManagersTab({ groupId, detail, reload }: GroupTabProps) {
 
   const apply = (list: Manager[]) => {
     setManagers(list);
-    setSelected(list.filter((x) => !x.isCreator).map((x) => x.userId));
+    setFailed(false);
+    setSelected(baseManagers(list));
   };
 
+  const dirty = managersEdited(managers ?? [], selected);
+  // Who manages the group may change behind this tab (a colleague's save, a
+  // member whose number is staff's): read again, but never under an edit.
+  const managerKey = detail.managers
+    .map((x) => x.user_id)
+    .sort()
+    .join();
+
   useEffect(() => {
+    if (dirty) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -63,7 +78,7 @@ export function ManagersTab({ groupId, detail, reload }: GroupTabProps) {
     return () => {
       cancelled = true;
     };
-  }, [url]);
+  }, [url, managerKey, dirty]);
 
   const save = async () => {
     setSaving(true);
@@ -71,7 +86,7 @@ export function ManagersTab({ groupId, detail, reload }: GroupTabProps) {
       const res = await fetch(url, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userIds: selected }),
+        body: JSON.stringify(managerSaveBody(managers ?? [], selected)),
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as {
@@ -95,7 +110,7 @@ export function ManagersTab({ groupId, detail, reload }: GroupTabProps) {
     }
   };
 
-  if (failed) {
+  if (failed && !managers) {
     return (
       <p className="text-muted-foreground p-2 text-sm">{m('loadFailed')}</p>
     );
@@ -105,9 +120,6 @@ export function ManagersTab({ groupId, detail, reload }: GroupTabProps) {
   }
 
   const staff = pickableManagers(members, creatorId);
-  const dirty =
-    selected.length !== managers.filter((x) => !x.isCreator).length ||
-    selected.some((id) => !managers.some((x) => x.userId === id));
 
   return (
     <div className="max-w-xl space-y-4">
