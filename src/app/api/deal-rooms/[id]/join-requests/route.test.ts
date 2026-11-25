@@ -125,6 +125,23 @@ describe('POST /api/deal-rooms/[id]/join-requests', () => {
     expect(mem.tables.deal_room_join_requests[0].decision).toBe('pending');
   });
 
+  it('reports a decision someone else recorded first as not recorded, not as done', async () => {
+    mem = memoryDb(mem.tables, {
+      // Another manager decides between our WhatsApp call and our write.
+      beforeUpdate: (table) => {
+        if (table === 'deal_room_join_requests')
+          mem.tables.deal_room_join_requests[0].decision = 'rejected';
+      },
+    });
+    m.admin = mem.db;
+    const body = await (await post({ approve: ['jr-1'] })).json();
+    expect(body.approved).toEqual([]);
+    expect(body.failed).toEqual([
+      expect.objectContaining({ joinRequestId: 'jr-1', code: 'not_recorded' }),
+    ]);
+    expect(mem.tables.deal_room_join_requests[0].decision).toBe('rejected');
+  });
+
   it('answers 403 to a non-manager and asks WhatsApp nothing', async () => {
     m.rpc.mockResolvedValue({ data: false, error: null });
     const res = await post({ approve: ['jr-1'] });

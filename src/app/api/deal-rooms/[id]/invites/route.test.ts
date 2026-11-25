@@ -26,6 +26,9 @@ const SUMMARY = {
   sent: 2,
   failed: 0,
   skipped: 1,
+  alreadyInvited: 1,
+  waiting: 0,
+  blocked: [],
   notOpen: false,
   templateMissing: false,
 };
@@ -60,15 +63,18 @@ describe('POST /api/deal-rooms/[id]/invites', () => {
   });
 
   it('answers 403 to someone who cannot manage the room, and sends nothing', async () => {
-    for (const answer of [
-      { data: false, error: null },
-      { data: null, error: { message: 'invalid input syntax for type uuid' } },
-    ]) {
-      m.rpc.mockResolvedValueOnce(answer);
-      const log = vi.spyOn(console, 'error').mockImplementation(() => {});
-      expect((await post()).status).toBe(403);
-      log.mockRestore();
-    }
+    m.rpc.mockResolvedValueOnce({ data: false, error: null });
+    expect((await post()).status).toBe(403);
+    expect(m.sendRoomInvites).not.toHaveBeenCalled();
+  });
+
+  it('answers a retryable 503, not 403, when the manager check itself failed', async () => {
+    m.rpc.mockResolvedValueOnce({ data: null, error: { message: 'timeout' } });
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await post();
+    log.mockRestore();
+    expect(res.status).toBe(503);
+    expect(res.headers.get('Retry-After')).toBe('2');
     expect(m.sendRoomInvites).not.toHaveBeenCalled();
   });
 

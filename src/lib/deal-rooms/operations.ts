@@ -754,7 +754,7 @@ export async function decideJoinRequests(
         });
       }
       if (done.length === 0) continue;
-      const { error: updErr } = await db
+      const { data: written, error: updErr } = await db
         .from('deal_room_join_requests')
         .update({
           decision,
@@ -763,10 +763,26 @@ export async function decideJoinRequests(
         })
         .eq('room_id', room.id)
         .eq('decision', 'pending')
-        .in('join_request_id', done);
+        .in('join_request_id', done)
+        .select('join_request_id');
       if (updErr)
         console.error('[deal-rooms] decision not recorded:', updErr.message);
-      out[decision].push(...done);
+      // WhatsApp acted either way; what is reported done is what the CRM
+      // recorded. A lost race or a database error is not "done".
+      const recorded = new Set(
+        ((written ?? []) as { join_request_id: string }[]).map(
+          (r) => r.join_request_id
+        )
+      );
+      for (const id of done) {
+        if (recorded.has(id)) out[decision].push(id);
+        else
+          out.failed.push({
+            joinRequestId: id,
+            code: 'not_recorded',
+            error: 'WhatsApp was told, but the decision was not recorded here',
+          });
+      }
     } catch (err) {
       const f = metaFailure(err);
       for (const id of list)

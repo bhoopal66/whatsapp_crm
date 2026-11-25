@@ -137,6 +137,12 @@ export interface InviteSummary {
    * elsewhere, or blocked by the re-check (the audit row says why).
    */
   skipped: number;
+  /** Of `skipped`: invited before already (the link is the way in now). */
+  alreadyInvited: number;
+  /** Of `skipped`: a guest still waiting for a team leader's approval. */
+  waiting: number;
+  /** Of `skipped`: distinct `deal_room_admit_block` answers that refused. */
+  blocked: string[];
   /** The room is not open (no group yet): nothing was sent. */
   notOpen: boolean;
   /** No invite template is configured: the creator was notified. */
@@ -165,6 +171,9 @@ export async function sendRoomInvites(
     sent: 0,
     failed: 0,
     skipped: 0,
+    alreadyInvited: 0,
+    waiting: 0,
+    blocked: [],
     notOpen: false,
     templateMissing: false,
   };
@@ -199,6 +208,10 @@ export async function sendRoomInvites(
       p.role !== 'business'
   );
   summary.skipped = all.length - due.length;
+  summary.alreadyInvited = all.filter(
+    (p) => p.status === 'invited' && !!p.invite_message_id
+  ).length;
+  summary.waiting = all.filter((p) => p.status === 'pending_approval').length;
   if (due.length === 0) return summary;
 
   // No stored language preference exists yet, so everyone gets the
@@ -239,6 +252,8 @@ export async function sendRoomInvites(
     if (block) {
       summary.skipped += 1;
       blocked.push({ participant_id: p.id, reason: String(block) });
+      if (!summary.blocked.includes(String(block)))
+        summary.blocked.push(String(block));
       continue;
     }
     const claim = buildInviteClaim();

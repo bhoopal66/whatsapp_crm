@@ -6490,7 +6490,19 @@
         "removeTitle": "{name}님을 제거할까요?",
         "removeBody": "그룹에서 나가게 되며 초대 링크로 다시 참여할 수 없습니다.",
         "removed": "{name}님을 제거했습니다. 제거된 사람은 초대 링크로 다시 참여할 수 없습니다.",
-        "removeFailed": "{name}님을 제거하지 못했습니다: {error}"
+        "removeFailed": "{name}님을 제거하지 못했습니다: {error}",
+        "alreadyDecided": "다른 사람이 이미 이 요청을 처리했습니다.",
+        "copyFailed": "링크를 복사하지 못했습니다. 입력란에 표시된 링크를 선택해 직접 복사하세요.",
+        "resentNone": "보낸 초대가 없습니다. 건너뜀: {reasons}.",
+        "resentNothingDue": "보낸 초대가 없습니다. 초대할 사람이 없습니다.",
+        "resentReasons": {
+          "already": "이미 초대됨 (링크를 복사해 보내세요)",
+          "waiting": "팀 리더의 승인 대기 중",
+          "opted_out": "수신 거부 또는 연락 금지",
+          "no_consent": "기록된 동의 없음",
+          "bank_guests_off": "은행 담당자는 고객 그룹에 참여할 수 없음",
+          "other": "지금은 초대할 수 없음"
+        }
       },
       "actions": {
         "title": "딜룸 작업",
@@ -7975,7 +7987,11 @@
     },
     "ended": {
       "title": "이 회의는 종료되었습니다",
-      "viewSummary": "요약 보기"
+      "viewSummary": "요약 보기",
+      "unsavedTitle": "저장되지 않은 회의록",
+      "unsavedCopy": "복사",
+      "unsavedCopied": "회의록을 복사했습니다",
+      "unsavedCopyFailed": "회의록을 복사하지 못했습니다."
     },
     "left": {
       "title": "회의에서 나왔습니다",
