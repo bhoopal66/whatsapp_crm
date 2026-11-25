@@ -2,6 +2,7 @@ import { NextResponse, after } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
 import { decrypt } from '@/lib/whatsapp/encryption';
+import { findConfigBySecret } from '@/lib/whatsapp/webhook-secret-lookup';
 import { verifyMetaWebhookSignature } from '@/lib/whatsapp/webhook-signature';
 import { secretsMatch } from '@/lib/whatsapp/whapi-webhook-auth';
 import {
@@ -196,23 +197,10 @@ export async function GET(request: Request) {
 async function verifyTokenMatches(provided: string): Promise<boolean> {
   const fromEnv = process.env.META_VERIFY_TOKEN;
   if (fromEnv && secretsMatch(provided, fromEnv)) return true;
-
-  const { data: configs } = await supabaseAdmin()
-    .from('whatsapp_config')
-    .select('verify_token')
-    .eq('provider', 'meta');
-
-  for (const config of configs ?? []) {
-    if (!config.verify_token) continue;
-    try {
-      if (secretsMatch(provided, decrypt(config.verify_token))) return true;
-    } catch {
-      // Row encrypted under a rotated ENCRYPTION_KEY — skip rather than
-      // failing the handshake for every other tenant.
-      continue;
-    }
-  }
-  return false;
+  // Indexed by hash per process: an anonymous flood of wrong tokens is
+  // not a full read and decrypt per request.
+  const { row } = await findConfigBySecret('meta', provided, supabaseAdmin);
+  return row !== null;
 }
 
 /**

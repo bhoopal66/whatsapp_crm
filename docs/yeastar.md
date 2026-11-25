@@ -184,6 +184,15 @@ workspace; errors are `{ error }`):
 | `GET/PUT /api/pbx/settings`                                    | Recording and missed-call settings                                      |
 | `GET/PUT /api/pbx/bank-numbers`                                | `{ bankNumbers }`; PUT adds `loaded`, deletes only those removed        |
 
+**Where the PBX may be.** The server calls the address a workspace admin
+saves, so `PUT /api/pbx/connection` and the test refuse a private,
+loopback, link-local or internal address (the cloud metadata address,
+the internal Supabase host, another container) with the same rules as
+outbound webhooks. A public Yeastar Cloud or a PBX on a public address
+needs nothing. An on-premises PBX on the office network does: list its
+host (or `host:port`) in `PBX_ALLOWED_HOSTS`, comma-separated, on the
+server. That is the operator's decision, not a workspace admin's.
+
 ## 6. Live events
 
 The PBX pushes to `POST /api/pbx/yeastar/events/{token}` (the URL shown

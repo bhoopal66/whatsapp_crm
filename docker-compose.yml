@@ -25,8 +25,14 @@ services:
     environment:
       PORT: 3000
     # Host side only — HOST_PORT=8080 publishes the app on :8080.
+    # Bound to 127.0.0.1 by default: only the reverse proxy or tunnel on
+    # this host reaches the app. Docker's published ports go around ufw,
+    # so a 0.0.0.0 port let anyone skip the proxy, sign in over plain
+    # http and forge the client-IP header the lockouts key on. Set
+    # HOST_BIND=0.0.0.0 only when the proxy runs on another machine, and
+    # firewall the port to it.
     ports:
-      - '${HOST_PORT:-3000}:3000'
+      - '${HOST_BIND:-127.0.0.1}:${HOST_PORT:-3000}:3000'
     restart: unless-stopped
     healthcheck:
       test:
@@ -51,6 +57,11 @@ services:
   pbx-gateway:
     profiles: ['pbx']
     image: node:22-alpine
+    # The image's unprivileged user: the gateway needs no root.
+    user: node
+    read_only: true
+    cap_drop: ['ALL']
+    security_opt: ['no-new-privileges:true']
     command: ['node', '/gateway/pbx-gateway.mjs']
     volumes:
       - ./scripts/pbx-gateway.mjs:/gateway/pbx-gateway.mjs:ro

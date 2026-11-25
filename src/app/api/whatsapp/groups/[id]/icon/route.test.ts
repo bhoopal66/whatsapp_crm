@@ -110,6 +110,20 @@ describe('GET', () => {
     expect((await GET(new Request('http://x'), params)).status).toBe(404);
   });
 
+  it('refuses an SVG (script on our origin) and sandboxes what it serves', async () => {
+    mocks.getIcon.mockResolvedValue({
+      bytes: new TextEncoder().encode('<svg onload="alert(1)"/>').buffer,
+      contentType: 'image/svg+xml',
+    });
+    expect((await GET(new Request('http://x'), params)).status).toBe(404);
+    mocks.getIcon.mockResolvedValue({
+      bytes: new Uint8Array([1]).buffer,
+      contentType: 'image/png',
+    });
+    const ok = await GET(new Request('http://x'), params);
+    expect(ok.headers.get('content-security-policy')).toContain('sandbox');
+  });
+
   it('answers 404 when there is no picture', async () => {
     mocks.getIcon.mockResolvedValue(null);
     expect((await GET(new Request('http://x'), params)).status).toBe(404);

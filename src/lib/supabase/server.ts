@@ -4,7 +4,7 @@ import {
   createServerRefresh,
   REFRESH_UNANSWERED_COOKIE,
 } from '@/lib/supabase/session-fetch'
-import { AUTH_COOKIE_NAME, serverSupabaseUrl } from '@/lib/supabase/urls'
+import { authCookieOptions, serverSupabaseUrl } from '@/lib/supabase/urls'
 
 export async function createClient() {
   const cookieStore = await cookies()
@@ -17,7 +17,7 @@ export async function createClient() {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       // Must match the browser's cookie name — see urls.ts.
-      cookieOptions: { name: AUTH_COOKIE_NAME },
+      cookieOptions: authCookieOptions(),
       global: { fetch: refresh.fetch },
       cookies: {
         getAll() {

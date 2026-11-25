@@ -7,10 +7,75 @@ counter and lock lives in Postgres (migration 084), so every app
 instance shares one window and one clock. The tables and functions are
 service-role only.
 
+## Before you put it on the internet
+
+The app checks what it can. These are the operator's part; skipping
+one undoes a protection below.
+
+1. **Only the proxy reaches the app.** `docker-compose.yml` publishes
+   the app on 127.0.0.1 (`HOST_BIND`, docs/docker.md). Do not open
+   port 3000, Postgres (5432), Kong (8000/8443) or Supabase Studio to
+   the internet; Studio has its own password, change it or keep it on
+   a VPN.
+2. **https everywhere**, with the proxy redirecting http. The session
+   cookie is `Secure` whenever the public Supabase URL is https.
+3. **`EDGE_CLIENT_IP_HEADER`** set to the header your proxy writes
+   (`cf-connecting-ip` behind Cloudflare). Without it every per-IP
+   lockout is one shared bucket; a production server says so in its log
+   at the first request.
+4. **Rate-limit Supabase Auth at the proxy.** The anon key is public,
+   so `POST /auth/v1/token` can be called directly, past the app's own
+   sign-in lockout. Limit that path per IP at nginx or Cloudflare (and
+   set GoTrue's own limits with the real client-IP header). Keep
+   `DISABLE_SIGNUP=true` and `ENABLE_ANONYMOUS_USERS=false`.
+5. **The storage nginx headers** in "Stored file types" below. They are
+   required, not optional: without them a stored HTML or SVG file runs
+   as the app.
+6. **One app instance**, or accept that the in-memory limits (admin
+   actions, the public API) count per instance. The sign-in, webhook and
+   API-key lockouts are in Postgres and shared.
+7. **Secrets**: a fresh `ENCRYPTION_KEY`, `AUTOMATION_CRON_SECRET`,
+   `PBX_GATEWAY_SECRET` and Supabase JWT secret per install; never the
+   example values.
+8. **Keep it current**: `npm audit` and the Supabase images. At
+   2026-11-25, `npm audit` reports no known vulnerabilities.
+
+## Cross-site requests (CSRF)
+
+Every dashboard API call is authenticated by the session cookie, which a
+browser sends with any request to this site, including one a hostile
+page makes. `src/middleware.ts` refuses (403) a POST, PUT, PATCH or
+DELETE to `/api/*` that the browser marks as coming from another site
+or subdomain: `Sec-Fetch-Site` other than `same-origin`, or, from an
+older browser, an `Origin` that is not this host (`Host` or
+`X-Forwarded-Host`). Webhooks, crons and other servers send neither
+header and are not affected; `/api/v1` (API keys) and `/api/public`
+(the web form) are exempt (`lib/edge/same-origin.ts`).
+
+## Session cookie
+
+`sb-wacrm-auth-token` is `Secure` on an https site, `SameSite=Lax`, and
+expires after **7 days without use** (it is rewritten at every token
+refresh; @supabase/ssr's default was 400 days). It is not HttpOnly: the
+browser's Supabase client reads it, which is why a strict CSP matters
+(the CSP is still Report-Only; see `src/lib/csp.ts`).
+
+## Other headers
+
+Besides HSTS, nosniff, `Referrer-Policy`, `Permissions-Policy` and the
+frame headers: `Cross-Origin-Opener-Policy: same-origin-allow-popups`
+(a page that opened the CRM cannot reach into it), and no
+`X-Powered-By`. A group picture is passed through only as a raster
+image (never SVG) and sandboxed.
+
 ## WhatsApp webhooks
 
 Both inbound webhooks (Whapi and Meta) screen every authenticated
-delivery. `docs/whapi.md` and `docs/meta-cloud-api.md` have the details
+delivery. Finding which number a secret belongs to no longer reads and
+decrypts every number's config per request: a per-process index of the
+secrets' SHA-256 answers it, reloaded at most every 5 seconds on a miss
+(`lib/whatsapp/secret-index.ts`), so a flood of wrong secrets costs the
+database nothing. `docs/whapi.md` and `docs/meta-cloud-api.md` have the details
 per provider.
 
 - **Replay keys per number.** Each message and status transition is

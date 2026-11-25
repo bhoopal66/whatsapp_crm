@@ -170,8 +170,9 @@ export async function PATCH(
     console.error('Error editing template:', error)
     return NextResponse.json(
       {
-        error:
-          error instanceof Error ? error.message : 'Failed to edit template.',
+        // The detail is logged above; raw database text never
+        // reaches the browser.
+        error: 'Failed to edit template.',
       },
       { status: 500 },
     )
@@ -222,8 +223,9 @@ export async function DELETE(
     console.error('Error deleting template:', error)
     return NextResponse.json(
       {
-        error:
-          error instanceof Error ? error.message : 'Failed to delete template.',
+        // The detail is logged above; raw database text never
+        // reaches the browser.
+        error: 'Failed to delete template.',
       },
       { status: 500 },
     )

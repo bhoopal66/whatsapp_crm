@@ -20,6 +20,7 @@ import {
   loadGroupForCaller,
 } from '@/lib/groups/server';
 import { deleteIcon, getIcon, setIcon } from '@/lib/whatsapp/groups';
+import { inlineImageType } from '@/lib/whatsapp/media-headers';
 
 export const maxDuration = 60;
 
@@ -36,11 +37,15 @@ export async function GET(_request: Request, { params }: Params) {
     const channel = await channelForGroup(group);
     const icon = await getIcon({ channel, groupId: group.wa_group_id });
     if (!icon) throw noIcon();
-    // The bytes come from the gateway: only an image is passed through.
-    if (!icon.contentType.toLowerCase().startsWith('image/')) throw noIcon();
+    // The bytes come from the gateway: only a raster image is passed
+    // through. An SVG is a document that runs script when the link is
+    // opened on our origin, whatever nosniff says.
+    const type = inlineImageType(icon.contentType);
+    if (!type) throw noIcon();
     return new NextResponse(icon.bytes, {
       headers: {
-        'Content-Type': icon.contentType,
+        'Content-Type': type,
+        'Content-Security-Policy': "default-src 'none'; sandbox",
         'X-Content-Type-Options': 'nosniff',
         'Cache-Control': 'private, max-age=300',
       },

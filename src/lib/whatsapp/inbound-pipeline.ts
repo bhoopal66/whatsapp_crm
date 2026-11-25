@@ -1921,7 +1921,23 @@ export async function resolveInboundMediaUrl(
   if (channel.provider === 'meta' && media.id && !media.link) {
     return `/api/whatsapp/media/${encodeURIComponent(media.id)}`;
   }
-  return gatewayLinkViewable ? downloadUrl : null;
+  // The link becomes the bubble's href: http(s) only, never
+  // `javascript:` or `data:`, whatever the gateway sent (a self-hosted
+  // gateway on the LAN links over plain http).
+  return gatewayLinkViewable ? httpUrlOrNull(downloadUrl) : null;
+}
+
+/** The URL when it is http(s), else null. */
+export function httpUrlOrNull(value: unknown): string | null {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  try {
+    const u = new URL(value.trim());
+    return u.protocol === 'https:' || u.protocol === 'http:'
+      ? u.toString()
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

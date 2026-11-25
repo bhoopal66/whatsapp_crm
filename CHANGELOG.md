@@ -12,6 +12,40 @@ and polish.
 
 ## [Unreleased]
 
+### Security: ready for the internet
+
+No migration. **Check before upgrading:** the Docker app port, sessions,
+and an on-premises PBX (below). `docs/security.md` now opens with a
+checklist for exposing an install.
+
+- **The app port is local by default.** `docker-compose.yml` publishes
+  the app on 127.0.0.1, so only the proxy or tunnel on the same host
+  reaches it. Before, anyone could reach port 3000 directly, sign in over
+  plain http and forge the client-IP header the sign-in lockout counts
+  on. A proxy on another machine: set `HOST_BIND=0.0.0.0` and firewall
+  the port.
+- **Cross-site requests are refused.** A change made through the
+  dashboard's API from another site or subdomain (CSRF) gets 403.
+  Webhooks, crons and the public API are not affected.
+- **Sessions are `Secure` on https and end after 7 days without use**
+  (they lasted 400 days). Everyone keeps their session until it next
+  refreshes.
+- **A workspace admin can no longer point the PBX at an internal
+  address** (the cloud metadata service, the database host) and read the
+  answers from the connection test. An on-premises PBX on a private
+  address must be listed in `PBX_ALLOWED_HOSTS` by whoever runs the
+  server; until then its connection test is refused.
+- **Webhook secrets are looked up by hash.** A flood of requests with
+  wrong secrets no longer makes every request read and decrypt every
+  number's settings.
+- A group picture is served only as a raster image (an SVG could run
+  script on the CRM's own address); a media link from the gateway
+  becomes a link only when it is http(s); template save and delete
+  errors no longer show database text; no `X-Powered-By` header;
+  `Cross-Origin-Opener-Policy` added; the PBX gateway container runs
+  unprivileged and read-only; a production server without
+  `EDGE_CLIENT_IP_HEADER` says so in its log.
+
 ### Added
 
 - **An integration can send a message without the risk of sending it

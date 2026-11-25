@@ -80,6 +80,35 @@ export function serverSupabaseUrl(): string {
 export const AUTH_COOKIE_NAME = 'sb-wacrm-auth-token'
 
 /**
+ * How long an idle session lasts. The cookie is rewritten on every token
+ * refresh (about hourly while the app is open), so this is the time since
+ * the person last used the app, not since they signed in. @supabase/ssr's
+ * default is 400 days: a laptop left signed in at a branch stayed a way
+ * into the CRM for a year. Changing it applies from each session's next
+ * refresh.
+ */
+export const AUTH_COOKIE_MAX_AGE_SECONDS = 7 * 24 * 60 * 60
+
+/**
+ * The session cookie's options, the same on the browser, the server and
+ * the middleware (a mismatch makes one side rewrite the other's cookie).
+ * `secure` whenever the site is served over https, read from the public
+ * Supabase URL, which is the site's own origin on a self-host and https
+ * on every real deployment: the session then never travels over plain
+ * http, e.g. to the app's port reached directly. Local http development
+ * keeps working. HttpOnly stays off: the browser client reads the cookie.
+ */
+export function authCookieOptions(publicUrl: string | undefined = publicSupabaseUrl()) {
+  return {
+    name: AUTH_COOKIE_NAME,
+    path: '/',
+    sameSite: 'lax' as const,
+    maxAge: AUTH_COOKIE_MAX_AGE_SECONDS,
+    secure: typeof publicUrl === 'string' && /^https:\/\//i.test(publicUrl.trim()),
+  }
+}
+
+/**
  * Re-point a server-built Supabase URL at the browser-facing origin.
  *
  * `storage.getPublicUrl()` composes its result from the base URL of the
