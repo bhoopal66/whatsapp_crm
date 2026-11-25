@@ -978,6 +978,8 @@
   },
   "Contacts": {
     "page": {
+      "selectAllOnPage": "تحديد كل جهات الاتصال في هذه الصفحة",
+      "selectOne": "تحديد {name}",
       "title": "جهات الاتصال",
       "subtitle": "أدر قائمة جهات الاتصال. الإجمالي {count} جهة اتصال.",
       "subtitleFirst": "أدر قائمة جهات الاتصال. أول {count} نتيجة؛ اكتب المزيد لتضييقها.",
@@ -1292,8 +1294,6 @@
   },
   "Pipelines": {
     "page": {
-      "selectAllOnPage": "تحديد كل جهات الاتصال في هذه الصفحة",
-      "selectOne": "تحديد {name}",
       "dealsLoadFailed": "تعذّر تحميل الصفقات.",
       "retry": "إعادة المحاولة",
       "unknownStage": "مرحلة جديدة",

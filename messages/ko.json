@@ -978,6 +978,8 @@
   },
   "Contacts": {
     "page": {
+      "selectAllOnPage": "이 페이지의 모든 연락처 선택",
+      "selectOne": "{name} 선택",
       "title": "연락처",
       "subtitle": "연락처 목록을 관리하세요. 전체 연락처 {count}개.",
       "subtitleFirst": "연락처 목록을 관리하세요. 처음 {count}개 결과입니다. 더 입력해 범위를 좁히세요.",
@@ -1292,8 +1294,6 @@
   },
   "Pipelines": {
     "page": {
-      "selectAllOnPage": "이 페이지의 모든 연락처 선택",
-      "selectOne": "{name} 선택",
       "dealsLoadFailed": "딜을 불러오지 못했습니다.",
       "retry": "다시 시도",
       "unknownStage": "새 단계",
@@ -7829,7 +7829,7 @@
     "selected": "{count, plural, =0 {No customers selected} one {# customer selected} other {# customers selected}}",
     "selectAll": "Select all {count}",
     "selectPage": "Select this page",
-    "selectOne": "Select {name}",
+    "selectOne": "{name} 선택",
     "selectCapped": "Selected the first {count}; narrow the filters to reach the rest.",
     "clear": "Clear",
     "startCampaign": "Start a campaign",

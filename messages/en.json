@@ -978,6 +978,8 @@
   },
   "Contacts": {
     "page": {
+      "selectAllOnPage": "Select all contacts on this page",
+      "selectOne": "Select {name}",
       "title": "Contacts",
       "subtitle": "Manage your contact list. {count} total contacts.",
       "subtitleFirst": "Manage your contact list. First {count} matches; type more to narrow them.",
@@ -1292,8 +1294,6 @@
   },
   "Pipelines": {
     "page": {
-      "selectAllOnPage": "Select all contacts on this page",
-      "selectOne": "Select {name}",
       "dealsLoadFailed": "The deals could not be loaded.",
       "retry": "Try again",
       "unknownStage": "New stage",
