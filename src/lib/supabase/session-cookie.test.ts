@@ -21,7 +21,8 @@ describe('the session cookie ends after the idle limit', () => {
     expect(sessionCookieWrite({ maxAge: 400 * 86_400 }).maxAge).toBe(
       AUTH_COOKIE_MAX_AGE_SECONDS
     );
-    expect(sessionCookieWrite({}).maxAge).toBe(AUTH_COOKIE_MAX_AGE_SECONDS);
+    const none: { maxAge?: number } = {};
+    expect(sessionCookieWrite(none).maxAge).toBe(AUTH_COOKIE_MAX_AGE_SECONDS);
     expect(sessionCookieWrite({ maxAge: 0, path: '/' })).toEqual({
       maxAge: 0,
       path: '/',

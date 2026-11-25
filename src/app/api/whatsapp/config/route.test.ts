@@ -383,7 +383,7 @@ describe('POST /api/whatsapp/config — failed reads and a failed save', () => {
     h.fail.update = { message: 'write failed' };
     await save({ rotate_secret: true });
     expect(changed).not.toHaveBeenCalled();
-    h.fail.update = null;
+    delete (h.fail as Record<string, unknown>).update;
     await save({ rotate_secret: true });
     expect(changed).toHaveBeenCalledWith('whapi');
   });
