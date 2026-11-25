@@ -1,6 +1,12 @@
 'use client';
 
-import { useRef, useState, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { CornerUpLeft, Copy, Forward, SmilePlus } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -14,10 +20,21 @@ import { isForwardable } from '@/lib/whatsapp/forward';
 import { useTranslations } from 'next-intl';
 import { useContextMenuItems } from '@/components/context-menu/registry';
 import { isTouchContextMenu } from '@/lib/context-menu/resolve';
+import {
+  createOpenSlot,
+  HOLD_CONTROL_SELECTOR,
+  leftPress,
+  LONG_PRESS_MS,
+  startsLongPress,
+  swallowsClick,
+} from '@/lib/inbox/message-toolbar';
 
 // WhatsApp's own quick-reaction bar starts with these six. Picking the same
 // set keeps the affordance familiar without pulling in a 300KB emoji library.
 const QUICK_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+
+// Every row of every thread shares it: one touch toolbar at a time.
+const openToolbar = createOpenSlot();
 
 interface MessageActionsProps {
   message: Message;
@@ -45,17 +62,110 @@ export function MessageActions({
 }: MessageActionsProps) {
   const t = useTranslations('Inbox.actions');
 
-  // Touch devices have no hover. Long-press fires `contextmenu`; we capture
-  // it, suppress the native menu, and pin the toolbar open until the user
-  // interacts elsewhere. A mouse right-click is left alone, so the
-  // app-wide menu opens with this message's actions (registered below).
+  // Touch devices have no hover. A long press pins the toolbar open until
+  // the user touches something else: timed here, because iOS Safari may
+  // never fire the `contextmenu` Android sends for it (that one opens the
+  // toolbar too, with the native menu suppressed). A mouse right-click is
+  // left alone, so the app-wide menu opens with this message's actions
+  // (registered below).
   const [touchOpen, setTouchOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const rowRef = useRef<HTMLDivElement>(null);
+  const toolbarRef = useRef<HTMLDivElement>(null);
   const lastPointerTypeRef = useRef<string | null>(null);
+  const pressRef = useRef<{ x: number; y: number; stop: () => void } | null>(
+    null
+  );
+  // About the latest press on the row, for the click that ends it.
+  const pressedOnRef = useRef<'toolbar' | 'message' | null>(null);
+  const afterLongPressRef = useRef(false);
 
   const isAgent =
     message.sender_type === 'agent' || message.sender_type === 'bot';
+
+  const close = useCallback(() => {
+    setTouchOpen(false);
+    setPickerOpen(false);
+  }, []);
+
+  const cancelPress = () => {
+    pressRef.current?.stop();
+    pressRef.current = null;
+  };
+
+  const openByTouch = () => {
+    cancelPress();
+    afterLongPressRef.current = true;
+    openToolbar.claim(close);
+    setTouchOpen(true);
+  };
+
+  useEffect(
+    () => () => {
+      pressRef.current?.stop();
+      openToolbar.release(close);
+    },
+    [close]
+  );
+
+  // A touch anywhere else closes it. The reaction picker is elsewhere in
+  // the DOM and keeps the toolbar up itself (`pickerOpen`).
+  useEffect(() => {
+    if (!touchOpen) return;
+    const onDown = (e: PointerEvent) => {
+      if (rowRef.current?.contains(e.target as Node)) return;
+      setTouchOpen(false);
+    };
+    document.addEventListener('pointerdown', onDown, true);
+    return () => document.removeEventListener('pointerdown', onDown, true);
+  }, [touchOpen]);
+
+  const handlePointerDown = (e: React.PointerEvent) => {
+    const target = e.target as Element;
+    lastPointerTypeRef.current = e.pointerType;
+    afterLongPressRef.current = false;
+    pressedOnRef.current = toolbarRef.current?.contains(target)
+      ? 'toolbar'
+      : 'message';
+    cancelPress();
+    // The picker's portal bubbles here through React, outside the row.
+    if (!rowRef.current?.contains(target)) return;
+    const starts = startsLongPress({
+      pointerType: e.pointerType,
+      isPrimary: e.isPrimary,
+      onControl: target.closest(HOLD_CONTROL_SELECTOR) !== null,
+    });
+    if (!starts) return;
+    const timer = setTimeout(openByTouch, LONG_PRESS_MS);
+    document.addEventListener('scroll', cancelPress, true);
+    pressRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      stop: () => {
+        clearTimeout(timer);
+        document.removeEventListener('scroll', cancelPress, true);
+      },
+    };
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    const start = pressRef.current;
+    if (start && leftPress(start, { x: e.clientX, y: e.clientY })) {
+      cancelPress();
+    }
+  };
+
+  const handleClickCapture = (e: React.MouseEvent) => {
+    const swallow = swallowsClick({
+      afterLongPress: afterLongPressRef.current,
+      onToolbar: !!toolbarRef.current?.contains(e.target as Node),
+      pressedOn: pressedOnRef.current,
+      keyboard: e.detail === 0,
+    });
+    if (!swallow) return;
+    e.preventDefault();
+    e.stopPropagation();
+  };
 
   const handleContextMenu = (e: React.MouseEvent) => {
     const native = e.nativeEvent as MouseEvent & {
@@ -71,7 +181,7 @@ export function MessageActions({
     if (!touch) return;
     // Prevented here, so the app-wide menu stands aside for this one.
     e.preventDefault();
-    setTouchOpen(true);
+    openByTouch();
   };
 
   const handleCopy = async () => {
@@ -154,11 +264,16 @@ export function MessageActions({
         className
       )}
       ref={rowRef}
-      onPointerDown={(e) => {
-        lastPointerTypeRef.current = e.pointerType;
-      }}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={cancelPress}
+      onPointerCancel={cancelPress}
+      onClickCapture={handleClickCapture}
       onContextMenu={handleContextMenu}
-      onBlur={() => setTouchOpen(false)}
+      onBlur={(e) => {
+        const to = e.relatedTarget;
+        if (to && !rowRef.current?.contains(to)) setTouchOpen(false);
+      }}
     >
       {/* `min-w-0` lets this flex child actually respect the 75% cap.
        *  Default `min-width: auto` lets content (a long quote preview,
@@ -167,12 +282,21 @@ export function MessageActions({
        *  area. See issue #165. */}
       <div className="group/actions relative max-w-[85%] min-w-0 @lg/thread:max-w-[75%] @3xl/thread:max-w-[65%]">
         {children}
+        {/* Out of reach until shown: at opacity 0 alone, a tap on the
+            bubble's first line pressed a button nobody could see. Shown
+            for keyboard focus only (`:focus-visible`), or tapping a
+            photo would bring it up under the finger, and it would stay
+            up after the button it was used for. */}
         <div
+          ref={toolbarRef}
+          data-message-toolbar=""
           data-touch-open={touchOpen || pickerOpen ? 'true' : undefined}
           className={cn(
             'border-border bg-popover/95 absolute -top-3 z-10 flex h-7 items-center gap-0.5 rounded-full border px-1 shadow-md backdrop-blur-sm transition-opacity',
-            'opacity-0 group-focus-within/actions:opacity-100 group-hover/actions:opacity-100',
-            'data-[touch-open=true]:opacity-100',
+            'pointer-events-none opacity-0',
+            'group-hover/actions:pointer-events-auto group-hover/actions:opacity-100',
+            'group-has-[:focus-visible]/actions:pointer-events-auto group-has-[:focus-visible]/actions:opacity-100',
+            'data-[touch-open=true]:pointer-events-auto data-[touch-open=true]:opacity-100',
             isAgent ? 'end-3' : 'start-3'
           )}
         >
