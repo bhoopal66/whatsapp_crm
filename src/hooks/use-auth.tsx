@@ -66,6 +66,7 @@ import {
   releasePushOnSessionChange,
   signOutReleasingPush,
 } from "@/lib/push/sign-out";
+import { isMissingFunction } from "@/lib/team-activity/db-errors";
 import { isLocale, syncLocaleCookie, type Locale } from "@/i18n/locales";
 
 interface Profile {
@@ -466,11 +467,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     );
     // The person's workspaces (migration 083), for the switcher, for a
     // bank guest's account name (a guest cannot read `accounts`), and
-    // for leaving a deactivated workspace. In parallel too; a failure
-    // (a database without 083) reads as none.
+    // for leaving a deactivated workspace. In parallel too. A database
+    // without 083 reads as none; null is not known, which must never
+    // pass for "none is left" below.
     const workspacesRead = Promise.resolve(supabase.rpc("my_workspaces")).then(
-      (r) => (r.error ? [] : parseMyWorkspaces(r.data)),
-      () => [] as Workspace[],
+      (r): Workspace[] | null =>
+        isMissingFunction(r.error)
+          ? []
+          : r.error || !Array.isArray(r.data)
+            ? null
+            : parseMyWorkspaces(r.data),
+      () => null,
     );
     // A switch navigates away; keep the loading state rather than flash
     // the error alert for the profile this tab is about to replace.
@@ -516,8 +523,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      const workspaceList = await workspacesRead;
+      const workspacesAnswer = await workspacesRead;
+      const workspaceList = workspacesAnswer ?? [];
       setWorkspaces(workspaceList);
+
+      if (data?.deactivated_at && !workspacesAnswer) {
+        // Another workspace may still be open: signing out here would end
+        // every session of somebody who still works. The access alert
+        // shows this with a Retry.
+        lastFetchedUserIdRef.current = null;
+        setProfile(null);
+        setAccount(null);
+        setStatusDetail(
+          "this workspace was deactivated; your other workspaces could not be read",
+        );
+        return;
+      }
 
       if (data?.deactivated_at) {
         // An admin deactivated this membership (migration 069) — since

@@ -4,12 +4,15 @@
 // Edit another member's name and login email (Settings → Members,
 // migration 167).
 //
-// The form applies the route's own rule (`memberDetailsProblem` over
-// `normalizeMemberDetails`), so the two refuse the same input; GoTrue
+// The form applies the route's own rules (`memberNameProblem` /
+// `memberEmailProblem` over `normalizeMemberDetails`), so the two refuse the same input; GoTrue
 // can still refuse an address another login holds (409). The database
 // decides who may edit whose details (`authorize_member_details_change`);
 // the roster offers the button only where `canEditDetailsOf` says it can
 // pass in this workspace.
+//
+// A save sends only the edited fields, each with what was shown: the
+// roster can be old, and an untouched email from it is not an edit.
 // ============================================================
 
 import { useRef, useState } from 'react';
@@ -30,7 +33,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
   MAX_MEMBER_NAME_LENGTH,
-  memberDetailsProblem,
+  memberEmailProblem,
+  memberNameProblem,
   normalizeMemberDetails,
   type MemberDetailsProblem,
 } from '@/lib/account/member-details';
@@ -45,12 +49,15 @@ export function MemberDetailsDialog({
   member,
   onClose,
   onSaved,
+  onRefused,
 }: {
   /** The person whose details are being edited; null closes the dialog. */
   member: DetailsDialogMember | null;
   onClose: () => void;
   /** The details as the server saved them. */
   onSaved: (member: DetailsDialogMember) => void;
+  /** Refused by what is stored now (409): the roster may be old. */
+  onRefused: () => void;
 }) {
   const t = useTranslations('Settings.members.details');
   const [name, setName] = useState(member?.full_name ?? '');
@@ -84,23 +91,17 @@ export function MemberDetailsDialog({
 
   const details = normalizeMemberDetails({ full_name: name, email });
   const saved = member ? normalizeMemberDetails(member) : null;
-  const problem = memberDetailsProblem(details);
-  const unchanged =
-    !saved ||
-    (details.full_name === saved.full_name && details.email === saved.email);
-  const canSubmit = !!member && !problem && !unchanged && !submitting;
+  const nameChanged = !!saved && details.full_name !== saved.full_name;
+  const emailChanged = !!saved && details.email !== saved.email;
+  // A problem in a field that is not sent does not hold up the other.
+  const problem =
+    (nameChanged ? memberNameProblem(details.full_name) : null) ??
+    (emailChanged ? memberEmailProblem(details.email) : null);
+  const canSubmit =
+    !!member && !problem && (nameChanged || emailChanged) && !submitting;
 
-  // The rule reports only the first problem, and a name problem would
-  // hide an email one, so each field asks about itself.
-  const nameProblem: MemberDetailsProblem | null =
-    nameEdited && problem?.startsWith('name') ? problem : null;
-  const emailOnly = memberDetailsProblem({
-    full_name: 'x',
-    email: details.email,
-  });
-  const emailProblem: MemberDetailsProblem | null = emailEdited
-    ? emailOnly
-    : null;
+  const nameProblem = nameEdited ? memberNameProblem(details.full_name) : null;
+  const emailProblem = emailEdited ? memberEmailProblem(details.email) : null;
 
   async function handleSave() {
     if (!member || !canSubmit) return;
@@ -113,12 +114,22 @@ export function MemberDetailsDialog({
         {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(details),
+          body: JSON.stringify({
+            ...(nameChanged && {
+              full_name: details.full_name,
+              expected_full_name: member.full_name,
+            }),
+            ...(emailChanged && {
+              email: details.email,
+              expected_email: member.email,
+            }),
+          }),
         }
       );
       const payload = await res.json().catch(() => ({}));
       if (request !== requestRef.current) return;
       if (!res.ok) {
+        if (res.status === 409) onRefused();
         setError(
           typeof payload?.error === 'string' ? payload.error : t('failed')
         );

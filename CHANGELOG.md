@@ -12,6 +12,14 @@ and polish.
 
 ## [Unreleased]
 
+### Fixed: Settings no longer puts old values back or hides a failed read
+
+Editing a member sends only what you changed, so fixing a name on an old
+page cannot put back an old login email; saving your photo leaves your name
+alone. The members list, invitations, My WhatsApp and the Meta connection
+show an error with Retry when they cannot be read. The member buttons fit a
+phone. A failed workspace read no longer signs a person out. No migration.
+
 ### Fixed: a PC with a slow clock lost the CRM for minutes every hour
 
 A browser whose PC clock runs behind kept using a sign-in the server had

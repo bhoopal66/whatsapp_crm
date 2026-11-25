@@ -85,8 +85,18 @@ const ADMIN_CTX = {
 
 const CURRENT = { full_name: 'Sara Ali', email: 'sara@old.example' };
 
-function request(body: unknown): Request {
+/** A tab from before `expected_*` (and, with them, any tab). */
+function rawRequest(body: unknown): Request {
   return { json: async () => body } as unknown as Request;
+}
+
+/** What the dialog sends when it showed CURRENT. */
+function request(body: object): Request {
+  return rawRequest({
+    expected_full_name: CURRENT.full_name,
+    expected_email: CURRENT.email,
+    ...body,
+  });
 }
 
 const params = { params: Promise.resolve({ userId: 'user-2' }) };
@@ -501,5 +511,80 @@ describe('PATCH /api/account/members/[userId]/details', () => {
       email_confirm: true,
     });
     expect(mocks.adminRpc).not.toHaveBeenCalled();
+  });
+
+  describe('a form that showed old details', () => {
+    const NEW = { full_name: 'Sara Ali', email: 'sara@new.example' };
+    beforeEach(() => {
+      mocks.readProfile.mockResolvedValue({ data: NEW, error: null });
+      mocks.getUserById.mockResolvedValue({
+        data: { user: { id: 'user-2', email: NEW.email } },
+        error: null,
+      });
+    });
+    const nothingWritten = () => {
+      expect(mocks.permit).not.toHaveBeenCalled();
+      expect(mocks.updateUserById).not.toHaveBeenCalled();
+      expect(mocks.updateProfiles).not.toHaveBeenCalled();
+      expect(mocks.adminRpc).not.toHaveBeenCalled();
+    };
+
+    it('changes a name alone and leaves the newer email', async () => {
+      const res = await PATCH(
+        rawRequest({
+          full_name: 'Sara Khan',
+          expected_full_name: 'Sara Ali',
+        }),
+        params
+      );
+      expect(res.status).toBe(200);
+      expect((await res.json()).member).toEqual({
+        user_id: 'user-2',
+        full_name: 'Sara Khan',
+        email: NEW.email,
+      });
+      expect(mocks.updateUserById).not.toHaveBeenCalled();
+      expect(mocks.updateProfiles).toHaveBeenCalledWith(
+        { full_name: 'Sara Khan' },
+        { user_id: 'user-2' }
+      );
+    });
+
+    it('never takes an untouched old email for an edit', async () => {
+      const res = await PATCH(
+        request({ full_name: 'Sara Khan', email: CURRENT.email }),
+        params
+      );
+      expect((await res.json()).changed).toEqual(['full_name']);
+      expect(mocks.updateUserById).not.toHaveBeenCalled();
+    });
+
+    it('refuses an older tab that would put the old email back', async () => {
+      const res = await PATCH(
+        rawRequest({ full_name: 'Sara Khan', email: CURRENT.email }),
+        params
+      );
+      expect(res.status).toBe(409);
+      nothingWritten();
+    });
+
+    it('still takes a name from an older tab whose email is current', async () => {
+      const res = await PATCH(
+        rawRequest({ full_name: 'Sara Khan', email: NEW.email }),
+        params
+      );
+      expect((await res.json()).changed).toEqual(['full_name']);
+      expect(mocks.updateUserById).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['email', { email: 'sara@third.example', expected_email: CURRENT.email }],
+      ['name', { full_name: 'Sara Khan', expected_full_name: 'S. Ali' }],
+    ])('answers 409 when the %s is no longer what it showed', async (_, b) => {
+      const res = await PATCH(rawRequest(b), params);
+      expect(res.status).toBe(409);
+      expect((await res.json()).error).toMatch(/Someone else changed/);
+      nothingWritten();
+    });
   });
 });

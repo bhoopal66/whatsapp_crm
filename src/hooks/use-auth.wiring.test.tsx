@@ -81,6 +81,7 @@ const db = vi.hoisted(() => ({
   /** Set: the next profile reads answer once it resolves. */
   hold: null as Promise<void> | null,
   restricted: { data: false, error: null } as unknown,
+  workspaces: { data: [], error: null } as unknown,
   emit: (() => {}) as (event: string, session: unknown) => void,
   signOut: null as unknown as import('vitest').Mock<
     (...a: unknown[]) => Promise<unknown>
@@ -106,7 +107,7 @@ vi.mock('@/lib/supabase/client', () => {
     rpc: async (name: string) =>
       name === 'department_restricted'
         ? db.restricted
-        : { data: [], error: null },
+        : db.workspaces,
     from: (table: string) => ({
       select: () =>
         Object.assign(Promise.resolve({ data: ACCOUNTS, error: null }), {
@@ -169,6 +170,7 @@ beforeEach(() => {
   db.profileReads = 0;
   db.hold = null;
   db.restricted = { data: false, error: null };
+  db.workspaces = { data: [], error: null };
   db.getSession = vi.fn(async () => db.session);
   db.signOut = vi.fn(async () => ({ error: db.signOutError }));
 });
@@ -540,5 +542,35 @@ describe('a change made elsewhere', () => {
       accountRole: 'admin',
       salesRestricted: false,
     });
+  });
+});
+
+describe('a deactivated workspace at load', () => {
+  beforeEach(() => {
+    db.rows = [{ ...ROW, deactivated_at: '2026-11-24T10:00:00Z' }];
+  });
+
+  it.each([
+    ['an error', { data: null, error: { code: '57014', message: 'timeout' } }],
+    ['no list', { data: null, error: null }],
+  ])('stays signed in when the others cannot be read: %s', async (_, r) => {
+    db.workspaces = r;
+    const now = await start();
+    expect(db.signOut).not.toHaveBeenCalled();
+    expect(location.href).toBe('');
+    expect(now.accountStatus).toBe('error');
+    expect(now.accountStatusDetail).toContain('could not be read');
+    // Retry, the list readable again and none left: now it is the end.
+    db.workspaces = { data: [], error: null };
+    await now.refreshProfile();
+    await tick();
+    expect(db.signOut).toHaveBeenCalled();
+    expect(location.href).toBe('/login?deactivated=1');
+  });
+
+  it('a database without 083 still signs out', async () => {
+    db.workspaces = { data: null, error: { code: 'PGRST202' } };
+    await start();
+    expect(db.signOut).toHaveBeenCalled();
   });
 });

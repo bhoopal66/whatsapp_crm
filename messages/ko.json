@@ -2456,6 +2456,8 @@
       "memberFailed": "부서를 변경하지 못했습니다"
     },
     "members": {
+      "loadFailed": "팀원을 불러오지 못했습니다.",
+      "invitationsLoadFailed": "대기 중인 초대를 불러오지 못했습니다.",
       "title": "팀원",
       "description": "이 계정에 접근 권한이 있는 사람들입니다. 역할에 따라 각 팀원이 할 수 있는 작업이 결정됩니다.",
       "inviteMember": "멤버 초대",
@@ -3170,6 +3172,7 @@
       }
     },
     "myWhatsApp": {
+      "loadFailed": "내 WhatsApp 번호를 불러오지 못했습니다.",
       "title": "내 WhatsApp",
       "explainer": "이 번호의 채팅은 본인, 팀 리더와 관리자만 볼 수 있습니다. 자동화, 플로우, AI 답장과 브로드캐스트는 이 번호를 사용하지 않습니다.",
       "notConfigured": "이 서버에는 OpenWA가 설정되어 있지 않습니다",
