@@ -64,6 +64,12 @@ import {
   inPersonalInbox,
   shouldFetchUnloadedPin,
 } from '@/lib/inbox/insights';
+import {
+  chatPopAction,
+  chatUrlWrite,
+  isPushedChat,
+  TWO_PANE_QUERY,
+} from '@/lib/inbox/chat-history';
 import type { InboxNarrowing } from '@/lib/inbox/unread-counts';
 import {
   viewerInboxDepartment,
@@ -1099,6 +1105,22 @@ export function InboxPageInner({
     [deepLinkConvId, activeConversation?.id, openConversationById]
   );
 
+  // The URL of a chat just opened. From the list on a phone it is a new
+  // history entry, so the phone's Back returns to the list
+  // (lib/inbox/chat-history.ts); otherwise it replaces the current one.
+  const writeSelection = useCallback(
+    (convId: string) => {
+      const { method, state } = chatUrlWrite({
+        twoPane: window.matchMedia(TWO_PANE_QUERY).matches,
+        chatOpen: !!activeConversation,
+        urlChat: new URLSearchParams(window.location.search).get('c'),
+        historyState: window.history.state,
+      });
+      window.history[method](state, '', selectionUrl(convId));
+    },
+    [activeConversation, selectionUrl]
+  );
+
   const handleSelectConversation = useCallback(
     (conv: ConversationListItem) => {
       // Re-clicking the already-active conversation would clear the
@@ -1140,7 +1162,8 @@ export function InboxPageInner({
       autoSelectedForDeepLinkRef.current = conv.id;
       // Reflect the selection in the URL so a refresh lands the user
       // back in the same thread, and so copy-paste links work. Replace,
-      // not push, to avoid polluting browser history with every click.
+      // not push, to avoid polluting browser history with every click
+      // (but see writeSelection for a phone).
       //
       // The native History API rather than `router.replace`: the inbox
       // is a client component that fetches its own data, so the URL
@@ -1149,12 +1172,12 @@ export function InboxPageInner({
       // tunnel. Next keeps `useSearchParams` in sync with
       // `history.replaceState` (see settings/page.tsx), so `?c=` still
       // reads back on reload and on back/forward.
-      window.history.replaceState(null, '', selectionUrl(conv.id));
+      writeSelection(conv.id);
     },
     [
       activeConversation?.id,
       fullRowFailed,
-      selectionUrl,
+      writeSelection,
       openConversationById,
       retryFullRow,
     ]
@@ -1172,28 +1195,69 @@ export function InboxPageInner({
       if (activeConversation?.id === convId) return;
       void openConversationById(convId);
       autoSelectedForDeepLinkRef.current = convId;
-      window.history.replaceState(null, '', selectionUrl(convId));
+      writeSelection(convId);
     },
     [
       activeConversation?.id,
-      selectionUrl,
+      writeSelection,
       handleSelectConversation,
       openConversationById,
     ]
   );
 
-  // Mobile "back" — deselect the conversation so the list pane comes
-  // back. Also clears the ?c= param so a refresh lands on the list
-  // instead of re-opening the thread the user just backed out of.
-  const handleCloseConversation = useCallback(() => {
+  // Deselect the conversation, so on a phone the list pane comes back.
+  const closeChat = useCallback(() => {
     openingIdRef.current = null;
     setActiveChat(null);
     setMessages([]);
     // Clearing the ref lets the deep-link auto-selector fire again if
     // the user later visits ?c=<same-id> again — desirable UX.
     autoSelectedForDeepLinkRef.current = null;
+  }, []);
+
+  // Also clears the ?c= param so a refresh lands on the list instead of
+  // re-opening the thread the user just backed out of.
+  const handleCloseConversation = useCallback(() => {
+    closeChat();
     window.history.replaceState(null, '', selectionUrl(null));
-  }, [selectionUrl]);
+  }, [closeChat, selectionUrl]);
+
+  // Mobile "back" in the thread header. When the list put this chat in
+  // the history, going back is what takes it out again; closed at once
+  // too, so a second tap cannot go back twice.
+  const handleBackToList = useCallback(() => {
+    if (!isPushedChat(window.history.state)) {
+      handleCloseConversation();
+      return;
+    }
+    closeChat();
+    window.history.back();
+  }, [closeChat, handleCloseConversation]);
+
+  // The phone's Back and Forward. Next's router follows the same event
+  // and moves `useSearchParams`; nothing here writes the URL.
+  useEffect(() => {
+    const onPop = () => {
+      const action = chatPopAction({
+        twoPane: window.matchMedia(TWO_PANE_QUERY).matches,
+        screenPath: basePath,
+        path: window.location.pathname,
+        urlChat: new URLSearchParams(window.location.search).get('c'),
+        openId: activeConversation?.id ?? null,
+      });
+      if (action.kind === 'close') {
+        closeChat();
+      } else if (action.kind === 'open') {
+        autoSelectedForDeepLinkRef.current = action.id;
+        const row = conversationsRef.current.find((c) => c.id === action.id);
+        void openConversationById(action.id, row);
+        // As a click on the row does.
+        setConversations((prev) => zeroUnreadOf(prev, action.id));
+      }
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, [basePath, activeConversation?.id, closeChat, openConversationById]);
 
   // Out of the list and the caches; the open one closes and says why,
   // rather than standing there without its messages.
@@ -1415,7 +1479,7 @@ export function InboxPageInner({
             onChatTagsChange={handleChatTagsChange}
             onAssignChange={handleAssignChange}
             onAiChange={handleAiChange}
-            onBack={handleCloseConversation}
+            onBack={handleBackToList}
             resyncToken={resyncToken}
             deltaSyncToken={deltaSync.token}
             onRefresh={handleManualRefresh}

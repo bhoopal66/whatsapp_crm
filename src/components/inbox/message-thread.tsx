@@ -163,6 +163,13 @@ import {
 } from '@/lib/inbox/service-window';
 import { channelDisplayName } from '@/lib/whatsapp/channel-management';
 import { buildReplyPreview } from './reply-quote';
+import {
+  closeForward,
+  forwardDialogKey,
+  forwardMessage,
+  type ForwardEntry,
+} from '@/lib/inbox/forward-entry';
+import { ownReaction, rollbackReaction } from '@/lib/inbox/reaction-rollback';
 import { ForwardDialog } from './forward-dialog';
 import {
   canSendMessages,
@@ -464,10 +471,8 @@ export function MessageThread({
   const [replyTo, setReplyTo] = useState<ReplyDraft | null>(null);
   // The message the Forward dialog is open for. Paired with its
   // conversation like `openMedia` below, so switching threads closes it.
-  const [forwarding, setForwarding] = useState<{
-    conversationId: string;
-    message: Message;
-  } | null>(null);
+  const [forwarding, setForwarding] = useState<ForwardEntry | null>(null);
+  const forwardSeqRef = useRef(0);
   // Which attachment the media viewer is showing. Lives here rather than in
   // the bubble so the viewer can page through every image/video in the
   // thread (issue #373). Paired with the conversation it belongs to and read
@@ -1210,8 +1215,10 @@ export function MessageThread({
   } | null>(null);
   // The dialog unmounts with the chat, not through onClose: drop the
   // prefill so it does not pop up again on returning.
+  // The Forward dialog likewise.
   useEffect(() => {
     setAddingReminder(null);
+    setForwarding(null);
   }, [conversationId]);
 
   const handleAddReminder = useCallback(
@@ -1966,24 +1973,20 @@ export function MessageThread({
         return;
       }
       if (messageId.startsWith('temp-')) {
-        toast.error('Wait for the message to finish sending');
+        toast.error(t('reactionWait'));
         return;
       }
 
       const convId = conversationId;
       const userId = user.id;
-      let snapshot: MessageReaction[] = [];
+      let before: MessageReaction | undefined;
 
       // Functional updater — captures the freshest reactions list, never a
-      // stale closure. Snapshot stored for rollback on POST failure.
+      // stale closure. What this person had before is kept for rollback
+      // on POST failure (lib/inbox/reaction-rollback.ts).
       setReactions((prev) => {
-        snapshot = prev;
-        const own = prev.find(
-          (r) =>
-            r.message_id === messageId &&
-            r.actor_type === 'agent' &&
-            r.actor_id === userId
-        );
+        const own = ownReaction(prev, messageId, userId);
+        before = own;
         if (emoji === '') return own ? prev.filter((r) => r !== own) : prev;
         if (own) return prev.map((r) => (r === own ? { ...own, emoji } : r));
         return [
@@ -2011,22 +2014,35 @@ export function MessageThread({
           throw new Error(payload?.error || `HTTP ${res.status}`);
         }
       } catch (err) {
-        const reason = err instanceof Error ? err.message : 'network error';
-        toast.error(`Reaction failed: ${reason}`);
-        setReactions(snapshot);
+        const reason =
+          err instanceof Error ? err.message : t('reactionNetworkError');
+        toast.error(t('reactionFailed', { reason }));
+        setReactions((prev) =>
+          rollbackReaction(
+            prev,
+            { conversationId: convId, messageId, userId, emoji, before },
+            conversationIdRef.current
+          )
+        );
       }
     },
     // Keyed on the id, not the conversation object: every realtime patch
     // to the conversation replaces the object, and a new identity here
     // would re-render every memoised bubble.
-    [conversationId, user?.id]
+    [conversationId, user?.id, t]
   );
 
   // Stable Forward opener for the memoised rows.
   const handleForward = useCallback(
     (message: Message) => {
       if (!conversationId) return;
-      setForwarding({ conversationId, message });
+      forwardSeqRef.current += 1;
+      setForwarding({
+        id: forwardSeqRef.current,
+        conversationId,
+        message,
+        open: true,
+      });
     },
     [conversationId]
   );
@@ -2669,14 +2685,15 @@ export function MessageThread({
         </div>
 
         <ForwardDialog
-          message={
-            forwarding?.conversationId === conversation.id
-              ? forwarding.message
-              : null
-          }
+          key={forwardDialogKey(forwarding, conversation.id)}
+          message={forwardMessage(forwarding, conversation.id)}
           authorLabel={forwarding ? authorLabelFor(forwarding.message) : ''}
           sourceConversationId={conversation.id}
-          onClose={() => setForwarding(null)}
+          onClose={() => {
+            // This render's opening: a send may outlive it.
+            const id = forwarding?.id;
+            if (id !== undefined) setForwarding((f) => closeForward(f, id));
+          }}
         />
 
         {/* A reminder suggestion being added: the header's dialog,

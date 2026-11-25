@@ -561,6 +561,9 @@
       "personalOf": "شخصي · {name}"
     },
     "messageThread": {
+      "reactionWait": "انتظر حتى يكتمل إرسال الرسالة",
+      "reactionFailed": "فشل التفاعل: {reason}",
+      "reactionNetworkError": "تعذّر الوصول إلى الخادم",
       "personalMine": "WhatsApp الخاص بي",
       "personalOf": "شخصي · {name}",
       "loadingMessages": "جارٍ تحميل الرسائل",

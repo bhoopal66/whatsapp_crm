@@ -37,6 +37,15 @@ describe('the location stack', () => {
     expect(previousLocation()).toBe('/calls');
   });
 
+  it('a chat pushed by the phone inbox, and Back from it, stay one place', () => {
+    go('/dashboard');
+    go('/inbox');
+    go('/inbox?c=a');
+    expect(previousLocation()).toBe('/dashboard');
+    pop('/inbox');
+    expect(previousLocation()).toBe('/dashboard');
+  });
+
   it('calls -> customer -> case -> back: the customer page goes back to calls', () => {
     go('/calls');
     go('/contacts/1');
