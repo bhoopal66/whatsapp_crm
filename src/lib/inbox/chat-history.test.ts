@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { chatPopAction, chatUrlWrite, isPushedChat } from './chat-history';
+import { chatPopAction, chatUrlWrite, isPushedChat   linkToFollow,
+} from './chat-history';
 
 const phone = { twoPane: false, chatOpen: false, urlChat: null };
 
