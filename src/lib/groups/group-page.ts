@@ -108,18 +108,24 @@ export type GroupTab = (typeof GROUP_TABS)[number];
 /**
  * The tabs a person sees. Requests only while joining by link needs
  * approval or someone is still waiting; Managers only for an admin and
- * up or the group's creator (who may change the set).
+ * up or the group's creator (who may change the set). `pendingRequests`
+ * null means the list could not be read: unknown, not empty, so the
+ * section stays (it has its own retry). `requested` is a link that asks
+ * for Requests by name (the bell).
  */
 export function visibleTabs(args: {
   settings: GroupSettings;
-  pendingRequests: number;
+  pendingRequests: number | null;
   canEditManagers: boolean;
+  requested?: boolean;
 }): GroupTab[] {
   return GROUP_TABS.filter((tab) => {
     if (tab === 'requests') {
       return (
         args.settings.approve_participants === 'admins' ||
-        args.pendingRequests > 0
+        args.pendingRequests === null ||
+        args.pendingRequests > 0 ||
+        !!args.requested
       );
     }
     if (tab === 'managers') return args.canEditManagers;
@@ -432,4 +438,32 @@ export function inviteMessagePreview(message: string, link: string): string {
     '%URL%',
     link
   );
+}
+
+/** What a person has typed into Settings; a missing key is untouched. */
+export interface InfoEdits {
+  name?: string;
+  description?: string;
+}
+
+/**
+ * The PATCH body for the name/description form: only a field that was
+ * touched and differs from what is stored now, so saving one never
+ * writes the other back from a stale copy.
+ */
+export function infoPatch(
+  stored: { name: string; description?: string | null },
+  edits: InfoEdits
+): { name?: string; description?: string } {
+  const out: { name?: string; description?: string } = {};
+  if (edits.name !== undefined && edits.name.trim() !== stored.name) {
+    out.name = edits.name.trim();
+  }
+  if (
+    edits.description !== undefined &&
+    edits.description.trim() !== (stored.description ?? '')
+  ) {
+    out.description = edits.description.trim();
+  }
+  return out;
 }

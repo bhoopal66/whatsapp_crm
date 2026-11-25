@@ -190,7 +190,7 @@ export function MembersTab({
                       </Link>
                     ) : (
                       <span className="min-w-0 truncate font-medium">
-                        {formatWaId(p.wa_id)}
+                        <bdi dir="ltr">{formatWaId(p.wa_id)}</bdi>
                       </span>
                     )}
                     {own && <Badge variant="outline">{m('thisNumber')}</Badge>}
@@ -204,7 +204,7 @@ export function MembersTab({
                   </div>
                   {p.contact_name && (
                     <p className="text-muted-foreground truncate text-xs">
-                      {formatWaId(p.wa_id)}
+                      <bdi dir="ltr">{formatWaId(p.wa_id)}</bdi>
                     </p>
                   )}
                 </div>
@@ -341,14 +341,14 @@ function AddMembersDialog({
     <ul className="space-y-0.5">
       {items.map((w) => (
         <li key={w} className="truncate">
-          {formatWaId(w)}
+          <bdi dir="ltr">{formatWaId(w)}</bdi>
         </li>
       ))}
     </ul>
   );
 
   return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
+    <Dialog open onOpenChange={(o) => !o && !busy && onClose()}>
       <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{m('addTitle')}</DialogTitle>
@@ -451,7 +451,12 @@ function AddMembersDialog({
               })}
             </p>
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={onClose}>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={busy}
+                onClick={onClose}
+              >
                 {m('cancel')}
               </Button>
               <Button type="submit" disabled={!canSubmit}>
