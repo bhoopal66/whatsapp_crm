@@ -10092,6 +10092,7 @@
       "title": "Edit details",
       "body": "Changes are recorded in the case history.",
       "pickBank": "Choose a bank",
+      "banksFailed": "The banks could not be loaded.",
       "amountAed": "Amount (AED)",
       "clearDue": "Clear",
       "saved": "Details saved"
@@ -10139,6 +10140,7 @@
       "priorityInvalid": "That priority is not valid.",
       "dueInvalid": "That due date is not valid.",
       "amountInvalid": "Enter the amount as a number, with at most two decimals.",
+      "cannotEmpty": "{field} cannot be emptied here.",
       "reasonInvalid": "Choose a reason.",
       "reasonTooLong": "The details are too long (500 characters at most).",
       "reasonNotDeclined": "A reason can only be recorded for a declined or withdrawn case.",
@@ -12551,6 +12553,7 @@
     "uploaded": "Uploaded for {label}.",
     "checkedPassed": "Checked as {label}.",
     "checkedFailed": "Checked as {label}, but it failed its checks.",
+    "checkedSuperseded": "Checked as {label}, but a newer document was accepted meanwhile. This one was kept as an earlier version.",
     "download": "Download",
     "buildTitle": "Assembled case file",
     "assemble": "Assemble case file",
@@ -13912,6 +13915,8 @@
   "CaseReview": {
     "title": "Reviewer's note",
     "none": "No note yet.",
+    "decideFailed": "Your decision could not be saved. Try again.",
+    "loadFailed": "The reviewer's note could not be loaded.",
     "aiWritten": "AI-written, not verified",
     "checklist": "The checklist it was given",
     "approve": "Agree",

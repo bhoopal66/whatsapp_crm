@@ -12,6 +12,7 @@ import {
   checkFailureKey,
   checkFailures,
   filedElsewhere,
+  filedToastKey,
   formatFileSize,
   isAttachableDocument,
   parseCaseBuild,
@@ -312,6 +313,21 @@ describe('caseFileErrorKey', () => {
     expect(caseFileErrorKey(413, null)).toBe('errors.FILE_TOO_LARGE');
     expect(caseFileErrorKey(500, 'SOMETHING')).toBe('errors.generic');
     expect(caseFileErrorKey(0, undefined)).toBe('errors.generic');
+  });
+});
+
+describe('filedToastKey', () => {
+  it.each([
+    ['passed', null],
+    ['pending_checks', null],
+    ['failed', 'checkedFailed'],
+    ['superseded', 'checkedSuperseded'],
+  ])('a file answered %s', (status, key) => {
+    expect(filedToastKey({ file: { status } })).toBe(key);
+  });
+  it('is null without a file', () => {
+    expect(filedToastKey(null)).toBeNull();
+    expect(filedToastKey({ file: null })).toBeNull();
   });
 });
 

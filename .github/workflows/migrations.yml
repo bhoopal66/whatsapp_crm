@@ -1644,6 +1644,11 @@ jobs:
       - name: Verify stale reminder bells
         run: supabase db query --local --file supabase/ci/verify-stale-bells.sql
 
+      # Migration 320: the document attached last is the type's newest
+      # version. Rolled back.
+      - name: Verify case file versions
+        run: supabase db query --local --file supabase/ci/verify-case-file-versions.sql
+
       # Migration 316: the rest of the case desk findings.
       - name: Verify the rest of the case desk
         run: supabase db query --local --file supabase/ci/verify-desk-rest.sql

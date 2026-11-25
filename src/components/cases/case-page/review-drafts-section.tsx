@@ -6,12 +6,14 @@
  * is labelled "AI-written, not verified". Approve / reject only record a
  * decision: nothing on the case changes. The server decides who may.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+
+import { asObj, TabStatus, useCaseResource } from './tab-kit';
 
 interface Draft {
   id: string;
@@ -25,6 +27,12 @@ interface Draft {
   createdAt: string;
 }
 
+function parseDrafts(json: unknown): { enabled: boolean; drafts: Draft[] } {
+  const d = asObj(json);
+  if (!Array.isArray(d?.drafts)) throw new Error('review drafts');
+  return { enabled: d.enabled === true, drafts: d.drafts as Draft[] };
+}
+
 export function ReviewDraftsSection({
   caseId,
   canWrite,
@@ -33,47 +41,51 @@ export function ReviewDraftsSection({
   canWrite: boolean;
 }) {
   const t = useTranslations('CaseReview');
-  const [state, setState] = useState<{
-    enabled: boolean;
-    drafts: Draft[];
-  } | null>(null);
+  const {
+    data: state,
+    failed,
+    reload,
+  } = useCaseResource(`/api/cases/${caseId}/review-drafts`, parseDrafts);
   const [busy, setBusy] = useState(false);
 
-  const load = useCallback(
-    () =>
-      fetch(`/api/cases/${caseId}/review-drafts`)
-        .then((r) => (r.ok ? r.json() : null))
-        .then((d) =>
-          setState(d as { enabled: boolean; drafts: Draft[] } | null)
-        )
-        .catch(() => setState(null)),
-    [caseId]
-  );
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  if (!state || (!state.enabled && state.drafts.length === 0)) return null;
+  if (!state)
+    return failed ? (
+      <section className="space-y-3">
+        <h3 className="text-foreground text-sm font-semibold">{t('title')}</h3>
+        <TabStatus
+          failed
+          loading=""
+          error={t('loadFailed')}
+          onRetry={() => void reload()}
+        />
+      </section>
+    ) : null;
+  if (!state.enabled && state.drafts.length === 0) return null;
   const current =
     state.drafts.find((d) => d.status === 'pending') ?? state.drafts[0];
 
   const decide = async (approve: boolean) => {
     if (!current) return;
     setBusy(true);
-    const res = await fetch(
-      `/api/cases/${caseId}/review-drafts/${current.id}/decide`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ approve }),
+    try {
+      const res = await fetch(
+        `/api/cases/${caseId}/review-drafts/${current.id}/decide`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ approve }),
+        }
+      );
+      if (!res.ok) {
+        const b = (await res.json().catch(() => ({}))) as { error?: string };
+        toast.error(b.error ?? t('decideFailed'));
       }
-    );
-    setBusy(false);
-    if (!res.ok) {
-      const b = (await res.json().catch(() => ({}))) as { error?: string };
-      toast.error(b.error ?? 'Something went wrong');
+    } catch {
+      toast.error(t('decideFailed'));
+    } finally {
+      setBusy(false);
     }
-    await load();
+    await reload();
   };
 
   return (

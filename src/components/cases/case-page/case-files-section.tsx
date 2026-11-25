@@ -38,6 +38,7 @@ import {
   caseFileErrorKey,
   checkFailureKey,
   filedElsewhere,
+  filedToastKey,
   formatFileSize,
   isAttachableDocument,
   parseCaseBuild,
@@ -888,7 +889,9 @@ function AttachDialog({
     const failures = reuseFailures(r.status, r.json);
     setFailing(failures);
     if (elsewhere || failures.length) return;
-    if (settle(r, t('attached', { label }))) onClose();
+    const notFiled = r.ok ? filedToastKey(r.json) : null;
+    if (notFiled) toast.error(t(notFiled, { label }));
+    if (settle(r, notFiled ? null : t('attached', { label }))) onClose();
   };
 
   return (
@@ -1012,7 +1015,9 @@ function UploadDialog({
     const failures = reuseFailures(r.status, r.json);
     setFailing(failures);
     if (elsewhere || failures.length) return;
-    if (settle(r, t('uploaded', { label }))) onClose();
+    const notFiled = r.ok ? filedToastKey(r.json) : null;
+    if (notFiled) toast.error(t(notFiled, { label }));
+    if (settle(r, notFiled ? null : t('uploaded', { label }))) onClose();
   };
 
   return (
