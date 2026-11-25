@@ -7462,6 +7462,8 @@
     "transferTo": "전환",
     "transferToOwner": "담당자에게 전환",
     "transferred": "통화가 전환되었습니다",
+    "callGone": "이미 종료된 통화입니다",
+    "notOnCall": "더 이상 이 통화에 참여하고 있지 않습니다",
     "actionFailed": "실패했습니다: {message}",
     "call": "전화",
     "ringsFirst": "내 전화가 먼저 울린 다음 고객에게 연결됩니다",

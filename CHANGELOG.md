@@ -19,6 +19,13 @@ already ended ("JWT expired"): for that many minutes, every hour, nothing
 loaded. Sign-ins are now renewed by the PC's own clock, and a refused
 request is sent again with a renewed one. No migration.
 
+### Fixed: calls that were over, or on hold, on the call panel
+
+A call the phone system says is over goes to its wrap-up when you press
+Hang up (it stayed open for 30 minutes and Hang up failed every time).
+Putting a customer on hold no longer ends the panel, and a late event no
+longer brings an ended call back. No migration.
+
 ### Fixed: an open chat could keep its unread count
 
 When our own "read" and the next message reached the screen together, the

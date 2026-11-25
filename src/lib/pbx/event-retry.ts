@@ -47,6 +47,67 @@ export const isAllBye = (ev: CallStateEvent): boolean =>
   ev.members.length > 0 &&
   ev.members.every((m) => m.status.toUpperCase() === 'BYE');
 
+/** How long after a call's all-BYE frame a frame may be a late one. */
+export const BYE_LATE_MS = 60_000;
+
+/** `meta` with this all-BYE frame on it (`bye_at`, `bye_channels`). */
+export function withBye(
+  meta: unknown,
+  ev: CallStateEvent,
+  receivedAt: string
+): Record<string, unknown> {
+  const before = byeOf(meta);
+  return {
+    ...(typeof meta === 'object' && meta !== null ? meta : {}),
+    bye_at:
+      before && before.at > Date.parse(receivedAt)
+        ? new Date(before.at).toISOString()
+        : receivedAt,
+    bye_channels: [
+      ...new Set([
+        ...(before?.channels ?? []),
+        ...ev.members.map((m) => m.channelId),
+      ]),
+    ],
+  };
+}
+
+function byeOf(meta: unknown): { at: number; channels: string[] } | null {
+  if (typeof meta !== 'object' || meta === null) return null;
+  const { bye_at: at, bye_channels: channels } = meta as Record<
+    string,
+    unknown
+  >;
+  const ms = typeof at === 'string' ? Date.parse(at) : NaN;
+  return Number.isFinite(ms) && Array.isArray(channels)
+    ? { at: ms, channels: channels.filter((c) => typeof c === 'string') }
+    : null;
+}
+
+/**
+ * A frame from before the call's all-BYE frame that was handled after it:
+ * it shows a channel still up that has hung up. 30011 carries no time of
+ * its own, so the channels tell: one that said BYE never comes back, and
+ * a call that goes on (a transfer, a re-invite) has a new one. Received
+ * over BYE_LATE_MS after the BYE, the frame is believed. A frame retried
+ * later keeps its receive time, so it is judged as of then.
+ */
+export function precedesBye(
+  meta: unknown,
+  ev: CallStateEvent,
+  receivedAt: string
+): boolean {
+  const bye = byeOf(meta);
+  return (
+    bye !== null &&
+    Date.parse(receivedAt) - bye.at <= BYE_LATE_MS &&
+    ev.members.some(
+      (m) =>
+        m.status.toUpperCase() !== 'BYE' && bye.channels.includes(m.channelId)
+    )
+  );
+}
+
 /** The row an event overwrites, which may have been written since. */
 export interface RetryStateRow {
   table: 'call_live' | 'pbx_presence' | 'pbx_extensions';

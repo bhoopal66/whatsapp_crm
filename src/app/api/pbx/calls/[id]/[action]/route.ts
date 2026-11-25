@@ -10,7 +10,8 @@
 // (pbx_my_extension(), on their client) is on, and the call must list
 // that extension as a member still on it (myLiveLeg); otherwise 404,
 // whatever the caller's role or what call_live shows them. The action
-// is sent for the caller's channel. A blind transfer moves the party at
+// is sent for the caller's channel; one that ended since the PBX was
+// asked is a 404 `call_gone`, not a fault of the phone system. A blind transfer moves the party at
 // the other end (blindTransferChannel): to `number`, any extension, or
 // an outside number held to the old rule (below team leader, only a
 // number of a contact the caller can see; never a do-not-contact
@@ -36,6 +37,7 @@ import {
   resolveCallee,
 } from '@/lib/pbx/calls';
 import { pbxApiFor } from '@/lib/pbx/connection';
+import { YeastarError } from '@/lib/pbx/yeastar';
 
 const PBX_CALL_ID_MAX = 128;
 
@@ -180,6 +182,8 @@ export async function POST(
     await api.transfer({ type: 'blind', channelId, number: target.number });
     return NextResponse.json({ ok: true, number: target.number });
   } catch (err) {
+    if (err instanceof YeastarError && err.isChannelNotFound)
+      return fail('This call has already ended', 404, { code: 'call_gone' });
     return pbxFailure(err) ?? toErrorResponse(err);
   }
 }
