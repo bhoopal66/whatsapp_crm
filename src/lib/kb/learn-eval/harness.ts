@@ -282,7 +282,7 @@ function memoryStore(c: EvalCase, drafts: RecordDraftArgs[]): KbLearnStore {
     },
     activeSkills: async () => c.skills ?? [],
     skillTitles: async () =>
-      (c.skills ?? []).map((s) => ({ kind: s.kind, title: s.title })),
+      (c.skills ?? []).map((s) => ({ title: s.title, status: 'active' })),
     reviewRows: async () => [],
     markReviewed: async () => {},
     distillState: async () => ({ enabled: true, lastDistilledAt: null }),
@@ -359,6 +359,17 @@ function fenceHolds(user: string): boolean {
   if (start < 0 || end < start) return false;
   const outside = user.slice(0, start) + user.slice(end + closes[0]!.length);
   return outside.trim() === '';
+}
+
+/** The distil prompt: its fences once each, in order, and no other
+ *  angle bracket, so nothing sent can open or close one. */
+function distillFencesHold(user: string): boolean {
+  const tags = user.match(/[<＜﹤][^>＞﹥]*[>＞﹥]?/gu) ?? [];
+  const pair = (name: string) => [`<${name}>`, `</${name}>`];
+  const expected = ['existing_rules', 'retired_rules', 'evidence']
+    .filter((n) => n !== 'retired_rules' || tags.includes('<retired_rules>'))
+    .flatMap(pair);
+  return tags.join(' ') === expected.join(' ');
 }
 
 /** The team-replies part of the prompt. */
@@ -743,7 +754,7 @@ export async function runDistillCase(c: DistillCase): Promise<DistillResult> {
     )
       problems.push(`unsafe skill "${s.title}"`);
   }
-  if (sent[1] && !fenceHolds(sent[1].slice(sent[1].indexOf('<evidence>') - 1)))
+  if (sent[1] && !distillFencesHold(sent[1]))
     problems.push('evidence fence broken');
   return { id: c.id, tags: c.tags, ok: problems.length === 0, problems, leaks };
 }

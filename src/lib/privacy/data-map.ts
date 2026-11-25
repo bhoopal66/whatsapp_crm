@@ -989,7 +989,9 @@ export const NOT_PERSONAL: Readonly<Record<string, string>> =
             // (trigger). An approved entry stays. The entry's question and
             // answers (kb_entries) are the model's, screened for known names
             // and identifiers; a name nobody saved, or a nickname, can still
-            // be in one, which is why an admin must read every draft.
+            // be in one, which is why an admin must read every draft. 318
+            // keeps the drafted English answer beside the ledger row (same
+            // screening) and clears it when any of its gaps is deleted.
             'kb_learned_drafts',
             // 318: general rules distilled from admins' reviews; a CHECK refuses
             // e-mails, links, long numbers and redaction masks.

@@ -455,8 +455,10 @@ export function buildLearnPrompt(input: {
       ? 'Return only JSON: {"question": "<English question>", "answer_en": "<English answer>", "answer_ar": "<the same answer in Arabic>"}'
       : 'Return only JSON: {"question": "<English question>", "answer_en": "<English answer>"}',
   ].join('\n');
-  // Chat text cannot close the fence it sits in.
-  const quote = (t: string) => t.replace(/<\/?\s*evidence\b[^>]*>/giu, ' ');
+  // No angle bracket: chat text cannot close the fence it sits in, nor
+  // half of it (`</evidence` at the end of a message).
+  const quote = (t: string) =>
+    t.replace(/[<＜﹤]/gu, '‹').replace(/[>＞﹥]/gu, '›');
   const list = (items: readonly string[]) =>
     items.map((t, i) => `${i + 1}. ${quote(t)}`).join('\n');
   const userMessage = [
