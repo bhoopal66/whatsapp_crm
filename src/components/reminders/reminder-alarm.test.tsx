@@ -11,7 +11,11 @@ import type { Notification } from '@/types';
 // the real catalogue, and the buttons' work is alarmActions(), called
 // directly. The queue's rules are lib/reminders/alarm.test.ts.
 
-const toastMock = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
+const toastMock = vi.hoisted(() => ({
+  success: vi.fn(),
+  error: vi.fn(),
+  info: vi.fn(),
+}));
 vi.mock('sonner', () => ({ toast: toastMock }));
 
 import {
@@ -188,6 +192,7 @@ describe('alarmActions', () => {
   const t = (key: string, values?: Record<string, string | number>) =>
     values ? `${key}:${JSON.stringify(values)}` : key;
 
+  const readTask = vi.fn();
   const actions = (a = alarm()) =>
     alarmActions({
       alarm: a,
@@ -199,10 +204,15 @@ describe('alarmActions', () => {
       formatWhen: (d) => d.toISOString(),
       timeZone: 'Asia/Dubai',
       now: () => new Date(NOW),
+      readTask,
     });
 
   beforeEach(() => {
     vi.clearAllMocks();
+    readTask.mockResolvedValue({
+      status: 'open',
+      due_at: new Date(alarm().createdAt).toISOString(),
+    });
     vi.stubGlobal('fetch', fetchMock);
   });
   afterEach(() => vi.unstubAllGlobals());
@@ -252,6 +262,29 @@ describe('alarmActions', () => {
     );
     expect(markRead).toHaveBeenCalledWith('n1');
     expect(toastMock.success).toHaveBeenCalledWith('doneToast');
+  });
+
+  it.each([
+    ['moved to a later time', 'open', 3_600_000],
+    ['finished elsewhere', 'done', 0],
+  ])('Done leaves a task that was %s alone', async (_, status, later) => {
+    readTask.mockResolvedValue({
+      status,
+      due_at: new Date(alarm().createdAt + later).toISOString(),
+    });
+    await actions().done();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(toastMock.info).toHaveBeenCalledWith('changed');
+    expect(markRead).toHaveBeenCalledWith('n1');
+    expect(remove).toHaveBeenCalledWith('n1');
+  });
+
+  it('Done on a task that cannot be read keeps the card and says so', async () => {
+    readTask.mockRejectedValue(new Error('offline'));
+    await actions().done();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(toastMock.error).toHaveBeenCalledWith('failed');
+    expect(remove).not.toHaveBeenCalled();
   });
 
   it('Join on a meeting starting now opens its lobby', () => {

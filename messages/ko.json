@@ -7915,6 +7915,7 @@
       "back": "뒤로",
       "more": "+{count}개 더",
       "snoozedUntil": "{when}까지 다시 알림",
+      "changed": "이 알림은 다른 곳에서 변경되었거나 완료되었습니다",
       "doneToast": "완료로 표시했습니다",
       "failed": "알림을 업데이트하지 못했습니다"
     }

@@ -7915,6 +7915,7 @@
       "back": "Back",
       "more": "+{count} more",
       "snoozedUntil": "Snoozed until {when}",
+      "changed": "This reminder was changed or finished elsewhere",
       "doneToast": "Marked done",
       "failed": "Couldn't update the reminder"
     }
