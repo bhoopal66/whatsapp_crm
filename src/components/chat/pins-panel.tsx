@@ -10,6 +10,7 @@ import { avatarTint, boldSegments, initialOf } from '@/lib/chat/view';
 import { cn } from '@/lib/utils';
 
 import { useChatWorkspaceContext } from './chat-context';
+import { LoadFailed } from './load-failed';
 import { useMessageMarks } from './message-marks';
 import { useWriteBlock } from './use-write-block';
 
@@ -36,13 +37,23 @@ export function PinsPanel({ channelId, onClose, onJump }: PinsPanelProps) {
   const canUnpin = useWriteBlock(channel) === null;
   const marks = useMessageMarks();
   const [pins, setPins] = useState<Pin[] | null>(null);
+  // The first read failed: not the same as nothing pinned.
+  const [failed, setFailed] = useState(false);
   const [version, setVersion] = useState(0);
 
   useEffect(() => {
     let off = false;
     pinsFor(sb, channelId)
-      .then((list) => !off && setPins(list))
-      .catch((err) => !off && fail(err));
+      .then((list) => {
+        if (off) return;
+        setPins(list);
+        setFailed(false);
+      })
+      .catch((err) => {
+        if (off) return;
+        setFailed(true);
+        fail(err);
+      });
     return () => {
       off = true;
     };
@@ -51,6 +62,10 @@ export function PinsPanel({ channelId, onClose, onJump }: PinsPanelProps) {
   useEffect(
     () =>
       listen((e) => {
+        if (e.kind === 'resync') {
+          setVersion((v) => v + 1);
+          return;
+        }
         if (e.kind === 'pin') {
           if (e.event.channelId === channelId) setVersion((v) => v + 1);
           return;
@@ -160,7 +175,7 @@ export function PinsPanel({ channelId, onClose, onJump }: PinsPanelProps) {
             onClick={() => void marks.setPinned(p.messageId, false)}
             aria-label={t('actions.unpin')}
             title={t('actions.unpin')}
-            className="hover:bg-muted text-muted-foreground absolute top-2.5 end-3 flex size-7 items-center justify-center rounded-md opacity-0 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
+            className="hover:bg-muted text-muted-foreground absolute end-3 top-2.5 flex size-7 items-center justify-center rounded-md opacity-0 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
           >
             <PinOff className="size-4" aria-hidden />
           </button>
@@ -193,7 +208,15 @@ export function PinsPanel({ channelId, onClose, onJump }: PinsPanelProps) {
         </button>
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {pins === null ? (
+        {pins === null && failed ? (
+          <LoadFailed
+            message={t('pins.loadFailed')}
+            onRetry={() => {
+              setFailed(false);
+              setVersion((v) => v + 1);
+            }}
+          />
+        ) : pins === null ? (
           <p className="text-muted-foreground p-6 text-center text-sm">
             {t('pins.loading')}
           </p>

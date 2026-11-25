@@ -49,6 +49,7 @@ import {
   draftAfterSend,
   draftStorageKey,
   encodeDraft,
+  refusalScope,
   type ComposerBlock,
   type ComposerDraft,
 } from '@/lib/chat/composer';
@@ -262,6 +263,14 @@ export function Composer({
     guests: boolean;
   } | null>(null);
   const [refused, setRefused] = useState<ComposerBlock | null>(null);
+  // A refusal belongs to the channel as it was: once membership, archive,
+  // posting rule or block changes, it is asked again.
+  const scope = refusalScope(channel, block);
+  const [refusedScope, setRefusedScope] = useState(scope);
+  if (refusedScope !== scope) {
+    setRefusedScope(scope);
+    setRefused(null);
+  }
   const format = useFormatter();
   const restrictedUntil = useRestrictedUntil(channel);
   // A timeout learnt from a refusal (160) lifts when it ends, or after a
@@ -820,7 +829,7 @@ export function Composer({
       );
       if (!aliveRef.current) return;
       dropTake();
-      reply.clear();
+      if (replyIdRef.current === post.replyToId) reply.clear();
       if (typingSentAt.current !== null) tellTyping(false);
       onPosted?.(id);
     } catch (err) {

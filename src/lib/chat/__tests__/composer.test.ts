@@ -15,6 +15,7 @@ import {
   insertAtMention,
   mentionCandidates,
   mentionLabel,
+  refusalScope,
   serializeDraft,
   withPick,
 } from '../composer';
@@ -264,5 +265,28 @@ describe('after a send', () => {
   it('removes only the chips that were sent', () => {
     const chips = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
     expect(chipsAfterSend(chips, new Set(['a', 'c']))).toEqual([{ id: 'b' }]);
+  });
+});
+
+describe('refusalScope', () => {
+  const ch = {
+    membership: { role: 'member' },
+    archivedAt: null,
+    posting: 'all',
+  };
+  it('is the same while nothing about the channel changes', () => {
+    expect(refusalScope(ch, null)).toBe(
+      refusalScope({ ...ch, membership: { role: 'admin' } }, null)
+    );
+  });
+  it('changes with membership, archive, posting and the block', () => {
+    const base = refusalScope(ch, null);
+    expect(refusalScope({ ...ch, membership: null }, null)).not.toBe(base);
+    expect(refusalScope({ ...ch, archivedAt: '2026-11-01' }, null)).not.toBe(
+      base
+    );
+    expect(refusalScope({ ...ch, posting: 'admins' }, null)).not.toBe(base);
+    expect(refusalScope(ch, 'notMember')).not.toBe(base);
+    expect(refusalScope(null, null)).not.toBe(base);
   });
 });

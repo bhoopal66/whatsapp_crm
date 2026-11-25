@@ -35,6 +35,7 @@ import {
 import { cn } from '@/lib/utils';
 
 import { useChatWorkspaceContext } from './chat-context';
+import { LoadFailed } from './load-failed';
 
 const CHIP = 'rounded px-1 font-semibold bg-primary-soft text-primary';
 
@@ -180,13 +181,16 @@ export function SavedItems() {
   const t = useTranslations('Chat');
   const { sb, accountId, fail } = useChatWorkspaceContext();
   const [items, setItems] = useState<SavedItem[] | null>(null);
+  // The first read failed: not the same as nothing saved.
+  const [failed, setFailed] = useState(false);
 
   const load = useCallback(async () => {
     if (!accountId) return;
     try {
       setItems(await listSaved(sb, accountId));
+      setFailed(false);
     } catch (err) {
-      setItems((prev) => prev ?? []);
+      setFailed(true);
       fail(err);
     }
   }, [sb, accountId, fail]);
@@ -223,12 +227,22 @@ export function SavedItems() {
           <p className="text-muted-foreground truncate text-xs">
             {items
               ? t('saved.count', { count: items.length })
-              : t('saved.loading')}
+              : failed
+                ? ''
+                : t('saved.loading')}
           </p>
         </div>
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
-        {items === null ? (
+        {items === null && failed ? (
+          <LoadFailed
+            message={t('saved.loadFailed')}
+            onRetry={() => {
+              setFailed(false);
+              void load();
+            }}
+          />
+        ) : items === null ? (
           <div className="space-y-2" aria-hidden>
             {[0, 1, 2].map((i) => (
               <div key={i} className="bg-muted h-16 animate-pulse rounded-lg" />
