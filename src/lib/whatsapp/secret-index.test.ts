@@ -162,4 +162,36 @@ describe('SecretIndex', () => {
     expect(await idx.find('brand-new')).toEqual({ failed: true, id: null });
     expect(await idx.find('s')).toEqual({ failed: false, id: 'a' });
   });
+
+  it('a known secret never waits for a silent read; an unknown one gets failed', async () => {
+    vi.useFakeTimers();
+    try {
+      const clock = { t: 0 };
+      let hang = false;
+      const loadAll = vi.fn(() =>
+        hang
+          ? new Promise<Row[]>(() => {})
+          : Promise.resolve([{ id: 'a', secret: 's' }])
+      );
+      const idx = new SecretIndex<Row>({
+        loadAll,
+        idOf: (r) => r.id,
+        secretOf: (r) => r.secret,
+        now: () => clock.t,
+      });
+      await idx.find('s');
+      hang = true;
+      clock.t = 120_000;
+      expect(await idx.find('s')).toEqual({ failed: false, id: 'a' });
+      const unknown = idx.find('nope');
+      await vi.advanceTimersByTimeAsync(4_000);
+      expect(await unknown).toEqual({ failed: true, id: null });
+      // Not stuck: the database answers again, and so do we.
+      hang = false;
+      clock.t = 130_000;
+      expect(await idx.find('nope')).toEqual({ failed: false, id: null });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

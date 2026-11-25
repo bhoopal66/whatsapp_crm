@@ -314,6 +314,14 @@ describe('POST /api/whatsapp/config/meta — one Meta number per account', () =>
     });
   });
 
+  it('the handshake looks the saved token up afresh', async () => {
+    const lookup = await import('@/lib/whatsapp/webhook-secret-lookup');
+    const changed = vi.spyOn(lookup, 'webhookSecretsChanged');
+    db.existing = connected;
+    await save({ phone_number_id: PHONE, waba_id: WABA });
+    expect(changed).toHaveBeenCalledWith('meta');
+  });
+
   it('lets a row saved without a WABA id have one filled in', async () => {
     db.existing = { ...connected, waba_id: null };
     const res = await save({ phone_number_id: PHONE, waba_id: WABA });

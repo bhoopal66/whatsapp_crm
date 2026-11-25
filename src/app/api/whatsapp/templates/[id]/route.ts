@@ -152,8 +152,9 @@ export async function PATCH(
       .maybeSingle()
 
     if (updErr) {
+      console.error('Error saving template edit:', updErr)
       return NextResponse.json(
-        { error: `Failed to save template: ${updErr.message}` },
+        { error: 'Failed to save template.' },
         { status: 500 },
       )
     }

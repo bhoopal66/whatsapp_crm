@@ -89,7 +89,7 @@ export const AUTH_COOKIE_NAME = 'sb-wacrm-auth-token'
  *
  * `cookieOptions.maxAge` alone does nothing: @supabase/ssr writes its own
  * 400 days over it on every set (cookies.js, `setCookieOptions`). Every
- * `setAll` therefore passes its options through `sessionCookieWrite`.
+ * `setAll` therefore goes through `sessionCookiesToWrite`.
  */
 export const AUTH_COOKIE_MAX_AGE_SECONDS = 7 * 24 * 60 * 60
 
@@ -110,6 +110,35 @@ export function authCookieOptions(publicUrl: string | undefined = publicSupabase
     maxAge: AUTH_COOKIE_MAX_AGE_SECONDS,
     secure: typeof publicUrl === 'string' && /^https:\/\//i.test(publicUrl.trim()),
   }
+}
+
+const isSessionCookie = (name: string) =>
+  name === AUTH_COOKIE_NAME ||
+  (name.startsWith(`${AUTH_COOKIE_NAME}.`) &&
+    /^\d+$/.test(name.slice(AUTH_COOKIE_NAME.length + 1)))
+
+/**
+ * What a `setAll` writes: capped (below), and the whole session. The
+ * server side of @supabase/ssr rewrites only the chunks whose value
+ * changed; an unchanged one would keep its old expiry, end first, and
+ * take the session with it. `present` is what the request carries.
+ */
+export function sessionCookiesToWrite<
+  C extends { name: string; value: string; options: { maxAge?: number } },
+>(toSet: C[], present: Array<{ name: string; value: string }> = []): C[] {
+  const named = new Set(toSet.map((c) => c.name))
+  const written = toSet.find(
+    (c) => isSessionCookie(c.name) && c.value !== '' && c.options.maxAge !== 0
+  )
+  const rest = written
+    ? present
+        .filter((c) => isSessionCookie(c.name) && c.value !== '' && !named.has(c.name))
+        .map(({ name, value }) => ({ ...written, name, value }))
+    : []
+  return [...toSet, ...rest].map((c) => ({
+    ...c,
+    options: sessionCookieWrite(c.options),
+  }))
 }
 
 /** The options a `setAll` writes a session cookie with: never longer than

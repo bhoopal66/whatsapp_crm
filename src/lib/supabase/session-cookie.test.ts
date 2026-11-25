@@ -6,6 +6,7 @@ import {
   AUTH_COOKIE_MAX_AGE_SECONDS,
   AUTH_COOKIE_NAME,
   authCookieOptions,
+  sessionCookiesToWrite,
   sessionCookieWrite,
 } from './urls';
 
@@ -98,6 +99,31 @@ describe('the session cookie ends after the idle limit', () => {
       name: AUTH_COOKIE_NAME,
       value: 'v1',
     });
+  });
+
+  it('rewrites the unchanged chunks too, and leaves removals alone', () => {
+    const write = {
+      name: `${AUTH_COOKIE_NAME}.0`,
+      value: 'new',
+      options: { path: '/', maxAge: 400 * 86_400 },
+    };
+    const present = [
+      { name: `${AUTH_COOKIE_NAME}.0`, value: 'old' },
+      { name: `${AUTH_COOKIE_NAME}.1`, value: 'tail' },
+      { name: `${AUTH_COOKIE_NAME}-code-verifier`, value: 'v' },
+      { name: 'NEXT_LOCALE', value: 'ar' },
+    ];
+    const options = { path: '/', maxAge: AUTH_COOKIE_MAX_AGE_SECONDS };
+    expect(sessionCookiesToWrite([write], present)).toEqual([
+      { ...write, options },
+      { name: `${AUTH_COOKIE_NAME}.1`, value: 'tail', options },
+    ]);
+    const gone = { ...write, value: '', options: { path: '/', maxAge: 0 } };
+    expect(sessionCookiesToWrite([gone], present)).toEqual([gone]);
+    const tailGone = { ...gone, name: `${AUTH_COOKIE_NAME}.1` };
+    expect(
+      sessionCookiesToWrite([write, tailGone], present).map((c) => c.value)
+    ).toEqual(['new', '']);
   });
 
   it('a pre-render still gets a client (no document)', () => {

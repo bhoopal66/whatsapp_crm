@@ -7,7 +7,7 @@ import {
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { createSessionFetch } from './session-fetch'
-import { authCookieOptions, publicSupabaseUrl, sessionCookieWrite } from './urls'
+import { authCookieOptions, publicSupabaseUrl, sessionCookiesToWrite } from './urls'
 
 // Singleton instance — one client shared across the whole browser session.
 // Creating multiple clients causes auth-lock contention ("Lock was released
@@ -15,7 +15,7 @@ import { authCookieOptions, publicSupabaseUrl, sessionCookieWrite } from './urls
 let browserClient: SupabaseClient | undefined
 
 /** @supabase/ssr's own document.cookie methods, except that a session
- *  cookie is written with our idle limit (see `sessionCookieWrite`). Most
+ *  cookie is written with our idle limit (see `sessionCookiesToWrite`). Most
  *  token refreshes happen here, so this is the write that counts. */
 export const browserCookies: CookieMethodsBrowser = {
   getAll: () =>
@@ -24,12 +24,9 @@ export const browserCookies: CookieMethodsBrowser = {
       value: value ?? '',
     })),
   setAll: (cookiesToSet) => {
-    cookiesToSet.forEach(({ name, value, options }) => {
-      document.cookie = serializeCookieHeader(
-        name,
-        value,
-        sessionCookieWrite(options)
-      )
+    // Every chunk is rewritten here, so there is nothing to add.
+    sessionCookiesToWrite(cookiesToSet).forEach(({ name, value, options }) => {
+      document.cookie = serializeCookieHeader(name, value, options)
     })
   },
 }

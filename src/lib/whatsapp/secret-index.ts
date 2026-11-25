@@ -15,7 +15,10 @@
  *   - a miss reloads the rows at most once per `minReloadMs` (a new
  *     number's first webhook waits a few seconds at worst, and a flood of
  *     wrong secrets costs one reload per window, not one per request);
- *   - the whole index is refreshed after `ttlMs`;
+ *   - the whole index is refreshed after `ttlMs`, in the background: a
+ *     known secret never waits for a read;
+ *   - a read that has not answered after `readTimeoutMs` has failed, so
+ *     one silent connection cannot hold up every webhook;
  *   - `invalidate()` after a save: the new secret's first callback is
  *     looked up afresh instead of refused for the rest of the window;
  *   - a secret that is not found while the last read failed is `failed`
@@ -33,6 +36,7 @@ export interface SecretIndexDeps<Row> {
   secretOf: (row: Row) => string | null;
   ttlMs?: number;
   minReloadMs?: number;
+  readTimeoutMs?: number;
   now?: () => number;
 }
 
@@ -57,6 +61,18 @@ export class SecretIndex<Row> {
     return (this.deps.now ?? Date.now)();
   }
 
+  private async readInTime(): Promise<Row[] | null> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), this.deps.readTimeoutMs ?? 4_000);
+    });
+    try {
+      return await Promise.race([this.deps.loadAll(), late]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   /** Reloads once even when many requests ask at the same moment. */
   private reload(): Promise<boolean> {
     if (this.inflight) return this.inflight;
@@ -65,7 +81,7 @@ export class SecretIndex<Row> {
     const read = (async () => {
       let ok = false;
       try {
-        const rows = await this.deps.loadAll();
+        const rows = await this.readInTime();
         if (!rows) return false;
         const next = new Map<string, string>();
         for (const row of rows) {
@@ -114,8 +130,12 @@ export class SecretIndex<Row> {
     const age = this.now() - this.loadedAt;
     const ttl = this.deps.ttlMs ?? 60_000;
     const minReload = this.deps.minReloadMs ?? 5_000;
-    if (this.loaded && age < ttl && this.byHash.has(h))
-      return { failed: false, id: this.byHash.get(h)! };
+    const known = this.loaded ? this.byHash.get(h) : undefined;
+    if (known !== undefined) {
+      // The caller reads that row and compares again: an old answer is safe.
+      if (age >= ttl) void this.reload();
+      return { failed: false, id: known };
+    }
     if (!this.loaded || age >= ttl || age >= minReload) {
       let generation = this.generation;
       let ok = await this.reload();

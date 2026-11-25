@@ -412,8 +412,9 @@ export async function POST(request: Request) {
     // Somebody saved the same name between our read and our write.
     if (saveErr?.code === '23505' || (!saveErr && !row)) return nameTaken();
     if (saveErr) {
+      console.error('Error saving template:', saveErr);
       return NextResponse.json(
-        { error: `Failed to save template: ${saveErr.message}` },
+        { error: 'Failed to save template.' },
         { status: 500 }
       );
     }

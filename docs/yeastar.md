@@ -191,7 +191,9 @@ the internal Supabase host, another container) with the same rules as
 outbound webhooks. A public Yeastar Cloud or a PBX on a public address
 needs nothing. An on-premises PBX on the office network does: list its
 host (or `host:port`) in `PBX_ALLOWED_HOSTS`, comma-separated, on the
-server. That is the operator's decision, not a workspace admin's.
+server. That is the operator's decision, not a workspace admin's. The
+check is made on the name when it is saved and tested; it does not pin
+the address a later call connects to, nor what that host redirects to.
 
 ## 6. Live events
 

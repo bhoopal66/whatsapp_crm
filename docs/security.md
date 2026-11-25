@@ -56,7 +56,9 @@ header and are not affected; `/api/v1` (API keys) and `/api/public`
 
 `sb-wacrm-auth-token` is `Secure` on an https site, `SameSite=Lax`, and
 expires after **7 days without use** (it is rewritten at every token
-refresh; @supabase/ssr's default was 400 days). It is not HttpOnly: the
+refresh; @supabase/ssr's default is 400 days, and it ignores
+`cookieOptions.maxAge`, so every `setAll` caps it:
+`sessionCookiesToWrite`). It is not HttpOnly: the
 browser's Supabase client reads it, which is why a strict CSP matters
 (the CSP is still Report-Only; see `src/lib/csp.ts`).
 

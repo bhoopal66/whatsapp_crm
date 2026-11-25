@@ -7,7 +7,7 @@ import {
 import {
   authCookieOptions,
   serverSupabaseUrl,
-  sessionCookieWrite,
+  sessionCookiesToWrite,
 } from '@/lib/supabase/urls'
 
 export async function createClient() {
@@ -29,8 +29,8 @@ export async function createClient() {
         },
         setAll(cookiesToSet) {
           try {
-            cookiesToSet.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, sessionCookieWrite(options))
+            sessionCookiesToWrite(cookiesToSet, cookieStore.getAll()).forEach(
+              ({ name, value, options }) => cookieStore.set(name, value, options)
             )
           } catch {
             // The `setAll` method was called from a Server Component.

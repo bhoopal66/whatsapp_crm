@@ -23,7 +23,8 @@ checklist for exposing an install.
   reaches it. Before, anyone could reach port 3000 directly, sign in over
   plain http and forge the client-IP header the sign-in lockout counts
   on. A proxy on another machine: set `HOST_BIND=0.0.0.0` and firewall
-  the port.
+  the port. The same when another container on the host (an OpenWA
+  gateway of your own) posts to the app through the host address.
 - **Cross-site requests are refused.** A change made through the
   dashboard's API from another site or subdomain (CSRF) gets 403.
   Webhooks, crons and the public API are not affected.
@@ -34,7 +35,8 @@ checklist for exposing an install.
   address** (the cloud metadata service, the database host) and read the
   answers from the connection test. An on-premises PBX on a private
   address must be listed in `PBX_ALLOWED_HOSTS` by whoever runs the
-  server; until then its connection test is refused.
+  server; until then its connection test is refused. The check is made
+  when the address is saved and tested, not on every later call.
 - **Webhook secrets are looked up by hash.** A flood of requests with
   wrong secrets no longer makes every request read and decrypt every
   number's settings.
