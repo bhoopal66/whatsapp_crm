@@ -64,13 +64,16 @@ export async function searchInbox(
   opts: { limit?: number; after?: string }
 ): Promise<SearchedPage> {
   const want = opts.limit ?? INBOX_DEFAULT_LIMIT;
+  // 185 hides snoozed cases by default; a search finds them, unless a
+  // mode was chosen (`snoozedDefault`).
+  const wide: CaseInboxFilters = { snoozed: 'all', ...filters };
   const matches: SearchedRow[] = [];
   let cursor: string | null = opts.after ?? null;
   for (let scanned = 0; scanned < SEARCH_MAX_PAGES; scanned++) {
     const page: CaseInboxPage = await inbox.list(
       ctx.userId,
       ctx.accountId,
-      filters,
+      wide,
       { limit: INBOX_MAX_LIMIT, after: cursor }
     );
     const [numbers, names] = await Promise.all([

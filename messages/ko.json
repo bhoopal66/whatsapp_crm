@@ -9783,6 +9783,7 @@
       "compass": "Compass에서 관리됩니다."
     },
     "actions": {
+      "addReason": "사유 추가",
       "move": "단계 이동",
       "edit": "정보 수정",
       "reassign": "재배정",

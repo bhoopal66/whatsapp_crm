@@ -9783,6 +9783,7 @@
       "compass": "Managed in Compass."
     },
     "actions": {
+      "addReason": "Add reason",
       "move": "Move stage",
       "edit": "Edit details",
       "reassign": "Reassign",

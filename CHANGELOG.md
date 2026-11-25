@@ -12,6 +12,16 @@ and polish.
 
 ## [Unreleased]
 
+### Fixed: cases
+
+No migration.
+
+- A declined or withdrawn case whose reason was skipped now has an
+  **Add reason** button.
+- The open tab of a case follows a macro, a documents request and coming
+  back to the page, without clearing what is shown or typed.
+- Searching cases finds snoozed ones, unless a snooze mode is chosen.
+
 ### Fixed: an open chat could keep its unread count
 
 When our own "read" and the next message reached the screen together, the

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import {
   Archive,
@@ -36,6 +36,7 @@ import {
 } from '@/lib/cases/case-tabs';
 
 import { CaseRuleRuns } from './case-rule-runs';
+import { useCaseRefreshKey } from './tab-kit';
 
 const ICONS: Record<TimelineIconName, LucideIcon> = {
   ArrowRightLeft,
@@ -68,10 +69,18 @@ export function TimelineTab({ caseId }: CaseTabProps) {
   const [state, setState] = useState<State>('loading');
   const [attempt, setAttempt] = useState(0);
 
+  // The case was read again: read this again too, in place. Never with
+  // messages shown, where each read is audited.
+  const caseKey = useCaseRefreshKey();
+  const refreshKey = withMessages ? null : caseKey;
+  const shown = useRef<string | null>(null);
+
   useEffect(() => {
     let current = true;
+    const question = `${caseId}:${withMessages}:${attempt}`;
+    const quiet = shown.current === question;
     (async () => {
-      setState('loading');
+      if (!quiet) setState('loading');
       try {
         const res = await fetch(
           `/api/cases/${caseId}/timeline${withMessages ? '?messages=1' : ''}`,
@@ -82,19 +91,20 @@ export function TimelineTab({ caseId }: CaseTabProps) {
           : null;
         if (!current) return;
         if (!res.ok) {
-          setState('error');
+          if (!quiet) setState('error');
           return;
         }
         setEntries(parseTimeline(json).reverse());
+        shown.current = question;
         setState('ok');
       } catch {
-        if (current) setState('error');
+        if (current && !quiet) setState('error');
       }
     })();
     return () => {
       current = false;
     };
-  }, [caseId, withMessages, attempt]);
+  }, [caseId, withMessages, attempt, refreshKey]);
 
   const retry = useCallback(() => setAttempt((n) => n + 1), []);
 
@@ -189,7 +199,7 @@ export function TimelineTab({ caseId }: CaseTabProps) {
                     key={`${e.kind}-${e.refId}-${i}`}
                     className="relative flex min-w-0 flex-col gap-0.5 text-sm"
                   >
-                    <span className="bg-background text-muted-foreground absolute top-0 -start-[1.95rem] flex size-5 items-center justify-center rounded-full border">
+                    <span className="bg-background text-muted-foreground absolute -start-[1.95rem] top-0 flex size-5 items-center justify-center rounded-full border">
                       <Icon className="size-3" aria-hidden />
                     </span>
                     <span className="flex flex-wrap items-baseline gap-x-2">

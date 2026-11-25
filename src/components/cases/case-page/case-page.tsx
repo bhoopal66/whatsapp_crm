@@ -15,6 +15,7 @@ import {
   AlarmClock,
   AlarmClockOff,
   Lock,
+  MessageSquareText,
   MessagesSquare,
   Pencil,
   UserRoundCog,
@@ -39,6 +40,7 @@ import {
   isSnoozed,
   requestedRecently,
   parseCaseDetail,
+  reasonOwed,
   snoozeErrorKey,
   resolveCaseTab,
   runningTimers,
@@ -73,6 +75,7 @@ import { NotesTab } from './notes-tab';
 import { OverviewTab } from './overview-tab';
 import { SlaChip } from './sla-chip';
 import { SnoozeDialog } from './snooze-dialog';
+import { CaseRefreshContext } from './tab-kit';
 import { TasksTab } from './tasks-tab';
 import { TimelineTab } from './timeline-tab';
 import { useNoteDrafts } from './use-note-drafts';
@@ -81,7 +84,7 @@ import { useNoteDrafts } from './use-note-drafts';
 const PRESENCE_POLL_MS = 20_000;
 
 type State = 'loading' | 'ok' | 'gone' | 'forbidden' | 'error';
-type Open = 'move' | 'edit' | 'reassign' | 'docs' | 'snooze' | null;
+type Open = 'move' | 'edit' | 'reassign' | 'docs' | 'snooze' | 'reason' | null;
 
 const TAB_BODY: Record<
   Exclude<CaseTab, 'notes'>,
@@ -376,6 +379,7 @@ export function CasePage({ caseId }: { caseId: string }) {
   const showSnooze = canSnoozeCase(detail.role) && !closed;
   const snoozed = isSnoozed(detail.snoozedUntil, new Date());
   const snoozedLabel = snoozed ? dateLabel(detail.snoozedUntil) : null;
+  const owedReason = reasonOwed(detail);
   const tabProps: CaseTabProps = {
     caseId,
     detail,
@@ -644,6 +648,17 @@ export function CasePage({ caseId }: { caseId: string }) {
               {t('actions.takeover')}
             </GatedButton>
           )}
+          {owedReason && (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={acting}
+              onClick={() => setOpen('reason')}
+            >
+              <MessageSquareText className="size-4" aria-hidden />
+              {t('actions.addReason')}
+            </Button>
+          )}
           {showSnooze &&
             (snoozed ? (
               <Button
@@ -684,38 +699,40 @@ export function CasePage({ caseId }: { caseId: string }) {
         )}
       </header>
 
-      <Tabs
-        value={activeTab}
-        onValueChange={changeTab}
-        className="min-h-0 flex-1"
-      >
-        <TabsList className="max-w-full justify-start overflow-x-auto">
-          {visibleCaseTabs(canSeeAudit, brainOn).map((name) => (
-            <TabsTrigger
-              key={name}
-              value={name}
-              className="flex-none"
-              disabled={caseTabDisabled(name, c.isLead)}
-              title={caseTabDisabled(name, c.isLead) ? noGroup : undefined}
-            >
-              {t(`tabs.${name}`)}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-        {visibleCaseTabs(canSeeAudit, brainOn).map((name) => {
-          const Body = name === 'notes' ? null : TAB_BODY[name];
-          return (
-            <TabsContent key={name} value={name} className="min-h-0 flex-1">
-              {activeTab === name &&
-                (Body ? (
-                  <Body {...tabProps} />
-                ) : (
-                  <NotesTab key={caseId} {...tabProps} draft={noteDraft} />
-                ))}
-            </TabsContent>
-          );
-        })}
-      </Tabs>
+      <CaseRefreshContext.Provider value={detail}>
+        <Tabs
+          value={activeTab}
+          onValueChange={changeTab}
+          className="min-h-0 flex-1"
+        >
+          <TabsList className="max-w-full justify-start overflow-x-auto">
+            {visibleCaseTabs(canSeeAudit, brainOn).map((name) => (
+              <TabsTrigger
+                key={name}
+                value={name}
+                className="flex-none"
+                disabled={caseTabDisabled(name, c.isLead)}
+                title={caseTabDisabled(name, c.isLead) ? noGroup : undefined}
+              >
+                {t(`tabs.${name}`)}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+          {visibleCaseTabs(canSeeAudit, brainOn).map((name) => {
+            const Body = name === 'notes' ? null : TAB_BODY[name];
+            return (
+              <TabsContent key={name} value={name} className="min-h-0 flex-1">
+                {activeTab === name &&
+                  (Body ? (
+                    <Body {...tabProps} />
+                  ) : (
+                    <NotesTab key={caseId} {...tabProps} draft={noteDraft} />
+                  ))}
+              </TabsContent>
+            );
+          })}
+        </Tabs>
+      </CaseRefreshContext.Provider>
 
       {open === 'move' && (
         <MoveStageDialog
@@ -723,6 +740,15 @@ export function CasePage({ caseId }: { caseId: string }) {
           onOpenChange={(o) => !o && setOpen(null)}
           detail={detail}
           onChanged={() => void reload()}
+        />
+      )}
+      {open === 'reason' && owedReason && (
+        <MoveStageDialog
+          open
+          onOpenChange={(o) => !o && setOpen(null)}
+          detail={detail}
+          onChanged={() => void reload()}
+          reasonFor={owedReason}
         />
       )}
       {open === 'edit' && (

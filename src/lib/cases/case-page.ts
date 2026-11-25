@@ -312,6 +312,25 @@ export function needsOutcomeReason(stage: string): boolean {
 }
 
 /**
+ * The outcome of a closed case whose reason was never recorded and can
+ * still be, by this person, else null. By `outcome`, like 134's
+ * case_outcome_reason_set: a Declined case moved on to Closed keeps it.
+ */
+export function reasonOwed(
+  d: Pick<CaseDetail, 'case' | 'permissions' | 'outcomeReason' | 'locked'>
+): string | null {
+  const { closedAt, outcome } = d.case;
+  return closedAt !== null &&
+    outcome !== null &&
+    needsOutcomeReason(outcome) &&
+    d.outcomeReason === null &&
+    d.permissions.canWrite &&
+    !caseLocks(d).outcomeReason
+    ? outcome
+    : null;
+}
+
+/**
  * The stages the move dialog offers, mirroring 130's case_set_stage:
  * nothing from Closed; only Closed from Approved / Declined / Withdrawn;
  * never back to a pre-submission stage once past them (PRESUB_REENTRY);
