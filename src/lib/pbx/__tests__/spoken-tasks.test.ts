@@ -110,7 +110,10 @@ beforeEach(() => {
       tasks: [task()],
     },
     {},
-    { calls: { updated_at: '1' } }
+    {
+      calls: { updated_at: '1' },
+      tasks: { status: 'open', created_at: NOW, updated_at: NOW },
+    }
   );
 });
 
@@ -165,10 +168,88 @@ describe('speaking to the customer closes their missed-call task', () => {
     expect([statusOf('t1'), statusOf('t2')]).toEqual(['done', 'open']);
   });
 
-  it('never a task opened after the call began, or of another account or source', async () => {
+  it('a customer who rang straight back, before the task was written', async () => {
+    fake.tables.calls.push({
+      id: 'm9',
+      account_id: A,
+      status: 'no_answer',
+      started_at: '2026-10-12T10:04:20.000Z',
+    });
+    fake.tables.tasks = [
+      task({
+        created_at: '2026-10-12T10:05:20.000Z',
+        meta: { call_ids: ['m9'] },
+      }),
+    ];
+    await ingest(end('call-1', inbound()));
+    expect(statusOf()).toBe('done');
+  });
+
+  describe('a missed call whose end is handled after they were spoken to', () => {
+    const missed = (extra: Row = {}) =>
+      end(
+        'call-0',
+        inbound({
+          status: 'NO ANSWER',
+          talk_duration: 0,
+          call_duration: 20,
+          time_start: '2026-10-12 14:04:00',
+          ...extra,
+        })
+      );
+    beforeEach(() => {
+      fake.tables.tasks = [];
+    });
+    const opened = () => [
+      fake.tables.tasks.filter((t) => t.status === 'open').length,
+      (fake.tables.notifications ?? []).length,
+    ];
+
+    it('opens no task and no bell', async () => {
+      await ingest(end('call-1'));
+      await ingest(missed());
+      expect(fake.tables.calls.some((c) => c.pbx_call_id === 'call-0')).toBe(
+        true
+      );
+      expect(fake.tables.tasks).toHaveLength(0);
+      expect(opened()).toEqual([0, 0]);
+    });
+
+    it('folds into no open task either', async () => {
+      await ingest(end('call-1'));
+      fake.tables.tasks = [task()];
+      await ingest(missed());
+      expect(fake.tables.tasks[0].meta).toMatchObject({ call_ids: ['m1'] });
+    });
+
+    it('opens one when the talk was before it, unanswered, or another’s', async () => {
+      await ingest(end('call-1', { time_start: '2026-10-12 14:00:00' }));
+      await ingest(end('call-2', { status: 'NO ANSWER', talk_duration: 0 }));
+      await ingest(end('call-3', { call_to: '0509999999' }));
+      // A queue or an IVR answering is nobody.
+      await ingest(end('call-4', inbound({ call_to: '6400' })));
+      await ingest(missed());
+      expect(opened()[0]).toBe(1);
+    });
+
+    it('closes the task written while the answered call was', async () => {
+      const raced = before(
+        (table, columns) =>
+          table === 'tasks' && !!columns?.startsWith('id, assigned_to'),
+        () => ingest(end('call-1'))
+      );
+      await ingest(missed());
+      expect(raced()).toBe(true);
+      expect(fake.tables.tasks).toHaveLength(1);
+      expect(fake.tables.tasks[0]).toMatchObject({ status: 'done' });
+      expect(opened()).toEqual([0, 0]);
+    });
+  });
+
+  it('never a task naming no call opened after the call began, or of another account or source', async () => {
     const late = '2026-10-12T10:05:00.000Z';
     fake.tables.tasks = [
-      task({ created_at: late }),
+      task({ created_at: late, meta: {} }),
       task({ id: 't2', account_id: 'elsewhere' }),
       task({ id: 't3', source: 'automation' }),
       task({ id: 't4', kind: 'callback' }),
@@ -275,7 +356,7 @@ describe('speaking to the customer closes their missed-call task', () => {
     stampTasks();
     const raced = before(
       (table, columns) =>
-        table === 'tasks' && columns === 'id, assigned_to, meta, updated_at',
+        table === 'tasks' && !!columns?.startsWith('id, assigned_to'),
       () => ingest(answeredLeg())
     );
     await ingest(missedLeg());
@@ -344,8 +425,15 @@ describe('speaking to the customer closes their missed-call task', () => {
   });
 
   it('not the backfill of an old call', async () => {
-    await ingest(end('call-1'), { historical: true });
+    await ingest(end('call-1', { time_start: '2026-10-12 13:10:00' }), {
+      historical: true,
+    });
     expect(statusOf()).toBe('open');
+  });
+
+  it('a call found in the CDR within the hour', async () => {
+    await ingest(end('call-1'), { historical: true });
+    expect(statusOf()).toBe('done');
   });
 
   it('a failure is logged and the call stays recorded', async () => {

@@ -712,6 +712,47 @@ describe('ingestPbxEvent', () => {
       });
     });
 
+    describe('a caller saved as a contact between two calls', () => {
+      const saveBetween = async (firstCall: Row = {}) => {
+        const saved = fake.tables.contacts;
+        fake.tables.contacts = [];
+        await ingest(ring('call-1', [inbound('ALERT'), ext('1001', 'RING')]));
+        await ingest(end('call-1', 'NO ANSWER'));
+        expect(fake.tables.tasks[0].contact_id).toBeNull();
+        Object.assign(fake.tables.calls[0], firstCall);
+        fake.tables.contacts = saved;
+        await ingest(end('call-2', 'NO ANSWER'));
+      };
+
+      it('folds into the task of their number, which is now theirs', async () => {
+        await saveBetween();
+        expect(fake.tables.tasks).toHaveLength(1);
+        expect(fake.tables.tasks[0]).toMatchObject({
+          contact_id: 'k1',
+          conversation_id: 'cv1',
+          assigned_to: 'u1',
+          meta: { missed_count: 2 },
+        });
+        expect(fake.tables.notifications).toHaveLength(1);
+      });
+
+      it('leaves one whose call is, or may be, another contact’s', async () => {
+        await saveBetween({ contact_id: 'k2' });
+        expect(fake.tables.tasks.map((t) => t.contact_id)).toEqual([
+          null,
+          'k1',
+        ]);
+        fake.tables.tasks = [];
+        fake.tables.calls = [];
+        fake.tables.pbx_events_raw = [];
+        await saveBetween({ meta: { contact_candidates: ['k1', 'k2'] } });
+        expect(fake.tables.tasks.map((t) => t.contact_id)).toEqual([
+          null,
+          'k1',
+        ]);
+      });
+    });
+
     it("with no contact, fold on the caller's number only", async () => {
       fake.tables.contacts = [];
       await ingest(end('call-1', 'NO ANSWER'));

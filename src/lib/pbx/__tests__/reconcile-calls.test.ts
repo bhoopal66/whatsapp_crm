@@ -45,6 +45,8 @@ let fake: FakeDb;
 /** The PBX's answer per connection; an Error is thrown when it is opened. */
 let pbxSays: Record<string, Row[] | Error>;
 let total: number | undefined;
+/** The calls up on the PBX now; an Error is thrown. */
+let upNow: string[] | Error;
 const searches: Row[] = [];
 const run = (now: () => number = () => NOW) =>
   reconcileLostCalls({ db: fake.db, now, open: pbx.open });
@@ -55,6 +57,7 @@ beforeEach(() => {
   vi.spyOn(console, 'error').mockImplementation(() => {});
   searches.length = 0;
   total = undefined;
+  upNow = [];
   pbxSays = {};
   pbx.open.mockReset();
   pbx.open.mockImplementation(async (_db: unknown, id: string) => {
@@ -62,6 +65,12 @@ beforeEach(() => {
     if (says instanceof Error) throw says;
     return {
       api: {
+        queryCalls: async (q: Row) => {
+          if (upNow instanceof Error) throw upNow;
+          return q.type === 'inbound'
+            ? upNow.map((callId) => ({ callId, members: [] }))
+            : [];
+        },
         searchCdr: async (s: Row) => {
           searches.push(s);
           return { total: total ?? says.length, records: says };
@@ -128,7 +137,7 @@ describe('reconcileLostCalls', () => {
       id: 'k',
       connection_id: 'c1',
       pbx_call_id: 'a',
-      status: 'ringing',
+      status: 'no_answer',
     };
     fake.tables.calls = [{ ...row }];
     pbxSays.c1 = [cdr('a', 'NO ANSWER', 20)];
@@ -142,7 +151,7 @@ describe('reconcileLostCalls', () => {
     let reads = 0;
     const db = {
       from: (table: string) => {
-        if (table === 'calls' && ++reads === 2)
+        if (table === 'calls' && ++reads === 3)
           fake.tables.calls.push({ ...row });
         return from(table);
       },
@@ -150,6 +159,117 @@ describe('reconcileLostCalls', () => {
     await reconcileLostCalls({ db, now: () => NOW, open: pbx.open });
     expect(fake.tables.calls).toEqual([row]);
     expect(count('pbx_events_raw')).toBe(0);
+  });
+
+  describe('a live row whose end event was lost', () => {
+    const liveRow = (status: string, startedAgo = 22) => {
+      fake.tables.calls = [
+        {
+          id: 'k',
+          account_id: A,
+          connection_id: 'c1',
+          pbx_call_id: 'a',
+          direction: 'inbound',
+          status,
+          remote_number: '971501234567',
+          started_at: new Date(NOW - startedAgo * MIN).toISOString(),
+          meta: { rang_user_ids: ['u1'] },
+        },
+      ];
+      fake.tables.call_live = [
+        { connection_id: 'c1', pbx_call_id: 'a', ringing_user_ids: ['u1'] },
+      ];
+    };
+    const untouched = (status: string) => {
+      expect(fake.tables.calls).toMatchObject([{ id: 'k', status }]);
+      expect(count('pbx_events_raw')).toBe(0);
+      expect(count('call_live')).toBe(1);
+      expect(count('tasks')).toBe(0);
+    };
+
+    it('missed: its task and bell, once, also when the end comes late', async () => {
+      liveRow('ringing');
+      pbxSays.c1 = [cdr('a', 'NO ANSWER', 20)];
+      expect(await run()).toMatchObject({ recovered: 1, rung: 1 });
+      expect(fake.tables.calls).toMatchObject([
+        { id: 'k', status: 'no_answer' },
+      ]);
+      expect(count('call_live')).toBe(0);
+      expect(fake.tables.tasks).toMatchObject([
+        { source_ref: 'call:k', assigned_to: 'u1' },
+      ]);
+      await run(() => NOW + 15 * MIN);
+      await ingestPbxEvent({
+        db: fake.db,
+        connectionId: 'c1',
+        receivedAt: new Date(NOW + 16 * MIN),
+        payload: {
+          type: 30012,
+          sn: 'SN1',
+          msg: {
+            call_id: 'a',
+            uid: 'uid-a',
+            type: 'Inbound',
+            call_from: '0501234567',
+            call_to: '6300',
+            time_start: '2026-10-12 13:39:00',
+            call_duration: 61,
+            talk_duration: 0,
+            status: 'NO ANSWER',
+          },
+        },
+      });
+      expect(count('tasks')).toBe(1);
+      expect(count('notifications')).toBe(1);
+    });
+
+    it('answered: recorded, its screen pop cleared, nobody rung', async () => {
+      liveRow('in_progress');
+      pbxSays.c1 = [cdr('a', 'ANSWERED', 20)];
+      expect(await run()).toMatchObject({ recovered: 1, rung: 0 });
+      expect(fake.tables.calls).toMatchObject([
+        { id: 'k', status: 'answered' },
+      ]);
+      expect(count('call_live')).toBe(0);
+      expect(count('tasks')).toBe(0);
+    });
+
+    it('is left while the PBX still has the call up, or cannot say', async () => {
+      // A finished leg's record, the customer still on the line.
+      liveRow('in_progress');
+      pbxSays.c1 = [cdr('a', 'ANSWERED', 15)];
+      upNow = ['a'];
+      await run();
+      untouched('in_progress');
+      liveRow('ringing');
+      pbxSays.c1 = [cdr('a', 'NO ANSWER', 15)];
+      await run();
+      untouched('ringing');
+      upNow = new Error('no permission');
+      expect((await run()).errors).toEqual({});
+      untouched('ringing');
+    });
+
+    it('is left when answered and its answered leg is not in the CDR', async () => {
+      liveRow('in_progress');
+      pbxSays.c1 = [cdr('a', 'NO ANSWER', 20)];
+      await run();
+      untouched('in_progress');
+    });
+
+    it('is left within the grace', async () => {
+      liveRow('ringing', 6);
+      pbxSays.c1 = [cdr('a', 'NO ANSWER', 5)];
+      await run();
+      untouched('ringing');
+    });
+  });
+
+  it('a missed call before an answered one of the same run rings nobody', async () => {
+    pbxSays.c1 = [cdr('a', 'NO ANSWER', 25), cdr('b', 'ANSWERED', 20)];
+    expect(await run()).toMatchObject({ recovered: 2 });
+    expect(count('tasks')).toBe(0);
+    expect(count('notifications')).toBe(0);
   });
 
   it('a ring-group call one colleague answered opens nothing', async () => {
@@ -260,7 +380,7 @@ describe('reconcileLostCalls', () => {
   });
 
   it('leaves the link clock alone, so the silence alert still rings', async () => {
-    pbxSays.c1 = [cdr('a', 'ANSWERED', 20), cdr('b', 'NO ANSWER', 20)];
+    pbxSays.c1 = [cdr('a', 'ANSWERED', 25), cdr('b', 'NO ANSWER', 20)];
     expect(await run()).toMatchObject({ recovered: 2, rung: 1 });
     expect(fake.tables.pbx_connections[0]).toMatchObject({
       last_event_at: LAST_EVENT,

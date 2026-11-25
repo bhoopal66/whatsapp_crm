@@ -347,7 +347,7 @@ export async function settleStaleCalls(input: {
  * ingest nor the give-up clears it, and pbx_purge would only a day
  * later. Best-effort: a failure is logged and left to that purge.
  */
-async function clearLive(
+export async function clearLive(
   db: SupabaseClient,
   connectionId: string,
   pbxCallId: string
@@ -359,7 +359,7 @@ async function clearLive(
     .eq('pbx_call_id', pbxCallId);
   if (error) {
     console.error(
-      `[pbx-stale] ${connectionId}: call_live delete failed for ${pbxCallId}:`,
+      `[pbx] ${connectionId}: call_live delete failed for ${pbxCallId}:`,
       error.message
     );
   }
