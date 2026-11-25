@@ -80,17 +80,17 @@ export function draftFailure(status: number, body: unknown): DraftFailure {
  * changes, which the send itself does.
  */
 export interface DraftMemory {
-  /** The edit in progress, for one draft (`key`). */
-  editing: { key: string; text: string } | null;
+  /** The edits in progress, by the draft they are of. */
+  editing: Readonly<Record<string, string>>;
   /** By conversation. */
   unconfirmed: Readonly<Record<string, string>>;
 }
 
-export const NO_DRAFT_MEMORY: DraftMemory = { editing: null, unconfirmed: {} };
+export const NO_DRAFT_MEMORY: DraftMemory = { editing: {}, unconfirmed: {} };
 
 export type DraftMemoryAction =
   | { type: 'edit'; key: string; text: string }
-  | { type: 'editDone' }
+  | { type: 'editDone'; key: string }
   | { type: 'unconfirmed'; conv: string; text: string }
   | { type: 'confirmed'; conv: string };
 
@@ -100,9 +100,13 @@ export function draftMemoryReducer(
 ): DraftMemory {
   switch (a.type) {
     case 'edit':
-      return { ...m, editing: { key: a.key, text: a.text } };
-    case 'editDone':
-      return m.editing ? { ...m, editing: null } : m;
+      return { ...m, editing: { ...m.editing, [a.key]: a.text } };
+    case 'editDone': {
+      if (!(a.key in m.editing)) return m;
+      const editing = { ...m.editing };
+      delete editing[a.key];
+      return { ...m, editing };
+    }
     case 'unconfirmed':
       return a.text
         ? { ...m, unconfirmed: { ...m.unconfirmed, [a.conv]: a.text } }

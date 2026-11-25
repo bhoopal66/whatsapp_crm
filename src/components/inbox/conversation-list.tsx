@@ -18,6 +18,13 @@ import {
   teamRosterCacheKey,
 } from '@/lib/client-cache';
 import { useAuth } from '@/hooks/use-auth';
+import {
+  chipForCount,
+  chipFromView,
+  chipShown,
+  tapChip,
+  type QuickChip,
+} from '@/lib/inbox/quick-chip';
 import { messagesCacheKey } from '@/lib/inbox/message-cache';
 import { fetchLatestMessagePage } from '@/lib/inbox/message-page-fetch';
 import { prefetchSession, sessionCache } from '@/lib/session-cache';
@@ -799,7 +806,7 @@ export function ConversationList({
     initialUnread ? 'unread' : 'all'
   );
   // The "Important · N" chip: only the chats the AI handed over.
-  const [importantOnly, setImportantOnly] = useState(false);
+  const [importantChip, setImportantChip] = useState<QuickChip>('off');
   const [loading, setLoading] = useState(true);
   // Contact-based filter (issue #272): exact match on the company field.
   const [selectedCompany, setSelectedCompany] = useState<string | null>(null);
@@ -868,7 +875,9 @@ export function ConversationList({
   );
   // The Pinned chip's filter: only pinned chats (client-side, like
   // Important; the pins are always loaded beside the first page).
-  const [pinnedOnly, setPinnedOnly] = useState(initialPinned);
+  const [pinnedChip, setPinnedChip] = useState<QuickChip>(() =>
+    chipFromView(initialPinned)
+  );
   // Handled clicks still waiting for realtime: id -> the stamp handled.
   const [handled, setHandled] = useState<ReadonlyMap<string, string>>(
     () => new Map()
@@ -1789,16 +1798,19 @@ export function ConversationList({
     () => countNeedingAttention(filtered),
     [filtered]
   );
-  // Off by itself once the last one is dealt with, so the list never
-  // sits empty behind a chip that is no longer there.
-  const showImportantOnly = importantOnly && importantCount > 0;
+  // Off by itself once the last one is dealt with (lib/inbox/quick-chip).
+  const importantNow = chipForCount(importantChip, importantCount, loading);
+  if (importantNow !== importantChip) setImportantChip(importantNow);
+  const showImportantOnly = importantNow !== 'off';
   // The "N pinned" chip (signals on only); off by itself once the last
   // pin is handled, like Important.
   const pinned = useMemo(
     () => (signalsOn ? pinnedSummary(filtered) : { count: 0, urgent: false }),
     [filtered, signalsOn]
   );
-  const showPinnedOnly = pinnedOnly && pinned.count > 0;
+  const pinnedNow = chipForCount(pinnedChip, pinned.count, loading);
+  if (pinnedNow !== pinnedChip) setPinnedChip(pinnedNow);
+  const showPinnedOnly = signalsOn && pinnedNow !== 'off';
   const shown = useMemo(() => {
     let rows = filtered;
     if (showImportantOnly) rows = rows.filter(needsAttention);
@@ -1867,8 +1879,8 @@ export function ConversationList({
   const currentView = useMemo<InboxViewFilters>(
     () => ({
       unread: filter === 'unread',
-      important: importantOnly,
-      pinned: pinnedOnly,
+      important: importantChip !== 'off',
+      pinned: pinnedChip !== 'off',
       assignee: assigneeFilter,
       campaignId: selectedCampaignId,
       chatTagIds: selectedChatTagIds,
@@ -1877,8 +1889,8 @@ export function ConversationList({
     }),
     [
       filter,
-      importantOnly,
-      pinnedOnly,
+      importantChip,
+      pinnedChip,
       assigneeFilter,
       selectedCampaignId,
       selectedChatTagIds,
@@ -1899,8 +1911,8 @@ export function ConversationList({
         v.chatTagIds = kept;
       }
       setFilter(v.unread ? 'unread' : 'all');
-      setImportantOnly(v.important);
-      setPinnedOnly(v.pinned);
+      setImportantChip(chipFromView(v.important));
+      setPinnedChip(chipFromView(v.pinned));
       setSelectedAssignee(v.assignee);
       setSelectedCampaignId(v.campaignId);
       setSelectedChatTagIds(v.chatTagIds);
@@ -2081,12 +2093,13 @@ export function ConversationList({
             </div>
           )}
           {/* The chats the AI handed to a person, pinned on top: a tap
-              narrows the list to them. Only there while there are some. */}
-          {importantCount > 0 && (
+              narrows the list to them. There while there are some, or a
+              saved view asks for them. */}
+          {chipShown(importantChip, importantCount) && (
             <button
               type="button"
               aria-pressed={showImportantOnly}
-              onClick={() => setImportantOnly((v) => !v)}
+              onClick={() => setImportantChip(tapChip)}
               className={cn(
                 'h-7 shrink-0 rounded-full px-2.5 text-[12.5px] font-medium whitespace-nowrap transition-colors',
                 showImportantOnly
@@ -2101,10 +2114,10 @@ export function ConversationList({
               then the filters, which narrow together like the facets
               below, each in its palette colour, and the legend. Only
               while the workspace has signals on. */}
-          {signalsOn && pinned.count > 0 && (
+          {signalsOn && chipShown(pinnedChip, pinned.count) && (
             <InsightChip
               active={showPinnedOnly}
-              onClick={() => setPinnedOnly((v) => !v)}
+              onClick={() => setPinnedChip(tapChip)}
               swatch={paletteFor(
                 'attention',
                 pinned.urgent ? 'urgent' : 'wants_person'

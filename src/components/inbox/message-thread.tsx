@@ -436,7 +436,8 @@ export function MessageThread({
   // the layout effect can keep the same message under the reader's eye
   // instead of jumping to the bottom.
   const prependAnchorRef = useRef<{ height: number; top: number } | null>(null);
-  const [templateModalOpen, setTemplateModalOpen] = useState(false);
+  // The chat the template picker was opened for: it is closed in any other.
+  const [templatesFor, setTemplatesFor] = useState<string | null>(null);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   // Until then a bubble from someone else waits for their name rather
   // than call them unknown (lib/inbox/sender.ts).
@@ -1219,6 +1220,7 @@ export function MessageThread({
   useEffect(() => {
     setAddingReminder(null);
     setForwarding(null);
+    setTemplatesFor(null);
   }, [conversationId]);
 
   const handleAddReminder = useCallback(
@@ -1835,8 +1837,8 @@ export function MessageThread({
   );
 
   const handleOpenTemplates = useCallback(() => {
-    setTemplateModalOpen(true);
-  }, []);
+    setTemplatesFor(conversationId ?? null);
+  }, [conversationId]);
 
   const handleSendTemplate = useCallback(
     async (
@@ -2728,8 +2730,12 @@ export function MessageThread({
           )}
 
         <TemplatePicker
-          open={templateModalOpen}
-          onOpenChange={setTemplateModalOpen}
+          // Its picked template and values are this chat's.
+          key={conversation.id}
+          open={templatesFor === conversation.id}
+          onOpenChange={(open) =>
+            setTemplatesFor(open ? conversation.id : null)
+          }
           sendsFrom={
             conversation
               ? chatTemplateSendsFrom(

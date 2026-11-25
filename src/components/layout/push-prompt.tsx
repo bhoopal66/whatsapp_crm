@@ -16,6 +16,7 @@ import {
 import { useAuth } from '@/hooks/use-auth';
 import { usePushSubscription } from '@/hooks/use-push-subscription';
 import { pushPromptDismissKey, shouldShowPushPrompt } from '@/lib/push/client';
+import { createPushNavigator } from '@/lib/push/navigate';
 
 /**
  * The browser-wide key the banner used before dismissal was per person.
@@ -48,7 +49,7 @@ function writeDismissed(userId: string) {
  * has never been asked and has no subscription, and the person has not
  * said "Not now" (remembered per person on this browser). Never for a
  * bank guest. Also registers the service worker on every dashboard load
- * and follows a notification click the worker could not navigate itself.
+ * and follows notification clicks (lib/push/navigate.ts).
  */
 export function PushPrompt() {
   const t = useTranslations('PushNotifications');
@@ -92,17 +93,7 @@ export function PushPrompt() {
 
   useEffect(() => {
     if (typeof navigator === 'undefined' || !navigator.serviceWorker) return;
-    const onMessage = (event: MessageEvent) => {
-      const data = event.data as { type?: string; url?: unknown } | null;
-      if (
-        data?.type === 'push:navigate' &&
-        typeof data.url === 'string' &&
-        data.url.startsWith('/') &&
-        !data.url.startsWith('//')
-      ) {
-        router.push(data.url);
-      }
-    };
+    const onMessage = createPushNavigator((url) => router.push(url));
     navigator.serviceWorker.addEventListener('message', onMessage);
     return () =>
       navigator.serviceWorker.removeEventListener('message', onMessage);
