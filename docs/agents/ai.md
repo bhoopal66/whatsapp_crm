@@ -120,6 +120,26 @@ re-run of 202 drops it, so apply in order, once. A failed call that was
 billed is logged too (`AiError.usage`).
 The bot's reply path and `kb_shortlist` are unchanged.
 
+**The learner's skill library (migration 318, `lib/kb/skills.ts`,
+`evolveSkills` in `learn-run.ts`).** Short general rules distilled from
+how admins reviewed earlier drafts. `kb_learn_add_skills` (service role)
+is the only writer: at most 3 per cycle, 24 active, never a title the
+library already has for that kind, so never one an admin retired. One model call at
+most, with the switch on and at most once a week
+(`distillState.lastDistilledAt`, `EVOLVE_INTERVAL_MS`); purpose and usage
+mode `kb_learn`. Examples (the entry's question, the draft, the approved
+text) are masked with the run's known names; proposed and stored rules
+are screened with them (`isSafeSkill` ↔ 318's CHECK
+`kb_learn_skills_no_identifiers`), stored ones again at every use
+(`safeSkills`). Rules go into the draft prompt only (the distil prompt
+lists their titles), never into a reply or `kb_shortlist`; the topic's
+label picks them in the app and is never sent. A draft erased with its
+chats is not a review. 318 restates `kb_learn_record_draft` and
+`kb_learn_gaps_deleted`: **re-run 318 after 290**. `lib/kb/learn-eval`
+(test-only) is the gate for every change here: 0 leaks and 100% on every
+score; don't loosen `EVAL_THRESHOLDS` or drop a case, and a new failure
+becomes a case in `corpus.ts`.
+
 - The bot's sales-chat check is the pipeline's `salesChat` decision
   (`salesChatOnce`), shared with Flows, journeys and automations; a caller
   without one (an older caller, a test) has the dispatch read its own.
