@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
+import { ErrorState } from '@/components/dashboard/error-state';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -61,6 +62,7 @@ export function MetaChannelConfig() {
   const t = useTranslations('Settings.whatsappMeta');
 
   const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showToken, setShowToken] = useState(false);
   const [state, setState] = useState<MetaChannelState | null>(null);
@@ -79,10 +81,13 @@ export function MetaChannelConfig() {
 
   const load = useCallback(async () => {
     setLoading(true);
+    setFailed(false);
     try {
       const res = await fetch('/api/whatsapp/config/meta');
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || t('loadFailed'));
+      const data = await res.json().catch(() => null);
+      if (!res.ok || typeof data?.connected !== 'boolean') {
+        throw new Error(`HTTP ${res.status}`);
+      }
       setState(data);
       if (data.connected) {
         setPhoneNumberId(data.phone_number_id ?? '');
@@ -93,11 +98,14 @@ export function MetaChannelConfig() {
         setTokenEdited(false);
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('loadFailed'));
+      // Never the blank form: it would say "Not connected" of a number
+      // that is.
+      console.error('[MetaChannelConfig] load error:', err);
+      setFailed(true);
     } finally {
       setLoading(false);
     }
-  }, [t]);
+  }, []);
 
   useEffect(() => {
     void load();
@@ -172,6 +180,19 @@ export function MetaChannelConfig() {
         <CardContent className="text-muted-foreground flex items-center gap-2 py-8">
           <Loader2 className="h-4 w-4 animate-spin" />
           {t('loading')}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (failed) {
+    return (
+      <Card className="bg-card border-border">
+        <CardHeader>
+          <CardTitle className="text-foreground">{t('title')}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ErrorState message={t('loadFailed')} onRetry={() => void load()} />
         </CardContent>
       </Card>
     );

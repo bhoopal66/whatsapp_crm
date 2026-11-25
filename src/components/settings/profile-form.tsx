@@ -90,9 +90,14 @@ export function ProfileForm() {
     setRemoveAvatar(true);
   };
 
+  const nameChanged =
+    !!profile && fullName.trim() !== (profile.full_name ?? '').trim();
+  const dirty =
+    !!profile && (nameChanged || pendingAvatar !== null || removeAvatar);
+
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || !profile) return;
+    if (!user || !profile || !dirty) return;
 
     const trimmedName = fullName.trim();
     if (!trimmedName) {
@@ -101,7 +106,10 @@ export function ProfileForm() {
     }
     setSaving(true);
     try {
-      let nextAvatarUrl: string | null = profile.avatar_url ?? null;
+      // Only what was changed here: the name on an old tab may not be
+      // the one an administrator has saved since.
+      const values: { full_name?: string; avatar_url?: string | null } = {};
+      if (nameChanged) values.full_name = trimmedName;
 
       // Upload a newly-staged image, if any.
       if (pendingAvatar) {
@@ -121,19 +129,16 @@ export function ProfileForm() {
         const {
           data: { publicUrl },
         } = supabase.storage.from('avatars').getPublicUrl(path);
-        nextAvatarUrl = publicUrl;
+        values.avatar_url = publicUrl;
       } else if (removeAvatar) {
-        nextAvatarUrl = null;
+        values.avatar_url = null;
       }
 
-      // Persist name + avatar to profiles. Every workspace's row of this
+      // Every workspace's row of this
       // person is updated on purpose: the name is theirs, not a workspace's.
       const { error: updateError } = await supabase
         .from('profiles')
-        .update({
-          full_name: trimmedName,
-          avatar_url: nextAvatarUrl,
-        })
+        .update(values)
         .eq('user_id', user.id);
       if (updateError) {
         throw new Error(t('saveFailed', { message: updateError.message }));
@@ -152,12 +157,6 @@ export function ProfileForm() {
       setSaving(false);
     }
   };
-
-  const dirty =
-    !!profile &&
-    (fullName.trim() !== (profile.full_name ?? '') ||
-      pendingAvatar !== null ||
-      removeAvatar);
 
   const joined = user?.created_at
     ? new Date(user.created_at).toLocaleDateString(uiLocale(), {

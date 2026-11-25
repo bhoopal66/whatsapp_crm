@@ -58,7 +58,10 @@
   `/api/account/members/[id]/details`: `authorize_member_details_change`
   (140's rule), then GoTrue for a new email (`email_confirm: true`, put
   back if the profiles write fails), then the profiles rows, then
-  `log_member_details_change`. `verify-member-details.sql`.
+  `log_member_details_change`. A field is an edit only when it differs from
+  its `expected_*` (what the form showed); a stored value that moved is a
+  409, and an email without `expected_email` never changes a login.
+  `verify-member-details.sql`.
 - **Guards (migration 265).** Both checks refuse an admin, not the owner,
   for someone another person lowered from admin or owner in the last 7
   days (`member_lately_admin`, read from `workspace_audit`): lowering a

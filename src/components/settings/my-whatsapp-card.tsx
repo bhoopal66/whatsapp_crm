@@ -27,6 +27,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { ErrorState } from '@/components/dashboard/error-state';
 import { invalidateCached } from '@/lib/client-cache';
 import {
   OPENWA_PERSONAL_BASE,
@@ -47,6 +48,7 @@ import { OpenWAConnectDialog } from './openwa-connect-dialog';
 export function MyWhatsAppCard() {
   const t = useTranslations('Settings.myWhatsApp');
   const [info, setInfo] = useState<PersonalNumberInfo | null>(null);
+  const [failed, setFailed] = useState(false);
   const [connectOpen, setConnectOpen] = useState(false);
   const [rescanOpen, setRescanOpen] = useState(false);
   // OpenWA's live word for the number (`ready`, `qr_ready`, …); null
@@ -69,6 +71,10 @@ export function MyWhatsAppCard() {
       const body = await res.json().catch(() => null);
       if (seq !== loadSeq.current) return;
       const next = res.ok ? parsePersonalNumberInfo(body) : null;
+      // Only the refusal (a bank guest) is an answer; any other failure
+      // keeps what is shown, and with it the import poll.
+      if (!next && res.status !== 403) return setFailed(true);
+      setFailed(false);
       setInfo(next);
       setLiveStatus((prev) =>
         next?.number && next.number.id === liveFor.current ? prev : null
@@ -86,7 +92,7 @@ export function MyWhatsAppCard() {
       if (seq !== loadSeq.current) return;
       setLiveStatus(typeof live?.status === 'string' ? live.status : null);
     } catch {
-      if (seq === loadSeq.current) setInfo(null);
+      if (seq === loadSeq.current) setFailed(true);
     }
   }, []);
 
@@ -136,6 +142,8 @@ export function MyWhatsAppCard() {
       }
       setConfirmOpen(false);
       setWaitingCount(null);
+      // Gone even if the read below fails and keeps what is shown.
+      setInfo((prev) => prev && { ...prev, number: null, import: null });
       invalidateCached('whatsapp-channels:');
       await load();
     } catch {
@@ -143,6 +151,25 @@ export function MyWhatsAppCard() {
     } finally {
       setRemoving(false);
     }
+  }
+
+  if (failed && !info) {
+    return (
+      <Card>
+        <CardContent className="space-y-4">
+          <h3 className="text-foreground text-sm font-semibold">
+            {t('title')}
+          </h3>
+          <ErrorState
+            message={t('loadFailed')}
+            onRetry={() => {
+              setFailed(false);
+              void load();
+            }}
+          />
+        </CardContent>
+      </Card>
+    );
   }
 
   const view = myWhatsAppView(info);

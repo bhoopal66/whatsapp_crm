@@ -2457,6 +2457,8 @@
       "memberFailed": "Failed to change department"
     },
     "members": {
+      "loadFailed": "Couldn't load the team members.",
+      "invitationsLoadFailed": "Couldn't load the pending invitations.",
       "title": "Team members",
       "description": "People with access to this account. Roles control what each teammate can do.",
       "inviteMember": "Invite member",
@@ -3171,6 +3173,7 @@
       }
     },
     "myWhatsApp": {
+      "loadFailed": "Couldn't load your WhatsApp number.",
       "title": "My WhatsApp",
       "explainer": "Chats on this number are visible to you, your team leader and admins. Automations, flows, AI replies and broadcasts don't use it.",
       "notConfigured": "OpenWA isn't set up on this server",
