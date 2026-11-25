@@ -13,6 +13,7 @@ import {
   type ManagerNumbersReport,
   type NumberBlock,
 } from './manager-numbers';
+import { readAllPages } from './paging';
 import { resyncGroup } from './resync';
 import { channelForGroup, GroupHttpError } from './server';
 import type { WhatsappGroupRow } from './types';
@@ -81,15 +82,20 @@ export async function syncManagerNumbers(
           : group.our_role !== 'admin'
             ? 'not_group_admin'
             : null;
-    const { data: parts, error: partsError } = await admin
-      .from('whatsapp_group_participants')
-      .select('wa_id')
-      .eq('account_id', group.account_id)
-      .eq('group_id', group.id);
-    if (partsError) throw partsError;
-    const participants = ((parts ?? []) as { wa_id: string }[]).map(
-      (p) => p.wa_id
-    );
+    // Paged: a group may hold more people than PostgREST answers at once.
+    const participants = (
+      await readAllPages<{ wa_id: string }>(async (from, to) => {
+        const { data, error } = await admin
+          .from('whatsapp_group_participants')
+          .select('wa_id')
+          .eq('account_id', group.account_id)
+          .eq('group_id', group.id)
+          .order('wa_id')
+          .range(from, to);
+        if (error) throw error;
+        return (data ?? []) as { wa_id: string }[];
+      })
+    ).map((p) => p.wa_id);
     const draft = {
       added: lookedUp(added),
       removed: lookedUp(removed),

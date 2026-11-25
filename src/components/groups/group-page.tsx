@@ -88,6 +88,8 @@ export interface GroupTabProps {
   onTabChange?: (tab: GroupTab) => void;
   /** The picture changed: the header re-reads it. */
   onIconChange?: () => void;
+  /** The page's picture version, so a re-mounted Settings keeps it. */
+  iconVersion?: number;
 }
 
 type State = 'loading' | 'ok' | 'gone' | 'error';
@@ -112,7 +114,8 @@ export function GroupPage({ groupId }: { groupId: string }) {
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [iconVersion, setIconVersion] = useState(0);
-  const [pendingRequests, setPendingRequests] = useState(0);
+  // null: the list could not be read (unknown, not empty).
+  const [pendingRequests, setPendingRequests] = useState<number | null>(0);
   // Open by default where it docks; a sheet waits to be asked for.
   const [dockOpen, setDockOpen] = useState(true);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -168,7 +171,7 @@ export function GroupPage({ groupId }: { groupId: string }) {
     if (!detail || requestsBlocked !== null || !detail.canManage) return;
     let live = true;
     void fetchJoinRequests(groupId).then((list) => {
-      if (live && list) setPendingRequests(list.length);
+      if (live) setPendingRequests(list ? list.length : null);
     });
     return () => {
       live = false;
@@ -182,6 +185,8 @@ export function GroupPage({ groupId }: { groupId: string }) {
             visibleTabs({
               settings: parseGroupSettings(detail.group.settings),
               pendingRequests,
+              requested:
+                searchParams.get('tab') === 'requests' && detail.canManage,
               canEditManagers:
                 (!!accountRole && canEditSettings(accountRole)) ||
                 detail.group.created_by === user?.id,
@@ -189,7 +194,7 @@ export function GroupPage({ groupId }: { groupId: string }) {
             detail.blocks
           )
         : [],
-    [detail, accountRole, user?.id, pendingRequests]
+    [detail, accountRole, user?.id, pendingRequests, searchParams]
   );
 
   const panelOpen = docked ? dockOpen : sheetOpen;
@@ -369,6 +374,7 @@ export function GroupPage({ groupId }: { groupId: string }) {
     reload,
     onTabChange: goToTab,
     onIconChange: () => setIconVersion((v) => v + 1),
+    iconVersion,
   };
 
   const panel = (heading: ReactNode) => (
@@ -380,7 +386,7 @@ export function GroupPage({ groupId }: { groupId: string }) {
       open={openSections}
       onOpenChange={setOpenSections}
       focus={focus}
-      pendingRequests={pendingRequests}
+      pendingRequests={pendingRequests ?? 0}
       onRequestsCount={setPendingRequests}
       numberLabel={numberLabel}
       iconVersion={iconVersion}
