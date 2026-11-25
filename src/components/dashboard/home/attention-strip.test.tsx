@@ -33,11 +33,14 @@ vi.mock('./use-widget-data', () => ({
     mocks.keys.push(key);
     if (key) mocks.loaders.set(key.split(':')[0], load);
     const data = key?.startsWith('attention-insights')
-      ? [
-          { unread_count: 1, insight_lead_temp: 2 },
-          { unread_count: 1, insight_lead_temp: 2 },
-          { unread_count: 1, insight_lead_temp: 1.5 },
-        ]
+      ? {
+          rows: [
+            { unread_count: 1, insight_lead_temp: 2 },
+            { unread_count: 1, insight_lead_temp: 2 },
+            { unread_count: 1, insight_lead_temp: 1.5 },
+          ],
+          truncated: false,
+        }
       : null;
     return { data, loading: false, error: false, reload() {}, update() {} };
   },
@@ -51,6 +54,8 @@ vi.mock('@/lib/supabase/client', () => ({
         select: (...a: unknown[]) => (ops.push(['select', ...a]), q),
         or: (...a: unknown[]) => (ops.push(['or', ...a]), q),
         gt: (...a: unknown[]) => (ops.push(['gt', ...a]), q),
+        order: (...a: unknown[]) => (ops.push(['order', ...a]), q),
+        range: (...a: unknown[]) => (ops.push(['range', ...a]), q),
         then: (resolve: (r: unknown) => void) =>
           resolve({ data: [{ id: 'a' }], error: null }),
       };
@@ -111,9 +116,14 @@ describe('AttentionStrip Smart insights tiles', () => {
     render();
     const load = mocks.loaders.get('attention-insights');
     expect(load).toBeDefined();
-    await expect(load!()).resolves.toEqual([{ id: 'a' }]);
+    await expect(load!()).resolves.toEqual({
+      rows: [{ id: 'a' }],
+      truncated: false,
+    });
     const [q] = mocks.ops;
     expect(q).toContainEqual(['gt', 'unread_count', 0]);
+    expect(q).toContainEqual(['order', 'id']);
+    expect(q).toContainEqual(['range', 0, 999]);
     expect(q).toContainEqual([
       'or',
       'insight_lead_temp.gte.1.4,insight_upset.gte.0.7',
