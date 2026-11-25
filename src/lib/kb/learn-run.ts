@@ -24,6 +24,10 @@
  * drafted, discarded, backed off) count toward the ten, so the retries
  * never ask about more than ten topics a week.
  *
+ * Before drafting, the run learns from how admins reviewed the earlier
+ * drafts (318, skills.ts): `evolveSkills` distils at most three short
+ * rules a week, and each draft's prompt gets the ones that fit its topic.
+ *
  * Server-only, service role. Never throws; starts no new account or topic
  * after its time budget.
  */
@@ -54,6 +58,7 @@ import {
   redactEvidence,
   redactEvidenceText,
   wantsArabic,
+  type LearnPrompt,
   type ThreadMessage,
 } from './learn';
 import type { KbLearnRunError } from './learn-settings';
@@ -62,6 +67,22 @@ import {
   type KnownName,
   type NameMatcher,
 } from './known-names';
+import {
+  MAX_ACTIVE_SKILLS,
+  buildDistillPrompt,
+  classifyReview,
+  evolveDecision,
+  isSkillCategory,
+  parseSkillUpdate,
+  prepareExamples,
+  renderSkills,
+  safeSkills,
+  selectSkills,
+  type EvolveReason,
+  type ReviewOutcome,
+  type Skill,
+  type SkillKind,
+} from './skills';
 
 /** The cron pass starts no new account after this long. */
 export const PASS_BUDGET_MS = 45_000;
@@ -71,6 +92,12 @@ export const TOPIC_MIN_BUDGET_MS = 15_000;
 export const MAX_ACCOUNTS_PER_PASS = 20;
 /** The run stops after this many model failures in a row. */
 export const MAX_MODEL_FAILURES = 3;
+/** The skill library is asked about only with this much left: a topic
+ *  still fits after it. */
+export const EVOLVE_MIN_BUDGET_MS = 2 * TOPIC_MIN_BUDGET_MS;
+/** …and not again this soon after the last time (a day short of the
+ *  weekly run, so that one is never missed by seconds). */
+export const EVOLVE_INTERVAL_MS = (KB_LEARN_INTERVAL_DAYS - 1) * 86_400_000;
 /** Gaps of a topic read to find answers. */
 const MAX_GAPS_READ = 25;
 /** Topics read per account. The query already leaves out the covered,
@@ -168,6 +195,39 @@ export interface KbLearnStore {
     until: string
   ): Promise<LearnThread | null>;
   recordDraft(args: RecordDraftArgs): Promise<RecordDraftResult>;
+  /** The skill library (318): the active skills. */
+  activeSkills(accountId: string): Promise<Skill[]>;
+  /** Every skill's kind and title, retired ones included (what an admin
+   *  retired is not added again). */
+  skillTitles(accountId: string): Promise<{ kind: SkillKind; title: string }[]>;
+  /** The latest drafts, newest first, each with its entry as it is now. */
+  reviewRows(accountId: string): Promise<ReviewRow[]>;
+  /** Stamps the outcome of rows not classified yet. */
+  markReviewed(
+    accountId: string,
+    rows: { id: string; outcome: ReviewOutcome }[]
+  ): Promise<void>;
+  /** Whether the switch is still on, and when the library last learned. */
+  distillState(
+    accountId: string
+  ): Promise<{ enabled: boolean; lastDistilledAt: string | null }>;
+  /** kb_learn_add_skills: adds up to three, marks the reviews distilled. */
+  addSkills(
+    accountId: string,
+    skills: Skill[],
+    reviewIds: string[]
+  ): Promise<number>;
+}
+
+/** One kb_learned_drafts row and its entry, for the skill library. */
+export interface ReviewRow {
+  id: string;
+  /** Null once erased (or from before 318): then not a review at all. */
+  draftAnswer: string | null;
+  outcome: ReviewOutcome | null;
+  distilled: boolean;
+  /** Null: the draft was deleted. */
+  entry: { status: string; question: string; answer_en: string } | null;
 }
 
 export interface KbLearnDeps {
@@ -230,6 +290,49 @@ export function topicKey(accountId: string, label: string): string {
 }
 
 /**
+ * The one model call. generateReply runs assertAiTransfer (purpose
+ * 'kb_learn') first; a call the provider answered is logged, a failed one
+ * (cut off, empty) included, as it was billed all the same.
+ */
+async function askModel(
+  deps: KbLearnDeps,
+  accountId: string,
+  config: AiConfig,
+  prompt: LearnPrompt
+): Promise<{ text: string } | 'unusable' | 'model'> {
+  const model = config.modelSmall || config.model;
+  const logUsage = (usage: LogAiUsageArgs['usage']) =>
+    deps.logUsage({
+      accountId,
+      conversationId: null,
+      mode: 'kb_learn',
+      provider: config.provider,
+      model,
+      usage,
+    });
+  try {
+    const result = await deps.generate({
+      config,
+      systemPrompt: prompt.systemPrompt,
+      messages: [{ role: 'user', content: prompt.userMessage }],
+      model,
+      purpose: 'kb_learn',
+    });
+    await logUsage(result.usage);
+    return { text: result.text };
+  } catch (err) {
+    console.warn(
+      `[kb-learn] model call failed for account ${accountId}: ${message(err)}`
+    );
+    if (err instanceof AiError && err.usage) await logUsage(err.usage);
+    return err instanceof AiError &&
+      (err.code === 'truncated' || err.code === 'empty_response')
+      ? 'unusable'
+      : 'model';
+  }
+}
+
+/**
  * One topic. Exported for the tests: the redaction gate, the evidence
  * and what reaches the model are asserted here.
  */
@@ -239,7 +342,8 @@ export async function learnTopic(
   config: AiConfig,
   topic: LearnTopic,
   accountNames: readonly KnownName[],
-  accountMatcher: NameMatcher = buildNameMatcher(accountNames)
+  accountMatcher: NameMatcher = buildNameMatcher(accountNames),
+  skills: readonly Skill[] = []
 ): Promise<TopicOutcome> {
   const { store } = deps;
   // An approved answer already covers it (152's judgment): nothing to learn.
@@ -316,8 +420,12 @@ export async function learnTopic(
     questions: evidence.questions,
     answers: evidence.answers,
     arabic,
+    // The label only picks the rules, here; it is never sent. Screened
+    // again: a name can become known after a rule was stored.
+    houseRules: renderSkills(
+      selectSkills(safeSkills(skills, matcher), topic.label)
+    ),
   });
-  const model = config.modelSmall || config.model;
   const backOff = async (
     reason: 'unusable' | 'discarded' | 'refused'
   ): Promise<TopicOutcome> => {
@@ -337,41 +445,10 @@ export async function learnTopic(
       return { drafted: false, reason: 'unrecorded' };
     }
   };
-  const logUsage = (usage: LogAiUsageArgs['usage']) =>
-    deps.logUsage({
-      accountId,
-      conversationId: null,
-      mode: 'kb_learn',
-      provider: config.provider,
-      model,
-      usage,
-    });
-  let text: string;
-  try {
-    // generateReply runs assertAiTransfer (purpose 'kb_learn') first.
-    const result = await deps.generate({
-      config,
-      systemPrompt: prompt.systemPrompt,
-      messages: [{ role: 'user', content: prompt.userMessage }],
-      model,
-      purpose: 'kb_learn',
-    });
-    await logUsage(result.usage);
-    text = result.text;
-  } catch (err) {
-    console.warn(
-      `[kb-learn] model call failed for account ${accountId}: ${message(err)}`
-    );
-    // Billed all the same when the provider answered (cut off, empty).
-    if (err instanceof AiError && err.usage) await logUsage(err.usage);
-    if (
-      err instanceof AiError &&
-      (err.code === 'truncated' || err.code === 'empty_response')
-    )
-      return backOff('unusable');
-    return { drafted: false, reason: 'model' };
-  }
-  const answer = parseLearnedAnswer(text, arabic, matcher);
+  const asked = await askModel(deps, accountId, config, prompt);
+  if (asked === 'unusable') return backOff('unusable');
+  if (asked === 'model') return { drafted: false, reason: 'model' };
+  const answer = parseLearnedAnswer(asked.text, arabic, matcher);
   if (answer === 'unusable' || answer === 'discarded') return backOff(answer);
 
   const notes = learnedReviewerNotes(answers.map((a) => a.at));
@@ -433,6 +510,16 @@ export async function learnAccount(
       return { ...run, error: 'read_failed' };
     }
     const matcher = buildNameMatcher(names);
+    // Last week's reviews first, so that this week's drafts use them.
+    await evolveSkills(deps, accountId, config, matcher, deadlineAt);
+    let skills: Skill[] = [];
+    try {
+      skills = await deps.store.activeSkills(accountId);
+    } catch (err) {
+      console.warn(
+        `[kb-learn] no skills read for account ${accountId}: ${message(err)}`
+      );
+    }
     let modelFailures = 0; // in a row
     let readFailed = false;
     for (const topic of topics) {
@@ -448,7 +535,8 @@ export async function learnAccount(
           config,
           topic,
           names,
-          matcher
+          matcher,
+          skills
         );
         if (out.reason === 'disabled') return run;
         try {
@@ -489,6 +577,104 @@ export async function learnAccount(
     run.error = 'failed';
   }
   return run;
+}
+
+export interface EvolveResult {
+  /** Reviews classified this run. */
+  classified: number;
+  /** The model was asked. */
+  evolved: boolean;
+  reason: EvolveReason | null;
+  added: number;
+}
+
+/**
+ * The skill library's cycle: classify the reviews of earlier drafts and,
+ * when evolveDecision says so, ask the model for at most three new
+ * general rules from the masked examples. One call at most, guarded as a
+ * topic's: names known (`matcher`), time left, switch still on, once a
+ * week. Never throws, and a failure never stops the drafting.
+ */
+export async function evolveSkills(
+  deps: KbLearnDeps,
+  accountId: string,
+  config: AiConfig,
+  matcher: NameMatcher,
+  deadlineAt: number
+): Promise<EvolveResult> {
+  const now = deps.now ?? Date.now;
+  const { store } = deps;
+  const result: EvolveResult = {
+    classified: 0,
+    evolved: false,
+    reason: null,
+    added: 0,
+  };
+  try {
+    // An erased draft is not one an admin rejected.
+    const rows = (await store.reviewRows(accountId)).flatMap((r) =>
+      r.draftAnswer === null ? [] : [{ ...r, draftAnswer: r.draftAnswer }]
+    );
+    const fresh: { id: string; outcome: ReviewOutcome }[] = [];
+    const reviewed = rows.flatMap((r) => {
+      const outcome = r.outcome ?? classifyReview(r.draftAnswer, r.entry);
+      if (!outcome) return [];
+      if (r.outcome === null) fresh.push({ id: r.id, outcome });
+      return [{ ...r, outcome }];
+    });
+    if (fresh.length > 0) {
+      await store.markReviewed(accountId, fresh);
+      result.classified = fresh.length;
+    }
+    const undistilled = reviewed.filter((r) => !r.distilled);
+    const decision = evolveDecision(
+      undistilled.map((r) => r.outcome),
+      reviewed.map((r) => r.outcome)
+    );
+    result.reason = decision.reason;
+    if (!decision.evolve) return result;
+    const examples = prepareExamples(
+      undistilled.map((r) => ({
+        topic: r.entry?.question ?? '',
+        outcome: r.outcome,
+        draft: r.draftAnswer,
+        final: r.outcome === 'edited' ? (r.entry?.answer_en ?? null) : null,
+      })),
+      matcher
+    );
+    if (examples.length === 0) return result;
+    const known = await store.skillTitles(accountId);
+    const active = await store.activeSkills(accountId);
+    // No room (318's cap): the reviews wait until one is retired.
+    if (active.length >= MAX_ACTIVE_SKILLS) return result;
+    const state = await store.distillState(accountId);
+    const last = state.lastDistilledAt ? Date.parse(state.lastDistilledAt) : 0;
+    if (!state.enabled) return result;
+    if (last > 0 && now() - last < EVOLVE_INTERVAL_MS) return result;
+    if (deadlineAt - now() < EVOLVE_MIN_BUDGET_MS) return result;
+
+    const answer = await askModel(
+      deps,
+      accountId,
+      config,
+      buildDistillPrompt(examples, safeSkills(active, matcher))
+    );
+    if (answer === 'model') return result;
+    result.evolved = true;
+    // An unusable answer marks the reviews too, as a topic's backs off.
+    result.added = await store.addSkills(
+      accountId,
+      answer === 'unusable'
+        ? []
+        : parseSkillUpdate(answer.text, known, examples.length, matcher),
+      undistilled.map((r) => r.id)
+    );
+  } catch (err) {
+    console.warn(
+      `[kb-learn] the skill library failed for account ${accountId}: ${message(err)}`
+    );
+  }
+  return result;
 }
 
 /**
@@ -864,6 +1050,143 @@ export function supabaseKbLearnStore(db: SupabaseClient): KbLearnStore {
         ? status
         : 'error';
     },
+    async activeSkills(accountId) {
+      const { data, error } = await db
+        .from('kb_learn_skills')
+        .select(
+          'id, kind, category, title, principle, when_to_apply, evidence_count'
+        )
+        .eq('account_id', accountId)
+        .eq('status', 'active')
+        .order('evidence_count', { ascending: false })
+        .limit(MAX_ACTIVE_SKILLS);
+      if (error) throw new Error(`skills: ${error.message}`);
+      return ((data ?? []) as SkillRow[]).map(skillFromRow);
+    },
+    async skillTitles(accountId) {
+      const { data, error } = await db
+        .from('kb_learn_skills')
+        .select('kind, title')
+        .eq('account_id', accountId)
+        .limit(500);
+      if (error) throw new Error(`skill titles: ${error.message}`);
+      return (data ?? []) as { kind: SkillKind; title: string }[];
+    },
+    async reviewRows(accountId) {
+      const { data, error } = await db
+        .from('kb_learned_drafts')
+        .select('id, draft_answer_en, entry_id, reviewed_outcome, distilled_at')
+        .eq('account_id', accountId)
+        // A topic noted without a draft, a draft from before 318, an
+        // erased one: none was reviewed by anyone.
+        .is('discarded_at', null)
+        .not('draft_answer_en', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(100);
+      if (error) throw new Error(`ledger: ${error.message}`);
+      const rows = (data ?? []) as {
+        id: string;
+        draft_answer_en: string | null;
+        entry_id: string | null;
+        reviewed_outcome: ReviewOutcome | null;
+        distilled_at: string | null;
+      }[];
+      const ids = rows.flatMap((r) => (r.entry_id ? [r.entry_id] : []));
+      const entries = new Map<string, NonNullable<ReviewRow['entry']>>();
+      if (ids.length > 0) {
+        const { data: es, error: entriesError } = await db
+          .from('kb_entries')
+          .select('id, status, question, answer_en')
+          .eq('account_id', accountId)
+          .in('id', ids);
+        if (entriesError) throw new Error(`entries: ${entriesError.message}`);
+        for (const { id, ...e } of (es ?? []) as ({
+          id: string;
+        } & NonNullable<ReviewRow['entry']>)[])
+          entries.set(id, e);
+      }
+      return rows.flatMap((r) => {
+        const entry = r.entry_id ? entries.get(r.entry_id) : null;
+        // Gone between the two reads: an erase, or a delete. The next run
+        // reads which.
+        if (entry === undefined) return [];
+        return [
+          {
+            id: r.id,
+            draftAnswer: r.draft_answer_en,
+            outcome: r.reviewed_outcome,
+            distilled: r.distilled_at !== null,
+            entry,
+          },
+        ];
+      });
+    },
+    async markReviewed(accountId, rows) {
+      const at = new Date().toISOString();
+      for (const r of rows) {
+        const { error } = await db
+          .from('kb_learned_drafts')
+          .update({ reviewed_outcome: r.outcome, reviewed_at: at })
+          .eq('account_id', accountId)
+          .eq('id', r.id)
+          .is('reviewed_outcome', null);
+        if (error) throw new Error(`review: ${error.message}`);
+      }
+    },
+    async distillState(accountId) {
+      const { data, error } = await db
+        .from('kb_learn_settings')
+        .select('enabled, last_distilled_at')
+        .eq('account_id', accountId)
+        .maybeSingle();
+      if (error) throw new Error(`distill state: ${error.message}`);
+      const row = data as {
+        enabled: boolean;
+        last_distilled_at: string | null;
+      } | null;
+      return {
+        enabled: row?.enabled === true,
+        lastDistilledAt: row?.last_distilled_at ?? null,
+      };
+    },
+    async addSkills(accountId, skills, reviewIds) {
+      const { data, error } = await db.rpc('kb_learn_add_skills', {
+        p_account: accountId,
+        p_skills: skills.map((s) => ({
+          kind: s.kind,
+          category: s.category,
+          title: s.title,
+          principle: s.principle,
+          when_to_apply: s.whenToApply,
+          evidence_count: s.evidenceCount,
+        })),
+        p_review_ids: reviewIds,
+      });
+      if (error) throw new Error(`add skills: ${error.message}`);
+      return typeof data === 'number' ? data : 0;
+    },
+  };
+}
+
+interface SkillRow {
+  id: string;
+  kind: SkillKind;
+  category: string | null;
+  title: string;
+  principle: string;
+  when_to_apply: string | null;
+  evidence_count: number;
+}
+
+function skillFromRow(r: SkillRow): Skill {
+  return {
+    id: r.id,
+    kind: r.kind,
+    category: isSkillCategory(r.category) ? r.category : null,
+    title: r.title,
+    principle: r.principle,
+    whenToApply: r.when_to_apply,
+    evidenceCount: r.evidence_count,
   };
 }
 

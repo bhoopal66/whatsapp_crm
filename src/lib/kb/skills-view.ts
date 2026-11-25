@@ -1,5 +1,5 @@
 /**
- * The learned skill list as the settings panel shows it (migration 290
+ * The learned skill list as the settings panel shows it (migration 318
  * §5). Dependency-free: the client component imports it.
  */
 

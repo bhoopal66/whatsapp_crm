@@ -1,5 +1,5 @@
 /**
- * The learner's skill library (migration 290, section 5): the SkillRL
+ * The learner's skill library (migration 318): the SkillRL
  * idea applied at prompt level, with no model training.
  *
  * SkillRL ("Evolving Agents via Recursive Skill-Augmented Reinforcement
@@ -23,15 +23,14 @@
  *                `selectSkills`
  *
  * Banking guard rails: a skill is a short general rule, checked for
- * identifiers here (`parseSkillUpdate`) and again by 290's CHECK; every
- * skill is visible to admins and retirable; skills only shape drafts.
+ * identifiers and known names when it comes in (`parseSkillUpdate`) and
+ * each time it is used (`safeSkills`: a name can become known later), and
+ * for identifiers by 318's CHECK; every skill is visible to admins and
+ * retirable; skills only shape drafts.
  * Pure: the job is learn-run.ts.
  */
-import {
-  isSafeGeneralText,
-  redactEvidenceText,
-  type LearnPrompt,
-} from './learn';
+import type { NameMatcher } from './known-names';
+import { redactEvidenceText, screenText, type LearnPrompt } from './learn';
 
 export type SkillKind = 'general' | 'category' | 'mistake';
 export const SKILL_KINDS: readonly SkillKind[] = [
@@ -59,9 +58,9 @@ export const EVOLVE_MIN_REVIEWS = 5;
 export const EVOLVE_APPROVAL_THRESHOLD = 0.4;
 /** The approval rate is taken over this many latest reviews. */
 export const EVOLVE_RECENT_WINDOW = 20;
-/** New skills per cycle (SkillRL: max_new_skills 3; 290 enforces it). */
+/** New skills per cycle (SkillRL: max_new_skills 3; 318 enforces it). */
 export const MAX_NEW_SKILLS = 3;
-/** Active skills per account (290 enforces it). */
+/** Active skills per account (318 enforces it). */
 export const MAX_ACTIVE_SKILLS = 24;
 /** Review examples sent per distillation. */
 export const MAX_DISTILL_EXAMPLES = 10;
@@ -196,6 +195,7 @@ export function evolveDecision(
 }
 
 export interface ReviewExample {
+  /** The entry's question; '' when the draft was deleted. */
   topic: string;
   outcome: ReviewOutcome;
   draft: string;
@@ -205,11 +205,12 @@ export interface ReviewExample {
 
 /**
  * The examples as the model may see them: redacted (fail closed: an
- * example that cannot be screened is dropped, not sent), failures and
+ * example that cannot be screened is dropped, not sent; names and all), failures and
  * corrections first (they teach the most), at most MAX_DISTILL_EXAMPLES.
  */
 export function prepareExamples(
-  raw: readonly ReviewExample[]
+  raw: readonly ReviewExample[],
+  names: NameMatcher
 ): ReviewExample[] {
   const weight: Record<ReviewOutcome, number> = {
     removed: 0,
@@ -222,10 +223,10 @@ export function prepareExamples(
     (a, b) => weight[a.outcome] - weight[b.outcome]
   )) {
     if (out.length >= MAX_DISTILL_EXAMPLES) break;
-    const topic = redactEvidenceText(e.topic);
-    const draft = redactEvidenceText(e.draft);
-    const final = e.final === null ? null : redactEvidenceText(e.final);
-    if (!topic || !draft || (e.final !== null && !final)) continue;
+    const topic = e.topic === '' ? '' : redactEvidenceText(e.topic, names);
+    const draft = redactEvidenceText(e.draft, names);
+    const final = e.final === null ? null : redactEvidenceText(e.final, names);
+    if (topic === null || !draft || (e.final !== null && !final)) continue;
     out.push({ topic, outcome: e.outcome, draft, final });
   }
   return out;
@@ -268,7 +269,7 @@ export function buildDistillPrompt(
     ...examples.map((e, i) =>
       [
         `Example ${i + 1}: ${OUTCOME_TEXT[e.outcome]}`,
-        `Topic: ${fence(e.topic)}`,
+        ...(e.topic ? [`Topic: ${fence(e.topic)}`] : []),
         `Draft: ${fence(e.draft)}`,
         ...(e.final !== null && e.outcome === 'edited'
           ? [`Approved text: ${fence(e.final)}`]
@@ -281,18 +282,49 @@ export function buildDistillPrompt(
   return { systemPrompt, userMessage };
 }
 
+// 318's CHECK kb_learn_skills_no_identifiers, over the three fields
+// joined as it joins them. What screenText lets through and it refuses:
+// a lone '@', an amount of nine digits or more, a bare '://'.
+const CHECK_REFUSES = [
+  /@/u,
+  /\p{Nd}(?:[^\p{Nd}]{0,2}\p{Nd}){8,}/u,
+  /\[(?:EMAIL|IBAN|EID|CARD|OTP|ACCT|PASSPORT|PHONE|ID|NAME|CASE|LINK|withheld)/iu,
+  /\p{Nd}{5}|:\/\/|www\./iu,
+];
+
+/** A rule safe to store, and to send: what 318's CHECK refuses, and any
+ *  known name, identifier, mask or copy of a prompt. */
+export function isSafeSkill(
+  s: Pick<Skill, 'title' | 'principle' | 'whenToApply'>,
+  names: NameMatcher
+): boolean {
+  const joined = `${s.title} ${s.principle} ${s.whenToApply ?? ''}`;
+  if (CHECK_REFUSES.some((re) => re.test(joined))) return false;
+  return [s.title, s.principle, s.whenToApply ?? '', joined.trim()].every((t) =>
+    screenText(t, names)
+  );
+}
+
+/** The stored skills that may be sent now, names learned since they were
+ *  stored included. */
+export const safeSkills = (
+  skills: readonly Skill[],
+  names: NameMatcher
+): Skill[] => skills.filter((s) => isSafeSkill(s, names));
+
 const norm = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim();
 
 /**
  * The model's proposed skills, validated: known kind and category, within
- * the length limits, general (isSafeGeneralText), not a title the library
+ * the length limits, general (isSafeSkill), not a title the library
  * already has (any status), at most MAX_NEW_SKILLS. Anything else is
  * dropped. Never throws.
  */
 export function parseSkillUpdate(
   raw: string,
   knownTitles: readonly { kind: SkillKind; title: string }[],
-  evidenceCount = 1
+  evidenceCount: number,
+  names: NameMatcher
 ): Skill[] {
   if (typeof raw !== 'string') return [];
   const body = raw
@@ -322,12 +354,12 @@ export function parseSkillUpdate(
     const v = item as Record<string, unknown>;
     const kind = v.kind;
     if (!(SKILL_KINDS as readonly unknown[]).includes(kind)) continue;
-    const title = typeof v.title === 'string' ? v.title.trim() : '';
-    const principle = typeof v.principle === 'string' ? v.principle.trim() : '';
-    const when =
-      typeof v.when_to_apply === 'string' && v.when_to_apply.trim()
-        ? v.when_to_apply.trim()
-        : null;
+    // One line each: a rule becomes one line of the draft's prompt.
+    const line = (x: unknown) =>
+      typeof x === 'string' ? x.replace(/\s+/g, ' ').trim() : '';
+    const title = line(v.title);
+    const principle = line(v.principle);
+    const when = line(v.when_to_apply) || null;
     if (
       !title ||
       !principle ||
@@ -341,12 +373,7 @@ export function parseSkillUpdate(
       if (!isSkillCategory(v.category) || v.category === 'other') continue;
       category = v.category;
     }
-    if (
-      ![title, principle, when ?? ''].every((t) => !t || isSafeGeneralText(t))
-    )
-      continue;
-    // The 290 CHECK refuses an '@' outright (an e-mail-shaped word).
-    if (/@/.test(`${title} ${principle} ${when ?? ''}`)) continue;
+    if (!isSafeSkill({ title, principle, whenToApply: when }, names)) continue;
     const key = `${kind}:${norm(title)}`;
     if (seen.has(key)) continue;
     seen.add(key);

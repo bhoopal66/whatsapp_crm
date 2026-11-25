@@ -1,4 +1,8 @@
+import { readFileSync } from 'node:fs';
+
 import { describe, expect, it } from 'vitest';
+
+import { buildNameMatcher } from './known-names';
 
 import {
   EVOLVE_APPROVAL_THRESHOLD,
@@ -10,13 +14,18 @@ import {
   classifyReview,
   evolveDecision,
   parseSkillUpdate,
+  isSafeSkill,
   prepareExamples,
   renderSkills,
+  safeSkills,
   selectSkills,
   tokenSimilarity,
   type ReviewOutcome,
   type Skill,
 } from './skills';
+
+const NONE = buildNameMatcher([]);
+const NAMES = buildNameMatcher(['Sara Haddad', 'محمد علي']);
 
 const skill = (over: Partial<Skill>): Skill => ({
   kind: 'general',
@@ -96,32 +105,162 @@ describe('evolveDecision', () => {
 
 describe('prepareExamples', () => {
   it('redacts, puts failures and corrections first, caps, and fails closed', () => {
-    const out = prepareExamples([
-      { topic: 'ok topic', outcome: 'approved', draft: 'fine', final: 'fine' },
-      {
-        topic: 'call 0501234567',
-        outcome: 'removed',
-        draft: 'Write to sara@example.com',
-        final: null,
-      },
-      {
-        topic: 'bad',
-        outcome: 'edited',
-        draft: 'x',
-        final: 42 as unknown as string,
-      },
-      ...Array.from({ length: 20 }, (_, i) => ({
-        topic: `t${i}`,
-        outcome: 'approved' as const,
-        draft: 'd',
-        final: 'd',
-      })),
-    ]);
+    const out = prepareExamples(
+      [
+        {
+          topic: 'ok topic',
+          outcome: 'approved',
+          draft: 'fine',
+          final: 'fine',
+        },
+        {
+          topic: 'call 0501234567',
+          outcome: 'removed',
+          draft: 'Write to sara@example.com',
+          final: null,
+        },
+        {
+          topic: 'bad',
+          outcome: 'edited',
+          draft: 'x',
+          final: 42 as unknown as string,
+        },
+        ...Array.from({ length: 20 }, (_, i) => ({
+          topic: `t${i}`,
+          outcome: 'approved' as const,
+          draft: 'd',
+          final: 'd',
+        })),
+      ],
+      NONE
+    );
     expect(out[0]!.outcome).toBe('removed');
     expect(out[0]!.topic).not.toContain('0501234567');
     expect(out[0]!.draft).not.toContain('sara@example.com');
     expect(out.some((e) => e.topic === 'bad')).toBe(false);
     expect(out.length).toBe(MAX_DISTILL_EXAMPLES);
+  });
+});
+
+describe('prepareExamples names', () => {
+  it('masks known names in all three texts, and allows no topic', () => {
+    const out = prepareExamples(
+      [
+        {
+          topic: 'Can Sara reapply?',
+          outcome: 'edited',
+          draft: 'Haddad may reapply.',
+          final: 'نعم، لمحمد.',
+        },
+        { topic: '', outcome: 'deleted', draft: 'Ask Sara.', final: null },
+      ],
+      NAMES
+    );
+    expect(out).toHaveLength(2);
+    const all = JSON.stringify(out);
+    for (const bad of ['Sara', 'Haddad', 'محمد'])
+      expect(all).not.toContain(bad);
+    expect(all).toContain('reapply');
+    expect(out.find((e) => e.outcome === 'deleted')!.topic).toBe('');
+    const sent = buildDistillPrompt(out, []).userMessage;
+    expect(sent.match(/^Topic:/gm)).toHaveLength(1);
+  });
+});
+
+describe('isSafeSkill', () => {
+  const s = (
+    principle: string,
+    title = 'T',
+    whenToApply: string | null = null
+  ) => ({ title, principle, whenToApply });
+  // Each of 318's CHECK patterns, read from the migration.
+  const sql = readFileSync(
+    'supabase/migrations/318_kb_learn_skills.sql',
+    'utf8'
+  );
+  const check =
+    /CONSTRAINT kb_learn_skills_no_identifiers CHECK \(([\s\S]*?)\n {2}\)\n\);/.exec(
+      sql
+    )![1]!;
+  const patterns = [...check.matchAll(/!~(\*?) '([^']+)'/g)].map(
+    ([, ci, re]) => new RegExp(re!, ci ? 'iu' : 'u')
+  );
+  const corpus = [
+    s('Write to help@bank'),
+    s('Look at x @ y'),
+    s('Give 050 123 4567 8'),
+    s('Give ٠٥٠-١٢٣-٤٥٦٧'),
+    s('A limit of 1,000,000,000 applies'),
+    s('567 8 90', 'From 1234'),
+    s('Quote 12345'),
+    s('Quote ۱۲۳۴۵'),
+    s('Quote １２３４５'),
+    s('See app://open'),
+    s('See :// there'),
+    s('See WWW.x'),
+    ...[
+      'EMAIL',
+      'IBAN',
+      'EID',
+      'CARD',
+      'OTP',
+      'ACCT',
+      'PASSPORT',
+      'PHONE:123',
+      'ID',
+      'NAME',
+      'CASE',
+      'LINK',
+      'withheld',
+    ].flatMap((m) => [s(`Ask [${m}] first`), s(`Ask [${m.toLowerCase()} x`)]),
+    s('fine', 'fine', 'for [CASE]'),
+  ];
+  it('refuses all that 318’s CHECK refuses', () => {
+    expect(patterns).toHaveLength(4);
+    const joined = (x: (typeof corpus)[number]) =>
+      `${x.title} ${x.principle} ${x.whenToApply ?? ''}`;
+    for (const re of patterns)
+      expect(
+        corpus.some((x) => re.test(joined(x))),
+        String(re)
+      ).toBe(true);
+    for (const x of corpus) {
+      expect(
+        patterns.some((re) => re.test(joined(x))),
+        joined(x)
+      ).toBe(true);
+      expect(isSafeSkill(x, NONE), joined(x)).toBe(false);
+    }
+  });
+  it('refuses a known name, a case number and prompt text; keeps a rule', () => {
+    expect(isSafeSkill(s('Never mention Sara.'), NAMES)).toBe(false);
+    expect(isSafeSkill(s('Never mention Sara.'), NONE)).toBe(true);
+    expect(isSafeSkill(s('As in TC-20451.'), NONE)).toBe(false);
+    expect(isSafeSkill(s('Return only JSON: {}'), NONE)).toBe(false);
+    expect(
+      isSafeSkill(s('Say a fee is AED 1,500 a year, for 2 years.'), NAMES)
+    ).toBe(true);
+    expect(
+      safeSkills([skill({}), skill({ title: 'About Haddad' })], NAMES).map(
+        (x) => x.title
+      )
+    ).toEqual(['Keep it short']);
+  });
+  it('a proposed rule with a known name is dropped; one line each', () => {
+    const out = parseSkillUpdate(
+      JSON.stringify({
+        skills: [
+          { kind: 'general', title: 'Sara rule', principle: 'x y' },
+          { kind: 'general', title: 'Two\nlines', principle: 'a\n- b' },
+        ],
+      }),
+      [],
+      2,
+      NAMES
+    );
+    expect(out.map((x) => [x.title, x.principle])).toEqual([
+      ['Two lines', 'a - b'],
+    ]);
   });
 });
 
@@ -182,7 +321,8 @@ describe('parseSkillUpdate', () => {
         { kind: 'general', title: 'Fourth', principle: 'Dropped by the cap.' },
       ]),
       [],
-      6
+      6,
+      NONE
     );
     expect(out.map((s) => s.title)).toEqual([
       'Name the documents',
@@ -227,14 +367,18 @@ describe('parseSkillUpdate', () => {
             principle: 'too long title',
           },
         ]),
-        [{ kind: 'general', title: 'Keep it short' }]
+        [{ kind: 'general', title: 'Keep it short' }],
+        1,
+        NONE
       )
     ).toEqual([]);
   });
   it('reads junk as nothing', () => {
-    expect(parseSkillUpdate('no json', [])).toEqual([]);
-    expect(parseSkillUpdate('{"skills": "x"}', [])).toEqual([]);
-    expect(parseSkillUpdate('```json\n{"skills": []}\n```', [])).toEqual([]);
+    expect(parseSkillUpdate('no json', [], 1, NONE)).toEqual([]);
+    expect(parseSkillUpdate('{"skills": "x"}', [], 1, NONE)).toEqual([]);
+    expect(
+      parseSkillUpdate('```json\n{"skills": []}\n```', [], 1, NONE)
+    ).toEqual([]);
   });
 });
 

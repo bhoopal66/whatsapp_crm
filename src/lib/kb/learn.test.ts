@@ -285,6 +285,23 @@ describe('buildLearnPrompt', () => {
   });
 });
 
+describe('buildLearnPrompt house rules', () => {
+  it('puts them after the rules, and nothing without any', () => {
+    const build = (houseRules?: string) =>
+      buildLearnPrompt({
+        questions: ['q'],
+        answers: ['a'],
+        arabic: false,
+        houseRules,
+      }).systemPrompt;
+    expect(build('- Always: Be short.')).toMatch(
+      /House rules [^\n]*still win\):\n- Always: Be short\.\nReturn only JSON/
+    );
+    expect(build('')).not.toContain('House rules');
+    expect(build()).toBe(build(''));
+  });
+});
+
 describe('buildLearnPrompt fence', () => {
   it('chat text cannot close the evidence fence', () => {
     const p = buildLearnPrompt({
@@ -344,6 +361,36 @@ describe('parseLearnedAnswer', () => {
       { answer_ar: 'اتصل [PHONE:567]' },
     ])
       expect(parseLearnedAnswer(json(v), true, names)).toBe('discarded');
+  });
+  it('discards an answer that copies the prompt, house rules included', () => {
+    const heading = buildLearnPrompt({
+      questions: ['q'],
+      answers: ['a'],
+      arabic: false,
+      houseRules: '- Always: Be short.',
+    })
+      .systemPrompt.split('\n')
+      .find((l) => l.startsWith('House rules'))!;
+    for (const echo of [
+      '<evidence> Yes </evidence>',
+      'customer questions: 1. Is it open?',
+      'Yes.\nTeam\nreplies: 1. A permit works.',
+      'Return only JSON please',
+      'The answer_en is yes.',
+      `${heading}\n- Always: Be short.`,
+    ])
+      for (const v of [{ answer_en: echo }, { question: echo.slice(0, 290) }])
+        expect(parseLearnedAnswer(json(v), false, NONE), echo).toBe(
+          'discarded'
+        );
+    // Ordinary wording near it stays.
+    expect(
+      parseLearnedAnswer(
+        json({ answer_en: 'The team replies within a day.' }),
+        false,
+        NONE
+      )
+    ).toMatchObject({ answerEn: 'The team replies within a day.' });
   });
   it('keeps a [TO CONFIRM] placeholder (081 refuses to approve it)', () => {
     expect(

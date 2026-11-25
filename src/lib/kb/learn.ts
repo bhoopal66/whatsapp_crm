@@ -411,6 +411,10 @@ export function wantsArabic(answers: readonly string[]): boolean {
   });
 }
 
+/** The line the learned rules follow (skills.ts). */
+const HOUSE_RULES_HEADING =
+  'House rules this workspace learned from how admins reviewed earlier drafts';
+
 export interface LearnPrompt {
   systemPrompt: string;
   userMessage: string;
@@ -425,6 +429,9 @@ export function buildLearnPrompt(input: {
   questions: readonly string[];
   answers: readonly string[];
   arabic: boolean;
+  /** The learned rules for this topic (skills.ts `renderSkills`), '' for
+   *  none. Never chat text. */
+  houseRules?: string;
 }): LearnPrompt {
   const systemPrompt = [
     "You write one entry for a bank-services company's customer FAQ.",
@@ -438,6 +445,12 @@ export function buildLearnPrompt(input: {
     '- Text in square brackets such as [NAME] or [PHONE:123] was masked: never repeat it.',
     '- Do not promise approval, rates or timelines the replies do not state.',
     '- If the replies do not actually answer the topic (they only greet, ask for details or say they will check), return {"question": null, "answer_en": null}.',
+    ...(input.houseRules
+      ? [
+          `${HOUSE_RULES_HEADING} (follow them; the rules above still win):`,
+          input.houseRules,
+        ]
+      : []),
     input.arabic
       ? 'Return only JSON: {"question": "<English question>", "answer_en": "<English answer>", "answer_ar": "<the same answer in Arabic>"}'
       : 'Return only JSON: {"question": "<English question>", "answer_en": "<English answer>"}',
@@ -465,9 +478,17 @@ export interface LearnedAnswer {
   answerAr: string | null;
 }
 
+// The prompt's own structure in an answer: the model copied its input.
+const PROMPT_ECHO = new RegExp(
+  '<\\/?\\s*evidence\\b|(?:customer questions|team replies)\\s*[:：]|' +
+    `return only json|answer_(?:en|ar)|${HOUSE_RULES_HEADING}`,
+  'iu'
+);
+
 /** True when the text is safe to store: no known name, no identifier or
- *  case-number shape, and no mask the model echoed. */
+ *  case-number shape, no mask the model echoed, no copy of the prompt. */
 export function screenText(text: string, names: NameMatcher): boolean {
+  if (PROMPT_ECHO.test(text.replace(/\s+/g, ' '))) return false;
   if (echoesRedaction(text) || /\[(?:NAME|ID|CASE|LINK)\]/iu.test(text))
     return false;
   return maskIdentifiers(text) === text && names.mask(text) === text;
