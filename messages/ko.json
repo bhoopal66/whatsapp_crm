@@ -561,6 +561,9 @@
       "personalOf": "개인 · {name}"
     },
     "messageThread": {
+      "reactionWait": "메시지 전송이 끝날 때까지 기다려 주세요",
+      "reactionFailed": "반응을 남기지 못했습니다: {reason}",
+      "reactionNetworkError": "서버에 연결할 수 없습니다",
       "personalMine": "내 WhatsApp",
       "personalOf": "개인 · {name}",
       "loadingMessages": "메시지 불러오는 중",

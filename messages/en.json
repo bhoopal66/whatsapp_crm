@@ -561,6 +561,9 @@
       "personalOf": "Personal · {name}"
     },
     "messageThread": {
+      "reactionWait": "Wait for the message to finish sending",
+      "reactionFailed": "Reaction failed: {reason}",
+      "reactionNetworkError": "Could not reach the server",
       "personalMine": "My WhatsApp",
       "personalOf": "Personal · {name}",
       "loadingMessages": "Loading messages",
