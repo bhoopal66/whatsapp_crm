@@ -708,15 +708,51 @@ export function staffNumberNote(
 }
 
 /**
- * What the add-number dialog says of a refusal: the answer's own words,
- * or one of its keys. No words is a proxy's answer (the app restarting),
- * and a 5xx of that kind may have come after the add.
+ * The refusal codes the invite and add-number routes answer beside their
+ * English `error`. Each has a line in `SubmissionGroups.refusals`, so the
+ * screen words it in the reader's language and never shows server text.
+ */
+export const SG_REFUSAL_CODES = [
+  'not_found',
+  'not_active',
+  'not_allowed',
+  'no_whatsapp',
+  'no_group_yet',
+  'detached',
+  'bad_phone',
+  'own_number',
+  'opted_out',
+  'do_not_contact',
+  'no_phone',
+  'already_joined',
+  'in_progress',
+  'too_many',
+  'too_soon',
+  'unknown',
+] as const;
+export type SgRefusalCode = (typeof SG_REFUSAL_CODES)[number];
+
+/** The answer's refusal code, or null for none or one this build does not know. */
+export function refusalCode(
+  body: { code?: unknown } | null | undefined
+): SgRefusalCode | null {
+  return (SG_REFUSAL_CODES as readonly unknown[]).includes(body?.code)
+    ? (body?.code as SgRefusalCode)
+    : null;
+}
+
+/**
+ * What the add-number dialog says of a refusal: a known refusal code, or
+ * one of its generic keys. No answer at all is a proxy's (the app
+ * restarting), and a 5xx of that kind may have come after the add.
  */
 export function addNumberFailure(
   status: number,
   body: { error?: unknown; code?: unknown } | null
-): { words: string } | { key: 'failed' | 'maybeAdded' } {
+): { refusal: SgRefusalCode } | { key: 'failed' | 'maybeAdded' } {
   if (body?.code === SEND_UNCONFIRMED) return { key: 'maybeAdded' };
-  if (typeof body?.error === 'string') return { words: body.error };
+  const refusal = refusalCode(body);
+  if (refusal) return { refusal };
+  if (typeof body?.error === 'string') return { key: 'failed' };
   return { key: status >= 500 ? 'maybeAdded' : 'failed' };
 }

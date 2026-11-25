@@ -33,6 +33,7 @@ export function AddNumberDialog({
   onAdded: () => void;
 }) {
   const t = useTranslations('SubmissionGroups.addNumber');
+  const tRefusal = useTranslations('SubmissionGroups.refusals');
   const [phone, setPhone] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -60,7 +61,7 @@ export function AddNumberDialog({
       } | null;
       if (!res.ok) {
         const why = addNumberFailure(res.status, json);
-        setError('words' in why ? why.words : t(why.key));
+        setError('refusal' in why ? tRefusal(why.refusal) : t(why.key));
         return;
       }
       onAdded();

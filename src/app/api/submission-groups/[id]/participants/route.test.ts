@@ -92,7 +92,9 @@ describe('POST /api/submission-groups/[id]/participants', () => {
     });
     const res = await post({ phone: '+971501234567' });
     expect(res.status).toBe(429);
-    expect((await res.json()).error).toMatch(/last 24 hours/);
+    const body = await res.json();
+    expect(body.error).toMatch(/last 24 hours/);
+    expect(body.code).toBe('too_many');
   });
 
   it('hands back the invite link when WhatsApp declines', async () => {

@@ -9344,6 +9344,24 @@
       "copyFailed": "Could not copy the link.",
       "failed": "Could not add the number. Try again.",
       "maybeAdded": "No answer: the number may have been added. Check the group before trying again."
+    },
+    "refusals": {
+      "not_found": "Group not found.",
+      "not_active": "This group has ended.",
+      "not_allowed": "You are not on this group.",
+      "no_whatsapp": "This case has no WhatsApp group.",
+      "no_group_yet": "The WhatsApp group has not been created yet.",
+      "detached": "The WhatsApp number or the contact was removed.",
+      "bad_phone": "Enter one number with its country code, e.g. +971 50 123 4567.",
+      "own_number": "That is the group's own WhatsApp number.",
+      "opted_out": "This customer has opted out, so nothing was sent.",
+      "do_not_contact": "This customer is marked do not contact, so nothing was sent.",
+      "no_phone": "The customer has no phone number.",
+      "already_joined": "The customer is already in the group.",
+      "in_progress": "This number is being added already. Wait a moment.",
+      "too_many": "10 numbers were added to this group in the last 24 hours.",
+      "too_soon": "An invite was sent, or tried, in the last 10 minutes. Try again later.",
+      "unknown": "Could not complete this. Try again."
     }
   },
   "CallStatsPage": {

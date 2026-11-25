@@ -83,6 +83,7 @@ import {
   type SgMessage,
   type SgOlderPage,
   waModeOf,
+  refusalCode,
 } from '@/lib/submission-groups/ui';
 import {
   closeRemaining,
@@ -138,6 +139,7 @@ export function SubmissionGroupPage({
   backHref?: string;
 }) {
   const t = useTranslations('SubmissionGroups.page');
+  const tRefusal = useTranslations('SubmissionGroups.refusals');
   const tDetails = useTranslations('SubmissionGroups.details');
   const tGroups = useTranslations('Groups.page');
   const backLabel = backHref === '/groups' ? tGroups('back') : t('backToList');
@@ -456,11 +458,10 @@ export function SubmissionGroupPage({
       if (res.ok) toast.success(t('inviteResendDone'));
       else {
         const json = (await res.json().catch(() => null)) as {
-          error?: unknown;
+          code?: unknown;
         } | null;
-        toast.error(
-          typeof json?.error === 'string' ? json.error : t('inviteResendFailed')
-        );
+        const code = refusalCode(json);
+        toast.error(code ? tRefusal(code) : t('inviteResendFailed'));
       }
     } catch {
       toast.error(t('inviteResendFailed'));

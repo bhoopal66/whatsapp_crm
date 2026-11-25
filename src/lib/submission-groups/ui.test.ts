@@ -13,6 +13,8 @@ import {
   mergeFirstPage,
   onlyMine,
   ownSendStored,
+  refusalCode,
+  SG_REFUSAL_CODES,
   refusedSendOutcome,
   shortRef,
   trackerStatusChip,
@@ -734,8 +736,34 @@ describe('addNumberFailure', () => {
     expect(addNumberFailure(504, null)).toEqual({ key: 'maybeAdded' });
     expect(addNumberFailure(413, null)).toEqual({ key: 'failed' });
     expect(addNumberFailure(409, { error: 'Ended' })).toEqual({
-      words: 'Ended',
+      key: 'failed',
     });
+  });
+
+  it('maps a known refusal code, never the server text', () => {
+    expect(
+      addNumberFailure(429, { error: '10 numbers', code: 'too_many' })
+    ).toEqual({ refusal: 'too_many' });
+    expect(addNumberFailure(400, { code: 'nope' })).toEqual({ key: 'failed' });
+  });
+});
+
+describe('refusalCode', () => {
+  it('has a line in every catalogue for each code', async () => {
+    for (const loc of ['en', 'ar', 'ko']) {
+      const cat = (await import(`../../../messages/${loc}.json`)).default;
+      for (const code of SG_REFUSAL_CODES)
+        expect(
+          cat.SubmissionGroups.refusals[code],
+          `${loc}.${code}`
+        ).toBeTruthy();
+    }
+  });
+
+  it('knows the codes and nothing else', () => {
+    expect(refusalCode({ code: 'too_soon' })).toBe('too_soon');
+    expect(refusalCode({ code: 'made_up' })).toBeNull();
+    expect(refusalCode(null)).toBeNull();
   });
 });
 
