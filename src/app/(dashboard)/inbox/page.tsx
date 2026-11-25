@@ -68,6 +68,7 @@ import {
   chatPopAction,
   chatUrlWrite,
   isPushedChat,
+  linkToFollow,
   TWO_PANE_QUERY,
 } from '@/lib/inbox/chat-history';
 import type { InboxNarrowing } from '@/lib/inbox/unread-counts';
@@ -410,6 +411,9 @@ export function InboxPageInner({
   // back to the deep-linked conversation if they've already clicked
   // elsewhere.
   const autoSelectedForDeepLinkRef = useRef<string | null>(null);
+  /** The list has loaded once: from here a new `?c=` is a link followed
+   *  with the Inbox on screen (see the effect below). */
+  const listLoadedRef = useRef(false);
 
   // Tracks conversations whose hydrate fetch is currently in flight. The
   // conv-INSERT and the first-message-INSERT events both call into
@@ -1062,6 +1066,7 @@ export function InboxPageInner({
         return;
       }
       listCursorRef.current = load.cursor;
+      listLoadedRef.current = true;
       setConversations(loaded);
       // Resolve a pending deep-link here rather than in an effect — this
       // is an event handler, so the setState calls below are allowed by
@@ -1258,6 +1263,32 @@ export function InboxPageInner({
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
   }, [basePath, activeConversation?.id, closeChat, openConversationById]);
+
+  // A link to a chat followed while this screen is already open. Only
+  // when the URL's chat changes, so the rest is read through a ref: the
+  // header arrow closes the chat before the URL follows.
+  const followLinkRef = useRef<(urlChat: string | null) => void>(() => {});
+  useEffect(() => {
+    followLinkRef.current = (urlChat) => {
+      const id = linkToFollow({
+        urlChat,
+        locationChat: new URLSearchParams(window.location.search).get('c'),
+        handled: autoSelectedForDeepLinkRef.current,
+        listLoaded: listLoadedRef.current,
+      });
+      if (!id) return;
+      autoSelectedForDeepLinkRef.current = id;
+      if (activeConversation?.id === id) return;
+      const row = conversationsRef.current.find((c) => c.id === id);
+      void openConversationById(id, row);
+      if (document.visibilityState === 'visible') {
+        setConversations((prev) => zeroUnreadOf(prev, id));
+      }
+    };
+  });
+  useEffect(() => {
+    followLinkRef.current(deepLinkConvId);
+  }, [deepLinkConvId]);
 
   // Out of the list and the caches; the open one closes and says why,
   // rather than standing there without its messages.

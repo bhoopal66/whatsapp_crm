@@ -75,3 +75,24 @@ export function chatPopAction(input: {
   if (input.urlChat === input.openId) return { kind: 'none' };
   return { kind: 'open', id: input.urlChat };
 }
+
+/**
+ * The chat a link asks for while the Inbox is already on screen (a bell,
+ * a notification click, search): the list does not load again, so
+ * nothing else opens it. Null when there is nothing to do: our own URL
+ * writes are noted first (`handled`), the first list load opens its own
+ * link, and a `?c=` React has not caught up with is not the one in the
+ * address bar.
+ */
+export function linkToFollow(input: {
+  /** `useSearchParams`' and the address bar's `?c=`. */
+  urlChat: string | null;
+  locationChat: string | null;
+  /** The last `?c=` that was opened. */
+  handled: string | null;
+  listLoaded: boolean;
+}): string | null {
+  const { urlChat, locationChat, handled, listLoaded } = input;
+  if (!urlChat || !listLoaded || urlChat === handled) return null;
+  return urlChat === locationChat ? urlChat : null;
+}

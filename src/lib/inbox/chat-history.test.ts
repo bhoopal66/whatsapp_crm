@@ -88,3 +88,27 @@ describe('chatPopAction', () => {
     expect(chatPopAction({ ...at, twoPane: true }).kind).toBe('none');
   });
 });
+
+describe('linkToFollow', () => {
+  const asked = {
+    urlChat: 'B',
+    locationChat: 'B',
+    handled: 'A',
+    listLoaded: true,
+  };
+  it('is the chat a link asks for with the Inbox on screen', () => {
+    expect(linkToFollow(asked)).toBe('B');
+    expect(linkToFollow({ ...asked, handled: null })).toBe('B');
+  });
+  it('is nothing for our own clicks, the first load, or no chat', () => {
+    expect(linkToFollow({ ...asked, handled: 'B' })).toBeNull();
+    expect(linkToFollow({ ...asked, listLoaded: false })).toBeNull();
+    expect(linkToFollow({ ...asked, urlChat: null })).toBeNull();
+  });
+  it('ignores a URL React is still catching up with (two fast clicks)', () => {
+    expect(
+      linkToFollow({ ...asked, locationChat: 'C', handled: 'C' })
+    ).toBeNull();
+    expect(linkToFollow({ ...asked, locationChat: null })).toBeNull();
+  });
+});
