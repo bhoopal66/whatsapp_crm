@@ -76,7 +76,10 @@ describe('POST invite: who may resend', () => {
       as(r);
       const res = await post();
       expect(res.status).toBe(403);
-      expect(await res.json()).toEqual({ error: expect.any(String) });
+      expect(await res.json()).toEqual({
+        error: expect.any(String),
+        code: 'not_allowed',
+      });
       expect(mocks.resendInvite).not.toHaveBeenCalled();
     }
   );
@@ -109,7 +112,8 @@ describe('POST invite: the answer', () => {
     const res = await post();
     expect(res.status).toBe(status);
     const body = await res.json();
-    expect(Object.keys(body)).toEqual(['error']);
+    expect(Object.keys(body)).toEqual(['error', 'code']);
+    expect(body.code).toBe(code);
     expect(body.error).not.toBe('');
     expect(body.error).not.toContain(code);
   });

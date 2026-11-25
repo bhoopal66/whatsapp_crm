@@ -38,6 +38,7 @@ import {
   groupTitle,
   initialsOf,
   listUrl,
+  mergeFirstPage,
   onlyMine,
   pageAfterReads,
   parseSgList,
@@ -143,14 +144,25 @@ export function SubmissionGroupsList({
       });
       if (!res.ok) throw new Error(String(res.status));
       const page = parseSgList(await res.json());
-      if (mine === seq.current)
-        setLoaded({
-          ...pageAfterReads(page, reads.current),
-          next: page.next_cursor,
-          failed: false,
+      if (mine === seq.current) {
+        const fresh = pageAfterReads(page, reads.current);
+        setLoaded((prev) => {
+          const merged =
+            prev && !prev.failed
+              ? mergeFirstPage(
+                  prev,
+                  { groups: fresh.groups, next: page.next_cursor },
+                  status
+                )
+              : { groups: fresh.groups, next: page.next_cursor };
+          return { ...fresh, ...merged, failed: false };
         });
+      }
     } catch {
-      // Keep the current rows.
+      // Keep the current rows; before the first load, show the retry
+      // instead of a skeleton that never ends.
+      if (mine === seq.current)
+        setLoaded((p) => p ?? { groups: [], next: null, failed: true });
     }
   }, []);
 
@@ -233,7 +245,7 @@ export function SubmissionGroupsList({
         <div className="flex items-baseline justify-end gap-2">
           {rows && (
             <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
-              {loaded?.next && !mineOnly
+              {loaded?.next
                 ? tl('countMore', { count: rows.length })
                 : tl('count', { count: rows.length })}
             </span>
@@ -318,7 +330,7 @@ export function SubmissionGroupsList({
             className="m-3"
           />
         ) : rows && rows.length === 0 ? (
-          loaded.next && !mineOnly ? (
+          loaded.next ? (
             // A filtered page can come back empty with more to read: never
             // claim there is nothing while Load more (below) can find more.
             <p className="text-muted-foreground px-4 py-10 text-center text-sm">

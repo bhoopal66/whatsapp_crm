@@ -10,8 +10,11 @@ import {
   groupContactName,
   groupTitle,
   initialsOf,
+  mergeFirstPage,
   onlyMine,
   ownSendStored,
+  refusalCode,
+  SG_REFUSAL_CODES,
   refusedSendOutcome,
   shortRef,
   trackerStatusChip,
@@ -733,7 +736,85 @@ describe('addNumberFailure', () => {
     expect(addNumberFailure(504, null)).toEqual({ key: 'maybeAdded' });
     expect(addNumberFailure(413, null)).toEqual({ key: 'failed' });
     expect(addNumberFailure(409, { error: 'Ended' })).toEqual({
-      words: 'Ended',
+      key: 'failed',
     });
+  });
+
+  it('maps a known refusal code, never the server text', () => {
+    expect(
+      addNumberFailure(429, { error: '10 numbers', code: 'too_many' })
+    ).toEqual({ refusal: 'too_many' });
+    expect(addNumberFailure(400, { code: 'nope' })).toEqual({ key: 'failed' });
+  });
+});
+
+describe('refusalCode', () => {
+  it('has a line in every catalogue for each code', async () => {
+    for (const loc of ['en', 'ar', 'ko']) {
+      const cat = (await import(`../../../messages/${loc}.json`)).default;
+      for (const code of SG_REFUSAL_CODES)
+        expect(
+          cat.SubmissionGroups.refusals[code],
+          `${loc}.${code}`
+        ).toBeTruthy();
+    }
+  });
+
+  it('knows the codes and nothing else', () => {
+    expect(refusalCode({ code: 'too_soon' })).toBe('too_soon');
+    expect(refusalCode({ code: 'made_up' })).toBeNull();
+    expect(refusalCode(null)).toBeNull();
+  });
+});
+
+describe('mergeFirstPage', () => {
+  const at = (id: string, day: number) =>
+    item({
+      id,
+      last_activity_at: `2026-10-${String(day).padStart(2, '0')}T00:00:00Z`,
+    });
+  // Two pages loaded (5 rows), the first page being 3 rows.
+  const old = {
+    groups: [at('a', 20), at('b', 19), at('c', 18), at('d', 17), at('e', 16)],
+    next: 'OLD',
+  };
+  const ids = (r: { groups: SgListItem[] }) => r.groups.map((g) => g.id);
+
+  it('keeps the rows beyond page one and the old cursor', () => {
+    const r = mergeFirstPage(
+      old,
+      { groups: [at('a', 20), at('b', 19), at('c', 18)], next: 'NEW' },
+      'active'
+    );
+    expect(ids(r)).toEqual(['a', 'b', 'c', 'd', 'e']);
+    expect(r.next).toBe('OLD');
+  });
+
+  it('puts a new row on top and a moved row where it now sorts', () => {
+    const r = mergeFirstPage(
+      old,
+      { groups: [at('n', 22), at('c', 21), at('a', 20)], next: 'NEW' },
+      'active'
+    );
+    // c moved up; b now sorts past page one's last row and stays.
+    expect(ids(r)).toEqual(['n', 'c', 'a', 'b', 'd', 'e']);
+  });
+
+  it('drops an old row inside the fresh range that is gone', () => {
+    const r = mergeFirstPage(
+      old,
+      { groups: [at('a', 20), at('c', 18), at('d', 17)], next: 'NEW' },
+      'active'
+    );
+    expect(ids(r)).toEqual(['a', 'c', 'd', 'e']);
+  });
+
+  it('replaces when one page was loaded or the fresh page is everything', () => {
+    const fresh = { groups: [at('x', 25)], next: 'NEW' };
+    expect(
+      mergeFirstPage({ groups: [at('a', 20)], next: 'OLD' }, fresh, 'active')
+    ).toEqual(fresh);
+    const all = { groups: [at('x', 25)], next: null };
+    expect(mergeFirstPage(old, all, 'active')).toEqual(all);
   });
 });
