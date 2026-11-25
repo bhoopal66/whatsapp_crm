@@ -126,6 +126,29 @@ export class OpenWAError extends Error {
   }
 
   /**
+   * The session cannot send and the request was refused before it reached
+   * WhatsApp: no engine runs for it (400), it is not linked or still
+   * starting (409), or WhatsApp Web is reloading its page. Read off the
+   * gateway's words, as its other 409s say the message may have gone out
+   * and its other 400s belong to one recipient.
+   */
+  get isSessionNotConnected(): boolean {
+    if (this.status === 400) {
+      return /^Session .* is not active\b/.test(this.message);
+    }
+    return (
+      this.status === 409 &&
+      (this.code === 'ENGINE_PAGE_RELOADING' ||
+        this.message.startsWith('Session is not connected'))
+    );
+  }
+
+  /** The gateway says a send cut short may have gone out (a 409). */
+  get mayHaveBeenSent(): boolean {
+    return /may (or may not )?have been sent/.test(this.message);
+  }
+
+  /**
    * The send pacing governor refused: the number's daily allowance, its
    * cold-reachout cap, or the failure breaker. Number-wide, so the next
    * send from the same number fails the same way.

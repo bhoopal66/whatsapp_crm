@@ -53,6 +53,7 @@ import {
   failRefusedCampaign,
   mayContinueBroadcast,
   recordContinueRefusal,
+  waitForNumber,
   type ContinueCandidate,
 } from '@/lib/whatsapp/broadcast-continue';
 import { runBroadcastPass } from '@/lib/whatsapp/broadcast-pass';
@@ -193,7 +194,16 @@ export async function GET(request: Request) {
         skipped++;
         continue;
       }
-      // Channel / template problems are per-account and won't fix
+      if (
+        err instanceof BroadcastError &&
+        err.code === 'whatsapp_not_configured' &&
+        (await waitForNumber(admin, row, err.message, now))
+      ) {
+        // Someone may connect the number again: the appointment moved.
+        deferred++;
+        continue;
+      }
+      // Other channel / template problems are per-account and won't fix
       // themselves by retrying every minute: mark the campaign failed so
       // it surfaces on the detail page instead of silently re-queuing.
       console.error(
@@ -205,6 +215,14 @@ export async function GET(request: Request) {
         skipped++;
         continue;
       }
+      // The page shows why it failed; the rest stay pending for Resume.
+      await recordContinueRefusal(
+        admin,
+        row.id,
+        err instanceof BroadcastError
+          ? err.message
+          : 'The campaign could not be started.'
+      ).catch(() => {});
       await admin
         .from('broadcasts')
         .update({ status: 'failed', updated_at: now.toISOString() })
