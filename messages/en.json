@@ -1471,6 +1471,8 @@
     },
     "detail": {
       "backToBroadcasts": "Back to Broadcasts",
+      "refreshFailed": "Could not refresh: {error}",
+      "retry": "Try again",
       "notFound": "Broadcast not found",
       "template": "Template: {name}",
       "createdAt": "Created {date}",

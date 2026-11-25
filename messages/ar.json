@@ -1471,6 +1471,8 @@
     },
     "detail": {
       "backToBroadcasts": "العودة إلى الحملات",
+      "refreshFailed": "تعذّر التحديث: {error}",
+      "retry": "إعادة المحاولة",
       "notFound": "الحملة غير موجودة",
       "template": "القالب: {name}",
       "createdAt": "تاريخ الإنشاء {date}",

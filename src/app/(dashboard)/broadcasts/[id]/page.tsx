@@ -59,6 +59,9 @@ import {
   type ReplyClassName,
 } from '@/lib/broadcasts/reply-class-view';
 
+/** Poll cadence while the campaign is sending. */
+const POLL_INTERVAL_MS = 10_000;
+
 interface StatCardProps {
   label: string;
   value: number;
@@ -212,6 +215,7 @@ export default function BroadcastDetailPage() {
   );
   /** The Replies card's class filter (migration 148); ANDed with status. */
   const [classFilter, setClassFilter] = useState<ReplyClassName | null>(null);
+  const [recipientsError, setRecipientsError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [resumingScope, setResumingScope] = useState<
@@ -273,6 +277,7 @@ export default function BroadcastDetailPage() {
         pending: pendingRes.count ?? 0,
         failed: failedRes.count ?? 0,
       });
+      setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : t('notFound'));
     } finally {
@@ -294,6 +299,8 @@ export default function BroadcastDetailPage() {
       .select(RECIPIENT_COLUMNS, { count: 'exact' })
       .eq('broadcast_id', broadcastId)
       .order('created_at', { ascending: false })
+      // A campaign's rows share one created_at: the id keeps pages apart.
+      .order('id', { ascending: true })
       .range(from, from + RECIPIENTS_PAGE_SIZE - 1);
     if (statusFilter !== 'all') q = q.eq('status', statusFilter);
     if (classFilter) q = q.eq('reply_class', classFilter);
@@ -301,8 +308,9 @@ export default function BroadcastDetailPage() {
     const { data, count, error: recsError } = await q;
     if (seq !== recipientsSeq.current) return; // superseded
     if (recsError) {
-      setError(recsError.message);
+      setRecipientsError(recsError.message);
     } else {
+      setRecipientsError(null);
       setRecipients((data ?? []) as unknown as BroadcastRecipient[]);
       setFilteredTotal(count ?? 0);
     }
@@ -321,6 +329,21 @@ export default function BroadcastDetailPage() {
   useEffect(() => {
     fetchRecipients();
   }, [fetchRecipients]);
+
+  // While it sends, and only while the tab is on screen.
+  const isSending = broadcast?.status === 'sending';
+  useEffect(() => {
+    if (!isSending) return;
+    const refresh = () => {
+      if (document.visibilityState === 'visible') void refreshAll();
+    };
+    const timer = setInterval(refresh, POLL_INTERVAL_MS);
+    document.addEventListener('visibilitychange', refresh);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', refresh);
+    };
+  }, [isSending, refreshAll]);
 
   function changeStatusFilter(next: RecipientStatus | 'all') {
     setStatusFilter(next);
@@ -492,10 +515,16 @@ export default function BroadcastDetailPage() {
     );
   }
 
-  if (error || !broadcast) {
+  // A later failed read keeps what is on screen, with a retry above it.
+  const loadError = error ?? recipientsError;
+
+  if (!broadcast) {
     return (
       <div className="flex h-64 flex-col items-center justify-center gap-2">
         <p className="text-destructive text-sm">{error ?? t('notFound')}</p>
+        {error && (
+          <Button onClick={() => void refreshAll()}>{t('retry')}</Button>
+        )}
         <Button variant="outline" onClick={() => router.push('/broadcasts')}>
           {t('backToBroadcasts')}
         </Button>
@@ -546,6 +575,21 @@ export default function BroadcastDetailPage() {
 
   return (
     <div className="space-y-6">
+      {loadError && (
+        <div className="border-destructive/30 bg-destructive-soft flex flex-wrap items-center justify-between gap-2 rounded-xl border px-4 py-2 text-sm">
+          <span className="text-destructive">
+            {t('refreshFailed', { error: loadError })}
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void refreshAll()}
+            className="h-7"
+          >
+            {t('retry')}
+          </Button>
+        </div>
+      )}
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex items-center gap-4">
