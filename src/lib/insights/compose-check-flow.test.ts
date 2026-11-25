@@ -5,6 +5,7 @@ import {
   initialComposeFlow,
   lateUploadLanding,
   parkDraft,
+  parkTextIfNone,
   takeParkedDraft,
   type ComposeFlowEffect,
   type ComposeFlowEvent,
@@ -581,5 +582,29 @@ describe('lateUploadLanding', () => {
     expect(at('a', 'b', 'u1', 'u2')).toBe('discard');
     expect(at('a', null, 'u1', 'u2')).toBe('discard');
     expect(at('a', null, null, 'u2')).toBe('discard');
+  });
+});
+
+describe('parkTextIfNone', () => {
+  const parked = (text: string, attachment: string | null = null) => ({
+    text,
+    origin: null,
+    reply: null,
+    attachment,
+  });
+
+  it('waits in its own chat, beside an attachment parked there', () => {
+    const stash: ParkedDrafts<string, string> = new Map();
+    stash.set('A', parked('', 'file'));
+    expect(parkTextIfNone(stash, 'A', 'Hi')).toBe(true);
+    expect(stash.get('A')).toEqual(parked('Hi', 'file'));
+    expect(stash.has('B')).toBe(false);
+  });
+
+  it('never replaces words parked there', () => {
+    const stash: ParkedDrafts<string, string> = new Map();
+    stash.set('A', parked('typed'));
+    expect(parkTextIfNone(stash, 'A', 'Hi')).toBe(false);
+    expect(stash.get('A')?.text).toBe('typed');
   });
 });

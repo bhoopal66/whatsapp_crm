@@ -79,6 +79,7 @@ import {
   lateUploadLanding,
   parkDraft,
   parkIfFree,
+  parkTextIfNone,
   takeParkedDraft,
   type ComposeFlowEffect,
   type ComposeFlowEvent,
@@ -132,6 +133,12 @@ import {
   moveHighlight,
   slashKeyAction,
 } from '@/lib/inbox/slash-quick-replies';
+import {
+  beginWork,
+  endWork,
+  hasWork,
+  NO_CHAT_WORK,
+} from '@/lib/inbox/chat-work';
 import {
   MAX_RECORDING_SECONDS,
   micTooSoon,
@@ -406,7 +413,9 @@ export function MessageComposer({
       window.removeEventListener(COMPOSER_PREFILL_EVENT, onPut);
     };
   }, [conversationId, t]);
-  const [drafting, setDrafting] = useState(false);
+  // The chats an AI reply is being written for.
+  const [draftWork, setDraftWork] = useState(NO_CHAT_WORK);
+  const drafting = hasWork(draftWork, conversationId);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Translate to Arabic. `translatingFor` is the chat whose draft is being
@@ -444,7 +453,7 @@ export function MessageComposer({
   const composeCheckMode = insightSettings.composeCheckMode;
 
   // Media attachment state. `draft` holds an uploaded-but-not-yet-sent
-  // attachment; `busy` covers the upload/transcode window.
+  // attachment; `busy` covers the upload window.
   const [draft, setDraft] = useState<MediaDraft | null>(null);
   // Mirror of `draft` for the unmount cleanup, which can't read render
   // state. Kept in sync below so navigating away with a staged-but-unsent
@@ -692,24 +701,37 @@ export function MessageComposer({
   );
 
   // Interactive-message builder dialog + quick-reply picker.
-  const [interactiveOpen, setInteractiveOpen] = useState(false);
+  // The builder is open for one chat and closed in any other.
+  const [interactiveFor, setInteractiveFor] = useState<string | null>(null);
   const [interactivePayload, setInteractivePayload] =
     useState<InteractiveMessagePayload>(blankButtonsPayload);
   const [savingQuickReply, setSavingQuickReply] = useState(false);
   const [quickReplyOpen, setQuickReplyOpen] = useState(false);
 
-  const [busy, setBusy] = useState(false);
+  // The chats a file is being uploaded for.
+  const [uploads, setUploads] = useState(NO_CHAT_WORK);
+  const busy = hasWork(uploads, conversationId);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const documentInputRef = useRef<HTMLInputElement>(null);
 
   // Voice notes: the recorder itself is further down (useVoiceRecorder).
-  // `voiceWork` is the chat whose recording is being sent or made ready;
+  // `voiceWork` is, by chat, a recording being sent or made ready;
   // `unsentHere` this chat's recording whose upload failed.
-  const [voiceWork, setVoiceWork] = useState<{
-    chatId: string;
-    kind: 'send' | 'review';
-  } | null>(null);
+  const [voiceWork, setVoiceWork] = useState<
+    Readonly<Record<string, 'send' | 'review'>>
+  >({});
+  /** The chat of the recorder's last take. */
+  const takeChatRef = useRef<string | null>(null);
+  const endVoiceWork = useCallback((chatId: string | null) => {
+    if (chatId === null) return;
+    setVoiceWork((w) => {
+      if (!(chatId in w)) return w;
+      const next = { ...w };
+      delete next[chatId];
+      return next;
+    });
+  }, []);
   const unsentHere = useSyncExternalStore(
     unsentTakes.subscribe,
     () => unsentTakes.get(userId, conversationId),
@@ -830,7 +852,8 @@ export function MessageComposer({
     const requestedChat = conversationId;
     const requested = text;
     const typed = requested.trim();
-    setDrafting(true);
+    const owner = parkedFor;
+    setDraftWork((w) => beginWork(w, requestedChat));
     try {
       const res = await fetch('/api/ai/draft', {
         method: 'POST',
@@ -842,9 +865,21 @@ export function MessageComposer({
       });
       const data = await res.json().catch(() => ({}));
       // A reply drafted for one customer, landing after a switch, would
-      // sit in the next chat's box one Enter from going out: dropped,
-      // like a moved translation.
-      if (openChatRef.current !== requestedChat) return;
+      // sit in the next chat's box one Enter from going out: it waits in
+      // its own chat, unless words were typed there (those have no Undo
+      // once parked, so the draft is dropped).
+      if (openChatRef.current !== requestedChat) {
+        const late = typeof data.draft === 'string' ? data.draft.trim() : '';
+        if (
+          res.ok &&
+          late &&
+          !typed &&
+          parkedFor === owner &&
+          parkTextIfNone(parkedDrafts, requestedChat, late)
+        )
+          for (const tell of [...parkedListeners]) tell(requestedChat);
+        return;
+      }
       if (!res.ok) {
         if (data.code === 'ai_not_configured') {
           toast.error(
@@ -892,7 +927,7 @@ export function MessageComposer({
     } catch {
       toast.error("Couldn't reach the AI assistant.");
     } finally {
-      setDrafting(false);
+      setDraftWork((w) => endWork(w, requestedChat));
     }
   }, [drafting, conversationId, text, adjustHeight, t]);
 
@@ -957,9 +992,9 @@ export function MessageComposer({
   const openInteractiveBuilder = useCallback(
     (seed?: InteractiveMessagePayload) => {
       setInteractivePayload(seed ?? blankButtonsPayload());
-      setInteractiveOpen(true);
+      setInteractiveFor(conversationId);
     },
-    []
+    [conversationId]
   );
 
   // Free-form sends whose dialog was open when the window closed: only
@@ -978,7 +1013,7 @@ export function MessageComposer({
       return;
     }
     onSendInteractive(interactivePayload, replyTo?.id);
-    setInteractiveOpen(false);
+    setInteractiveFor(null);
     onClearReply?.();
   }, [
     refuseBlocked,
@@ -1226,7 +1261,7 @@ export function MessageComposer({
       }
       const startedIn = openChatRef.current;
       const owner = parkedFor;
-      setBusy(true);
+      setUploads((w) => beginWork(w, startedIn));
       try {
         const { publicUrl, path } = await uploadAccountMedia(
           CHAT_MEDIA_BUCKET,
@@ -1243,7 +1278,7 @@ export function MessageComposer({
       } catch (err) {
         toast.error(err instanceof Error ? err.message : 'Upload failed.');
       } finally {
-        setBusy(false);
+        setUploads((w) => endWork(w, startedIn));
       }
     },
     [landUpload]
@@ -1263,11 +1298,11 @@ export function MessageComposer({
   // it reaches that chat however soon the person moves on.
   const uploadTake = useCallback(
     async ({ file, meta }: UnsentTake) => {
-      setBusy(true);
-      setVoiceWork({
-        chatId: meta.chatId,
-        kind: meta.send ? 'send' : 'review',
-      });
+      setUploads((w) => beginWork(w, meta.chatId));
+      setVoiceWork((w) => ({
+        ...w,
+        [meta.chatId]: meta.send ? 'send' : 'review',
+      }));
       const name = meta.contactName ?? tVoice('thisCustomer');
       try {
         const { publicUrl, path } = await uploadAccountMedia(
@@ -1303,11 +1338,11 @@ export function MessageComposer({
         if (kept && openChatRef.current !== meta.chatId)
           toast.error(tVoice('notSentElsewhere', { name }));
       } finally {
-        setBusy(false);
-        setVoiceWork((w) => (w?.chatId === meta.chatId ? null : w));
+        setUploads((w) => endWork(w, meta.chatId));
+        endVoiceWork(meta.chatId);
       }
     },
-    [landUpload, removeStaged, tVoice]
+    [landUpload, removeStaged, endVoiceWork, tVoice]
   );
 
   const handleTake = useCallback(
@@ -1320,21 +1355,21 @@ export function MessageComposer({
         { type: 'audio/ogg' }
       );
       if (file.size > MEDIA_MAX_BYTES_BY_KIND.audio) {
-        setVoiceWork(null);
+        endVoiceWork(take.meta.chatId);
         toast.error(tVoice('tooLarge'));
         return;
       }
       void uploadTake({ file, meta: take.meta });
     },
-    [uploadTake, tVoice]
+    [uploadTake, endVoiceWork, tVoice]
   );
 
   const handleMicProblem = useCallback(
     (problem: MicProblem) => {
-      setVoiceWork(null);
+      endVoiceWork(takeChatRef.current);
       toast.error(tVoice(`problem.${problem}`));
     },
-    [tVoice]
+    [endVoiceWork, tVoice]
   );
 
   const {
@@ -1355,12 +1390,14 @@ export function MessageComposer({
   });
   const recording = voicePhase === 'starting' || voicePhase === 'recording';
 
-  // The box comes back one line high: give it its text's height again.
-  useEffect(() => {
+  // The box's height follows its text, whoever put it there: a chat
+  // switch restores a parked draft into a box one line high, and the box
+  // itself comes back one line high after a recording or an attachment.
+  useLayoutEffect(() => {
     if (!recording && !draft) adjustHeight();
-  }, [recording, draft, adjustHeight]);
+  }, [text, conversationId, recording, draft, adjustHeight]);
 
-  const voiceWorkHere = voiceWork?.chatId === conversationId ? voiceWork : null;
+  const voiceWorkHere = voiceWork[conversationId] ?? null;
   const composerBusy = recording || !!draft || !!voiceWorkHere || !!unsentHere;
   useEffect(() => {
     onBusyChange?.(composerBusy);
@@ -1375,6 +1412,7 @@ export function MessageComposer({
       toast.info(tVoice(unsentHere ? 'keptFirst' : 'draftFirst'));
       return;
     }
+    takeChatRef.current = conversationId;
     void startTake({
       chatId: conversationId,
       owner: parkedFor,
@@ -1395,7 +1433,7 @@ export function MessageComposer({
 
   const listenFirst = useCallback(() => {
     if (finishTake('review'))
-      setVoiceWork({ chatId: conversationId, kind: 'review' });
+      setVoiceWork((w) => ({ ...w, [conversationId]: 'review' }));
   }, [finishTake, conversationId]);
 
   const sendRecording = useCallback(() => {
@@ -1407,7 +1445,7 @@ export function MessageComposer({
     const send = { deliver: onSendMedia, replyToId: replyTo?.id };
     if (!finishTake('send', { send })) return;
     lastSentAtRef.current = Date.now();
-    setVoiceWork({ chatId: conversationId, kind: 'send' });
+    setVoiceWork((w) => ({ ...w, [conversationId]: 'send' }));
     onClearReply?.();
   }, [
     refuseBlocked,
@@ -1680,7 +1718,7 @@ export function MessageComposer({
           onDiscard={() => unsentTakes.remove(conversationId)}
         />
       )}
-      {voiceWorkHere && <VoiceWorkStrip kind={voiceWorkHere.kind} />}
+      {voiceWorkHere && <VoiceWorkStrip kind={voiceWorkHere} />}
 
       {recording ? (
         // Recording bar — replaces the composer while the mic is live.
@@ -1946,7 +1984,10 @@ export function MessageComposer({
       />
 
       {/* Interactive-message builder dialog. */}
-      <Dialog open={interactiveOpen} onOpenChange={setInteractiveOpen}>
+      <Dialog
+        open={interactiveFor === conversationId}
+        onOpenChange={(open) => setInteractiveFor(open ? conversationId : null)}
+      >
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>{t('interactiveMessage')}</DialogTitle>
