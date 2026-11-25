@@ -364,7 +364,7 @@ function fenceHolds(user: string): boolean {
 /** The distil prompt: its fences once each, in order, and no other
  *  angle bracket, so nothing sent can open or close one. */
 function distillFencesHold(user: string): boolean {
-  const tags = user.match(/[<＜﹤][^>＞﹥]*[>＞﹥]?/gu) ?? [];
+  const tags: string[] = user.match(/[<＜﹤][^>＞﹥]*[>＞﹥]?/gu) ?? [];
   const pair = (name: string) => [`<${name}>`, `</${name}>`];
   const expected = ['existing_rules', 'retired_rules', 'evidence']
     .filter((n) => n !== 'retired_rules' || tags.includes('<retired_rules>'))
