@@ -85,7 +85,12 @@ parser, signature check, WebSocket helpers, token manager and CDR helpers.
   softphone. A row's silence is no proof a call ended (nothing writes
   it between frames), so lost hang-ups are judged by `CallPulse` in
   `call-ui.ts`: quiet on the server's clock and no softphone session;
-  such a call yields, and only a person closes it.
+  such a call yields, and only a person closes it. The action route's
+  404 (`not_on_call`, `call_gone`) ends the panel at once
+  (`markCallGone`, kept at that frame's `updated_at`; a newer frame
+  brings it back) and never deletes `call_live`. An all-BYE frame stamps
+  `meta.bye_at` / `bye_channels`, so a slower earlier frame does not put
+  the row back (`precedesBye`); a new channel is a call that goes on.
 - `runPbxCron` (recordings, call-backs, event retries, purge) runs from
   `GET /api/pbx/cron` and the automations cron, and starts no new work
   after 45 s. `verify-pbx.sql`. The retry also picks events interrupted

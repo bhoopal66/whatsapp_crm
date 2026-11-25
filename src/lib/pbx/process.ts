@@ -17,7 +17,7 @@ import {
 } from './call-legs';
 import { settleCallbackCall } from './callbacks';
 import { DEFAULT_TIME_ZONE } from './calls';
-import { isAllBye } from './event-retry';
+import { isAllBye, precedesBye, withBye } from './event-retry';
 import { foldedCallIds, missedCallNote, missedCallOwner } from './missed-call';
 import { clock, missedDraftOffer } from './timeline';
 import { digitsOnly } from './extensions';
@@ -638,12 +638,18 @@ async function readCall(ctx: Ctx, callId: string): Promise<Row | null> {
   return (data as Row | null) ?? null;
 }
 
-async function deleteLive(ctx: Ctx, callId: string): Promise<void> {
-  const { error } = await ctx.db
+/** `frameAt`: only the row of that frame, not one written since. */
+async function deleteLive(
+  ctx: Ctx,
+  callId: string,
+  frameAt?: string
+): Promise<void> {
+  const del = ctx.db
     .from('call_live')
     .delete()
     .eq('connection_id', ctx.connectionId)
     .eq('pbx_call_id', callId);
+  const { error } = await (frameAt ? del.eq('updated_at', frameAt) : del);
   if (error) fail('call_live delete', error);
 }
 
@@ -706,10 +712,41 @@ function answeredIn(meta: unknown): string[] {
 const withAnswered = (meta: Row, answered: string[]): Row =>
   answered.length ? { ...meta, answered_user_ids: answered } : meta;
 
+/**
+ * Every party hung up: remembered on the calls row until its 30012, so a
+ * slower earlier frame does not put the screen pop back (precedesBye).
+ * Before the delete, for a frame being handled meanwhile to see it. Best
+ * effort: the delete is the point, and runs whatever happens here.
+ */
+async function stampBye(ctx: Ctx, ev: CallStateEvent): Promise<void> {
+  try {
+    for (let attempt = 0; attempt < FOLD_ATTEMPTS; attempt++) {
+      const row = await readCall(ctx, ev.callId);
+      if (!row || !LIVE.includes(row.status as CallStatus)) return;
+      const { data, error } = await ctx.db
+        .from('calls')
+        .update({ meta: withBye(row.meta, ev, ctx.receivedAt) })
+        .eq('id', String(row.id))
+        .eq('updated_at', row.updated_at)
+        .in('status', LIVE)
+        .select('id');
+      if (error) fail('calls update', error);
+      if (((data ?? []) as unknown[]).length) return;
+    }
+  } catch (err) {
+    console.error(
+      `[pbx] call ${ev.callId}: hang-up not remembered: ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
+}
+
 /** 30011: the screen pop (call_live) and a non-final calls row. */
 async function onCallState(ctx: Ctx, ev: CallStateEvent): Promise<void> {
   if (ev.members.length === 0) return;
-  if (isAllBye(ev)) return deleteLive(ctx, ev.callId);
+  if (isAllBye(ev)) {
+    await stampBye(ctx, ev);
+    return deleteLive(ctx, ev.callId);
+  }
   const existing = await readCall(ctx, ev.callId);
   // Ended already (a late or re-sent frame): never reopen it.
   if (existing && !LIVE.includes(existing.status as CallStatus)) return;
@@ -769,8 +806,20 @@ async function onCallState(ctx: Ctx, ev: CallStateEvent): Promise<void> {
           }
         : await matchContact(ctx, ws.accountId, remote);
 
+  // The person holding the customer is still on the call, whichever side
+  // the PBX marks HOLD (theirs, or the trunk's with theirs ANSWERED).
+  const held = answered.length
+    ? []
+    : ev.members
+        .filter(
+          (m) =>
+            m.kind === 'extension' &&
+            m.number &&
+            m.status.toUpperCase() === 'HOLD'
+        )
+        .map((m) => m.number as string);
   const answeredBy =
-    unique(answered.map((n) => exts.get(n)?.user_id))[0] ?? null;
+    unique([...answered, ...held].map((n) => exts.get(n)?.user_id))[0] ?? null;
   const ringingUsers = unique(ringing.map((n) => exts.get(n)?.user_id));
   // One of our people alone with the customer. Two on the call (one on
   // hold counts) is a consultation or a transfer, which a frame cannot
@@ -808,21 +857,38 @@ async function onCallState(ctx: Ctx, ev: CallStateEvent): Promise<void> {
     ),
     state: answered.length
       ? 'answered'
-      : ringing.length
+      : // A colleague rung while the customer is held still gets the card
+        // (myRingingCall) and 094's ring clock.
+        ringing.length
         ? 'ringing'
-        : 'in_progress',
+        : held.length
+          ? 'answered'
+          : 'in_progress',
     updated_at: ctx.receivedAt,
   };
-  const liveWrite = await ctx.db
-    .from('call_live')
-    .upsert(live, { onConflict: 'connection_id,pbx_call_id' });
-  if (liveWrite.error) fail('call_live upsert', liveWrite.error);
+  // A late frame from before the hang-up: the people it rang and reached
+  // are still written below, but no screen pop.
+  if (!precedesBye(existing?.meta, ev, ctx.receivedAt)) {
+    const liveWrite = await ctx.db
+      .from('call_live')
+      .upsert(live, { onConflict: 'connection_id,pbx_call_id' });
+    if (liveWrite.error) fail('call_live upsert', liveWrite.error);
+  }
   // The end may have landed since the read above, its own delete before
   // this upsert: the row just written would be a ghost nothing removes.
   // An end landing after this read deletes the row itself.
   const now = await readCall(ctx, ev.callId);
   if (now && !LIVE.includes(now.status as CallStatus)) {
     return deleteLive(ctx, ev.callId);
+  }
+  // Likewise an all-BYE frame since that read, but only this frame's own
+  // row: a new leg's may be there by now. Nothing else is written: the
+  // row read above has no bye_at, and its meta would drop it again.
+  if (
+    precedesBye(now?.meta, ev, ctx.receivedAt) &&
+    !precedesBye(existing?.meta, ev, ctx.receivedAt)
+  ) {
+    return deleteLive(ctx, ev.callId, ctx.receivedAt);
   }
 
   const status: CallStatus =

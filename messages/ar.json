@@ -7462,6 +7462,8 @@
     "transferTo": "تحويل",
     "transferToOwner": "التحويل إلى المالك",
     "transferred": "تم تحويل المكالمة",
+    "callGone": "انتهت هذه المكالمة بالفعل",
+    "notOnCall": "لم تعد طرفًا في هذه المكالمة",
     "actionFailed": "لم ينجح ذلك: {message}",
     "call": "اتصال",
     "ringsFirst": "يرن هاتفك أولًا ثم العميل",

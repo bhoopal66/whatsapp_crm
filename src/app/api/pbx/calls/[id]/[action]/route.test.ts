@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createFakeDb, type FakeDb } from '@/lib/pbx/__tests__/fake-db';
-import type { CallInfo, CallMember } from '@/lib/pbx/yeastar';
+import {
+  YeastarError,
+  type CallInfo,
+  type CallMember,
+} from '@/lib/pbx/yeastar';
 
 const mocks = vi.hoisted(() => ({
   requireRole: vi.fn(),
@@ -343,5 +347,38 @@ describe('POST /api/pbx/calls/[pbxCallId]/[action]', () => {
       409
     );
     expect(api.transfer).not.toHaveBeenCalled();
+  });
+});
+
+describe('a leg that ended between the query and the action', () => {
+  const refuse = (errcode: number) =>
+    new YeastarError({ endpoint: 'call/hangup', errcode, errmsg: 'X' });
+
+  it('is a 404 call_gone, not a fault of the phone system', async () => {
+    as('agent');
+    for (const a of ACTS) {
+      api[a].mockRejectedValueOnce(refuse(70130));
+      const res = await POST(
+        new Request('http://x', {
+          method: 'POST',
+          body: JSON.stringify({ number: '202' }),
+        }),
+        { params: Promise.resolve({ id: 'pbx-1', action: a }) }
+      );
+      expect(res.status, a).toBe(404);
+      expect(await res.json()).toEqual({
+        error: 'This call has already ended',
+        code: 'call_gone',
+      });
+    }
+  });
+
+  it('any other refusal stays a 502', async () => {
+    as('agent');
+    api.hangup.mockRejectedValueOnce(refuse(10009));
+    const res = await POST(new Request('http://x', { method: 'POST' }), {
+      params: Promise.resolve({ id: 'pbx-1', action: 'hangup' }),
+    });
+    expect(res.status).toBe(502);
   });
 });

@@ -7462,6 +7462,8 @@
     "transferTo": "Transfer",
     "transferToOwner": "Transfer to owner",
     "transferred": "Call transferred",
+    "callGone": "This call has already ended",
+    "notOnCall": "You are no longer on this call",
     "actionFailed": "That did not work: {message}",
     "call": "Call",
     "ringsFirst": "Your phone rings first, then the customer",

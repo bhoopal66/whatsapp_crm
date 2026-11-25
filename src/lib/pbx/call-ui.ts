@@ -55,6 +55,7 @@ export interface CallLiveRow {
 
 interface LiveMember {
   kind?: unknown;
+  status?: unknown;
   contactCandidates?: unknown;
 }
 
@@ -77,6 +78,16 @@ export const isCustomerCall = (r: CallLiveRow): boolean =>
 /** The customer called in (a click-to-call rings our own phone first). */
 export const isInboundCall = (r: CallLiveRow): boolean =>
   membersOf(r).some((m) => m.kind === 'inbound');
+
+/** Ringing on, with an extension holding: nobody is answered (process.ts). */
+const isHeldAndRinging = (r: CallLiveRow): boolean =>
+  r.state === 'ringing' &&
+  membersOf(r).some(
+    (m) =>
+      m.kind === 'extension' &&
+      typeof m.status === 'string' &&
+      m.status.toUpperCase() === 'HOLD'
+  );
 
 const byUpdated = (a: CallLiveRow, b: CallLiveRow) =>
   a.updated_at.localeCompare(b.updated_at);
@@ -121,7 +132,9 @@ export function myRingingCall(
     rows
       .filter(
         (r) =>
-          !r.answered_by &&
+          // A colleague holding the customer while they ring me for it.
+          (!r.answered_by ||
+            (r.answered_by !== userId && isHeldAndRinging(r))) &&
           (r.ringing_user_ids ?? []).includes(userId) &&
           isInboundCall(r) &&
           !isQuiet(r, RING_QUIET_MS, pulse)
@@ -131,9 +144,25 @@ export function myRingingCall(
 }
 
 /**
+ * Closed by hand, or said to be over by the PBX (markCallGone), and no
+ * newer frame since. By time, not text: realtime and a read may spell
+ * the same updated_at differently.
+ */
+function isDismissed(
+  dismissed: Record<string, string> | undefined,
+  r: CallLiveRow
+): boolean {
+  const at = dismissed?.[liveKey(r)];
+  return (
+    at !== undefined &&
+    (at === r.updated_at || Date.parse(r.updated_at) <= Date.parse(at))
+  );
+}
+
+/**
  * The customer call this person answered (either direction): newest
  * first, a quiet one (`pulse`) only when there is no other, and never
- * one closed by hand since its last frame (`dismissed`).
+ * one dismissed since its last frame (isDismissed).
  */
 export function myActiveCall(
   rows: CallLiveRow[],
@@ -147,7 +176,7 @@ export function myActiveCall(
       (r) =>
         r.answered_by === userId &&
         isCustomerCall(r) &&
-        dismissed[liveKey(r)] !== r.updated_at
+        !isDismissed(dismissed, r)
     )
     .sort((a, b) => byUpdated(b, a));
   return (
@@ -721,7 +750,10 @@ export interface PanelState {
   panel: PanelCall | null;
   /** Ended calls whose wrap-up is unfinished, newest end first. */
   waiting: PanelCall[];
-  /** Live calls closed by hand: key → the updated_at they were closed at. */
+  /**
+   * Live calls closed by hand or gone (markCallGone): key → the
+   * updated_at of the frame that was then the last.
+   */
   dismissed?: Record<string, string>;
 }
 
@@ -793,7 +825,10 @@ export function selectPanel(
   if (panel && panel.endedAt === null) {
     const key = panel.key;
     const still = rows.find(
-      (r) => liveKey(r) === key && r.answered_by === userId
+      (r) =>
+        liveKey(r) === key &&
+        r.answered_by === userId &&
+        !isDismissed(s.dismissed, r)
     );
     yields = !still || isQuiet(still, PANEL_QUIET_MS, pulse);
     if (!still) panel = { ...panel, endedAt: now };
@@ -847,6 +882,57 @@ export function closeWrapUp(
       panel: closes ? null : s.panel,
       waiting: s.waiting.filter((w) => w.key !== key),
       ...(lost && { dismissed: { ...s.dismissed, [key]: lost.updated_at } }),
+    },
+    rows,
+    userId,
+    now,
+    mandatory,
+    pulse
+  );
+}
+
+/** The action route's 404 codes: this person is on that call no more. */
+export type CallGoneCode = 'not_on_call' | 'call_gone';
+export const isCallGoneCode = (code: unknown): code is CallGoneCode =>
+  code === 'not_on_call' || code === 'call_gone';
+
+/**
+ * Whether the PBX's "you are not on this call" ends `asked`, the row as
+ * it was when the PBX was asked: no newer frame has landed since, and
+ * the softphone in this tab does not hold the call.
+ */
+export const endsGoneCall = (
+  asked: CallLiveRow,
+  rows: CallLiveRow[],
+  pulse: CallPulse
+): boolean =>
+  !pulse.inCall(asked) &&
+  rows.every(
+    (r) =>
+      liveKey(r) !== liveKey(asked) ||
+      isDismissed({ [liveKey(asked)]: asked.updated_at }, r)
+  );
+
+/**
+ * The PBX answered that this person has no leg on the call: its panel
+ * goes to the wrap-up at once, as if the row were gone. The row itself
+ * stays (after a transfer the call is somebody else's), and a newer
+ * frame naming this person brings the call back.
+ */
+export function markCallGone(
+  s: PanelState,
+  asked: CallLiveRow,
+  rows: CallLiveRow[],
+  userId: string | null,
+  now: number,
+  mandatory: boolean,
+  pulse: CallPulse
+): PanelState {
+  if (!endsGoneCall(asked, rows, pulse)) return s;
+  return selectPanel(
+    {
+      ...s,
+      dismissed: { ...s.dismissed, [liveKey(asked)]: asked.updated_at },
     },
     rows,
     userId,
