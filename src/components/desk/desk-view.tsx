@@ -287,10 +287,15 @@ function UploadTab({ banks }: { banks: readonly DeskBank[] }) {
       toast.error(r.error);
       return;
     }
+    const { what } = firstSent.current;
     if (replayDropsChange(r.data.replayed, firstSent.current.sig, sig)) {
-      // Keep the draft: the server did not take it.
+      // Keep the draft: the server did not take it. The first attempt is
+      // known to be stored, so sending again is a second upload of its own
+      // (the only way out for a note without a file).
+      idem.current = newIdemKey();
+      firstSent.current = null;
       setLast(null);
-      setDropped(firstSent.current.what);
+      setDropped(what);
       return;
     }
     setDropped(null);
