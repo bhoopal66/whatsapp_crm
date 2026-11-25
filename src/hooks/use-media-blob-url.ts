@@ -14,6 +14,7 @@ interface MediaBlobUrlState {
 /** A settled load, tagged with the URL it belongs to. */
 interface ResolvedMedia {
   url: string;
+  attempt: number;
   objectUrl: string | null;
   failed: boolean;
 }
@@ -30,7 +31,11 @@ interface ResolvedMedia {
  * Only use this for images. Video and audio must keep their plain URL so
  * the element streams instead of buffering up to 16 MB before it plays.
  */
-export function useMediaBlobUrl(url: string | undefined): MediaBlobUrlState {
+export function useMediaBlobUrl(
+  url: string | undefined,
+  /** Bump to load again after a failure. */
+  attempt = 0
+): MediaBlobUrlState {
   const [resolved, setResolved] = useState<ResolvedMedia | null>(null);
 
   useEffect(() => {
@@ -47,18 +52,18 @@ export function useMediaBlobUrl(url: string | undefined): MediaBlobUrlState {
       .then((blob) => {
         if (cancelled) return;
         objectUrl = URL.createObjectURL(blob);
-        setResolved({ url, objectUrl, failed: false });
+        setResolved({ url, attempt, objectUrl, failed: false });
       })
       .catch(() => {
         if (cancelled) return;
-        setResolved({ url, objectUrl: null, failed: true });
+        setResolved({ url, attempt, objectUrl: null, failed: true });
       });
 
     return () => {
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [url]);
+  }, [url, attempt]);
 
   if (!url) return { src: null, status: "idle" };
 
@@ -68,7 +73,7 @@ export function useMediaBlobUrl(url: string | undefined): MediaBlobUrlState {
 
   // A result for a *previous* URL is stale; the new URL's load is already
   // in flight, so report loading rather than flashing the old image.
-  if (resolved?.url === url) {
+  if (resolved?.url === url && resolved.attempt === attempt) {
     return resolved.failed
       ? { src: null, status: "error" }
       : { src: resolved.objectUrl, status: "ready" };

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useState, type ReactNode } from 'react';
 import {
   Download,
   FileText,
@@ -14,6 +14,7 @@ import { useTranslations } from 'next-intl';
 import { cn } from '@/lib/utils';
 import type { Message } from '@/types';
 import { downloadMediaMessage } from '@/lib/media/download';
+import { documentCaption, mediaFilename } from '@/lib/media/filename';
 import { useMediaBlobUrl } from '@/hooks/use-media-blob-url';
 import { useNearViewport } from '@/hooks/use-near-viewport';
 import { VoiceNotePlayer } from './voice-note-player';
@@ -135,7 +136,11 @@ export function MediaImageBubble({
   // Nothing is fetched until the bubble nears the viewport; until then
   // the hook sees no URL and the placeholder holds the space.
   const { ref: nearRef, near } = useNearViewport();
-  const { src, status } = useMediaBlobUrl(near ? message.media_url : undefined);
+  const [attempt, setAttempt] = useState(0);
+  const { src, status } = useMediaBlobUrl(
+    near ? message.media_url : undefined,
+    attempt
+  );
   // The fetch can succeed and the bytes still not be a decodable image.
   const [broken, setBroken] = useState(false);
   const { downloading, download } = useMediaDownload(message, t);
@@ -143,7 +148,17 @@ export function MediaImageBubble({
   if (status === 'error' || broken) {
     return (
       <MediaPlaceholder>
-        <ImageOff className="text-wa-meta h-8 w-8" />
+        <button
+          type="button"
+          onClick={() => {
+            setBroken(false);
+            setAttempt((n) => n + 1);
+          }}
+          className="text-wa-meta flex flex-col items-center gap-1 text-xs hover:opacity-80"
+        >
+          <ImageOff className="h-8 w-8" />
+          {t('mediaRetry')}
+        </button>
       </MediaPlaceholder>
     );
   }
@@ -224,7 +239,7 @@ export function MediaVideoBubble({
       {/* Top-right, clear of the native controls — and always visible, since
           expanding is the only way to watch a clip capped at 15rem wide and
           a touch device gets no hover. */}
-      <div className="absolute top-2 end-2 flex gap-1">
+      <div className="absolute end-2 top-2 flex gap-1">
         {onOpen && (
           <MediaActionButton
             icon={Maximize2}
@@ -268,31 +283,46 @@ export function MediaAudioBubble({
 export function MediaDocumentBubble({
   message,
   t,
+  trailing,
 }: {
   message: Message;
   t: Translator;
+  /** Room for the time and ticks at the end of the caption's last line. */
+  trailing?: ReactNode;
 }) {
   const { downloading, download } = useMediaDownload(message, t);
+  // A caption replaces the file name in content_text, so the chip shows
+  // the name reconstructed from the row and the caption sits below it.
+  const caption = documentCaption(message);
+  const label = caption
+    ? mediaFilename(message)
+    : message.content_text || t('document');
 
   return (
-    <div className="flex items-center gap-2">
-      <a
-        href={message.media_url}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="bg-wa-quote flex min-w-0 flex-1 items-center gap-2 rounded-lg px-3 py-2.5 text-sm hover:opacity-90"
-      >
-        <FileText className="text-wa-meta h-6 w-6 shrink-0" />
-        <span className="truncate">
-          {message.content_text || t('document')}
-        </span>
-      </a>
-      <MediaActionButton
-        icon={Download}
-        label={t('download')}
-        onClick={download}
-        busy={downloading}
-      />
+    <div>
+      <div className="flex items-center gap-2">
+        <a
+          href={message.media_url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="bg-wa-quote flex min-w-0 flex-1 items-center gap-2 rounded-lg px-3 py-2.5 text-sm hover:opacity-90"
+        >
+          <FileText className="text-wa-meta h-6 w-6 shrink-0" />
+          <span className="truncate">{label}</span>
+        </a>
+        <MediaActionButton
+          icon={Download}
+          label={t('download')}
+          onClick={download}
+          busy={downloading}
+        />
+      </div>
+      {caption && (
+        <p className="mt-1 text-[14.2px] leading-[19px] break-words whitespace-pre-wrap">
+          <span dir="auto">{caption}</span>
+          {trailing}
+        </p>
+      )}
     </div>
   );
 }

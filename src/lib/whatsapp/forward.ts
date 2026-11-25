@@ -17,7 +17,8 @@
 // ============================================================
 
 import type { Message } from '@/types';
-import { mediaFilename } from '@/lib/media/filename';
+import { isDocumentFilenameText, mediaFilename } from '@/lib/media/filename';
+import { buildMediaPath } from '@/lib/storage/upload-media';
 
 /**
  * Most chats one forward may target. WhatsApp's own app caps a forward
@@ -75,6 +76,21 @@ export type ForwardSource = Pick<
 const MAX_CAPTION = 1024;
 
 /**
+ * Whether a document's text is its file name. A file uploaded here keeps
+ * its name in its path, cleaned and cut by `buildMediaPath` and behind the
+ * upload's time: the text is the name when it is stored under it, else a
+ * caption, even one that ends like a file name ("please sign
+ * contract.pdf"). Anything else (an inbound file, stored by its message
+ * id) has only the text's own look to go by.
+ */
+function textIsFileName(text: string, mediaUrl: string): boolean {
+  if (!isDocumentFilenameText(text)) return false;
+  const uploadedAs = /\/\d{10,}-([^/?#]+)(?:[?#]|$)/.exec(mediaUrl)?.[1];
+  if (!uploadedAs) return true;
+  return buildMediaPath('', text.trim(), null).endsWith(`/${uploadedAs}`);
+}
+
+/**
  * Map a stored message onto the send-core params that re-create it.
  *
  * Templates and interactive messages go out as their rendered text. A
@@ -105,22 +121,26 @@ export function planForward(message: ForwardSource): ForwardPlan {
     case 'document': {
       if (!message.media_url) return { ok: false, reason: 'no_media' };
 
-      const filename =
-        message.content_type === 'document'
-          ? mediaFilename({
-              content_type: message.content_type,
-              content_text: message.content_text,
-              media_url: message.media_url,
-              media_type: message.media_type,
-              created_at: message.created_at,
-            })
-          : null;
+      // A document with no caption stores its file name as the text: not
+      // sent a second time as a caption.
+      const isDocument = message.content_type === 'document';
+      const textIsName =
+        isDocument && textIsFileName(text ?? '', message.media_url);
 
-      // Audio carries no caption. A document with no caption stores its
-      // filename as the text — don't send that twice.
+      const filename = isDocument
+        ? mediaFilename({
+            content_type: message.content_type,
+            content_text: textIsName ? (text ?? '') : '',
+            media_url: message.media_url,
+            media_type: message.media_type,
+            created_at: message.created_at,
+          })
+        : null;
+
+      // Audio carries no caption.
       let caption: string | null = text;
       if (message.content_type === 'audio') caption = null;
-      if (caption && filename && caption === filename) caption = null;
+      if (textIsName) caption = null;
       if (caption && caption.length > MAX_CAPTION) {
         caption = caption.slice(0, MAX_CAPTION);
       }

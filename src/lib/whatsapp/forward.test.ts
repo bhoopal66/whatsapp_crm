@@ -1,3 +1,5 @@
+import { sanitizeFilename } from '@/lib/media/filename';
+import { buildMediaPath } from '@/lib/storage/upload-media';
 import { describe, expect, it } from 'vitest';
 import {
   planForward,
@@ -92,6 +94,47 @@ describe('planForward', () => {
       ok: true,
       filename: 'invoice.pdf',
       contentText: null,
+    });
+  });
+
+  // Stored the way uploads are, so these are the names production has.
+  const uploaded = (file: string) =>
+    `https://x/storage/v1/object/public/chat-media/${buildMediaPath('acc', file, 1700000000000)}`;
+  const doc = (content_text: string, media_url: string) =>
+    planForward(msg({ content_type: 'document', content_text, media_url }));
+
+  it.each([
+    'Trade Licence.pdf',
+    'Invoice: March.pdf',
+    'كشف حساب.pdf',
+    'Report.PDF',
+    `${'a'.repeat(120)}.pdf`,
+  ])(
+    'an uploaded file named %s goes out without its name as caption',
+    (name) => {
+      expect(doc(name, uploaded(name))).toMatchObject({
+        ok: true,
+        contentText: null,
+        filename: sanitizeFilename(name),
+      });
+    }
+  );
+
+  it('an inbound file, stored by id, keeps its name and gets no caption', () => {
+    const url = `https://x/storage/v1/object/public/chat-media/${buildMediaPath('acc', 'wamid_abc.pdf', null, 'inbound')}`;
+    expect(doc('Trade Licence.pdf', url)).toMatchObject({
+      contentText: null,
+      filename: 'Trade Licence.pdf',
+    });
+  });
+
+  it('keeps a real caption that ends like a file name', () => {
+    expect(
+      doc('please sign contract.pdf', uploaded('contract.pdf'))
+    ).toMatchObject({
+      ok: true,
+      contentText: 'please sign contract.pdf',
+      filename: 'contract.pdf',
     });
   });
 

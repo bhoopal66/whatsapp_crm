@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { ContentType, Message, SenderType } from '@/types';
-import { collectMediaGallery, galleryIndexOf } from './gallery';
+import { arrowKeyDelta, collectMediaGallery, galleryIndexOf } from './gallery';
 
 function msg(
   id: string,
@@ -92,5 +92,15 @@ describe('galleryIndexOf', () => {
     // Happens when an optimistic `temp-…` bubble is swapped for its real row
     // while the viewer is open — the viewer closes rather than mis-pointing.
     expect(galleryIndexOf(items, 'temp-123')).toBe(-1);
+  });
+});
+
+describe('arrowKeyDelta', () => {
+  it('follows reading direction', () => {
+    expect(arrowKeyDelta('ArrowLeft', false)).toBe(-1);
+    expect(arrowKeyDelta('ArrowRight', false)).toBe(1);
+    expect(arrowKeyDelta('ArrowLeft', true)).toBe(1);
+    expect(arrowKeyDelta('ArrowRight', true)).toBe(-1);
+    expect(arrowKeyDelta('Enter', true)).toBeNull();
   });
 });
