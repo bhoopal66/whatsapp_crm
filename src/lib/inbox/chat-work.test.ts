@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { beginWork, endWork, hasWork, NO_CHAT_WORK } from './chat-work';
+import {
+  beginWork,
+  endWork,
+  hasWork,
+  isOpenFor,
+  NO_CHAT_WORK,
+} from './chat-work';
 
 describe('work per chat', () => {
   it('in A leaves B free', () => {
@@ -25,5 +31,16 @@ describe('work per chat', () => {
   it('belongs to no chat when none was open', () => {
     expect(beginWork(NO_CHAT_WORK, null)).toBe(NO_CHAT_WORK);
     expect(endWork(NO_CHAT_WORK, null)).toBe(NO_CHAT_WORK);
+  });
+});
+
+describe('a picker opened for a chat', () => {
+  it('is open there and closed in another chat', () => {
+    expect(isOpenFor('A', 'A')).toBe(true);
+    expect(isOpenFor('A', 'B')).toBe(false);
+  });
+  it('is closed when it was never opened', () => {
+    expect(isOpenFor(null, 'A')).toBe(false);
+    expect(isOpenFor(null, null)).toBe(false);
   });
 });

@@ -7,6 +7,7 @@ import {
   bannerSnapshot,
   lastAiReplyAt,
   lastMessageFromCustomer,
+  setPerChat,
   withOverride,
   outcomeWarning,
   type AiBannerInput,
@@ -420,5 +421,17 @@ describe('withOverride', () => {
 
   it('is the server row with no override', () => {
     expect(withOverride('c1', server, null)).toBe(server);
+  });
+});
+
+describe('setPerChat', () => {
+  it("clearing A's slot leaves B's busy state", () => {
+    const both = setPerChat(setPerChat({}, 'A', 'send'), 'B', 'toggle');
+    expect(setPerChat(both, 'A', null)).toEqual({ B: 'toggle' });
+  });
+  it("setting A's slot leaves B's value and does not mutate", () => {
+    const b = { B: 1 };
+    expect(setPerChat(b, 'A', 2)).toEqual({ A: 2, B: 1 });
+    expect(b).toEqual({ B: 1 });
   });
 });

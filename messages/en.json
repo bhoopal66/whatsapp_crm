@@ -821,7 +821,8 @@
       "failed": "Forward failed: {reason}",
       "failedFor": "Could not forward to {name}: {reason}",
       "maybeSentFor": "No answer from WhatsApp for {name}: it may have been forwarded. Check that chat before forwarding again.",
-      "maybeSent": "No answer: it may have been forwarded. Check the chats before forwarding again."
+      "maybeSent": "No answer: it may have been forwarded. Check the chats before forwarding again.",
+      "networkError": "Could not reach the server"
     },
     "templatePicker": {
       "loadFailed": "The templates could not be loaded.",
