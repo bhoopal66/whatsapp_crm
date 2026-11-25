@@ -86,6 +86,10 @@ export const AUTH_COOKIE_NAME = 'sb-wacrm-auth-token'
  * default is 400 days: a laptop left signed in at a branch stayed a way
  * into the CRM for a year. Changing it applies from each session's next
  * refresh.
+ *
+ * `cookieOptions.maxAge` alone does nothing: @supabase/ssr writes its own
+ * 400 days over it on every set (cookies.js, `setCookieOptions`). Every
+ * `setAll` therefore passes its options through `sessionCookieWrite`.
  */
 export const AUTH_COOKIE_MAX_AGE_SECONDS = 7 * 24 * 60 * 60
 
@@ -106,6 +110,14 @@ export function authCookieOptions(publicUrl: string | undefined = publicSupabase
     maxAge: AUTH_COOKIE_MAX_AGE_SECONDS,
     secure: typeof publicUrl === 'string' && /^https:\/\//i.test(publicUrl.trim()),
   }
+}
+
+/** The options a `setAll` writes a session cookie with: never longer than
+ *  the idle limit; a removal (`maxAge: 0`) stays a removal. */
+export function sessionCookieWrite<T extends { maxAge?: number }>(options: T): T {
+  return options.maxAge !== undefined && options.maxAge <= AUTH_COOKIE_MAX_AGE_SECONDS
+    ? options
+    : { ...options, maxAge: AUTH_COOKIE_MAX_AGE_SECONDS }
 }
 
 /**

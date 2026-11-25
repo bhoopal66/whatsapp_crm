@@ -89,4 +89,77 @@ describe('SecretIndex', () => {
     expect(loadAll).toHaveBeenCalledTimes(1);
     expect((await idx.find('')).id).toBeNull();
   });
+
+  it('finds a new secret at once after a save (invalidate)', async () => {
+    const rows: Row[] = [{ id: 'a', secret: 's-a' }];
+    const { idx, clock } = index(() => [...rows]);
+    await idx.find('s-a');
+    rows[0] = { id: 'a', secret: 's-new' };
+    clock.t = 1_000;
+    expect((await idx.find('s-new')).id).toBeNull();
+    idx.invalidate();
+    expect((await idx.find('s-new')).id).toBe('a');
+    expect((await idx.find('s-a')).id).toBeNull();
+  });
+
+  it('a read started before the save is not kept', async () => {
+    let rows: Row[] = [{ id: 'a', secret: 'old' }];
+    const release: Array<() => void> = [];
+    const idx = new SecretIndex<Row>({
+      loadAll: async () => {
+        const seen = rows;
+        await new Promise<void>((r) => release.push(r));
+        return seen;
+      },
+      idOf: (r) => r.id,
+      secretOf: (r) => r.secret,
+    });
+    const first = idx.find('new');
+    rows = [{ id: 'a', secret: 'new' }];
+    idx.invalidate();
+    release[0]!();
+    await vi.waitFor(() => expect(release.length).toBe(2));
+    release[1]!();
+    expect(await first).toEqual({ failed: false, id: 'a' });
+  });
+
+  it('a slow read from before the save does not replace the fresh one', async () => {
+    let rows: Row[] = [{ id: 'a', secret: 'old' }];
+    const release: Array<() => void> = [];
+    const idx = new SecretIndex<Row>({
+      loadAll: async () => {
+        const seen = rows;
+        await new Promise<void>((r) => release.push(r));
+        return seen;
+      },
+      idOf: (r) => r.id,
+      secretOf: (r) => r.secret,
+      now: () => 0,
+    });
+    const slow = idx.find('other');
+    rows = [{ id: 'a', secret: 'new' }];
+    idx.invalidate();
+    const fresh = idx.find('new');
+    await vi.waitFor(() => expect(release.length).toBe(2));
+    release[1]!();
+    expect((await fresh).id).toBe('a');
+    release[0]!();
+    expect((await slow).id).toBeNull();
+    expect((await idx.find('new')).id).toBe('a');
+    expect(release.length).toBe(2);
+  });
+
+  it('an unknown secret while the last read failed is failed, not unknown', async () => {
+    let fail = false;
+    const { idx, clock } = index(() =>
+      fail ? null : [{ id: 'a', secret: 's' }]
+    );
+    await idx.find('s');
+    fail = true;
+    clock.t = 10_000;
+    expect(await idx.find('brand-new')).toEqual({ failed: true, id: null });
+    clock.t = 11_000;
+    expect(await idx.find('brand-new')).toEqual({ failed: true, id: null });
+    expect(await idx.find('s')).toEqual({ failed: false, id: 'a' });
+  });
 });

@@ -45,4 +45,4 @@ export async function isAllowedPbxBaseUrl(
 }
 
 export const PBX_HOST_REFUSED =
-  'This PBX address is private or internal. If it is your own PBX on the local network, ask whoever runs the server to add its host to PBX_ALLOWED_HOSTS.';
+  'This PBX address could not be found, or it is private or internal. Check the address. If it is your own PBX on the local network, ask whoever runs the server to add its host to PBX_ALLOWED_HOSTS.';

@@ -11,6 +11,7 @@ import {
 } from '@/lib/whatsapp/meta-api';
 import { withChannelSecrets } from '@/lib/whatsapp/channel-secrets';
 import { encrypt, decrypt } from '@/lib/whatsapp/encryption';
+import { webhookSecretsChanged } from '@/lib/whatsapp/webhook-secret-lookup';
 import {
   personalNumbersAdmin,
   promoteOldestToPrimary,
@@ -492,6 +493,9 @@ export async function POST(request: Request) {
         );
       }
     }
+
+    // Meta's handshake may follow at once, with the token just saved.
+    webhookSecretsChanged('meta');
 
     return NextResponse.json({
       success: true,

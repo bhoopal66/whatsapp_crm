@@ -4,7 +4,11 @@ import {
   createServerRefresh,
   REFRESH_UNANSWERED_COOKIE,
 } from '@/lib/supabase/session-fetch'
-import { authCookieOptions, serverSupabaseUrl } from '@/lib/supabase/urls'
+import {
+  authCookieOptions,
+  serverSupabaseUrl,
+  sessionCookieWrite,
+} from '@/lib/supabase/urls'
 
 export async function createClient() {
   const cookieStore = await cookies()
@@ -26,7 +30,7 @@ export async function createClient() {
         setAll(cookiesToSet) {
           try {
             cookiesToSet.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, options)
+              cookieStore.set(name, value, sessionCookieWrite(options))
             )
           } catch {
             // The `setAll` method was called from a Server Component.
