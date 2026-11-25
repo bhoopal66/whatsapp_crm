@@ -974,6 +974,7 @@
       "undoFailed": "Couldn't cancel the reminder",
       "upcomingTitle": "Open reminders for this customer",
       "upcomingEmpty": "No upcoming reminders",
+      "upcomingFailed": "Could not load the existing reminders",
       "unassigned": "Unassigned",
       "done": "Done",
       "markDone": "Mark \"{title}\" done",

@@ -974,6 +974,7 @@
       "undoFailed": "리마인더를 취소하지 못했습니다",
       "upcomingTitle": "이 고객의 열린 리마인더",
       "upcomingEmpty": "예정된 리마인더가 없습니다",
+      "upcomingFailed": "기존 리마인더를 불러오지 못했습니다",
       "unassigned": "미배정",
       "done": "완료",
       "markDone": "\"{title}\" 완료로 표시",

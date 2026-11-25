@@ -138,3 +138,32 @@ export function upcomingReminders<T extends UpcomingReminder>(
     )
     .sort((a, b) => Date.parse(a.due_at!) - Date.parse(b.due_at!));
 }
+
+/**
+ * The contact's open reminders, soonest first. Null when the read failed
+ * (refused, network, or a body that is not a task list): the dialog says
+ * so instead of showing an empty list that reads as "none".
+ */
+export async function loadUpcomingReminders(
+  contactId: string,
+  fetchImpl: typeof fetch = fetch
+): Promise<UpcomingReminder[] | null> {
+  const q = new URLSearchParams({
+    scope: 'contact',
+    contactId,
+    status: 'open',
+    limit: '50',
+  });
+  try {
+    const r = await fetchImpl(`/api/tasks?${q}`, { cache: 'no-store' });
+    if (!r.ok) return null;
+    const body = (await r.json().catch(() => null)) as {
+      tasks?: unknown;
+    } | null;
+    return Array.isArray(body?.tasks)
+      ? upcomingReminders(body.tasks as UpcomingReminder[])
+      : null;
+  } catch {
+    return null;
+  }
+}

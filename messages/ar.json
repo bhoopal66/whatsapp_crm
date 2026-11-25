@@ -974,6 +974,7 @@
       "undoFailed": "تعذّر إلغاء التذكير",
       "upcomingTitle": "التذكيرات المفتوحة لهذا العميل",
       "upcomingEmpty": "لا تذكيرات قادمة",
+      "upcomingFailed": "تعذر تحميل التذكيرات الحالية",
       "unassigned": "غير مُسنَد",
       "done": "تم",
       "markDone": "تعليم «{title}» كمنجز",

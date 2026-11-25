@@ -33,8 +33,8 @@ import {
   reminderAssignees,
   reminderDueAt,
   savedToastKey,
-  upcomingReminders,
   type ReminderPreset,
+  loadUpcomingReminders,
   type UpcomingReminder,
 } from '@/lib/tasks/reminder';
 import { TASK_NOTE_MAX, TASK_TITLE_MAX } from '@/lib/tasks/types';
@@ -117,6 +117,7 @@ export function ReminderDialog({
     'pickInvalid' | 'pickPast' | 'pickTooSoon' | null
   >(null);
   const [upcoming, setUpcoming] = useState<UpcomingReminder[] | null>(null);
+  const [upcomingFailed, setUpcomingFailed] = useState(false);
   const [ticking, setTicking] = useState<string | null>(null);
 
   const people = reminderAssignees(assignableProfiles, currentUserId);
@@ -139,30 +140,14 @@ export function ReminderDialog({
   );
 
   useEffect(() => {
-    // Read once when the dialog opens, never on chat open. A refused
-    // or failed read shows the empty list.
+    // Read once when the dialog opens, never on chat open. A failed
+    // read is null, shown as a failure and never as "none".
     let live = true;
-    const q = new URLSearchParams({
-      scope: 'contact',
-      contactId,
-      status: 'open',
-      limit: '50',
+    void loadUpcomingReminders(contactId).then((list) => {
+      if (!live) return;
+      setUpcoming(list ?? []);
+      setUpcomingFailed(list === null);
     });
-    void fetch(`/api/tasks?${q}`, { cache: 'no-store' })
-      .then(async (r) =>
-        r.ok
-          ? ((await r.json().catch(() => null)) as { tasks?: unknown } | null)
-          : null
-      )
-      .catch(() => null)
-      .then((body) => {
-        if (!live) return;
-        setUpcoming(
-          Array.isArray(body?.tasks)
-            ? upcomingReminders(body.tasks as UpcomingReminder[])
-            : []
-        );
-      });
     return () => {
       live = false;
     };
@@ -369,6 +354,10 @@ export function ReminderDialog({
               className="bg-muted h-8 animate-pulse rounded-md"
               aria-hidden
             />
+          ) : upcomingFailed ? (
+            <p className="text-destructive text-sm" role="alert">
+              {t('upcomingFailed')}
+            </p>
           ) : upcoming.length === 0 ? (
             <p className="text-muted-foreground text-sm">
               {t('upcomingEmpty')}
