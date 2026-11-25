@@ -24,6 +24,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { format } from 'date-fns';
+import { documentCaption } from '@/lib/media/filename';
 import { ReplyQuote } from './reply-quote';
 import { MessageReactions } from './message-reactions';
 import {
@@ -109,8 +110,9 @@ function endsInText(message: Message): boolean {
       return !!(message.content_text || message.template_name);
     case 'interactive':
       return !message.interactive_payload;
-    case 'audio':
     case 'document':
+      return !!message.media_url && !!documentCaption(message);
+    case 'audio':
     case 'location':
     case 'contacts':
       return false;
@@ -201,7 +203,9 @@ function MessageContent({
           />
         );
       }
-      return <MediaDocumentBubble message={message} t={t} />;
+      return (
+        <MediaDocumentBubble message={message} t={t} trailing={trailing} />
+      );
 
     case 'template':
       // Fall back to the template's name when we have no stored body

@@ -25,7 +25,11 @@ import {
 } from '@/components/ui/dialog';
 import { useMediaBlobUrl } from '@/hooks/use-media-blob-url';
 import { downloadMediaMessage } from '@/lib/media/download';
-import { galleryIndexOf, type MediaGalleryItem } from '@/lib/media/gallery';
+import {
+  arrowKeyDelta,
+  galleryIndexOf,
+  type MediaGalleryItem,
+} from '@/lib/media/gallery';
 import type { Message } from '@/types';
 
 /**
@@ -90,13 +94,13 @@ export function MediaLightbox({
   useEffect(() => {
     if (index < 0) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'ArrowLeft') {
-        event.preventDefault();
-        goTo(index - 1);
-      } else if (event.key === 'ArrowRight') {
-        event.preventDefault();
-        goTo(index + 1);
-      }
+      const delta = arrowKeyDelta(
+        event.key,
+        document.documentElement.dir === 'rtl'
+      );
+      if (delta === null) return;
+      event.preventDefault();
+      goTo(index + delta);
     };
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
@@ -328,7 +332,7 @@ function NavButton({
         side === 'left' ? 'start-1' : 'end-1'
       )}
     >
-      <Icon className="h-5 w-5" />
+      <Icon className="h-5 w-5 rtl:rotate-180" />
     </button>
   );
 }

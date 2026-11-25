@@ -95,6 +95,46 @@ describe('planForward', () => {
     });
   });
 
+  it('drops a name that sanitising changed ("Invoice: March.pdf")', () => {
+    const plan = planForward(
+      msg({
+        content_type: 'document',
+        content_text: 'Invoice: March.pdf',
+        media_url:
+          'https://x/storage/v1/object/public/chat-media/a/1700000000000-Invoice_ March.pdf',
+      })
+    );
+    expect(plan).toMatchObject({ ok: true, contentText: null });
+  });
+
+  it('drops an over-long name and keeps it as the filename only', () => {
+    const name = `${'a'.repeat(120)}.pdf`;
+    const plan = planForward(
+      msg({
+        content_type: 'document',
+        content_text: name,
+        media_url: `https://x/storage/v1/object/public/chat-media/a/1700000000000-${'a'.repeat(76)}.pdf`,
+      })
+    );
+    expect(plan).toMatchObject({ ok: true, contentText: null });
+  });
+
+  it('keeps a real caption that ends like a file name', () => {
+    const plan = planForward(
+      msg({
+        content_type: 'document',
+        content_text: 'please sign contract.pdf',
+        media_url:
+          'https://x/storage/v1/object/public/chat-media/a/1700000000000-contract.pdf',
+      })
+    );
+    expect(plan).toMatchObject({
+      ok: true,
+      contentText: 'please sign contract.pdf',
+      filename: 'contract.pdf',
+    });
+  });
+
   it('truncates a caption to WhatsApp’s 1024-character limit', () => {
     const plan = planForward(
       msg({

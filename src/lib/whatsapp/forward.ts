@@ -17,7 +17,12 @@
 // ============================================================
 
 import type { Message } from '@/types';
-import { mediaFilename } from '@/lib/media/filename';
+import {
+  basenameFromUrl,
+  isDocumentFilenameText,
+  mediaFilename,
+  sanitizeFilename,
+} from '@/lib/media/filename';
 
 /**
  * Most chats one forward may target. WhatsApp's own app caps a forward
@@ -105,22 +110,33 @@ export function planForward(message: ForwardSource): ForwardPlan {
     case 'document': {
       if (!message.media_url) return { ok: false, reason: 'no_media' };
 
-      const filename =
-        message.content_type === 'document'
-          ? mediaFilename({
-              content_type: message.content_type,
-              content_text: message.content_text,
-              media_url: message.media_url,
-              media_type: message.media_type,
-              created_at: message.created_at,
-            })
-          : null;
+      // A document with no caption stores its file name as the text. Treat
+      // the text as that name only when it is the stored object's own
+      // (sanitised) basename — or the object has no name to compare with —
+      // so "Invoice: March.pdf" isn't forwarded as a caption while a real
+      // caption that merely ends like a file name ("please sign
+      // contract.pdf") is kept.
+      const isDocument = message.content_type === 'document';
+      const stored = basenameFromUrl(message.media_url);
+      const textIsName =
+        isDocument &&
+        isDocumentFilenameText(text) &&
+        (stored === '' || sanitizeFilename(text ?? '') === stored);
 
-      // Audio carries no caption. A document with no caption stores its
-      // filename as the text — don't send that twice.
+      const filename = isDocument
+        ? mediaFilename({
+            content_type: message.content_type,
+            content_text: textIsName ? (text ?? '') : '',
+            media_url: message.media_url,
+            media_type: message.media_type,
+            created_at: message.created_at,
+          })
+        : null;
+
+      // Audio carries no caption.
       let caption: string | null = text;
       if (message.content_type === 'audio') caption = null;
-      if (caption && filename && caption === filename) caption = null;
+      if (textIsName) caption = null;
       if (caption && caption.length > MAX_CAPTION) {
         caption = caption.slice(0, MAX_CAPTION);
       }
