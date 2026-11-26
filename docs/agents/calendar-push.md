@@ -7,14 +7,25 @@
 - **Calendar** is staff only (`current_account_id()`, so a guest gets
   403). `GET /api/calendar/feed` merges `calendar_events` with meetings
   and dated tasks, which keep their own rules. Only the organiser edits
-  or deletes an event, admins included. RLS enforces this as well as the
-  API. A recurring event is one row with an RFC 5545 rule, expanded in
+  an event, admins included. Deleting it, or cancelling one of its dates,
+  is the organiser's too, and an owner's or admin's once the organiser is
+  no longer live staff there (278, `calendar_event_row_removable`; never a
+  private event). RLS enforces this as well as the API, whose GET answers
+  `canDelete`. A recurring event is one row with an RFC 5545 rule, expanded in
   the app (`recurrence.ts`) and never stored per occurrence. "This
   event" edits go through `calendar_split_occurrence` /
   `calendar_cancel_occurrence`. Reminders ring once through
   `calendar_reminders_sent`. One-off events, meetings and tasks come
   from the SQL `calendar_reminder_sweep`, and recurring occurrences from
   `runRecurringReminders`.
+- **Event bells (278).** A person taken off an event, or off one date of a
+  series, is rung `calendar_cancelled` by the functions
+  (`calendar_remove_attendees`, `calendar_ring_removed`), not by a DELETE
+  trigger, so deleting an event rings once. An event that is over rings
+  nobody; a series whose first date is past is "Repeating event …", with
+  no date. 278 restates 108's two notify functions and patches 108's
+  write functions in place: after re-running 106 or 108, run 278 again.
+  `verify-calendar-meeting-bells.sql`.
 - **Push** needs `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` /
   `VAPID_SUBJECT`. They are read at request time. If any is unset, the
   `/api/push/*` routes answer 503 `push_not_configured`. Writers queue
@@ -32,6 +43,12 @@
   30 min and not after their end; a heads-up, event or meeting past its
   first 5 minutes only if it was set before its time. The sweep and
   `reminders.ts` state the same rules: change both.
+- **Stale bells (319).** Triggers on `tasks`, `meetings` and
+  `calendar_events` read a row's unread reminder bells when it is finished,
+  moved, cancelled or deleted (an ended meeting keeps its bell), so every
+  writer closes the alarm card. A new reminder type goes into the index, the
+  triggers and `ALARM_TYPES`. Done on the card checks the task first
+  (`stillDue`). `verify-stale-bells.sql`.
 - **117** makes two meeting FKs `DEFERRABLE INITIALLY DEFERRED`, because
   a same-transaction insert-then-cascade-delete failed after a
   `pg_dump` restore. The migration explains why no other FK was

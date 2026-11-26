@@ -205,4 +205,57 @@ describe('useSessionQuery', () => {
     expect(shown.loading).toBe(false);
     expect(shown.error).toBeInstanceOf(Error);
   });
+
+  describe('reread', () => {
+    const settle = () => new Promise((settled) => setTimeout(settled, 0));
+
+    it('rejects when the read failed, and shows none behind cached data', async () => {
+      sessionCache.set(KEY, ['held']);
+      const fetcher = vi.fn(async () => ['held']);
+      const query = render(() => useSessionQuery(KEY, fetcher));
+      await settle();
+
+      fetcher.mockRejectedValueOnce(new Error('503'));
+      await expect(query.reread()).rejects.toThrow('503');
+
+      const shown = render(() => useSessionQuery(KEY, fetcher));
+      expect(shown).toMatchObject({ data: ['held'], error: null });
+    });
+
+    it('keeps the first failure of an empty entry, and clears it once read', async () => {
+      const first = new Error('first');
+      const fetcher = vi.fn(async (): Promise<string[]> => {
+        throw first;
+      });
+      const query = render(() => useSessionQuery(KEY, fetcher));
+      await settle();
+      fetcher.mockRejectedValueOnce(new Error('second'));
+      await expect(query.reread()).rejects.toThrow('second');
+      expect(render(() => useSessionQuery(KEY, fetcher)).error).toBe(first);
+
+      fetcher.mockResolvedValueOnce(['read']);
+      await query.reread();
+      const shown = render(() => useSessionQuery(KEY, fetcher));
+      expect(shown).toMatchObject({ data: ['read'], error: null });
+    });
+
+    it('records a failure when nothing is cached', async () => {
+      const held = new Promise<string[]>(() => {});
+      const fetcher = vi.fn(() => held);
+      const query = render(() => useSessionQuery(KEY, fetcher));
+      fetcher.mockRejectedValueOnce(new Error('503'));
+      await expect(query.reread()).rejects.toThrow('503');
+      const shown = render(() => useSessionQuery(KEY, fetcher));
+      expect(shown.error).toBeInstanceOf(Error);
+    });
+
+    it('is quiet for a key of a session this tab has left', async () => {
+      const fetcher = vi.fn(async () => 1);
+      const query = render(() => useSessionQuery(KEY, fetcher));
+      await settle();
+      leaveSession();
+      await expect(query.reread()).resolves.toBeUndefined();
+      expect(fetcher).toHaveBeenCalledTimes(1);
+    });
+  });
 });

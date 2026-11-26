@@ -29,8 +29,8 @@ import {
   tileState,
 } from '@/lib/dashboard/home/attention';
 import { viewerInboxDepartment } from '@/lib/inbox/departments';
-import type { OpenCases } from '@/lib/dashboard/home/sources';
-import { taskCounts } from '@/lib/dashboard/home/tasks';
+import type { OpenCases, OpenTasks } from '@/lib/dashboard/home/sources';
+import { cutTaskCounts } from '@/lib/dashboard/home/tasks';
 import type { CampaignInboxFields } from '@/lib/inbox/campaign-inbox';
 import {
   PIN_TILE_COLUMNS,
@@ -44,8 +44,8 @@ import {
   insightTileHref,
   pinnedTileHref,
 } from '@/lib/insights/customer-view';
+import { readPages, type ReadPagesResult } from '@/lib/inbox/read-pages';
 import { createClient } from '@/lib/supabase/client';
-import type { Task } from '@/lib/tasks/types';
 import { cn } from '@/lib/utils';
 import { Skeleton } from '../skeleton';
 import { useWidgetData, type WidgetData } from './use-widget-data';
@@ -53,7 +53,7 @@ import { useWidgetData, type WidgetData } from './use-widget-data';
 export interface AttentionStripProps {
   refreshKey: number;
   /** The person's open tasks (the page's; the tasks panel shares it). Null: the role holds no tasks. */
-  tasks: WidgetData<Task[]> | null;
+  tasks: WidgetData<OpenTasks> | null;
   /** Open cases (the page's; the cases card shares it). Null: the role gets no cases. */
   cases: WidgetData<OpenCases> | null;
   /** Open missed-call tasks assigned to this person (a null count is
@@ -68,6 +68,8 @@ type UnreadRow = CampaignInboxFields &
 
 interface ChatCounts {
   unreadRows: UnreadRow[];
+  /** The unread read hit its page cap: the figure is a floor. */
+  unreadTruncated: boolean;
   handoffs: number;
   drafts: number;
 }
@@ -76,10 +78,18 @@ interface ChatCounts {
 async function loadChatCounts(): Promise<ChatCounts> {
   const supabase = createClient();
   const [unread, handoffs, drafts] = await Promise.all([
-    supabase
-      .from('conversations')
-      .select(UNREAD_ROW_COLUMNS)
-      .gt('unread_count', 0),
+    readPages<UnreadRow>(
+      (from, to) =>
+        supabase
+          .from('conversations')
+          .select(UNREAD_ROW_COLUMNS)
+          .gt('unread_count', 0)
+          .order('id')
+          .range(from, to) as unknown as PromiseLike<{
+          data: UnreadRow[] | null;
+          error: unknown;
+        }>
+    ),
     supabase
       .from('conversations')
       .select('id', { count: 'exact', head: true })
@@ -89,11 +99,11 @@ async function loadChatCounts(): Promise<ChatCounts> {
       .select('id', { count: 'exact', head: true })
       .not('ai_pending_draft', 'is', null),
   ]);
-  if (unread.error) throw unread.error;
   if (handoffs.error) throw handoffs.error;
   if (drafts.error) throw drafts.error;
   return {
-    unreadRows: (unread.data ?? []) as unknown as UnreadRow[],
+    unreadRows: unread.rows,
+    unreadTruncated: unread.truncated,
     handoffs: handoffs.count ?? 0,
     drafts: drafts.count ?? 0,
   };
@@ -109,15 +119,21 @@ type InsightRow = UnreadRow & {
  * or upset. Counted at render with the unread tile's own Campaign inbox
  * rule (`countInsightTiles`), so each tile matches the list it opens.
  */
-async function loadInsightRows(): Promise<InsightRow[]> {
+async function loadInsightRows(): Promise<ReadPagesResult<InsightRow>> {
   const supabase = createClient();
-  const { data, error } = await supabase
-    .from('conversations')
-    .select(`${UNREAD_ROW_COLUMNS}, ${INSIGHT_TILE_COLUMNS}`)
-    .gt('unread_count', 0)
-    .or(INSIGHT_TILE_OR);
-  if (error) throw error;
-  return (data ?? []) as unknown as InsightRow[];
+  return readPages<InsightRow>(
+    (from, to) =>
+      supabase
+        .from('conversations')
+        .select(`${UNREAD_ROW_COLUMNS}, ${INSIGHT_TILE_COLUMNS}`)
+        .gt('unread_count', 0)
+        .or(INSIGHT_TILE_OR)
+        .order('id')
+        .range(from, to) as unknown as PromiseLike<{
+        data: InsightRow[] | null;
+        error: unknown;
+      }>
+  );
 }
 
 type PinRow = Parameters<typeof countPinnedTile>[0][number];
@@ -128,14 +144,28 @@ type PinRow = Parameters<typeof countPinnedTile>[0][number];
  * the list's Campaign inbox rule, so the tile matches the "N pinned"
  * chip of the list it opens.
  */
-async function loadPinRows(): Promise<PinRow[]> {
+async function loadPinRows(): Promise<ReadPagesResult<PinRow>> {
   const supabase = createClient();
-  const { data, error } = await supabase
-    .from('conversations')
-    .select(PIN_TILE_COLUMNS)
-    .or(PIN_TILE_OR);
-  if (error) throw error;
-  return (data ?? []) as unknown as PinRow[];
+  return readPages<PinRow>(
+    (from, to) =>
+      supabase
+        .from('conversations')
+        .select(PIN_TILE_COLUMNS)
+        .or(PIN_TILE_OR)
+        .order('id')
+        .range(from, to) as unknown as PromiseLike<{
+        data: PinRow[] | null;
+        error: unknown;
+      }>
+  );
+}
+
+/** A tile's figure from a paged read: "12+" when the read was cut short. */
+function cutFigure(
+  count: number | undefined,
+  read: { truncated: boolean } | null
+): string | undefined {
+  return count === undefined ? undefined : formatCount(count, read?.truncated);
 }
 
 type Tone = 'destructive' | 'warning' | 'info' | 'success';
@@ -213,9 +243,18 @@ export function AttentionStrip({
     signalsOn && accountId ? `attention-pins:${accountId}:${refreshKey}` : null,
     loadPinRows
   );
-  const pinCounts = pins.data ? countPinnedTile(pins.data, aiLive) : null;
+  const wideView = inboxHref === '/team-inbox';
+  const pinCounts = pins.data
+    ? countPinnedTile(pins.data.rows, aiLive, userId, wideView, ownDepartment)
+    : null;
   const insightCounts = insights.data
-    ? countInsightTiles(insights.data, aiLive)
+    ? countInsightTiles(
+        insights.data.rows,
+        aiLive,
+        userId,
+        wideView,
+        ownDepartment
+      )
     : null;
   // "Now" for the overdue split, taken once per refresh.
   const [clock, setClock] = useState({ refreshKey, now: new Date() });
@@ -228,11 +267,13 @@ export function AttentionStrip({
         chats.data.unreadRows,
         aiLive,
         userId,
-        inboxHref === '/team-inbox',
+        wideView,
         ownDepartment
       )
     : null;
-  const taskFigures = tasks?.data ? taskCounts(tasks.data, clock.now) : null;
+  const taskFigures = tasks?.data
+    ? cutTaskCounts(tasks.data.tasks, clock.now)
+    : null;
   const caseFigures = cases?.data ? overdueCases(cases.data.rows) : null;
 
   const tiles: (TileProps & { key: string })[] = [
@@ -243,6 +284,10 @@ export function AttentionStrip({
       label: t('unread.label'),
       tone: 'info',
       count: unread,
+      display:
+        unread === null
+          ? undefined
+          : formatCount(unread, chats.data?.unreadTruncated),
       error: chatError,
       hint: t('unread.hint'),
     },
@@ -271,6 +316,7 @@ export function AttentionStrip({
         label: ti('hot.label'),
         tone: 'success',
         count: insightCounts?.hotWaiting ?? null,
+        display: cutFigure(insightCounts?.hotWaiting, insights.data),
         error: insightError,
         hint: ti('hot.hint'),
       },
@@ -281,6 +327,7 @@ export function AttentionStrip({
         label: ti('upset.label'),
         tone: 'warning',
         count: insightCounts?.upsetWaiting ?? null,
+        display: cutFigure(insightCounts?.upsetWaiting, insights.data),
         error: insightError,
         hint: ti('upset.hint'),
       },
@@ -291,6 +338,7 @@ export function AttentionStrip({
         label: ti('pinned.label'),
         tone: pinCounts && pinCounts.urgent > 0 ? 'destructive' : 'warning',
         count: pinCounts?.pinned ?? null,
+        display: cutFigure(pinCounts?.pinned, pins.data),
         error: pins.error && !pins.data,
         hint: ti('pinned.hint'),
       }
@@ -304,8 +352,17 @@ export function AttentionStrip({
       label: t('overdueTasks.label'),
       tone: 'destructive',
       count: taskFigures?.overdue ?? null,
+      display: taskFigures
+        ? formatCount(
+            taskFigures.overdue,
+            tasks.data?.truncated && taskFigures.overdueCut
+          )
+        : undefined,
       error: tasks.error && !tasks.data,
-      hint: t('overdueTasks.hint', { count: taskFigures?.today ?? 0 }),
+      hint:
+        tasks.data?.truncated && taskFigures?.todayCut
+          ? t('overdueTasks.hintCut')
+          : t('overdueTasks.hint', { count: taskFigures?.today ?? 0 }),
     });
   }
   if (missedCalls !== null) {

@@ -16,6 +16,7 @@ import {
   toErrorResponse,
 } from '@/lib/auth/account';
 import { validateContactPhone } from '@/lib/contacts/phone-validation';
+import { SEND_UNCONFIRMED } from '@/lib/groups/unconfirmed-sends';
 import { isUuid, ownGroup, SgHttpError } from '@/lib/submission-groups/http';
 import {
   submissionGroupService,
@@ -85,12 +86,15 @@ export async function POST(request: Request, { params }: Params) {
       !canManageSubmissionGroups(ctx.role) &&
       !(await store.openAccessLabel(group.id, ctx.userId))
     )
-      throw new SgHttpError(403, 'You are not on this group');
+      throw new SgHttpError(403, 'You are not on this group', {
+        code: 'not_allowed',
+      });
 
     const checked = validateContactPhone(
       typeof raw?.phone === 'string' ? raw.phone : ''
     );
-    if (!checked.ok) throw new SgHttpError(400, checked.error);
+    if (!checked.ok)
+      throw new SgHttpError(400, checked.error, { code: 'bad_phone' });
     const phone = checked.normalized.replace(/\D/g, '');
 
     const out = await submissionGroupService(ctx.accountId).addNumber(
@@ -100,9 +104,17 @@ export async function POST(request: Request, { params }: Params) {
     );
     if (out.status === 'not_allowed') {
       const refusal = REFUSALS[out.code];
-      throw new SgHttpError(refusal.status, refusal.message);
+      throw new SgHttpError(refusal.status, refusal.message, {
+        code: out.code,
+      });
     }
     if (out.status === 'failed') throw new SgHttpError(502, out.reason);
+    if (out.status === 'unconfirmed')
+      throw new SgHttpError(
+        502,
+        'The number may have been added; check the group',
+        { code: SEND_UNCONFIRMED }
+      );
     return NextResponse.json(
       out.status === 'added'
         ? { added: true, phone }

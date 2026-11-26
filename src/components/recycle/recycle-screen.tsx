@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useTranslations } from 'next-intl';
+import { useFormatter, useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import {
   CheckCircle2,
@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 
 import { EmptyState } from '@/components/dashboard/empty-state';
+import { ErrorState } from '@/components/dashboard/error-state';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
@@ -31,9 +32,13 @@ import {
   daysSince,
   formatPhone,
   mapRecycleRow,
-  settingsFromRow,
   whyKey,
 } from '@/lib/recycle/rows';
+import {
+  readRecycleSettings,
+  saveRecycleSettings,
+  type StoredRecycleSettings,
+} from '@/lib/recycle/settings';
 import {
   RECYCLE_CASE_OUTCOMES,
   RECYCLE_MAX_BATCH,
@@ -42,7 +47,6 @@ import {
   type RecycleCaseOutcome,
   type RecycleRow,
   type RecycleRpcRow,
-  type RecycleSettings,
 } from '@/lib/recycle/types';
 
 const PAGE_SIZE = 25;
@@ -63,7 +67,10 @@ export function RecycleScreen() {
     [supabase]
   );
 
-  const [settings, setSettings] = useState<RecycleSettings | null>(null);
+  // Null until read: a failed read must not show (and save) the defaults.
+  const [stored, setStored] = useState<StoredRecycleSettings | null>(null);
+  const [settingsFailed, setSettingsFailed] = useState(false);
+  const settings = stored?.settings ?? null;
   const [days, setDays] = useState('');
   const [search, setSearch] = useState('');
   const [query, setQuery] = useState('');
@@ -82,12 +89,10 @@ export function RecycleScreen() {
   // Settings (team leader and up read them; no row = the defaults).
   const loadSettings = useCallback(async () => {
     if (!accountId) return;
-    const { data } = await supabase
-      .from('recycle_settings')
-      .select('days, chat_tag_ids, case_outcomes')
-      .eq('account_id', accountId)
-      .maybeSingle();
-    setSettings(settingsFromRow(data ?? null));
+    const read = await readRecycleSettings(supabase, accountId);
+    // A failed Reload keeps the card, with what was typed in it.
+    if (read) setStored(read);
+    setSettingsFailed(read === null);
   }, [accountId, supabase]);
 
   /* eslint-disable react-hooks/set-state-in-effect */
@@ -205,9 +210,19 @@ export function RecycleScreen() {
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 p-4 sm:p-6">
       <p className="text-muted-foreground text-sm">{t('intro')}</p>
 
-      {canEdit && settings && (
+      {canEdit && settingsFailed && (
+        <ErrorState
+          message={t('settings.loadFailed')}
+          onRetry={() => void loadSettings()}
+        />
+      )}
+      {canEdit && accountId && stored && (
         <SettingsCard
-          settings={settings}
+          // A version read again (after a save or Reload) starts afresh.
+          key={stored.updatedAt ?? 'none'}
+          accountId={accountId}
+          stored={stored}
+          onReload={() => void loadSettings()}
           onSaved={() => {
             setPage(0);
             void loadSettings();
@@ -382,6 +397,7 @@ function RecycleItem({
   onToggle: () => void;
 }) {
   const t = useTranslations('Recycle');
+  const format = useFormatter();
   const ago = daysSince(row.endedAt);
   const Icon = row.outcome === 'Withdrawn' ? XCircle : CheckCircle2;
   const outcomeWord =
@@ -428,7 +444,7 @@ function RecycleItem({
         <div>
           <p className="text-sm">{t('daysAgo', { count: ago })}</p>
           <p className="text-muted-foreground text-xs">
-            {new Date(row.endedAt).toLocaleDateString()}
+            {format.dateTime(new Date(row.endedAt), { dateStyle: 'medium' })}
           </p>
         </div>
         <div className="min-w-0">
@@ -443,12 +459,17 @@ function RecycleItem({
 }
 
 function SettingsCard({
-  settings,
+  accountId,
+  stored,
+  onReload,
   onSaved,
 }: {
-  settings: RecycleSettings;
+  accountId: string;
+  stored: StoredRecycleSettings;
+  onReload: () => void;
   onSaved: () => void;
 }) {
+  const { settings, updatedAt } = stored;
   const t = useTranslations('Recycle.settings');
   const supabase = useMemo(() => createClient(), []);
   const { tags } = useChatTags();
@@ -466,13 +487,24 @@ function SettingsCard({
 
   async function save() {
     setSaving(true);
-    const { error } = await supabase.rpc('recycle_settings_set', {
-      p_days: clampDays(days, settings.days),
-      p_chat_tag_ids: tagIds,
-      p_case_outcomes: outcomes,
-    });
+    const outcome = await saveRecycleSettings(
+      supabase,
+      accountId,
+      {
+        days: clampDays(days, settings.days),
+        chatTagIds: tagIds,
+        caseOutcomes: outcomes,
+      },
+      updatedAt
+    );
     setSaving(false);
-    if (error) {
+    if (outcome === 'conflict') {
+      toast.error(t('conflict'), {
+        action: { label: t('reload'), onClick: onReload },
+      });
+      return;
+    }
+    if (outcome === 'failed') {
       toast.error(t('saveFailed'));
       return;
     }

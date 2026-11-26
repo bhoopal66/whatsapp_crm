@@ -49,6 +49,7 @@ import {
   draftAfterSend,
   draftStorageKey,
   encodeDraft,
+  refusalScope,
   type ComposerBlock,
   type ComposerDraft,
 } from '@/lib/chat/composer';
@@ -65,12 +66,12 @@ import {
   composerControls,
   countsAsChannelAdmin,
   everyoneRefusal,
+  messageSensitiveKinds,
   needsGuestLookup,
   offersEveryone,
   postingBlock,
   postingBlockMessage,
   sensitiveDecision,
-  stripMentionTokens,
   type SensitiveKind,
 } from '@/lib/chat/composer-gating';
 import type { ChatErrorKey } from '@/lib/chat/errors';
@@ -93,7 +94,6 @@ import {
 } from '@/lib/chat/post-payload';
 import { quotePreview } from '@/lib/chat/quotes';
 import { chatRecorderGuard } from '@/lib/chat/recorder-guard';
-import { sensitiveKinds } from '@/lib/kb/sensitive';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   channelDisplayName,
@@ -263,6 +263,14 @@ export function Composer({
     guests: boolean;
   } | null>(null);
   const [refused, setRefused] = useState<ComposerBlock | null>(null);
+  // A refusal belongs to the channel as it was: once membership, archive,
+  // posting rule or block changes, it is asked again.
+  const scope = refusalScope(channel, block);
+  const [refusedScope, setRefusedScope] = useState(scope);
+  if (refusedScope !== scope) {
+    setRefusedScope(scope);
+    setRefused(null);
+  }
   const format = useFormatter();
   const restrictedUntil = useRestrictedUntil(channel);
   // A timeout learnt from a refusal (160) lifts when it ends, or after a
@@ -721,7 +729,10 @@ export function Composer({
     setSending(true);
     try {
       if (!confirmed) {
-        const kinds = sensitiveKinds(stripMentionTokens(composed.body));
+        const kinds = messageSensitiveKinds(
+          composed.body,
+          chips.map((c) => c.name)
+        );
         const hasGuest = needsGuestLookup(
           permissions.sensitive,
           channel.kind,
@@ -818,7 +829,7 @@ export function Composer({
       );
       if (!aliveRef.current) return;
       dropTake();
-      reply.clear();
+      if (replyIdRef.current === post.replyToId) reply.clear();
       if (typingSentAt.current !== null) tellTyping(false);
       onPosted?.(id);
     } catch (err) {
@@ -1104,7 +1115,15 @@ export function Composer({
           </button>
         </div>
       ) : (
-        <div ref={inputWrap} className="flex items-end gap-2" onPaste={onPaste}>
+        // In a narrow column (a thread, a phone) the text has a row of its own.
+        <div
+          ref={inputWrap}
+          className={cn(
+            'flex items-end gap-2',
+            threadRootId ? 'flex-wrap' : 'max-sm:flex-wrap'
+          )}
+          onPaste={onPaste}
+        >
           {controls.attach && (
             <button
               type="button"
@@ -1171,7 +1190,12 @@ export function Composer({
           />
           <MentionTextarea
             controlRef={input}
-            className="min-w-0 flex-1"
+            className={cn(
+              'min-w-0',
+              threadRootId
+                ? 'order-first basis-full'
+                : 'flex-1 max-sm:order-first max-sm:basis-full'
+            )}
             onCancel={reply.target ? reply.clear : undefined}
             draft={draft}
             onDraftChange={changeDraft}
@@ -1189,7 +1213,10 @@ export function Composer({
             type="button"
             onClick={() => void send()}
             disabled={!canSend}
-            className="bg-primary text-primary-foreground hover:bg-primary-hover h-9 shrink-0 rounded-lg px-4 text-sm font-semibold disabled:opacity-50"
+            className={cn(
+              'bg-primary text-primary-foreground hover:bg-primary-hover h-9 shrink-0 rounded-lg px-4 text-sm font-semibold disabled:opacity-50',
+              threadRootId ? 'ms-auto' : 'max-sm:ms-auto'
+            )}
           >
             {t('composer.send')}
           </button>

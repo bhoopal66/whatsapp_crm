@@ -46,6 +46,8 @@
  *   viewArchive — sg_read_archive: the role is decided in SQL from the user id;
  *     audit row and read in one statement.
  */
+import { isDefiniteSendRefusal } from '@/lib/whatsapp/provider';
+
 import { noteCreatedMembership } from './membership';
 import {
   assertWindowDays,
@@ -205,7 +207,10 @@ export type AddNumberResult =
   /** WhatsApp would not add them: the link to share instead, when known. */
   | { status: 'refused'; inviteLink: string | null }
   | { status: 'not_allowed'; code: AddNumberRefusal }
-  | { status: 'failed'; reason: string };
+  /** Certainly not added. */
+  | { status: 'failed'; reason: string }
+  /** WhatsApp gave no answer: the number may be in the group. */
+  | { status: 'unconfirmed' };
 
 export interface SubmissionGroupServiceDeps {
   store: GroupStore;
@@ -266,6 +271,17 @@ export class SubmissionGroupSendRefusedError extends Error {
   }
 }
 
+/**
+ * A staff send broke before its row was stored (a read, or sg_send_begin
+ * itself): WhatsApp was not asked. `message` is the cause's own.
+ */
+export class SubmissionGroupSendNotStoredError extends Error {
+  override readonly name = 'SubmissionGroupSendNotStoredError';
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause), { cause });
+  }
+}
+
 /** The group's number is gone from the account (or never belonged to it). */
 export class SubmissionGroupChannelError extends Error {
   override readonly name = 'SubmissionGroupChannelError';
@@ -313,7 +329,7 @@ export function failedLast<T>(
   ];
 }
 
-/** createGroup failed before the gateway was called, so no group can exist. */
+/** createGroup or sendGroupText failed before the gateway was called: no group, no message. */
 export class SubmissionGroupNotAttemptedError extends Error {
   override readonly name = 'SubmissionGroupNotAttemptedError';
   constructor(cause: unknown) {
@@ -360,6 +376,37 @@ export class SubmissionGroupSentNotRecordedError extends Error {
   }
 }
 
+/**
+ * A send whose outcome nobody knows: the gateway timed out,
+ * answered 5xx or lost its answer, so WhatsApp may hold the message. The
+ * row is settled 'failed' (an echo can still correct it, inbound.ts).
+ * `message` is the gateway error's own, which is the `cause`.
+ */
+export class SubmissionGroupSendUnconfirmedError extends Error {
+  override readonly name = 'SubmissionGroupSendUnconfirmedError';
+  constructor(
+    readonly messageId: string,
+    cause: unknown
+  ) {
+    super(cause instanceof Error ? cause.message : String(cause), { cause });
+  }
+}
+
+/**
+ * sendSystem stored the row but nothing was sent: the gateway refused, or a
+ * read before it failed. The row is settled 'failed' and its key is used, so
+ * another try takes a new key. `message` is the cause's own.
+ */
+export class SubmissionGroupSystemNotSentError extends Error {
+  override readonly name = 'SubmissionGroupSystemNotSentError';
+  constructor(
+    readonly messageId: string,
+    cause: unknown
+  ) {
+    super(cause instanceof Error ? cause.message : String(cause), { cause });
+  }
+}
+
 export type OpenResult =
   | { consentRequired: true; group: null; inviteLink: null }
   | {
@@ -386,13 +433,15 @@ export type EndResult = {
 /**
  * sendSystem's outcome. `duplicate`: a row with this key already exists
  * (its own state in `sendStatus`); nothing new was stored or sent.
- * `refused`: sg_send_begin_system stored nothing. `blocked`: the consent
- * check refused and the row was settled 'blocked'.
+ * `refused`: sg_send_begin_system stored nothing, or (with `messageId`) the
+ * group lost its number or contact right after and the row was settled
+ * 'failed'; nothing was sent. `blocked`: the consent check refused and the
+ * row was settled 'blocked'.
  */
 export type SystemSendResult =
   | { status: 'sent'; messageId: string; waMessageId: string }
   | { status: 'duplicate'; messageId: string; sendStatus: SendStatus | null }
-  | { status: 'refused'; code: SystemSendRefusal }
+  | { status: 'refused'; code: SystemSendRefusal; messageId?: string }
   | { status: 'blocked'; reason: 'opted_out' | 'do_not_contact' };
 
 type CreateOutcome =
@@ -1009,12 +1058,18 @@ export class SubmissionGroupService {
         groupId,
         err: errText(err),
       });
-      const reason =
-        err instanceof SubmissionGroupChannelError
-          ? INVITE_NO_NUMBER
-          : 'The number could not be added; try again';
       await settle('failed', errText(err));
-      return { status: 'failed', reason };
+      if (err instanceof SubmissionGroupChannelError)
+        return { status: 'failed', reason: INVITE_NO_NUMBER };
+      if (
+        err instanceof SubmissionGroupNotAttemptedError ||
+        isDefiniteSendRefusal(err)
+      )
+        return {
+          status: 'failed',
+          reason: 'The number could not be added; try again',
+        };
+      return { status: 'unconfirmed' };
     }
     await settle(outcome, null);
     if (outcome === 'added') {
@@ -1231,7 +1286,11 @@ export class SubmissionGroupService {
   }> {
     const input = { groupId, userId };
     const { store } = this.deps;
-    const group = await store.get(input.groupId);
+    // Until the row is stored nothing went out, whatever breaks.
+    const unstored = (err: unknown): never => {
+      throw new SubmissionGroupSendNotStoredError(err);
+    };
+    const group = await store.get(input.groupId).catch(unstored);
     if (!group) throw new SubmissionGroupSendRefusedError('GROUP_NOT_FOUND');
     if (group.waMode === 'none')
       throw new SubmissionGroupSendRefusedError('NO_WHATSAPP_GROUP');
@@ -1244,15 +1303,19 @@ export class SubmissionGroupService {
     if (group.contactId === null)
       throw new SubmissionGroupSendRefusedError('CONTACT_REMOVED');
     const { channelId, contactId, waGroupId } = group;
-    const name = await this.deps.displayName(input.userId, group.accountId);
+    const name = await this.deps
+      .displayName(input.userId, group.accountId)
+      .catch(unstored);
     if (!name) throw new SubmissionGroupSendRefusedError('UNKNOWN_USER');
     // The prefix label is the open access row's label; sg_send_begin re-decides under the group lock.
-    const label = await store.openAccessLabel(group.id, input.userId);
+    const label = await store
+      .openAccessLabel(group.id, input.userId)
+      .catch(unstored);
     if (!label) throw new SubmissionGroupSendRefusedError('SEND_NOT_ALLOWED');
     const prefixed = compose(name, STAFF_LABEL_TEXT[label]);
 
     // The row exists (pending) before anything goes to the gateway.
-    const messageId = await begin(group.id, prefixed);
+    const messageId = await begin(group.id, prefixed).catch(unstored);
     if (messageId === null)
       throw new SubmissionGroupSendRefusedError('SEND_NOT_ALLOWED');
 
@@ -1286,7 +1349,14 @@ export class SubmissionGroupService {
         if (late !== null)
           throw new SubmissionGroupSentNotRecordedError(messageId, late, err);
       }
-      throw err;
+      // A refusal (the number is gone, a gateway 4xx) sent nothing; anything
+      // else may have gone out.
+      if (
+        isDefiniteSendRefusal(err) ||
+        err instanceof SubmissionGroupChannelError
+      )
+        throw err;
+      throw new SubmissionGroupSendUnconfirmedError(messageId, err);
     }
     // Not pending any more (swept, or settled elsewhere) but WhatsApp has
     // it: report it as sent-not-recorded, never as a failure to resend.
@@ -1336,15 +1406,20 @@ export class SubmissionGroupService {
    * Sends an automatic message (170: welcome, status update) into the group
    * from its hosting number, with no name prefix. Same safety as
    * sendFromCrm: the row exists before the gateway, consent is re-checked,
-   * and a gateway error settles the row 'failed' and is rethrown (unless
-   * Whapi's echo shows it went out: SubmissionGroupSentNotRecordedError).
+   * and a failure settles the row 'failed'. Nothing sent (a refusal, a failed
+   * read): SubmissionGroupSystemNotSentError. An outcome nobody knows:
+   * SubmissionGroupSendUnconfirmedError, unless Whapi's echo shows it went
+   * out (SubmissionGroupSentNotRecordedError).
    * `key` makes it at most once per group: a repeat answers `duplicate`.
+   * `beforeGateway` runs last before the gateway; if it throws, nothing is
+   * sent.
    */
   async sendSystem(input: {
     groupId: string;
     kind: SystemKind;
     key: string;
     text: string;
+    beforeGateway?: (messageId: string) => Promise<void>;
   }): Promise<SystemSendResult> {
     const { store, api } = this.deps;
     const begun = await store.beginSystemSend(
@@ -1363,6 +1438,10 @@ export class SubmissionGroupService {
         : { status: 'refused', code: begun.refused };
     }
     const messageId = begun.id;
+    const notSent = async (err: unknown) => {
+      await this.settleQuietly(messageId, 'failed');
+      return new SubmissionGroupSystemNotSentError(messageId, err);
+    };
 
     // sg_send_begin_system checked the number, group and contact under the
     // group lock; they are frozen or only ever cleared, so a re-read that
@@ -1371,8 +1450,7 @@ export class SubmissionGroupService {
     try {
       group = await store.get(input.groupId);
     } catch (err) {
-      await this.settleQuietly(messageId, 'failed');
-      throw err;
+      throw await notSent(err);
     }
     if (!group?.channelId || !group.waGroupId || !group.contactId) {
       await this.settleQuietly(messageId, 'failed');
@@ -1385,6 +1463,7 @@ export class SubmissionGroupService {
             : !group.channelId
               ? 'NUMBER_REMOVED'
               : 'CONTACT_REMOVED',
+        messageId,
       };
     }
     const { channelId, contactId, waGroupId } = group;
@@ -1393,12 +1472,16 @@ export class SubmissionGroupService {
     try {
       consent = await this.deps.consent(contactId);
     } catch (err) {
-      await this.settleQuietly(messageId, 'failed');
-      throw err;
+      throw await notSent(err);
     }
     if (!consent.allowed && consent.reason) {
       await this.settleQuietly(messageId, 'blocked');
       return { status: 'blocked', reason: consent.reason };
+    }
+    try {
+      await input.beforeGateway?.(messageId);
+    } catch (err) {
+      throw await notSent(err);
     }
 
     let sent: { waMessageId: string };
@@ -1415,7 +1498,13 @@ export class SubmissionGroupService {
         if (late !== null)
           throw new SubmissionGroupSentNotRecordedError(messageId, late, err);
       }
-      throw err;
+      if (
+        isDefiniteSendRefusal(err) ||
+        err instanceof SubmissionGroupChannelError ||
+        err instanceof SubmissionGroupNotAttemptedError
+      )
+        throw new SubmissionGroupSystemNotSentError(messageId, err);
+      throw new SubmissionGroupSendUnconfirmedError(messageId, err);
     }
     if (!(await this.settleSent(messageId, sent.waMessageId))) {
       throw new SubmissionGroupSentNotRecordedError(

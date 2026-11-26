@@ -24,6 +24,8 @@ import {
 } from './shared-docs';
 import {
   parseCandidates,
+  TRAY_PAGE,
+  type TrayPage,
   type DeskSettings,
   type RouteDecision,
   type TrayItem,
@@ -67,6 +69,10 @@ export const DESK_REFUSALS = [
   'CONSENT_NOT_FOUND',
   // 234: reminder digest
   'TEMPLATE_INVALID',
+  // 289: an upload only a sorter may attach
+  'COMPANY_RESTRICTED',
+  // 316: a settings card opened before another admin's save
+  'SETTINGS_CHANGED',
 ] as const;
 export type DeskRefusal = (typeof DESK_REFUSALS)[number];
 const REFUSALS: ReadonlySet<string> = new Set(DESK_REFUSALS);
@@ -602,6 +608,25 @@ export class DeskStore {
     };
   }
 
+  /**
+   * A document that could not be routed or copied becomes a tray row
+   * (migration 303), found by the message it arrived on; one already
+   * placed is left alone. False when no document is recorded for it.
+   */
+  async trayCopyFailed(
+    account: string,
+    messageRowId: string,
+    channelId: string | null
+  ): Promise<boolean> {
+    const rows = await this.rpc('desk_tray_copy_failed', {
+      p_account: account,
+      p_message: messageRowId,
+      p_channel: channelId,
+      p_now: this.now(),
+    });
+    return (rows[0] as unknown) !== 'missing';
+  }
+
   /** A desk upload that arrived by WhatsApp (220's intake, channel whatsapp). */
   whatsappIntake(
     actor: string,
@@ -634,16 +659,19 @@ export class DeskStore {
   async tray(
     actor: string,
     account: string,
-    state: TrayState = 'open'
-  ): Promise<TrayItem[]> {
-    const rows = await this.rpc('desk_tray_list', {
+    state: TrayState = 'open',
+    limit: number = TRAY_PAGE
+  ): Promise<TrayPage> {
+    const [page] = await this.rpc('desk_tray_page', {
       p_actor: actor,
       p_account: account,
       p_state: state,
-      p_limit: 100,
+      p_limit: limit,
       p_now: this.now(),
     });
-    return rows.map((r) => ({
+    if (!page || !Array.isArray(page.items))
+      throw new DeskStoreError('desk_tray_page', null);
+    const items = (page.items as Record<string, unknown>[]).map((r) => ({
       trayId: String(r.tray_id),
       reason: String(r.reason) as TrayReason,
       candidates: parseCandidates(r.candidates),
@@ -663,12 +691,20 @@ export class DeskStore {
       originalName: str(r.original_name),
       caption: str(r.caption),
       mediaUrl: str(r.media_url),
+      sizeBytes: num(r.size_bytes),
+      conversationId: str(r.conversation_id),
       resolvedCaseId: str(r.resolved_case_id),
       dismissReason: str(r.dismiss_reason),
     }));
+    const total = num(page.total) ?? items.length;
+    return { items, total, hasMore: total > items.length };
   }
 
-  /** 'filed', or 'needs_copy' with the file to copy through the intake. */
+  /**
+   * 'filed' (303: perhaps on the case an earlier copy went to), 'waiting'
+   * (an earlier copy is in the sorting queue), or 'needs_copy' with the
+   * file to copy through the intake.
+   */
   async trayFile(
     actor: string,
     account: string,
@@ -676,7 +712,7 @@ export class DeskStore {
     caseId: string,
     confirmCompany: string | null
   ): Promise<{
-    outcome: 'filed' | 'needs_copy';
+    outcome: 'filed' | 'needs_copy' | 'waiting';
     caseNumber: string | null;
     mediaUrl: string | null;
     mime: string | null;
@@ -694,7 +730,10 @@ export class DeskStore {
     )[0];
     if (!r) throw new DeskStoreError('desk_tray_file', null);
     return {
-      outcome: r.outcome === 'filed' ? 'filed' : 'needs_copy',
+      outcome:
+        r.outcome === 'filed' || r.outcome === 'waiting'
+          ? r.outcome
+          : 'needs_copy',
       caseNumber: str(r.case_number),
       mediaUrl: str(r.media_url),
       mime: str(r.mime),
@@ -752,6 +791,10 @@ export class DeskStore {
     };
   }
 
+  /**
+   * `expectedUpdatedAt` is the version the card loaded (null: nothing was
+   * stored); another is SETTINGS_CHANGED (316). Returns the version saved.
+   */
   async setSettings(
     actor: string,
     account: string,
@@ -759,16 +802,20 @@ export class DeskStore {
       routingEnabled: boolean;
       deskChannelIds: string[];
       escalateMinutes: number;
+      expectedUpdatedAt: string | null;
     }
-  ): Promise<void> {
+  ): Promise<string> {
+    const now = this.now();
     await this.rpc('desk_settings_set', {
       p_actor: actor,
       p_account: account,
       p_routing_enabled: input.routingEnabled,
       p_desk_channel_ids: input.deskChannelIds,
       p_escalate_minutes: input.escalateMinutes,
-      p_now: this.now(),
+      p_expected: input.expectedUpdatedAt,
+      p_now: now,
     });
+    return now;
   }
 
   async setDuty(
@@ -1027,9 +1074,10 @@ export class DeskStore {
     language: string;
     sendHour: number;
     gapDays: number;
+    updatedAt: string | null;
   }> {
     const r = (
-      await this.rpc('desk_digest_settings_get', {
+      await this.rpc('desk_digest_settings_read', {
         p_actor: actor,
         p_account: account,
       })
@@ -1040,9 +1088,12 @@ export class DeskStore {
       language: str(r?.language) ?? 'en',
       sendHour: num(r?.send_hour) ?? 10,
       gapDays: num(r?.gap_days) ?? 2,
+      // As PostgREST gives it: a Date would drop the microseconds.
+      updatedAt: str(r?.updated_at),
     };
   }
 
+  /** As `setSettings`: `expectedUpdatedAt` in, the version saved out. */
   async setDigestSettings(
     actor: string,
     account: string,
@@ -1052,8 +1103,10 @@ export class DeskStore {
       language: string;
       sendHour: number;
       gapDays: number;
+      expectedUpdatedAt: string | null;
     }
-  ): Promise<void> {
+  ): Promise<string> {
+    const now = this.now();
     await this.rpc('desk_digest_settings_set', {
       p_actor: actor,
       p_account: account,
@@ -1062,8 +1115,10 @@ export class DeskStore {
       p_language: input.language,
       p_send_hour: input.sendHour,
       p_gap_days: input.gapDays,
-      p_now: this.now(),
+      p_expected: input.expectedUpdatedAt,
+      p_now: now,
     });
+    return now;
   }
   // ---------- the desk in My worklist (migration 235) ----------
 

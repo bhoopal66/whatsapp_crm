@@ -7,6 +7,7 @@ import {
   receivesShares,
   sharedBankByConversation,
 } from '@/lib/coordinators/ui';
+import { startCatchUp } from '@/lib/realtime/catch-up';
 import { createClient } from '@/lib/supabase/client';
 
 const NONE: ReadonlyMap<string, string> = new Map();
@@ -16,7 +17,8 @@ const NONE: ReadonlyMap<string, string> = new Map();
  * (migration 133): conversation id -> bank code. `null` until known.
  * A role a share gives nothing (admin and up, viewer, guest) gets an
  * empty map without a read. Deliberately uncached: it decides which
- * conversations are listed. Re-read whenever `refreshToken` changes.
+ * conversations are listed. Re-read whenever `refreshToken` changes, and
+ * by itself after a gap in realtime.
  */
 export function useMyCoordinatorShares(
   refreshToken = 0
@@ -24,15 +26,21 @@ export function useMyCoordinatorShares(
   const { user, accountId, accountRole, profileLoading } = useAuth();
   const userId = user?.id ?? null;
   const eligible = receivesShares(accountRole);
-  const [shares, setShares] = useState<ReadonlyMap<string, string> | null>(
-    null
-  );
-  // Bumped when a `conversation_shared` bell arrives, to re-read.
+  // Keyed by person and workspace: a map read for someone else is never
+  // shown, nor kept as the fallback after a failed first read.
+  const key = `${userId}:${accountId}`;
+  const [read, setRead] = useState<{
+    key: string;
+    shares: ReadonlyMap<string, string>;
+  } | null>(null);
+  // Bumped when a `conversation_shared` bell arrives, or may have been
+  // missed, to re-read.
   const [liveToken, setLiveToken] = useState(0);
 
   useEffect(() => {
     if (profileLoading || !eligible || !userId) return;
     const supabase = createClient();
+    const live = startCatchUp(() => setLiveToken((n) => n + 1));
     const channel = supabase
       .channel(`coordinator-shares-${userId}`)
       .on(
@@ -43,8 +51,9 @@ export function useMyCoordinatorShares(
             setLiveToken((n) => n + 1);
         }
       )
-      .subscribe();
+      .subscribe(live.onStatus);
     return () => {
+      live.stop();
       void supabase.removeChannel(channel);
     };
   }, [profileLoading, eligible, userId]);
@@ -58,20 +67,32 @@ export function useMyCoordinatorShares(
       const { data, error } = await createClient().rpc('my_coordinator_shares');
       if (cancelled) return;
       if (error) {
-        // The list still loads; it just lacks the shared chats' labels
-        // (and, for a team leader, the shared chats themselves).
+        // The list still loads; on a first read it just lacks the shared
+        // chats' labels (and, for a team leader, the shared chats).
         console.error('[inbox] coordinator shares:', error.message);
-        setShares(NONE);
+        setRead((prev) =>
+          prev && prev.key === key ? prev : { key, shares: NONE }
+        );
         return;
       }
-      setShares(sharedBankByConversation(data ?? []));
+      setRead({ key, shares: sharedBankByConversation(data ?? []) });
     })();
     return () => {
       cancelled = true;
     };
-  }, [profileLoading, eligible, userId, accountId, refreshToken, liveToken]);
+  }, [
+    profileLoading,
+    eligible,
+    userId,
+    accountId,
+    key,
+    refreshToken,
+    liveToken,
+  ]);
 
   if (profileLoading) return null;
   if (!eligible) return NONE;
-  return shares;
+  // Nothing read yet: not known. A map read for someone else: none.
+  if (!read) return null;
+  return read.key === key ? read.shares : NONE;
 }

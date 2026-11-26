@@ -11,6 +11,26 @@ import { mergeMessages } from './group-page';
 /** A bubble of this browser's, not a row: kept whatever a page says. */
 export const isTempMessageId = (id: string) => id.startsWith('tmp-');
 
+/** The oldest row held: where an older page continues. */
+export function oldestStored<T extends { id: string }>(
+  messages: readonly T[]
+): T | undefined {
+  return messages.find((m) => !isTempMessageId(m.id));
+}
+
+/** The query of one page of the log: the newest, or the one after a row. */
+export function messagePageQuery(
+  limit: number,
+  after?: { id: string; created_at: string }
+): string {
+  const qs = new URLSearchParams({ limit: String(limit) });
+  if (after) {
+    qs.set('before', after.created_at);
+    qs.set('before_id', after.id);
+  }
+  return qs.toString();
+}
+
 export interface ChatLog<T> {
   messages: T[];
   hasMore: boolean;

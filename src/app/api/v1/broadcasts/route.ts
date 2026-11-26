@@ -21,6 +21,11 @@
 // Response (202):
 //   { "data": { "broadcast_id", "status": "sending",
 //               "total_recipients", "accepted", "rejected" } }
+//
+// Optional `Idempotency-Key` header (or `idempotency_key` field): at most
+// one campaign per key (`lib/api/v1/message-keys.ts`). Recipients are
+// resolved one by one before the answer, so a caller can give up waiting
+// for a request that goes on to create its campaign.
 // ============================================================
 
 import { after } from 'next/server';
@@ -34,15 +39,27 @@ import { requireApiKey } from '@/lib/auth/api-context';
 // recipient rows 'pending' and the broadcast stuck 'sending'. This is a
 // bound, not a guarantee: a near-cap (MAX_RECIPIENTS) audience can
 // still exceed 60s, so very large sends should be split across
-// requests. A durable queue/cron drain is the complete fix (follow-up).
+// requests. The broadcast cron continues what is left half an hour later.
 export const maxDuration = 60;
+import {
+  broadcastUnconfirmed,
+  claimBroadcastKey,
+  hashRequest,
+  readIdempotencyKey,
+  type BroadcastAnswer,
+  type BroadcastClaim,
+} from '@/lib/api/v1/message-keys';
 import { ok, fail, toApiErrorResponse } from '@/lib/api/v1/respond';
+import { readTemplateValues } from '@/lib/api/v1/template-params';
 import { resolveAuditUserId, ContactError } from '@/lib/api/v1/contacts';
 import { createBroadcast, BroadcastError } from '@/lib/whatsapp/broadcast-core';
 import { runBroadcastPass } from '@/lib/whatsapp/broadcast-pass';
 import { claimBroadcastDelivery } from '@/lib/whatsapp/broadcast-resume';
 
 export async function POST(request: Request) {
+  let claim: BroadcastClaim | null = null;
+  // From here on only an answer proves that no campaign was created.
+  let handedOver = false;
   try {
     const ctx = await requireApiKey(request, 'broadcasts:send');
 
@@ -54,9 +71,34 @@ export async function POST(request: Request) {
       return fail('bad_request', 'Request body must be a JSON object', 400);
     }
 
+    const key = readIdempotencyKey(
+      request.headers.get('idempotency-key'),
+      body.idempotency_key
+    );
+
     const templateName =
       typeof body.template_name === 'string' ? body.template_name : '';
-    const recipients = Array.isArray(body.recipients) ? body.recipients : [];
+    const recipients = (
+      Array.isArray(body.recipients) ? body.recipients : []
+    ).map((r, i) => ({
+      to: typeof r?.to === 'string' ? r.to : '',
+      params: readTemplateValues(r?.params, `recipients[${i}].params`),
+    }));
+
+    // A repeat is answered with the first campaign, whatever has changed.
+    if (key !== null) {
+      const claimed = await claimBroadcastKey(
+        ctx.supabase,
+        ctx,
+        key,
+        hashRequest(body)
+      );
+      if ('replay' in claimed) {
+        return ok({ ...claimed.replay, replayed: true });
+      }
+      claim = claimed.claim;
+    }
+    const held = claim;
 
     const auditUserId = await resolveAuditUserId(ctx.supabase, ctx.accountId);
 
@@ -71,13 +113,24 @@ export async function POST(request: Request) {
           typeof body.template_language === 'string'
             ? body.template_language
             : null,
-        recipients: recipients.map((r) => ({
-          to: typeof r?.to === 'string' ? r.to : '',
-          params: Array.isArray(r?.params) ? r.params : undefined,
-        })),
+        recipients,
         flowId: typeof body.flow_id === 'string' ? body.flow_id : null,
+        beforeCreate: held
+          ? async () => {
+              await held.handOver(null);
+              handedOver = true;
+            }
+          : undefined,
       }
     );
+    const answer: BroadcastAnswer = {
+      broadcast_id: plan.broadcastId,
+      status: 'sending',
+      total_recipients: plan.planned.length,
+      accepted: plan.planned.length,
+      rejected: plan.rejected,
+    };
+    await held?.settle({ state: 'sent', contactId: null, answer });
 
     // Fan out after the response is sent. Uses the same service-role
     // client — no request-scoped auth needed for the Meta calls or
@@ -97,7 +150,8 @@ export async function POST(request: Request) {
       );
     } else {
       // Either a Resume already holds the lock and delivers, or the claim
-      // failed and every row waits, pending, for one. The broadcast
+      // failed and every row waits, pending, for one or for the cron,
+      // which takes it up after half an hour. The broadcast
       // exists, so the answer is the same: an error here would have the
       // caller create it again.
       console.error(
@@ -105,17 +159,17 @@ export async function POST(request: Request) {
       );
     }
 
-    return ok(
-      {
-        broadcast_id: plan.broadcastId,
-        status: 'sending',
-        total_recipients: plan.planned.length,
-        accepted: plan.planned.length,
-        rejected: plan.rejected,
-      },
-      202
-    );
+    return ok(answer, 202);
   } catch (err) {
+    if (claim) {
+      const unsure =
+        handedOver && !(err instanceof BroadcastError && err.refused);
+      await claim.settle({ state: unsure ? 'unconfirmed' : 'failed' });
+      if (unsure) {
+        console.error('[api/v1/broadcasts] outcome unconfirmed:', err);
+        return toApiErrorResponse(broadcastUnconfirmed());
+      }
+    }
     if (err instanceof BroadcastError) {
       return fail(err.code, err.message, err.status);
     }

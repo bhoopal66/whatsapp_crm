@@ -666,6 +666,8 @@ BEGIN
   c := c || pg_temp.hr_chk('a needs_review row was claimable or cancellable', r, 'lost/ERROR % ALREADY_DECIDED:%');
 
   -- sent + sending + needs_review all count toward the cap (k8: o7 needs_review).
+  -- Claimed today: 16 minutes ago is yesterday just after midnight in Dubai.
+  UPDATE hr_automsg_outbox o SET claimed_at = now() WHERE o.id = o7;
   PERFORM pg_temp.hr_as(u_owner, 'SELECT public.hr_automsg_settings_set(NULL, NULL, NULL, NULL, NULL, 1)::text');
   r := pg_temp.hr_as(NULL, format('SELECT public.hr_automsg_claim(%L, now())', o8));
   c := c || pg_temp.hr_chk('a needs_review row did not count toward the daily cap', r, 'capped');
@@ -700,10 +702,10 @@ BEGIN
   -- older than 7 days, so no nudge either.
   UPDATE hr_automsg_triggers SET updated_at = now() - interval '30 days'
    WHERE account_id = a_acct AND trigger = 'reply_overdue_nudge';
-  UPDATE hr_conversations h SET last_outbound_at = now() - interval '8 days', last_inbound_at = now() - interval '9 days'
+  UPDATE hr_conversations h SET last_outbound_at = now() - interval '11 days', last_inbound_at = now() - interval '12 days'
    WHERE h.conversation_id = c7;
   r := r || '/' || pg_temp.hr_as(NULL, 'SELECT public.hr_automsg_enqueue_nudges(now())::text');
-  c := c || pg_temp.hr_chk('nudge queued for a waiting period from before the switch-on or older than 7 days', r, '0/0');
+  c := c || pg_temp.hr_chk('nudge queued for a waiting period from before the switch-on or overdue for more than 7 days (302)', r, '0/0');
   UPDATE hr_automsg_triggers SET updated_at = now() - interval '120 hours'
    WHERE account_id = a_acct AND trigger = 'reply_overdue_nudge';
   UPDATE hr_conversations h SET last_outbound_at = now() - interval '100 hours', last_inbound_at = now() - interval '120 hours'

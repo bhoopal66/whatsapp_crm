@@ -17,6 +17,7 @@ import {
   isNearBottom,
   splitLinks,
 } from '@/lib/meetings/room-ui/chat';
+import { chatDrafts, keptKey } from '@/lib/meetings/room-ui/kept';
 import { chatKeyAction } from '@/lib/meetings/room-ui/keys';
 import { chatCounter } from '@/lib/meetings/room-ui/panels';
 import { cn } from '@/lib/utils';
@@ -42,7 +43,14 @@ export function RoomChatPanel({
   const { nameOf, avatarOf } = useWorkspaceMembers();
   const { user } = useAuth();
   const selfId = user?.id ?? null;
-  const [draft, setDraft] = useState('');
+  // The panel unmounts on every tab switch: the line lives in a module map.
+  const draftKey = keptKey(selfId, call.meeting?.id ?? '');
+  const [draft, setDraftState] = useState(() => chatDrafts.get(draftKey) ?? '');
+  const setDraft = (text: string) => {
+    if (text) chatDrafts.set(draftKey, text);
+    else chatDrafts.delete(draftKey);
+    setDraftState(text);
+  };
   const [sending, setSending] = useState(false);
   // Whether the reader is at the bottom; new lines scroll only then.
   const [atBottom, setAtBottom] = useState(true);

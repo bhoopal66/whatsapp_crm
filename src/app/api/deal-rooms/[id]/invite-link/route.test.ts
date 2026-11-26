@@ -126,6 +126,26 @@ describe('invite link routes', () => {
   });
 });
 
+describe('a manager check that itself failed', () => {
+  it('answers a retryable 503 on all three routes, not a 403, touching WhatsApp never', async () => {
+    m.rpc.mockResolvedValue({ data: null, error: { message: 'timeout' } });
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    for (const res of [
+      await GET(req(), ctx()),
+      await reset(req(), ctx()),
+      await remove(req(), ctx({ pid: 'p-1' })),
+    ]) {
+      expect(res.status).toBe(503);
+      expect(res.headers.get('Retry-After')).toBe('2');
+      expect((await res.json()).code).toBe('check_failed');
+    }
+    log.mockRestore();
+    expect(m.getInviteLink).not.toHaveBeenCalled();
+    expect(m.resetInviteLink).not.toHaveBeenCalled();
+    expect(m.removeParticipants).not.toHaveBeenCalled();
+  });
+});
+
 describe('POST /api/deal-rooms/[id]/participants/[pid]/remove', () => {
   it('removes a joined person, records it and warns that the link will not let them back', async () => {
     const res = await remove(req(), ctx({ pid: 'p-1' }));

@@ -202,7 +202,11 @@ describe('request shape', () => {
     fetchMock.mockResolvedValue(
       new Response('bytes', { headers: { 'content-type': 'image/jpeg' } })
     );
-    const out = await downloadMedia({ ...creds, downloadUrl: url });
+    const out = await downloadMedia({
+      ...creds,
+      downloadUrl: url,
+      maxBytes: 1024,
+    });
     expect(out.contentType).toBe('image/jpeg');
     expect(new Headers(lastCall().init.headers).get('x-api-key')).toBe('key-1');
 
@@ -212,6 +216,7 @@ describe('request shape', () => {
       downloadMedia({
         ...creds,
         downloadUrl: 'http://openwa.test:2785/api/sessions/sess-1/config',
+        maxBytes: 1024,
       })
     ).rejects.toBeInstanceOf(OpenWAError);
   });
@@ -313,6 +318,116 @@ describe('media link guard', () => {
   });
 });
 
+describe("the gateway's request limit", () => {
+  /** What @nestjs/throttler answers; it carries no `code`. */
+  const throttled = (retryAfter = '1') =>
+    json(
+      429,
+      { statusCode: 429, message: 'ThrottlerException: Too Many Requests' },
+      { 'retry-after': retryAfter }
+    );
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+  /** Runs `call` to its end, however long it waits. */
+  async function settle<T>(call: Promise<T>): Promise<T | OpenWAError> {
+    const done = call.catch((e: unknown) => asOpenWAError(e));
+    await vi.advanceTimersByTimeAsync(60_000);
+    return done;
+  }
+
+  it('asks again after a second when the per-second limit refused a read', async () => {
+    fetchMock
+      .mockResolvedValueOnce(throttled())
+      .mockResolvedValueOnce(json(200, { id: 'sess-1', status: 'ready' }));
+    const call = getSession(creds);
+    await vi.advanceTimersByTimeAsync(900);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const out = await settle(call);
+    expect(out).toMatchObject({ status: 'ready' });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('repeats a refused send, which the limiter stopped before it was sent', async () => {
+    fetchMock
+      .mockResolvedValueOnce(throttled())
+      .mockResolvedValueOnce(json(201, { messageId: 'm-1' }));
+    const out = await settle(sendTextMessage({ ...creds, to: '1', text: 'x' }));
+    expect(out).toMatchObject({ messageId: 'm-1' });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('gives up with the 429 after three more tries', async () => {
+    fetchMock.mockImplementation(async () => throttled());
+    const out = await settle(getSession(creds));
+    expect(out).toBeInstanceOf(OpenWAError);
+    expect((out as OpenWAError).status).toBe(429);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it('does not wait for the per-minute and per-hour limits', async () => {
+    fetchMock.mockImplementation(async () => throttled('42'));
+    const out = await settle(getSession(creds));
+    expect((out as OpenWAError).retryAfterSeconds).toBe(42);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not guess a wait the gateway did not name', async () => {
+    fetchMock.mockImplementation(async () =>
+      json(429, {
+        statusCode: 429,
+        message: 'ThrottlerException: Too Many Requests',
+      })
+    );
+    const out = await settle(getSession(creds));
+    expect((out as OpenWAError).retryAfterSeconds).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('never repeats a send the pacing governor refused, nor another 429', async () => {
+    fetchMock.mockImplementation(async () =>
+      json(429, {
+        statusCode: 429,
+        code: 'SEND_PACING_LIMITED',
+        message: 'Daily limit',
+        retryAfterSeconds: 1,
+      })
+    );
+    const paced = await settle(
+      sendTextMessage({ ...creds, to: '1', text: 'x' })
+    );
+    expect((paced as OpenWAError).isPacingLimited).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    fetchMock.mockReset();
+    fetchMock.mockImplementation(async () =>
+      json(429, { message: 'rate-overlimit' }, { 'retry-after': '1' })
+    );
+    const other = await settle(
+      sendTextMessage({ ...creds, to: '1', text: 'x' })
+    );
+    expect((other as OpenWAError).status).toBe(429);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("waits for the gateway's media route too", async () => {
+    const { url } = getMediaUrl({ sessionId: 'sess-1', mediaId: 'c@c.us/m' });
+    fetchMock
+      .mockResolvedValueOnce(throttled())
+      .mockResolvedValueOnce(
+        new Response('bytes', { headers: { 'content-type': 'image/jpeg' } })
+      );
+    const out = await settle(
+      downloadMedia({ ...creds, downloadUrl: url, maxBytes: 1024 })
+    );
+    expect(out).toMatchObject({ contentType: 'image/jpeg' });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('error mapping', () => {
   async function failWith(status: number, body: unknown, headers = {}) {
     fetchMock.mockResolvedValue(json(status, body, headers));
@@ -357,6 +472,7 @@ describe('error mapping', () => {
     fetchMock.mockResolvedValue(json(404, {}));
     const err = await downloadMedia({
       ...creds,
+      maxBytes: 1024,
       downloadUrl: getMediaUrl({ sessionId: 'sess-1', mediaId: 'c@c.us/m' })
         .url,
     }).then(unexpected, asOpenWAError);

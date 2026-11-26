@@ -107,6 +107,24 @@ export function taskCounts(
   };
 }
 
+/**
+ * The same for a list cut at the cap. It is ordered by due time, undated
+ * last: every overdue task is in it unless all of it is overdue, and every
+ * one due today unless it ends before the day does.
+ */
+export function cutTaskCounts(
+  tasks: readonly Task[],
+  now: Date
+): { overdue: number; overdueCut: boolean; today: number; todayCut: boolean } {
+  const { overdue, today } = taskCounts(tasks, now);
+  return {
+    overdue,
+    overdueCut: tasks.length > 0 && overdue === tasks.length,
+    today,
+    todayCut: tasks.length > 0 && overdue + today === tasks.length,
+  };
+}
+
 /** How a row words its due time. */
 export type DueLabel =
   | { kind: 'none' }

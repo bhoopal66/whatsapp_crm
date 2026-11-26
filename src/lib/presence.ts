@@ -54,59 +54,30 @@ export function derivePresence(
   return stored;
 }
 
-/**
- * Relative "last seen" string for tooltips. Coarse on purpose — the
- * issue calls for relative time only, never a precise timestamp.
- *
- * Deliberately separate from `formatRelative` in
- * src/lib/automations/trigger-meta.ts: that one reads `Date.now()`
- * internally (not injectable) and emits terse chip wording ("2h ago"),
- * whereas presence needs an injected `now` — so the dots and labels
- * advance in lockstep and the unit tests stay deterministic — plus
- * full-sentence wording for the tooltip ("Offline — last seen …").
- */
-export function formatLastSeen(
+/** When someone offline was last seen, or null when that is not known. */
+export function lastSeenDate(
   lastSeenAt: string | null | undefined,
   now: number,
-): string {
-  if (!lastSeenAt) return "a while ago";
-  const last = new Date(lastSeenAt).getTime();
-  if (Number.isNaN(last)) return "a while ago";
-
-  const diff = Math.max(0, now - last);
-  const mins = Math.floor(diff / 60_000);
-  if (mins < 1) return "just now";
-  if (mins === 1) return "1 minute ago";
-  if (mins < 60) return `${mins} minutes ago`;
-
-  const hours = Math.floor(mins / 60);
-  if (hours === 1) return "1 hour ago";
-  if (hours < 24) return `${hours} hours ago`;
-
-  const days = Math.floor(hours / 24);
-  if (days === 1) return "1 day ago";
-  return `${days} days ago`;
+): Date | null {
+  const last = lastSeenAt ? new Date(lastSeenAt).getTime() : NaN;
+  // A clock ahead of ours is "now", never the future.
+  return Number.isNaN(last) ? null : new Date(Math.min(last, now));
 }
 
-/**
- * Tooltip / aria label for a presence dot, e.g.
- *   "Online — active now"
- *   "Away — idle"
- *   "Offline — last seen 2 hours ago"
- */
-export function presenceLabel(
+/** The catalogue keys of a presence dot's tooltip (`Presence.*`). */
+export type PresenceTooltip =
+  | { key: "onlineNow" | "awayIdle" | "offlineUnknown" }
+  | { key: "offlineSince"; lastSeen: Date };
+
+export function presenceTooltip(
   status: PresenceStatus,
   lastSeenAt: string | null | undefined,
   now: number,
-): string {
-  switch (status) {
-    case "online":
-      return "Online — active now";
-    case "away":
-      return "Away — idle";
-    case "offline":
-      return `Offline — last seen ${formatLastSeen(lastSeenAt, now)}`;
-  }
+): PresenceTooltip {
+  if (status === "online") return { key: "onlineNow" };
+  if (status === "away") return { key: "awayIdle" };
+  const lastSeen = lastSeenDate(lastSeenAt, now);
+  return lastSeen ? { key: "offlineSince", lastSeen } : { key: "offlineUnknown" };
 }
 
 /** Roster header summary, e.g. for "3 online · 1 away · 1 offline". */

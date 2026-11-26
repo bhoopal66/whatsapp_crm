@@ -18,10 +18,18 @@ import {
   teamRosterCacheKey,
 } from '@/lib/client-cache';
 import { useAuth } from '@/hooks/use-auth';
+import {
+  chipForCount,
+  chipFromView,
+  chipShown,
+  tapChip,
+  type QuickChip,
+} from '@/lib/inbox/quick-chip';
 import { messagesCacheKey } from '@/lib/inbox/message-cache';
 import { fetchLatestMessagePage } from '@/lib/inbox/message-page-fetch';
 import { prefetchSession, sessionCache } from '@/lib/session-cache';
 import {
+  dropShortInboxList,
   inboxListCacheKey,
   inboxListRowsKey,
   mayAppendOlderPage,
@@ -84,6 +92,11 @@ import {
   type DepartmentView,
   type InboxDepartment,
 } from '@/lib/inbox/departments';
+import {
+  createDeltaCatchUp,
+  type DeltaCatchUp,
+} from '@/lib/inbox/delta-catch-up';
+import { createHeldCheck } from '@/lib/inbox/held-check';
 import {
   CONVERSATION_PAGE_SIZE,
   assigneeGroup,
@@ -187,10 +200,10 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { ConfirmDialog } from '@/components/ui-ext/confirm-dialog';
+import { AssignConfirmDialog } from './assign-confirm-dialog';
 import { MemberPresenceDot } from './thread-presence';
 import { RowChatTags } from './row-chat-tags';
-import { assignableMembers, assignConversation } from '@/lib/inbox/assign';
+import { assignableMembers, assignFromScreen } from '@/lib/inbox/assign';
 import {
   rowAssignee,
   rowHasDetailLine,
@@ -215,7 +228,9 @@ import { NewChatButton } from './new-chat-button';
 export type ConversationListLoad =
   | { mode: 'replace'; cursor: ConversationCursor | null }
   | { mode: 'append'; cursor: ConversationCursor | null }
-  | { mode: 'delta' };
+  | { mode: 'delta' }
+  /** Held rows that are no longer ours to see. No rows come with it. */
+  | { mode: 'gone'; ids: string[] };
 
 interface ConversationListProps {
   activeConversationId: string | null;
@@ -585,6 +600,31 @@ function conversationsQuery(
 }
 
 /**
+ * The chats pinned above the page: those needing attention, and the
+ * signals' pins. Null when a read failed, which is not "none".
+ */
+async function readPins(
+  p: ListQueryParams,
+  wanted: { attention: boolean; pinned: boolean }
+): Promise<ConversationListItem[] | null> {
+  const [attention, pinned] = await Promise.all([
+    wanted.attention ? conversationsQuery(p, { attention: true }) : null,
+    wanted.pinned ? conversationsQuery(p, { pinned: true }) : null,
+  ]);
+  if (attention?.error) {
+    logFetchError('Failed to fetch chats needing attention:', attention.error);
+  }
+  if (pinned?.error) {
+    logFetchError('Failed to fetch pinned chats:', pinned.error);
+  }
+  if (attention?.error || pinned?.error) return null;
+  return appendConversationPage(
+    normalizeConversations(attention?.data ?? []),
+    normalizeConversations(pinned?.data ?? [])
+  );
+}
+
+/**
  * A search's first page: the chats of the found contacts (the ids in
  * chunks, so the URL stays short) and the chats whose last message holds
  * the term, merged with the contacts first in rank order.
@@ -612,9 +652,11 @@ async function searchConversations(p: ListQueryParams) {
 /**
  * The contacts a search term finds, ranked: migration 193's close-match
  * RPC (as the caller, so RLS decides), else, before 193 or for a term
- * too short for it, the plain ilike filter, every row exact.
+ * too short for it, the plain ilike filter, every row exact. Null when
+ * the contacts could not be read; the message match still runs, and the
+ * list says what may be missing.
  */
-async function fetchInboxSearchHits(term: string): Promise<SearchHit[]> {
+async function fetchInboxSearchHits(term: string): Promise<SearchHit[] | null> {
   const supabase = createClient();
   const rpcTerm = searchRpcTerm(term);
   if (rpcTerm) {
@@ -623,11 +665,9 @@ async function fetchInboxSearchHits(term: string): Promise<SearchHit[]> {
       p_limit: INBOX_SEARCH_HIT_LIMIT,
     });
     if (!error) return parseSearchHits(data);
-    // Any other failure: no contacts, and the message match still runs
-    // (the contact picker does the same).
     if (!isMissingSearchRpc(error)) {
       logFetchError('Failed to search contacts:', error);
-      return [];
+      return null;
     }
   }
   const or = contactSearchFilter(term);
@@ -639,7 +679,7 @@ async function fetchInboxSearchHits(term: string): Promise<SearchHit[]> {
     .limit(INBOX_SEARCH_HIT_LIMIT);
   if (error) {
     logFetchError('Failed to search contacts:', error);
-    return [];
+    return null;
   }
   return (data ?? []).map((r) => ({ contactId: r.id, score: 1, exact: true }));
 }
@@ -693,7 +733,6 @@ export function ConversationList({
 }: ConversationListProps) {
   const t = useTranslations('Inbox.conversationList');
   const tRowsList = useTranslations('InboxRows');
-  const tThread = useTranslations('Inbox.messageThread');
   const tInsights = useTranslations('InsightsUi.list');
   const tSaved = useTranslations('SavedViews');
   const tSearch = useTranslations('ContactSearch');
@@ -739,6 +778,9 @@ export function ConversationList({
   // The contacts that term finds; the list is asked for once they are
   // in. A response for a term since replaced is dropped.
   const [searchHits, setSearchHits] = useState<InboxSearchHits | null>(null);
+  /** The term whose contacts could not be read. */
+  const [contactsFailed, setContactsFailed] = useState<string | null>(null);
+  const [searchAttempt, setSearchAttempt] = useState(0);
   useEffect(() => {
     if (!serverSearch) {
       setSearchHits(null);
@@ -746,12 +788,14 @@ export function ConversationList({
     }
     let stale = false;
     void fetchInboxSearchHits(serverSearch).then((hits) => {
-      if (!stale) setSearchHits(inboxSearchHits(serverSearch, hits));
+      if (stale) return;
+      setContactsFailed(hits ? null : serverSearch);
+      setSearchHits(inboxSearchHits(serverSearch, hits ?? []));
     });
     return () => {
       stale = true;
     };
-  }, [serverSearch]);
+  }, [serverSearch, searchAttempt]);
   // Hits answering the term in the box right now, for the held rows'
   // match, rank and marks; none while a newer term is on its way.
   const liveHits =
@@ -762,7 +806,7 @@ export function ConversationList({
     initialUnread ? 'unread' : 'all'
   );
   // The "Important · N" chip: only the chats the AI handed over.
-  const [importantOnly, setImportantOnly] = useState(false);
+  const [importantChip, setImportantChip] = useState<QuickChip>('off');
   const [loading, setLoading] = useState(true);
   // Contact-based filter (issue #272): exact match on the company field.
   const [selectedCompany, setSelectedCompany] = useState<string | null>(null);
@@ -831,7 +875,9 @@ export function ConversationList({
   );
   // The Pinned chip's filter: only pinned chats (client-side, like
   // Important; the pins are always loaded beside the first page).
-  const [pinnedOnly, setPinnedOnly] = useState(initialPinned);
+  const [pinnedChip, setPinnedChip] = useState<QuickChip>(() =>
+    chipFromView(initialPinned)
+  );
   // Handled clicks still waiting for realtime: id -> the stamp handled.
   const [handled, setHandled] = useState<ReadonlyMap<string, string>>(
     () => new Map()
@@ -1027,6 +1073,10 @@ export function ConversationList({
   const [failedPageView, setFailedPageView] = useState<ListQueryParams | null>(
     null
   );
+  // The view whose pinned chats could not be read.
+  const [pinsFailedView, setPinsFailedView] = useState<ListQueryParams | null>(
+    null
+  );
   const loadingMoreRef = useRef(false);
   // Bumped on each successful page so the bottom sentinel re-observes
   // (an IntersectionObserver only reports *changes*; a sentinel still
@@ -1034,6 +1084,8 @@ export function ConversationList({
   const [pageCount, setPageCount] = useState(0);
   // Forces a first-page reload when a delta turns out too big.
   const [reloadNonce, setReloadNonce] = useState(0);
+  // The delta resync, which owes a window until it is read (below).
+  const catchUpRef = useRef<DeltaCatchUp | null>(null);
 
   // HR view realtime (hr_conversations): the latest `hr` of each held
   // chat, laid over the rows. Tied to the params it was received under,
@@ -1044,6 +1096,10 @@ export function ConversationList({
   }>({ params: null, byId: new Map() });
   const hrPatchById = hrPatches.params === listParams ? hrPatches.byId : null;
   const heldIdsRef = useRef<ReadonlySet<string>>(new Set());
+  const viewerIdRef = useRef(viewerId);
+  useEffect(() => {
+    viewerIdRef.current = viewerId;
+  }, [viewerId]);
   useEffect(() => {
     heldIdsRef.current = new Set(conversations.map((c) => c.id));
   }, [conversations]);
@@ -1163,6 +1219,7 @@ export function ConversationList({
     const generation = ++generationRef.current;
     const params = listParams;
     const key = cacheKey;
+    const caughtUpTo = catchUpRef.current?.mark() ?? 0;
     // Known now: read the pins beside the page. Unknown: append them
     // once the settings arrive, so they never hold the page up.
     const startMode = signalsRef.current.mode;
@@ -1187,20 +1244,16 @@ export function ConversationList({
     const fetchFirstPage = async (): Promise<
       InboxListSnapshot<ConversationListItem>
     > => {
-      const [first, attention, pinned] = await Promise.all([
+      const [first, pins] = await Promise.all([
         params.search
           ? searchConversations(params)
           : conversationsQuery(params, {}).then(({ data, error }) => ({
               page: error ? null : normalizeConversations(data ?? []),
               error,
             })),
-        // Empty during a search (see searchPart).
-        conversationsQuery(params, { attention: true }),
-        // Only with signals on: off, the first page is the two reads
-        // it always was.
-        startMode === 'on'
-          ? conversationsQuery(params, { pinned: true })
-          : null,
+        // Empty during a search (see searchPart). The pins only with
+        // signals on: off, the first page is the two reads it always was.
+        readPins(params, { attention: true, pinned: startMode === 'on' }),
       ]);
       if (first.error || !first.page) {
         logFetchError('Failed to fetch conversations:', first.error!);
@@ -1210,26 +1263,8 @@ export function ConversationList({
       // The cursor is the page's alone; the pinned rows ride along. A
       // search is one page: no cursor, so no further pages.
       const cursor = params.search ? null : nextConversationCursor(page);
-      if (attention.error) {
-        logFetchError(
-          'Failed to fetch chats needing attention:',
-          attention.error
-        );
-      }
-      if (pinned?.error) {
-        logFetchError('Failed to fetch pinned chats:', pinned.error);
-      }
-      let rows = appendConversationPage(
-        page,
-        normalizeConversations(attention.data ?? [])
-      );
-      if (pinned) {
-        rows = appendConversationPage(
-          rows,
-          normalizeConversations(pinned.data ?? [])
-        );
-      }
-      return { rows, cursor };
+      const rows = appendConversationPage(page, pins ?? []);
+      return pins ? { rows, cursor } : { rows, cursor, short: true };
     };
 
     (async () => {
@@ -1253,29 +1288,39 @@ export function ConversationList({
         }
         return;
       }
+      dropShortInboxList(key, snap);
       if (cancelled || generation !== generationRef.current) return;
       deliver(snap);
+      setPinsFailedView(null);
+      catchUpRef.current?.settle(caughtUpTo);
 
-      if (startMode !== 'unknown') return;
+      // The page is up: the pins it lacks are read beside it, failed
+      // ones once more.
+      if (params.search || (startMode !== 'unknown' && !snap.short)) return;
       const on = await new Promise<boolean>((resolve) => {
         const s = signalsRef.current;
         if (s.mode === 'unknown') s.waiters.add(resolve);
         else resolve(s.mode === 'on');
       });
-      if (!on || cancelled || generation !== generationRef.current) return;
-      if (params.search) return;
-      const pinned = await conversationsQuery(params, { pinned: true });
       if (cancelled || generation !== generationRef.current) return;
-      if (pinned.error) {
-        logFetchError('Failed to fetch pinned chats:', pinned.error);
+      const missing = { attention: !!snap.short, pinned: on };
+      if (!missing.attention && !missing.pinned) return;
+      let pins = await readPins(params, missing);
+      if (!pins && !snap.short) pins = await readPins(params, missing);
+      if (cancelled || generation !== generationRef.current) return;
+      if (!pins) {
+        // Stored and written through without them since.
+        dropShortInboxList(key, { ...snap, short: true });
+        setPinsFailedView(params);
         return;
       }
-      // Folded in like a further page (de-duplicated, cursor kept);
-      // the write-through below stores them with the rest.
-      onConversationsLoadedRef.current(
-        normalizeConversations(pinned.data ?? []),
-        { mode: 'append', cursor: cursorRef.current }
-      );
+      // Folded in like a further page (de-duplicated, cursor kept); the
+      // write-through below stores them with the rest, unless the entry
+      // was dropped: then the next visit reads the list whole.
+      onConversationsLoadedRef.current(pins, {
+        mode: 'append',
+        cursor: cursorRef.current,
+      });
     })();
 
     return () => {
@@ -1285,6 +1330,24 @@ export function ConversationList({
     // (manual refresh, or a resync with no watermark to delta from).
     // `cacheKey` follows `listParams` (and the view).
   }, [enabled, resyncToken, reloadNonce, signalsEpoch, listParams, cacheKey]);
+
+  const [retryingPins, setRetryingPins] = useState(false);
+  const retryPins = async () => {
+    const params = listParams;
+    const generation = generationRef.current;
+    setRetryingPins(true);
+    const pins = await readPins(params, {
+      attention: true,
+      pinned: signalsRef.current.mode === 'on',
+    });
+    setRetryingPins(false);
+    if (generation !== generationRef.current || !pins) return;
+    setPinsFailedView(null);
+    onConversationsLoadedRef.current(pins, {
+      mode: 'append',
+      cursor: cursorRef.current,
+    });
+  };
 
   // Write-through: every change the Inbox applies to these rows
   // (realtime, unread marks, further pages, deltas, the pins) lands in
@@ -1346,35 +1409,76 @@ export function ConversationList({
     }
   }, []);
 
-  // Delta resync: only the rows changed since the watermark. Keyed on
-  // the token alone (the ref remembers which one was handled) so a
-  // re-render never re-sends it.
+  // Delta resync: only the rows changed since the watermark. A read that
+  // failed is retried, and its window kept for the next one
+  // (lib/inbox/delta-catch-up.ts).
+  useEffect(() => {
+    // A delta cannot say what left: the held ids are asked for again.
+    const heldCheck = createHeldCheck({
+      held: () => heldIdsRef.current,
+      read: async (ids) => {
+        const { data, error } = await createClient()
+          .from('conversations')
+          .select('id')
+          .in('id', ids);
+        if (error) {
+          logFetchError('Failed to check the held conversations:', error);
+          throw new Error('held conversations check failed');
+        }
+        return data.map((row) => row.id as string);
+      },
+      drop: (ids) =>
+        onConversationsLoadedRef.current([], { mode: 'gone', ids }),
+      signedIn: async () => {
+        const { data } = await createClient().auth.getSession();
+        return !!data.session && data.session.user.id === viewerIdRef.current;
+      },
+    });
+    const catchUp = createDeltaCatchUp<ConversationListItem>({
+      read: async (since) => {
+        const generation = generationRef.current;
+        const { data, error } = await conversationsQuery(
+          listParamsRef.current,
+          { since }
+        );
+        if (error) {
+          logFetchError('Failed to resync conversations:', error);
+          throw new Error('conversations resync failed');
+        }
+        // Another view's answer. Its first page settles this; should
+        // that page fail, the window is still read.
+        if (generation !== generationRef.current) {
+          throw new Error('the list moved to another view');
+        }
+        return normalizeConversations(data ?? []);
+      },
+      apply: (rows) => {
+        onConversationsLoadedRef.current(rows, { mode: 'delta' });
+        void heldCheck.run();
+      },
+      // Too much changed to merge piecemeal — start over.
+      reload: () => setReloadNonce((n) => n + 1),
+      limit: DELTA_LIMIT,
+    });
+    catchUpRef.current = catchUp;
+    return () => {
+      catchUpRef.current = null;
+      catchUp.stop();
+      heldCheck.stop();
+    };
+  }, []);
+
+  // Keyed on the token alone (the ref remembers which one was handled)
+  // so a re-render never re-sends it.
   const deltaToken = deltaSync?.token ?? 0;
   const deltaSince = deltaSync?.since ?? null;
   const handledDeltaTokenRef = useRef(deltaToken);
   useEffect(() => {
     if (deltaToken === handledDeltaTokenRef.current) return;
     handledDeltaTokenRef.current = deltaToken;
+    // Not enabled: the first page it loads once it is covers the window.
     if (!enabled || !deltaSince) return;
-    const generation = generationRef.current;
-
-    (async () => {
-      const { data, error } = await conversationsQuery(listParamsRef.current, {
-        since: deltaSince,
-      });
-      if (generation !== generationRef.current) return;
-      if (error) {
-        logFetchError('Failed to resync conversations:', error);
-        return;
-      }
-      const rows = normalizeConversations(data ?? []);
-      if (rows.length >= DELTA_LIMIT) {
-        // Too much changed to merge piecemeal — start over.
-        setReloadNonce((n) => n + 1);
-        return;
-      }
-      onConversationsLoadedRef.current(rows, { mode: 'delta' });
-    })();
+    catchUpRef.current?.signal(deltaSince);
   }, [deltaToken, deltaSince, enabled]);
 
   // Campaign names for the row label and the filter. Not cached: a
@@ -1530,7 +1634,21 @@ export function ConversationList({
     customer: string;
     userId: string;
     name: string;
+    /** The assignee last known, once the row has left the list. */
+    expected: string | null;
+    meanwhile: boolean;
   } | null>(null);
+  const openRowQuestion = useRef(pendingRowAssign);
+  useEffect(() => {
+    openRowQuestion.current = pendingRowAssign;
+  });
+  // The assignee the question shows: the row's own, as realtime keeps it.
+  const pendingRow = pendingRowAssign
+    ? conversations.find((c) => c.id === pendingRowAssign.conversationId)
+    : undefined;
+  const pendingRowAssignee = pendingRow
+    ? (pendingRow.assigned_agent_id ?? null)
+    : (pendingRowAssign?.expected ?? null);
   const requestRowAssign = useCallback(
     (conv: ConversationListItem, userId: string, name: string) => {
       setPendingRowAssign({
@@ -1538,6 +1656,8 @@ export function ConversationList({
         customer: conv.contact?.name || conv.contact?.phone || t('unknown'),
         userId,
         name,
+        expected: conv.assigned_agent_id ?? null,
+        meanwhile: false,
       });
     },
     [t]
@@ -1546,18 +1666,25 @@ export function ConversationList({
     const pending = pendingRowAssign;
     setPendingRowAssign(null);
     if (!pending) return;
-    const result = await assignConversation(
+    await assignFromScreen(
       createClient(),
-      pending.conversationId,
-      pending.userId
+      {
+        conversationId: pending.conversationId,
+        expected: pendingRowAssignee,
+        userId: pending.userId,
+      },
+      {
+        patch: (id, assignedAgentId) => onAssignChange?.(id, assignedAgentId),
+        askAgain: (expected) => {
+          if (openRowQuestion.current) return false;
+          setPendingRowAssign({ ...pending, expected, meanwhile: true });
+          return true;
+        },
+        fail: (key) =>
+          toast.error(tRowsList(key, { customer: pending.customer })),
+      }
     );
-    if (!result.ok) {
-      console.error('Failed to update assignment:', result.error);
-      toast.error(tRowsList('assignFailed'));
-      return;
-    }
-    onAssignChange?.(pending.conversationId, pending.userId);
-  }, [pendingRowAssign, onAssignChange, tRowsList]);
+  }, [pendingRowAssign, pendingRowAssignee, onAssignChange, tRowsList]);
 
   // Company options are derived from the loaded conversations — there's no
   // separate companies table, and only companies with a live conversation
@@ -1671,16 +1798,19 @@ export function ConversationList({
     () => countNeedingAttention(filtered),
     [filtered]
   );
-  // Off by itself once the last one is dealt with, so the list never
-  // sits empty behind a chip that is no longer there.
-  const showImportantOnly = importantOnly && importantCount > 0;
+  // Off by itself once the last one is dealt with (lib/inbox/quick-chip).
+  const importantNow = chipForCount(importantChip, importantCount, loading);
+  if (importantNow !== importantChip) setImportantChip(importantNow);
+  const showImportantOnly = importantNow !== 'off';
   // The "N pinned" chip (signals on only); off by itself once the last
   // pin is handled, like Important.
   const pinned = useMemo(
     () => (signalsOn ? pinnedSummary(filtered) : { count: 0, urgent: false }),
     [filtered, signalsOn]
   );
-  const showPinnedOnly = pinnedOnly && pinned.count > 0;
+  const pinnedNow = chipForCount(pinnedChip, pinned.count, loading);
+  if (pinnedNow !== pinnedChip) setPinnedChip(pinnedNow);
+  const showPinnedOnly = signalsOn && pinnedNow !== 'off';
   const shown = useMemo(() => {
     let rows = filtered;
     if (showImportantOnly) rows = rows.filter(needsAttention);
@@ -1749,8 +1879,8 @@ export function ConversationList({
   const currentView = useMemo<InboxViewFilters>(
     () => ({
       unread: filter === 'unread',
-      important: importantOnly,
-      pinned: pinnedOnly,
+      important: importantChip !== 'off',
+      pinned: pinnedChip !== 'off',
       assignee: assigneeFilter,
       campaignId: selectedCampaignId,
       chatTagIds: selectedChatTagIds,
@@ -1759,8 +1889,8 @@ export function ConversationList({
     }),
     [
       filter,
-      importantOnly,
-      pinnedOnly,
+      importantChip,
+      pinnedChip,
       assigneeFilter,
       selectedCampaignId,
       selectedChatTagIds,
@@ -1781,8 +1911,8 @@ export function ConversationList({
         v.chatTagIds = kept;
       }
       setFilter(v.unread ? 'unread' : 'all');
-      setImportantOnly(v.important);
-      setPinnedOnly(v.pinned);
+      setImportantChip(chipFromView(v.important));
+      setPinnedChip(chipFromView(v.pinned));
       setSelectedAssignee(v.assignee);
       setSelectedCampaignId(v.campaignId);
       setSelectedChatTagIds(v.chatTagIds);
@@ -1868,10 +1998,16 @@ export function ConversationList({
   // the viewport. Re-created after every page (see `pageCount`) so a
   // sentinel still visible — a short list, or client-side filters that
   // hide most of a page — keeps pulling until the list fills or ends.
+  // Not while an Important or Pinned view is empty: those chats are read
+  // beside the first page, wherever their last message falls, so paging
+  // could only pull in the whole account without ever filling it.
+  const emptyChipView =
+    (showImportantOnly || showPinnedOnly) && shown.length === 0;
   const sentinelRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = sentinelRef.current;
-    if (!el || !hasFoot || typeof IntersectionObserver === 'undefined') return;
+    if (!el || !hasFoot || emptyChipView) return;
+    if (typeof IntersectionObserver === 'undefined') return;
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries.some((e) => e.isIntersecting)) void loadMore();
@@ -1886,7 +2022,7 @@ export function ConversationList({
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, [hasFoot, pageCount, loadMore]);
+  }, [hasFoot, emptyChipView, pageCount, loadMore]);
 
   return (
     // w-full on mobile so the list occupies the whole viewport when it's
@@ -1963,12 +2099,13 @@ export function ConversationList({
             </div>
           )}
           {/* The chats the AI handed to a person, pinned on top: a tap
-              narrows the list to them. Only there while there are some. */}
-          {importantCount > 0 && (
+              narrows the list to them. There while there are some, or a
+              saved view asks for them. */}
+          {chipShown(importantChip, importantCount) && (
             <button
               type="button"
               aria-pressed={showImportantOnly}
-              onClick={() => setImportantOnly((v) => !v)}
+              onClick={() => setImportantChip(tapChip)}
               className={cn(
                 'h-7 shrink-0 rounded-full px-2.5 text-[12.5px] font-medium whitespace-nowrap transition-colors',
                 showImportantOnly
@@ -1983,10 +2120,10 @@ export function ConversationList({
               then the filters, which narrow together like the facets
               below, each in its palette colour, and the legend. Only
               while the workspace has signals on. */}
-          {signalsOn && pinned.count > 0 && (
+          {signalsOn && chipShown(pinnedChip, pinned.count) && (
             <InsightChip
               active={showPinnedOnly}
-              onClick={() => setPinnedOnly((v) => !v)}
+              onClick={() => setPinnedChip(tapChip)}
               swatch={paletteFor(
                 'attention',
                 pinned.urgent ? 'urgent' : 'wants_person'
@@ -2284,6 +2421,22 @@ export function ConversationList({
         )}
       </div>
 
+      {pinsFailedView === listParams && body !== 'loading' && (
+        <div
+          className="text-wa-text-secondary flex items-center justify-between gap-2 px-4 py-1.5 text-xs"
+          role="status"
+        >
+          <span>{t('pinsFailed')}</span>
+          <button
+            type="button"
+            onClick={() => void retryPins()}
+            disabled={retryingPins}
+            className="text-wa-teal font-medium hover:underline disabled:opacity-50"
+          >
+            {t('retry')}
+          </button>
+        </div>
+      )}
       {/* Conversation Items.
           `min-h-0` is load-bearing: a flex child defaults to
           min-height:auto, so without it this ScrollArea grows to fit
@@ -2291,6 +2444,21 @@ export function ConversationList({
           space — the list then overflows and gets clipped by the
           parent's overflow-hidden with no scrollbar (issue #229). */}
       <ScrollArea className="min-h-0 flex-1">
+        {liveHits && contactsFailed === liveHits.term && (
+          <div
+            role="alert"
+            className="text-wa-text-secondary border-wa-divider border-b px-4 py-2 text-xs"
+          >
+            {tSearch('contactsFailed')}{' '}
+            <button
+              type="button"
+              onClick={() => setSearchAttempt((n) => n + 1)}
+              className="text-wa-teal font-medium hover:underline"
+            >
+              {t('retry')}
+            </button>
+          </div>
+        )}
         {body === 'loading' ? (
           <div className="flex items-center justify-center py-12">
             <div className="border-wa-green h-5 w-5 animate-spin rounded-full border-2 border-t-transparent" />
@@ -2414,18 +2582,15 @@ export function ConversationList({
 
       {/* The row's Assign asks first, in the thread header's words:
           assigning decides who can see the customer's history. */}
-      <ConfirmDialog
+      <AssignConfirmDialog
         open={pendingRowAssign !== null}
-        onOpenChange={(open) => {
-          if (!open) setPendingRowAssign(null);
-        }}
-        title={tThread('confirmAssignTitle')}
-        description={tThread('confirmAssignBody', {
-          customer: pendingRowAssign?.customer ?? '',
-          name: pendingRowAssign?.name ?? '',
-        })}
-        cancelLabel={tThread('confirmAssignCancel')}
-        confirmLabel={tThread('assign')}
+        customer={pendingRowAssign?.customer ?? ''}
+        currentId={pendingRowAssignee}
+        currentName={pendingRowAssignee ? memberName(pendingRowAssignee) : ''}
+        nextId={pendingRowAssign?.userId ?? null}
+        nextName={pendingRowAssign?.name ?? ''}
+        meanwhile={pendingRowAssign?.meanwhile ?? false}
+        onCancel={() => setPendingRowAssign(null)}
         onConfirm={() => void confirmRowAssign()}
       />
     </div>

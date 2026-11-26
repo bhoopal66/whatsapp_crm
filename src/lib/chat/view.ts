@@ -401,12 +401,25 @@ export function inboxHasAssigneeFilter(role: string | null): boolean {
   return role === 'owner' || role === 'admin' || role === 'team_leader';
 }
 
+/** The tags with their counts; a failed count (null) is not a zero. */
+export function inboxTagCounts(
+  mains: readonly { id: string; name: string }[],
+  counts: readonly (number | null)[]
+): { id: string; name: string; count: number | null }[] {
+  return mains.map((tag, i) => ({
+    id: tag.id,
+    name: tag.name,
+    count: counts[i] ?? null,
+  }));
+}
+
 export interface InboxRow {
   id: string;
   kind: 'unassigned' | 'mine' | 'tag';
   /** The tag's name for kind 'tag'. */
   label: string | null;
-  count: number;
+  /** Null when it could not be read: the row stays, without a number. */
+  count: number | null;
   href: string;
 }
 
@@ -420,7 +433,7 @@ export function inboxRows(i: {
   role: string | null;
   unassigned: number | null;
   mine: number | null;
-  tags: readonly { id: string; name: string; count: number }[];
+  tags: readonly { id: string; name: string; count: number | null }[];
 }): InboxRow[] {
   const base = inboxBasePath(i.role);
   const filtered = inboxHasAssigneeFilter(i.role);
@@ -442,7 +455,7 @@ export function inboxRows(i: {
       href: filtered ? `${base}?assignee=me` : base,
     });
   for (const t of i.tags)
-    if (t.count > 0)
+    if (t.count === null || t.count > 0)
       rows.push({
         id: `tag:${t.id}`,
         kind: 'tag',

@@ -51,6 +51,7 @@ export type InviteeIssue =
   | { kind: 'none' }
   | { kind: 'too_many'; max: number }
   | { kind: 'no_customer' }
+  | { kind: 'many_customers' }
   | { kind: 'name'; name: string }
   | { kind: 'phone'; name: string }
   | { kind: 'duplicate'; name: string }
@@ -91,6 +92,11 @@ export function inviteeIssues(
   }
   if (!invitees.some((p) => p.role === 'customer')) {
     issues.push({ kind: 'no_customer' });
+  }
+  // The consent taken here is the picked contact's alone: a second
+  // customer has none, so `deal_room_admit_block` never invites them.
+  if (invitees.filter((p) => p.role === 'customer').length > 1) {
+    issues.push({ kind: 'many_customers' });
   }
   return issues;
 }

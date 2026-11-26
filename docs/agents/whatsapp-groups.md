@@ -14,6 +14,10 @@ the contract.
   inbox, flows, automations, AI and webhooks never see it.
 - **Writes go through the routes** (`/api/whatsapp/groups/*`) on the
   service role, after an RLS-client check of the caller (`loadGroupForCaller`).
+- **A submission group is never one of these (299).** Its mirror row (same
+  account and WhatsApp id) is hidden by both id functions, 404 in
+  `loadGroupForCaller` (admins too) and skipped inbound; the row is not
+  deleted. `verify-submission-groups-not-groups.sql`.
 - **Access lives twice:** the SQL predicates and `lib/groups/access.ts`;
   change one, change both. `verify-whatsapp-groups.sql` asserts the SQL.
 - **Inbound** (webhook events, join requests, bells) is `lib/groups/inbound.ts`.
@@ -29,7 +33,9 @@ the contract.
   and Sync skip tombstoned groups; Sync skips submission groups too.
 - **Staff numbers (219).** A live agent/team leader's saved number
   (`coordinator_phones`) follows group access both ways: the managers
-  PUT adds/removes it (`lib/groups/manager-numbers.ts`), the
+  PUT adds/removes it (`lib/groups/manager-numbers.ts`; a removal reads
+  `staff_removal_phone`, 299, which a deactivation does not empty, and
+  reports `no_saved_number`), the
   `whatsapp_group_participants_staff_manager` trigger (AFTER INSERT
   only, so a snapshot upsert never re-grants a removed manager; for the
   same reason a snapshot naming nobody deletes nobody) makes
@@ -37,5 +43,20 @@ the contract.
   (`lib/submission-groups/staff-number.ts`) and `sg_staff_number_joined`
   (Add number, webhook add events). WhatsApp failures never undo the
   CRM write. `verify-group-staff-numbers.sql`.
+- **Limits** (`add-budget.ts`): adds, creates, invite links and managers'
+  numbers share two hourly budgets (person, number); creates have a daily cap.
+- **Sync's empty list** (`sync/route.ts`): while groups are known on a number,
+  an empty list marks none `left` until a second Sync, ten minutes to an hour
+  later, finds it still empty; until then `incomplete: true`.
+- **Partial answers say so.** Sync returns `failedNumbers` (labels only) and
+  `failedGroups`; the list returns `partial: true` when the submission read
+  failed, and the client keeps its submission rows. The managers PUT takes
+  `base` (the set the tab loaded) and applies the difference only.
+- **Group pictures**: "no picture" is a 404 kept ten minutes, `?v=0` only; the
+  `/api` no-store rule in `next.config.ts` leaves the icon path to its route.
+- **An unconfirmed create** (`create-outcome.ts`): only a definite refusal is
+  retryable; else 502 `create_unconfirmed`, and the same name within 5 minutes
+  is 409 `create_repeat`; `after()` gives the one new Whapi match to its creator.
+- **`syncManagerNumbers`** lives in `manager-sync.ts`: managers PUT and create.
 - **Pacing** is anti-ban: 5 adds per call, 3 s apart, 50 per operation,
   invite-link fallback; opted-out contacts are skipped; 20 sends/min/group.

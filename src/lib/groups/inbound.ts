@@ -24,6 +24,7 @@ import {
 import type { WhapiGroupEvent } from '@/lib/whatsapp/whapi-group-events';
 
 import { persistGroupSnapshot } from './server';
+import { submissionGroupIds } from './submission-ids';
 import {
   parseGroupSettings,
   type GroupMessageStatus,
@@ -143,7 +144,10 @@ async function knownGroups(
 /**
  * Record group messages of known groups. Idempotent on
  * (group_id, wa_message_id): a redelivery inserts nothing (and 114's
- * trigger therefore bumps nothing). Unknown groups are only counted.
+ * trigger therefore bumps nothing). Unknown groups are only counted, and
+ * so is a submission group our number created: its messages are the
+ * submission module's alone (299). A failed check throws, so the gateway
+ * redelivers.
  */
 export async function persistGroupMessages(
   admin: SupabaseClient,
@@ -158,6 +162,16 @@ export async function persistGroupMessages(
     channel,
     messages.map((m) => m.waGroupId)
   );
+  // Of this number only: a submission group whose number was removed and
+  // added again is recorded by neither module otherwise, and the message
+  // is gone. In the (hidden) mirror it is at least kept.
+  const submission = await submissionGroupIds(
+    admin,
+    channel.accountId,
+    [...groups.keys()],
+    channel.id
+  );
+  for (const id of submission) groups.delete(id);
   const rows = [];
   let unknownGroup = 0;
   for (const m of messages) {
@@ -202,8 +216,9 @@ export async function persistGroupMessages(
 
 /**
  * Forward-only ladder for our group sends: pending → sent → delivered
- * → read; `failed` only from pending/sent. Inbound rows (status NULL)
- * never move.
+ * → read; `failed` only from pending/sent, corrected only by a delivery
+ * (the 1:1 rule, inbound-pipeline.ts). Inbound rows (status NULL) never
+ * move.
  */
 export const GROUP_STATUS_PREDECESSORS: Record<
   GroupMessageStatus,
@@ -211,8 +226,8 @@ export const GROUP_STATUS_PREDECESSORS: Record<
 > = {
   pending: [],
   sent: ['pending'],
-  delivered: ['pending', 'sent'],
-  read: ['pending', 'sent', 'delivered'],
+  delivered: ['pending', 'sent', 'failed'],
+  read: ['pending', 'sent', 'delivered', 'failed'],
   failed: ['pending', 'sent'],
 };
 
@@ -262,8 +277,10 @@ type KnownGroup = {
  * the number itself created (Whapi's `created_by` is our phone) is
  * inserted unowned on `group_upsert`, so admins see it; any other
  * unknown group is ignored, and so is a group an admin deleted for good
- * (`persistGroupSnapshot` skips it). Each event is isolated: one failure is
- * logged and the rest still apply. Returns how many failed.
+ * (`persistGroupSnapshot` skips it). A submission group is never one of
+ * ours here, whoever created it (299); a failed check throws before any
+ * event applies. Each event is isolated: one failure is logged and the
+ * rest still apply. Returns how many failed.
  */
 export async function applyGroupEvents(
   admin: SupabaseClient,
@@ -274,6 +291,9 @@ export async function applyGroupEvents(
   const ids = events.map((e) =>
     e.kind === 'group_upsert' ? e.group.id : e.groupId
   );
+  const submission = await submissionGroupIds(admin, channel.accountId, [
+    ...new Set(ids),
+  ]);
   const groups = (await knownGroups(admin, channel, ids)) as Map<
     string,
     KnownGroup
@@ -281,8 +301,9 @@ export async function applyGroupEvents(
   const ourWaId = normalizePhone(channel.wabaId ?? '') || null;
   let failed = 0;
   let unknown = 0;
-  for (const e of events) {
+  for (const [i, e] of events.entries()) {
     try {
+      if (submission.has(ids[i])) continue;
       if (e.kind === 'group_upsert') {
         const known = groups.has(e.group.id);
         const ours = !!ourWaId && e.group.createdBy?.waId === ourWaId;
@@ -404,7 +425,7 @@ async function applyParticipants(
 const JOIN_REQUEST_DEDUP_MS = 10 * 60_000;
 
 /**
- * Ring the group's managers (else the workspace's owners and admins)
+ * Ring the group's live managers (else the workspace's owners and admins)
  * that someone asked to join. Failure-isolated: a bell that cannot be
  * written is logged, never thrown, so the event still applies.
  */
@@ -424,6 +445,20 @@ async function notifyJoinRequest(
     let recipients = ((managers.data ?? []) as Array<{ user_id: string }>).map(
       (r) => r.user_id
     );
+    // A deactivated manager keeps their row: alone, they would get the
+    // only bell.
+    if (recipients.length > 0) {
+      const live = await admin
+        .from('profiles')
+        .select('user_id')
+        .eq('account_id', accountId)
+        .in('user_id', recipients)
+        .is('deactivated_at', null);
+      if (live.error) throw live.error;
+      recipients = ((live.data ?? []) as Array<{ user_id: string }>).map(
+        (r) => r.user_id
+      );
+    }
     if (recipients.length === 0) {
       const staff = await admin
         .from('profiles')

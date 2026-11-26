@@ -20,7 +20,8 @@
  *
  * A same-path change (filters, tabs in the query) replaces the top
  * entry, because those are usually `router.replace` and the place is
- * the same either way. A cross-path `router.replace` is invisible to
+ * the same either way (the Inbox pushes a chat on a phone; its list and
+ * chat are still one place here). A cross-path `router.replace` is invisible to
  * the tracker (it would record a push), so the call site says so with
  * `recordReplace(target)` right before replacing.
  */

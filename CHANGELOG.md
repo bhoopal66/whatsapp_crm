@@ -12,6 +12,1278 @@ and polish.
 
 ## [Unreleased]
 
+### Fixed: going back to an earlier case document had no effect
+
+Attaching a good document again after a bad upload, or one whose expiry date
+was mistyped, makes it the newest version, so the case becomes ready. Attach
+and Upload now say when the document failed its checks or was replaced
+meanwhile. File names carry the Dubai date. In Edit details an emptied amount
+or product is refused instead of silently kept, an untouched due date is not
+sent, and a bank list that could not be read offers Retry. The reviewer's
+note keeps its buttons after a lost connection and says when it cannot load.
+
+**Migration required: 320** (`320_case_file_versions.sql`, after 270).
+
+### Fixed: a reminder kept ringing after it was done, moved or cancelled
+
+The ringing card closes on every screen when its task is finished, moved,
+cancelled or deleted, or its meeting or event is moved, cancelled or deleted.
+Done on an old card no longer closes a task that was moved to a later time.
+
+**Migration required: 319** (`319_stale_bells.sql`, after 268).
+
+### Fixed: Settings no longer puts old values back or hides a failed read
+
+Editing a member sends only what you changed, so fixing a name on an old
+page cannot put back an old login email; saving your photo leaves your name
+alone. The members list, invitations, My WhatsApp and the Meta connection
+show an error with Retry when they cannot be read. The member buttons fit a
+phone. A failed workspace read no longer signs a person out. No migration.
+
+### Fixed: the whole-app check of 2026-11-25
+
+Migrations 319 and 320 (their own entries); the rest needs none.
+
+- **Inbox:** a link to a chat (a bell, a notification click, search)
+  opens it while the Inbox is on screen; a notification click no longer
+  reloads the page and loses half-written replies; on a phone Back
+  returns to the list, and a tap on a bubble's first line no longer
+  presses an invisible button; document captions are shown in full;
+  pickers, uploads and AI drafts stay with the chat they belong to.
+- **Calls:** a call the phone system says is over can be closed at once;
+  Hold keeps the call window; missed calls get their task and bell when
+  the end was lost, and a customer already spoken to leaves none open.
+- **Campaigns:** a gateway outage pauses a campaign instead of failing
+  everybody; one due without a connected number waits for it.
+- **Groups, submission groups, cases, desk, deal rooms, team chat,
+  contacts, settings:** failed loads are said (with Retry) instead of
+  looking empty, changes by two people no longer undo each other (group
+  managers, member details, group names), searches and lists no longer
+  miss rows, and work that was lost on a tab switch is kept.
+
+### Fixed: a PC with a slow clock lost the CRM for minutes every hour
+
+A browser whose PC clock runs behind kept using a sign-in the server had
+already ended ("JWT expired"): for that many minutes, every hour, nothing
+loaded. Sign-ins are now renewed by the PC's own clock, and a refused
+request is sent again with a renewed one. No migration.
+
+### Fixed: calls that were over, or on hold, on the call panel
+
+A call the phone system says is over goes to its wrap-up when you press
+Hang up (it stayed open for 30 minutes and Hang up failed every time).
+Putting a customer on hold no longer ends the panel, and a late event no
+longer brings an ended call back. No migration.
+
+### Fixed: WhatsApp groups lost managers, names and failed numbers silently
+
+Saving a group's managers no longer drops a colleague added meanwhile. Sync
+names the numbers it could not read and counts the groups it could not save.
+Submission groups stay listed, with a retry, when they cannot be read. Groups
+past 1,000 people show everyone. A missing group picture is asked for once an
+hour, not on every open. No migration.
+
+### Fixed: cases
+
+No migration.
+
+- A declined or withdrawn case whose reason was skipped now has an
+  **Add reason** button.
+- The open tab of a case follows a macro, a documents request and coming
+  back to the page, without clearing what is shown or typed.
+- Searching cases finds snoozed ones, unless a snooze mode is chosen.
+
+### Fixed: an open chat could keep its unread count
+
+When our own "read" and the next message reached the screen together, the
+open chat's unread count stayed, and grew with each message, until the
+tab was hidden or the chat reopened. No migration.
+
+### Security: ready for the internet
+
+No migration. **Check before upgrading:** the Docker app port, sessions,
+and an on-premises PBX (below). `docs/security.md` now opens with a
+checklist for exposing an install.
+
+- **The app port is local by default.** `docker-compose.yml` publishes
+  the app on 127.0.0.1, so only the proxy or tunnel on the same host
+  reaches it. Before, anyone could reach port 3000 directly, sign in over
+  plain http and forge the client-IP header the sign-in lockout counts
+  on. A proxy on another machine: set `HOST_BIND=0.0.0.0` and firewall
+  the port. The same when another container on the host (an OpenWA
+  gateway of your own) posts to the app through the host address.
+- **Cross-site requests are refused.** A change made through the
+  dashboard's API from another site or subdomain (CSRF) gets 403.
+  Webhooks, crons and the public API are not affected.
+- **Sessions are `Secure` on https and end after 7 days without use**
+  (they lasted 400 days). Everyone keeps their session until it next
+  refreshes.
+- **A workspace admin can no longer point the PBX at an internal
+  address** (the cloud metadata service, the database host) and read the
+  answers from the connection test. An on-premises PBX on a private
+  address must be listed in `PBX_ALLOWED_HOSTS` by whoever runs the
+  server; until then its connection test is refused. The check is made
+  when the address is saved and tested, not on every later call.
+- **Webhook secrets are looked up by hash.** A flood of requests with
+  wrong secrets no longer makes every request read and decrypt every
+  number's settings.
+- A group picture is served only as a raster image (an SVG could run
+  script on the CRM's own address); a media link from the gateway
+  becomes a link only when it is http(s); template save and delete
+  errors no longer show database text; no `X-Powered-By` header;
+  `Cross-Origin-Opener-Policy` added; the PBX gateway container runs
+  unprivileged and read-only; a production server without
+  `EDGE_CLIENT_IP_HEADER` says so in its log.
+
+### Added
+
+- **Learn from team answers also learns from your reviews.** Each week it
+  looks at which drafts admins approved, edited or rejected, and writes
+  short general rules for the next drafts: at most 3 at a time, 24 in use.
+  They are listed under the switch (**What it has learned**); **Retire**
+  stops one, and it is not added again. Names and numbers are masked before
+  the AI sees a review, and a rule holding an e-mail address, a long
+  number, a link or a known name is refused. Rules only shape drafts; an
+  admin still approves every answer. `npm run eval:kb-learn` runs the
+  learner over a set of made-up chats and writes a report; the same
+  check runs with `npm test` and fails on any leak. **Migration required:
+  318** (`318_kb_learn_skills.sql`, before the build, as a superuser or
+  BYPASSRLS role; re-run it after any re-run of 290).
+- **An integration can send a message without the risk of sending it
+  twice.** `POST /api/v1/messages` takes an `Idempotency-Key` header (or
+  `idempotency_key` field): a repeat is answered as the first request was,
+  and one whose outcome is unknown is never sent again by itself. Without a
+  key nothing changes. The MCP server sends one with every message. See
+  `docs/public-api.md`. **Migration required: 305** (before that, a request
+  with a key answers 503 and sends nothing; apply it before updating the
+  MCP server).
+- **An integration can launch a broadcast without the risk of launching it
+  twice.** `POST /api/v1/broadcasts` takes an `Idempotency-Key` too: a
+  repeat is answered with the first campaign. The MCP server keeps one key
+  per broadcast until it is answered, so a call repeated after its 30-second
+  timeout creates no second campaign. Needs 305, as above.
+- **A campaign can be stopped.** Stop on the page of a running or scheduled
+  campaign ends it after the message being sent now; everyone who got it
+  stays recorded, the rest stay pending, and Resume sends to them later.
+  **Migration required: 301** (before the build).
+- **A screen that breaks in someone's browser reaches the server log**
+  (`[client-error]`), with the screen and the place in the code and nothing
+  typed on it; and the browser's reports of what the Content-Security-Policy
+  would block are logged by rule and origin (`[csp]`), so the policy can be
+  enforced on evidence. See `docs/monitoring.md`. No migration.
+
+### Fixed
+
+- **Deal rooms survive a short outage.** A group message, receipt or
+  membership change that met a database blip was lost (WhatsApp had its
+  answer already), and so was a file whose download failed once. Each
+  delivery now retries up to three times within about ten seconds.
+- **Erasing or exporting a candidate also reaches their tasks.** A task an HR
+  rule opens carries the chat and not the contact, and a missed call from a
+  number nobody had yet carries only the call, so an erasure left both behind
+  (a "Call back" task kept the number). A call linked to somebody else keeps
+  its task.
+- **An HR message template is saved only over the text the page showed.** Two
+  admins editing the same template overwrote each other. A refused save keeps
+  what was typed until Reload. **Migration required: 317** (before the build).
+- Deal rooms: a manager can no longer let in somebody the room's own rule
+  refuses (opted out, no consent, an officer still waiting for a team
+  leader); the Members panel says why.
+- Deal rooms: a second customer is refused when the room is created. The
+  consent covers only the first, so the second was listed as invited and
+  never was.
+- Deal rooms: a join request approved automatically but not accepted by
+  WhatsApp goes back to the managers instead of waiting for ever.
+- Deal rooms: a manager can no longer let in somebody the room's own rule
+  refuses (opted out, no consent, an officer still waiting for a team
+  leader); the Members panel says why.
+- Deal rooms: a second customer is refused when the room is created. The
+  consent covers only the first, so the second was listed as invited and
+  never was.
+- Deal rooms: a join request approved automatically but not accepted by
+  WhatsApp goes back to the managers instead of waiting for ever.
+- **A settings page left open cannot switch customer reminders or WhatsApp
+  routing back on.** Settings → Case desk saves the reminder and routing
+  cards against the version they loaded: over another admin's save they show
+  what is stored and keep what was typed until Reload. A tab opened before
+  the update is refused until reloaded. **Migration required: 316** (before
+  the build).
+- **The assembled case file keeps what the customer filled in.** The values
+  of a fillable PDF that its file leaves to the reader to draw are drawn into
+  the bundle sent to the bank (a value that cannot be drawn, such as Arabic,
+  stops the build and the document is named); what the file draws itself,
+  ticks included, stays as it is. A photo sent as a document stands upright.
+- **A copy to the NAS that failed for good shows in `/api/metrics`**
+  (`wacrm_customer_documents_failed`, see `docs/monitoring.md`), and the
+  case desk says when a list could not be read or is cut instead of showing
+  it empty. A typed consent evidence can no longer become a revoke reason,
+  and a double click no longer records leave twice.
+- **API, smaller points.** A repeated submission call that names another
+  number links only the group's own customer to Compass;
+  `message.status_updated` no longer fires for chats on staff members' own
+  numbers; a malformed id answers 404 (a malformed `contact_id` filter 400)
+  instead of 500.
+- **A revoked API key's webhooks stop.** A webhook endpoint now belongs to the
+  key that set it up (or last changed it): revoking or deleting the key
+  switches its endpoints off and tells the owners and admins. Subscribing to
+  message events also needs the `messages:read` scope. Endpoints made before
+  this keep working as they are. Settings → API keys lists the webhooks, where
+  an owner or admin can switch one off or delete it, and revoking a key asks
+  first and says how many webhooks stop. **Migration required: 315.**
+- **An erased customer leaves the webhook queue.** Erasing a customer deletes
+  the queued and recently delivered webhook events that name them.
+- **The web form loses no text and makes no twin.** A second text sent after
+  the first task was closed opens a new task, and a customer stored as
+  "050 123 4567" is found when the form sends 971501234567.
+- **HR screens say when something could not be read.** Hire fast no longer
+  says "no access" for a failed read, HR tasks offer Retry, and the message
+  history says that only the newest 100 are shown.
+- **A paid SMS or RCS that may have gone out is never sent again.** A
+  timeout, a lost connection or a gateway error is now "unconfirmed", as on
+  WhatsApp; only a gateway that was never reached is tried again.
+- **A candidate's chat is never assigned to sales.** The "Assign" step of an
+  automation and the rotation of campaign replies leave chats of HR, and of
+  any other department, alone: who holds a chat may read it.
+- **API: a number in a template's values keeps its place (contract
+  change).** `POST /api/v1/messages` and `/api/v1/broadcasts` left out a
+  value that was not text and moved the rest up, so `["Jane", 50000,
+  "5.9"]` went out as Jane, 5.9. A number is now sent as its text, and any
+  other value is `400 bad_request`. No migration.
+- **API: a case update dated in the future no longer blocks the case.** One
+  `changed_at` ahead of time (a wrong year, a local time without its zone)
+  made every later Compass update of that case stale. It now counts as the
+  moment it arrived. No migration.
+- **Case desk.** A document expiry task goes to a live coordinator or agent,
+  else the duty owner, instead of failing every hour once the agent has left.
+  The company checklist and the customer reminder no longer call a document
+  passed when a newer version failed. Documents sharing a position can be
+  built again. A reminder that failed on a read of ours does not use up the
+  gap. Unlinking a contact asks for the same access as linking it. A NAS copy
+  that stops without an answer ten times is marked failed.
+  **Migration required: 316** (`316_desk_rest.sql`).
+
+- **Deactivating says what happened to the login.** Somebody who also works
+  in another workspace keeps their login, and the message now says so
+  instead of "They can no longer sign in". An archived workspace no longer
+  counts as one they work in.
+- **A coordinator number shows without banks.** Settings → Members showed an
+  empty WhatsApp number for somebody who has one saved but holds no bank,
+  and it could not be cleared.
+- **One phone is connected once on OpenWA too.** A phone that scans a QR
+  while it is already connected as another Whapi or OpenWA number (in any
+  workspace) is refused with the reason and unlinked again; before, a
+  company phone scanned into "My WhatsApp" delivered every company chat a
+  second time as personal chats. A number that is already linked is never
+  unlinked by this.
+- **Saving the Meta number survives a failed read.** A failed read of the
+  stored number or of the number count answers an error instead of a save
+  that cannot work; personal numbers no longer keep the first shared Meta
+  number from being the default; a re-save whose WABA listing fails keeps
+  the working subscription.
+- **A routing save is checked whole before anything is written.** An unknown
+  surface or a removed number no longer leaves the default changed, a
+  refused number no longer clears other routes, and a save that fails
+  half-way says which part was saved.
+- **Rotate secret while Whapi is unreachable no longer stops inbound.** The
+  new secret was saved although Whapi still called the old address, so every
+  message on that number was rejected. The rotation is now refused, the
+  number keeps its secret, and the message says so.
+- **A restricted WhatsApp number no longer opens to all staff by itself.**
+  When the last person allocated to a number left, was deactivated, or its
+  only team was deleted or emptied, the number counted as shared and everyone
+  could send from it. It is now for owners and admins until someone is
+  allocated or an admin saves both lists empty; the numbers screen says so,
+  and the remove, deactivate and delete-team dialogs name such numbers. A
+  number allocated only to a team with nobody in it is also for admins now.
+- **Two admins no longer overwrite each other** on who may use a number or
+  who is in a team: a save made on an out-of-date list is refused, the
+  admin's choice stays on screen and a notice names what is stored; Reload
+  shows it. The access dialog counts only people who can still sign in, an
+  empty list is not saved while the teams are not loaded, and the team editor
+  names the numbers it would leave to owners and admins.
+  **Migration required: 314** (before the build).
+
+- **When a submission group ends, its bells follow.** The unread bell of an
+  agent who loses the group opens the customer's page instead of "does not
+  exist". **Migration required: 313**.
+- **A customer wording is not saved over one the screen never showed**, a
+  failed load of the wordings offers Reload, and a team note edit that came
+  back says when the note was changed meanwhile.
+- **The HR panel no longer reads a failed load as "not tracked".** A first
+  read that failed made a tracked candidate look unsorted (and offered to
+  open it again); it is now retried after 1, 4 and 15 seconds, then shows
+  "Couldn't load" with a Retry button. A failed HR-task read likewise no
+  longer reads as "No open HR tasks". No migration.
+
+- **Add number says when nobody knows.** When WhatsApp gave no answer, a
+  submission group's Add number said the number could not be added, though
+  it may be in the group; it now asks to check the group first. No
+  migration.
+- **Load older in a WhatsApp group skips no message.** Photos of one album
+  share a second, and a page that ended inside it lost the rest of them. No
+  migration.
+- **Words typed to a group wait for you.** Opening another group, case or
+  tab no longer empties the box of a WhatsApp group, submission group or
+  case: the words are there on coming back (until the browser tab closes;
+  never for the next person to sign in), also when the send was refused
+  after you left. No migration.
+- **Erasing one customer no longer erases another's calls.** A call whose
+  number fitted two customers stayed with both even after staff linked it
+  to one: erasing the other deleted its recording and notes for good, and
+  a legal hold on it blocked their erase. Only calls linked to the erased
+  customer, or to nobody, are taken now. Both erases also remove the
+  recording's entry on deals, which carried the customer's name. A
+  recording is attached to a deal once, and not to another customer's
+  deal; linking a call never points it at a personal WhatsApp chat.
+  **Migration required: 311** (before the build).
+- **A bank guest's access to a deal room ends when the bank's last person
+  leaves the WhatsApp group**, as it already did when that person was
+  removed: the messages, the room, its chat channel and the people in it. It
+  is back when somebody of the bank joins again, and a login is no longer
+  added to a room its bank has left. **Migration required: 312.**
+- **"Is now an admin" only when WhatsApp agreed.** A refused promotion or
+  demotion in a WhatsApp group (OpenWA numbers) is said to be refused.
+- **A submission group message that went nowhere comes back to the box.**
+  While the app restarted, or when the CRM broke before the message was
+  stored, the words were lost; now only a message that is in the log
+  counts as sent.
+- **Forward a WhatsApp message to any chat.** The dialog's search reaches
+  every chat you may open, not only the 200 latest.
+- **A failed search or list no longer looks empty.** The inbox search and
+  the command bar say when contacts could not be searched; quick replies
+  that did not load offer Retry.
+- **Two admins no longer undo each other's coordinator banks.** A save from
+  a Members screen read before a colleague's change is refused and shows
+  theirs. **Migration required: 310** (before the build).
+- **Team chat: a mention stays until it was shown.** Opening a channel, or
+  one thread, no longer clears a mention in another thread; its badge stays
+  until that thread is opened and read to its end.
+- **A failed submission group message reads "May not have been delivered;
+  check the group".** Some of them reached WhatsApp all the same, and a
+  plain "Failed" had people send it twice.
+- **A chat handed to someone else leaves the old holder's Inbox.** It stayed
+  in the list with its last message, and opened as "No messages yet", until
+  the page was reloaded. Opening it now says it is no longer yours, and the
+  list drops such chats by itself when it catches up.
+- **An edit of a team note survives switching chats.** It comes back with the
+  chat, and after Escape with Edit, until it is saved or cancelled (or the
+  app is closed or reloaded).
+- **A failed read in the Inbox no longer passes for "none".** The Important
+  and pinned chats say they could not be loaded, with Retry, and a list
+  without them is not kept; a note's "@" says when names could not be loaded
+  and reads them again; forwarding answers that the service is unavailable
+  instead of "Message not found"; sharing with a coordinator offers Retry.
+- **A voice note or file a group refuses is kept, also after the group was
+  left.** It was deleted when its send failed with another group open; it now
+  waits in its own group (until the app is closed or reloaded) and the notice
+  names that group. Both kinds of group chat, and a case's conversation.
+- **A chat that arrived while the Inbox was out of touch is not missed.**
+  When the read that catches the list up after a lost connection or a long
+  absence failed, its window was dropped and a new customer chat stayed
+  missing until the page was reloaded. The read is now tried again, and what
+  it could not read is read with the next one.
+- **Two people's WhatsApp group settings are both kept**, and leaving or
+  deleting a group no longer pulls you off the group you moved to
+  meanwhile.
+- **A template Meta refuses says why.** Meta's answer is "Invalid
+  parameter" with the reason in a second text that was dropped; both are
+  shown now.
+- **Team chat: a forward or a shared call goes once, and whole.** Trying
+  again after a lost answer no longer makes a second copy, and a forward
+  that failed stays selected; a forward with a file missing is refused. An
+  edit no longer reaches the bell of someone who left, leaving a private
+  channel or group chat clears its unread bells, and the sensitive-data
+  guard reads file names also when a message has text, without taking the
+  date and time in a photo's name for a card. A read mark never moves back.
+  **Migration required: 307** (before the build).
+- **Seven small admin-screen fixes.** Hire fast shows the newest
+  conversations first and says "First 500 shown" when the list was cut
+  (overdue tasks are read oldest first). The media-keeping switch of a
+  WhatsApp number says so when it was not saved (number removed or right
+  withdrawn) instead of staying on. "Rotate key" on the web form changes
+  only the key (a stale tab no longer writes its old switch and origins
+  back), Save sends only what changed, and a failed load has Retry.
+  Removing a bank's guest policy asks first and says what is lost. A failed
+  load of the WhatsApp routing shows an error with Retry, not "no numbers".
+  The customer page asks again for team member names after a failed read
+  (at most once per 30 seconds). The contact form's sign-in, profile, close
+  and phone-number messages are translated (en, ar, ko).
+
+- **Privacy and recycling settings are never saved over blindly.** A failed
+  load in Settings → Privacy or on Recycle shows Retry instead of a form
+  that could wipe what is stored; a save over something a colleague changed
+  meanwhile is refused, with what you typed kept; turning on retention's
+  Apply asks first and names what will be deleted. Error messages of the
+  privacy panel and Recycle's dates follow the app's language.
+- **Someone removed from a meeting cannot keep its sound or picture
+  through a request already under way.** If their seat closed while the
+  media server was answering, the session is cut again and the request
+  refused.
+- **Saving a shared contact card says when a colleague already has the
+  number**, instead of showing the database's sentence, and a contact
+  check that failed says so with Retry instead of offering Save as if the
+  number were new.
+- **Assigning a chat no longer claims a change that was not made, or
+  overwrites a colleague's.** The inbox list, the chat header and the HR
+  panel show the assignee the database returned. If someone else assigned
+  the chat after your screen was loaded you are told who and asked again,
+  and if the chat is no longer yours to see you are asked to reload.
+- **Submission groups: what the screen says is what happened.** **Migration
+  required: 308.** A send nobody answered for says it may have been
+  delivered, not that WhatsApp refused it. Ending a group whose WhatsApp
+  group is still open says so, and a banner stays until it is closed. Retry
+  says when the group is still waiting, or that its number or contact is
+  gone. A dead number's ended groups no longer keep the others from being
+  closed. A customer who left under a hidden number is checked again instead
+  of staying "joined".
+
+- **A customer's message after a submission group ended reaches somebody
+  who can read it.** The bell goes to those who may open the ended group,
+  and to the owner and admins when nobody on it may; an agent who lost the
+  group is sent to the customer's page instead, if they may see the
+  customer. Ended groups with new messages are listed above the active
+  ones, and opening the archive clears their count and bell. Part of
+  migration 308.
+- **A typed case note survives a change of tab and is posted once.** The
+  text (and a post still on its way) is kept by the case page, Ctrl+Enter
+  pressed twice posts one note, and text written while a note was being
+  posted is no longer erased.
+- **Case settings say when somebody else changed them.**
+  **Migration required: 309, before the new build.** A bank's stage list
+  and file spec, and the approval of an intake wording, are compared with
+  what the page had loaded: another admin's change is no longer
+  overwritten, and an owner approves only the wording on the screen.
+  Dropping a stage that a Compass status or a deadline rule still uses
+  names them and asks first.
+- **A case file opens on an iPhone.** Safari silently blocked the tab
+  Download opened after the link had been fetched; the tab now opens on
+  the click. A blocked tab, or a link that cannot be made, says so.
+- **A failed read of the assembled case file no longer reads as "none".**
+  The case page says it could not be loaded and offers Retry.
+- **The privacy register no longer calls Draft with AI a reply.** The
+  draft and the playground record their own purpose (`draft`,
+  `playground`) in the AI transfer register instead of `reply`.
+- **AI usage counts calls the provider billed but cut off or answered
+  empty.** The reply bot, Draft with AI, the playground and both
+  translations now record the tokens of a call that ended in an error, so
+  Settings -> AI usage no longer under-reports spend. The answer to the
+  agent or customer is unchanged.
+- **Team chat no longer marks messages read that were not shown.** Opening a
+  channel seen before showed what was held and marked it read "up to now",
+  so a message that was still being read in, or that came and went while
+  offline, lost its badge. A channel is now marked up to its newest message
+  on screen, once its messages were read again, and a mark never goes back.
+  Opening a channel therefore no longer clears the badge of a mention in a
+  thread that is newer than the channel's own last message: read the thread
+  (or a newer message in the channel). No migration.
+- **Reading a mention in a thread clears its badge.** A mention in a reply
+  counted until someone posted in the channel itself and that was read.
+  Reading a thread to its end now marks it, once nothing in the channel
+  itself is unread. No migration.
+- **A team chat message no longer shows, or is forwarded, without its file.**
+  The files, reactions, reply counts and cards of a message were read
+  together, so one failed read dropped them all without a word. Each is now
+  read by itself and tried again after 2, 5 and 15 seconds and on the next
+  catch-up; until then the message says "Could not load the file. Retry".
+  Forward reads the files first and does not send when it cannot.
+- **Team chat tries again when it could not catch up.** After sleep or a
+  lost connection, the channel list, the unread counts, the open channel and
+  the open thread were read once, and a read that failed was not tried again:
+  what had been posted meanwhile stayed missing until the next gap. They are
+  now read again after 2, 5, 15 and 30 seconds, without an error message.
+- **A submission group whose case cannot be opened no longer holds up the
+  others.** The cron took the newest 20 each run; it now tries the ones
+  that have not failed first, and starts from another failed one each run.
+- **A candidate's message is no longer read as a sales lead.** Smart
+  insights, automatic chat tags, the attention pin and campaign reply
+  sorting now leave HR chats, other departments' chats and HR lines alone
+  (and stand down when that cannot be checked): nothing is sent to Jev, no
+  "Interested" tag or deal. A tag set by hand still works, but its
+  automations send no sales message in such a chat. No migration.
+- **Calendar: a repeating event starts on the date that was chosen.** The
+  weekly day now follows the start date until someone picks the days, and a
+  save whose first date is not one of its repeat days is refused ("The first
+  date is not one of the repeat days"); it used to be saved and the first
+  date never showed or rang. An event already saved that way can still be
+  edited in its other fields. No migration.
+- **Calendar: a series that starts later keeps its cancelled dates.** Changing
+  the start date of a repeating event moved every cancelled date, and every
+  date changed on its own, to another day (and showed the changed ones twice).
+  They now stay on their day and follow only the time, unless the whole series
+  moves: a drag of all events, or repeat days moved with the start.
+- **Reminders: "Snooze until tomorrow" is 09:00 in the workspace's time
+  zone**, not on the laptop's clock.
+- **Calendar: "Last day of the month" is a repeat choice** when the start is
+  one, and monthly on the 29th, 30th or 31st says it is skipped in shorter
+  months.
+- **Calendar: a save conflict keeps what was typed.** When the event changed
+  meanwhile, the form keeps the person's own changes, takes the rest, and
+  names what changed on the other side.
+- **Calendar: deleting all events, or taking a guest off a series, says that
+  dates changed on their own are not touched.**
+- **Compass updates: a status update is never posted twice into a
+  submission group, and never lost to short failures.** A timeout or a
+  restart mid-post answers `delivery_unconfirmed` and is not posted again
+  (WhatsApp's later confirmation settles it, also for a post first taken
+  for not sent); a refusal or a failed read
+  uses nothing up, so the same key works again later, one try a minute,
+  instead of ending for good after three. A brief database error answers a
+  retryable 503 instead of "not found" or "no template". See
+  `docs/compass.md` for the codes. No migration.
+- **Public API:** a message WhatsApp took but the CRM could not save
+  answers 201 with `warning: "not_recorded"` instead of a 500 that clients
+  retry; a contact or conversation that could not be read answers 503
+  instead of 404, and a created contact is answered even when it cannot be
+  read again; `?limit=0.5` is 1 instead of a 500.
+- **One bad character no longer fails a whole Compass contact batch.** A NUL
+  or half a surrogate pair is taken out of text and attributes; in a
+  `compass_id` it rejects that record by index.
+- **Removing a member frees their phone extension, and a removed person
+  can be added again.** A removal without a deactivation first left the
+  Yeastar extension and its softphone with the leaver (those left behind
+  are freed once). Add a person now takes back somebody this workspace
+  removed, also one whose login was disabled first: they sign in with
+  their earlier password. Only while this workspace's removal is their
+  last one anywhere and they have done nothing in the private account it
+  gave them (opening the app there counts); a bank guest comes back as a
+  bank guest and staff as staff, and an admin the owner removed is the
+  owner's to add back. A deactivation that could not disable the login says what it
+  cleared instead of "nothing was changed", and a failed read of personal
+  numbers no longer shows them as none. **Migration required: 306.**
+- **A candidate's STOP is never lost.** A STOP on an HR chat or an HR line
+  is recorded on the contact whatever the HR switches say, even before the
+  chat is in Recruitment; a database error at that moment makes the
+  delivery be retried for that record alone.
+- **HR automated messages and HR lines (Migration required: 302).** After a
+  stage correction only the newest interview message goes out; a "no
+  activity" rule above 168 hours nudges; more than 100 held messages no
+  longer keep newer ones waiting; one chat's error no longer stops the HR
+  sweep for every chat. A number connected by somebody outside the HR
+  department cannot be added as an HR line, and one already there is marked.
+- **HR automated messages: a brief database error is tried again.** A chat
+  or contact that could not be read was taken for a missing one and the
+  message failed for good.
+- **The case desk loses no document and files only where you may write.**
+  A WhatsApp document that could not be copied or routed waits in the tray,
+  with a link to its chat; the tray says how many wait and loads more;
+  filing from the tray needs the same right to the case as filing from the
+  queue; a copy made earlier is found instead of refused. "No activity"
+  rules count files and the group's messages; one failing rule no longer
+  stops the rest; the group-end retry takes turns (30 minutes apart).
+  **Migration required: 303.**
+- **"Skip people messaged in the last N days" holds when campaigns overlap.**
+  It was decided only when a campaign was built, so two campaigns scheduled
+  together both kept the same people. The list now also leaves out everyone a
+  scheduled or running campaign is about to message (one left unfinished for
+  more than 7 days no longer counts), the estimate in the wizard counts the
+  cap, and each recipient is checked again just before the send: someone
+  another campaign messaged meanwhile is recorded as failed with "Skipped:
+  messaged by another campaign in the last N days". Campaigns made before this
+  release keep the old rule. **Migration required: 301** (before the build).
+- **An open tab notices what changed elsewhere.** When you switch workspace
+  on another device, or your access to this workspace is deactivated while
+  you have another, a bar above the page says so and offers Reload; nothing
+  reloads by itself, so typed text is safe (text typed behind an open dialog
+  counts too). A new role or department takes effect in open tabs without a
+  reload, even when the department check fails. Checked when you return to the tab
+  (at most every 2 minutes) and about once an hour. No migration.
+- **A slow or lost connection no longer shows the sign-in page.** While the
+  app cannot find out whether you are signed in it says "Reconnecting…", with
+  a Retry button, and keeps trying. Too many requests, or a page put in
+  between (a Cloudflare challenge), no longer count as the auth service's
+  answer and sign nobody out; the app then asks again only after the time
+  it was told to wait (5 seconds if none), and no page waits longer than
+  about 3 seconds for the auth service to renew a session (it was 25). When
+  a session really has ended, signing in again returns you to the page you
+  were on; "Sign out" does not. No
+  migration.
+- **"Sign out" ends this device only.** It used to sign the person out of
+  every device; Settings → "Sign out of all devices" is the button for that.
+  A sign-out that did not work says so and leaves you signed in; a slow one
+  says "Still signing out…" until it is over. No migration.
+- **More screens catch up after the connection was lost.** Who is online, the
+  chats shared with a coordinator, reminder suggestions, a chat's timeline
+  notes, the HR panel, the groups list and the calendar now read again when a
+  laptop wakes or the network returns, without a spinner; a read that fails
+  leaves what is shown. The chats shared with a coordinator are never those
+  of the person or workspace before a switch. No migration.
+- **A person working in one tab no longer blinks between online and away.**
+  Every open tab reported its own presence and a hidden one wrote `away` over
+  the one in use. One tab of the browser now reports for all of them. No
+  migration.
+- **The sidebar's numbers no longer blink to zero, and a hidden tab stops
+  asking for them.** A failed poll keeps the last count, and the minute polls
+  (groups, submission groups, overdue cases, HR, phone status, team chat) sleep
+  while the tab is hidden and catch up when it is shown. No migration.
+- **A tab left open over a release recovers by itself.** A panel whose code
+  the release replaced used to break the whole screen, and "Try again" could
+  not help. The screen now reloads once on its own when the server answers,
+  nothing typed would be lost, no call or meeting is on and the tab is not
+  sending a campaign; otherwise it says a new version is available and offers
+  Reload. The voice recorder says the same. No migration.
+- **A read that failed no longer looks like nothing.** The case page's "last
+  message" card says it could not load instead of "no message"; a chat-tag
+  count in the team chat side menu that could not be read shows no number
+  instead of hiding the tag; and changing a case with a priority that does
+  not exist is refused before anything else in the request is saved.
+- **Saving a flow is safe while customers use it.** The flow and its steps
+  are saved at once or not at all (a refused step used to leave a live flow
+  empty, and a message arriving mid-save ended the customer's run); a live
+  flow that would not pass activation is not saved, with the same list of
+  problems; and a flow somebody else saved since you opened it asks first,
+  with who and when: Reload, or Keep mine. Your changes stay in the editor.
+  **Migration required: 300.**
+- **Co-managers chosen while creating a WhatsApp group get their saved
+  number added to it**, as on the Managers tab, with the same limits and
+  the same messages. No migration.
+- **Creating a WhatsApp group whose answer was lost no longer invites a
+  second one.** The wizard keeps what was entered and says to check Groups;
+  the same name on the same number again within 5 minutes asks first
+  ("Create another"); and on a Whapi number a group that really was made is
+  given to the person who made it. No migration.
+- **Every screen that picks a template goes by the row that is sent.** When
+  two teammates hold a template of the same name and language, the Compass
+  templates, the journey bot's checklist, the automation builder and the
+  deal room now show the one the send uses. A template Meta refused, or one
+  still waiting, is listed with the reason and cannot be picked (automation
+  builder, when automations send from the Meta number; deal rooms). The
+  Compass screen and the checklist say Meta refused a row instead of calling
+  it approved or waiting, and the journey bot opens its "not available" task
+  for one rather than sending it to Meta. No migration.
+- **The template form no longer says a header picture is uploaded to Meta.**
+  It never was; the hint says what to do instead. No migration.
+- **A stage move no longer undoes someone else's.** If the case moved
+  while the "Move stage" window was open, the move is refused, the window
+  shows the stage the case is in now, and nothing changes until you pick
+  again. An open case page also reads the case again when you return to its
+  tab after more than a minute (never under an open window). No migration.
+- **The case page's open Conversation tab shows new messages.** It asks
+  every 30 seconds, and when you return to the tab, whether anything is new,
+  and reads the conversation again only then (the asking is not recorded in
+  the case's view audit; the reading is, as before). Someone reading older
+  messages keeps their place, and unsent text and files are left alone. No
+  migration.
+- **Two people pressing "Request documents" no longer send the customer the
+  same request twice.** A request made within 10 minutes of the case's last
+  one asks first: "Requested by … at …. Send again?".
+  **Migration required: 297.**
+- **A template kept only here can be submitted to Meta.** Settings →
+  Templates offers "Submit to Meta" on a row Meta does not have (it asks
+  first), and the answer lands on that row, also when a teammate holds one
+  of the same name and language. A row with a media header says why it
+  cannot go from here. Only Meta's refusal of the template is kept as one:
+  when Meta already has it, or does not answer, nothing is saved and the
+  screen says to press Sync. No migration.
+- **The automation builder asks for a template's values**: one field per
+  placeholder of the body and of a text header, with the filled text below.
+  Values saved under other keys show in their fields too, and an edit keeps
+  them. No migration.
+- **"Time-Based" and "Conversation Assigned" automations say they do not run
+  yet.** Nothing ever started them: they are disabled in the builder, cannot
+  be activated, and one that is on shows "On, but never runs". No migration.
+- **An automation's "Send template" never sends a literal `{{1}}`.** A step
+  whose template has a placeholder (body or text header) without a value
+  fails with the reason in the run log, and an automation with one cannot
+  be activated. Values saved under other keys (a list, keys counted from 0)
+  go by position, and any other shape counts as no value. No migration.
+- **"Assign to a specific person" skips someone who left** (deactivated, not
+  staff, or no longer in the workspace), with the reason in the run log,
+  instead of giving them the chat. No migration.
+- **A "Contact field" condition whose read failed** fails its step instead
+  of taking the "no" branch, and the field is picked from a list (name,
+  phone, email, company); an unknown saved name cannot be activated. No
+  migration.
+- **Automations honour "Do not contact".** A customer marked so is sent no
+  automation message (text, buttons, list, template), not even right after
+  they wrote; before, only "opted out" was checked. No migration.
+- **Groups: removing somebody WhatsApp shows without a number is reported.**
+  Their phone stayed in the group and nothing was said; now the person who
+  removed them is told to check the group (normal and submission groups).
+- **Groups: a join request no longer rings only a deactivated login.** Live
+  managers are rung; with none, the owners and admins.
+- **Groups: every way of adding or messaging people has the hourly limit.**
+  Creating a group, sending the invite link and a manager's saved number
+  now spend the same limits as adding members (60 people an hour per person,
+  120 per number), and one number creates at most 10 groups a day.
+- **Groups: Sync no longer believes an empty or damaged list.** A gateway
+  that has just re-paired answers with no groups, and every group on the
+  number was marked "left" and refused sends. An empty list, a row that
+  cannot be read or a list short of its own total now marks nothing, and
+  the person is told. A number that really left everything is recorded by
+  a second Sync ten minutes to an hour later.
+- **Numbers typed in Arabic digits work.** Contact search, the inbox,
+  groups and forward searches read Arabic-Indic and Persian digits as 0-9,
+  and a number typed or imported with them keeps its digits.
+- **The "task assigned" bell gives the due time in the workspace's time
+  zone**, not in UTC. **Migration required: 298.**
+- **The in-call task list says when there are more** than it shows, links
+  to the customer page, and loads the next ones after a tick.
+- **Contact search no longer loses customers behind a filter.** Searching
+  Contacts with a chat tag, a lead source or (for a team leader) "my own"
+  took the best 200 matches first and filtered those, so a customer past
+  them vanished. The filters now narrow the search itself; a search that
+  finds more than it lists says "First 500 matches".
+  **Migration required: 298.**
+- **Settings → Templates says what happened to a saved template:** submitted
+  to Meta, saved for linked numbers only, or refused by Meta, with Meta's
+  reason in the message and on the row. It always said "Submitted to Meta".
+  An edit says it is not sent to Meta, and no longer clears a refusal. No
+  migration.
+- **A campaign on the Meta number is refused when Meta refused its
+  template**, with Meta's reason: when the API creates it (409, code
+  `template_refused`), when it is resumed, and when its time comes. It then
+  shows as failed instead of failing every recipient or coming due again;
+  Resume works once the template is accepted. A template that could not be
+  read is tried again. No migration.
+- **The template delete dialog is true:** the template is removed from this
+  CRM only. It stays at Meta, and Sync brings it back unless it is deleted
+  in WhatsApp Manager. No migration.
+
+- **A case's Conversation tab shows the newest messages.** In a group with
+  more than 1,000 messages it stopped at the first thousand, so a new
+  message or the agent's own reply never appeared. It now shows the newest
+  200 and links to the group for the rest; the case timeline does the same.
+- **"Request documents" no longer says a request was not sent when nobody
+  knows.** When WhatsApp's answer is lost (a timeout, a server error, the
+  browser's own connection) it says "It may have been sent. Check the
+  Conversation tab before sending again." The documents stay listed as
+  missing.
+- **Reminder suggestions read times better.** "tomorrow between 2 and 4"
+  and "call sunday 11" now give the hour named; "don't call tomorrow" and
+  rates or terms such as "3.5 at 12 months" no longer suggest a reminder
+  (English and Arabic).
+- **A failed filter change no longer leaves the old figures under the new
+  filter.** The funnel report and Team activity now show figures only under
+  the filter they were fetched for; after a failed load the error with Retry
+  stands alone.
+- **Token usage card is translated.** Every text on it now follows the
+  workspace language (English, Arabic, Korean), dates included.
+- A question is no longer lost when the customer's next message is taken by
+  something else (a keyword automation, a Flow, a journey, a case rating):
+  the AI agent left the question to that message's reply, which never came.
+  The chat is now pinned as Important and the bell rings. No second reply
+  is sent and nothing is spent on the model. An ordinary answer to a Flow or
+  a journey leaves no AI outcome of its own, and a "hi" sent after the
+  question was answered flags nothing.
+- Flows, campaign journeys and automations' message steps no longer answer
+  in a chat that is not a sales chat (an HR chat, another department's
+  inbox, a message on an HR line), as the AI agent already did not. The
+  internal steps of an automation (assign, tag, deal, webhook, team chat)
+  still run. If the check cannot be read, nothing automatic is sent.
+- **Home screen figures that looked exact but were not.** A task list cut at
+  200 now shows "200+" and no "due today" figure; the Hot, Upset and Pinned
+  tiles count the chats the list they open shows (other people's personal
+  chats and department chats no longer inflate them); the pipeline ring is
+  drawn when one stage holds every deal; a failed phone-system count no
+  longer hides the Calls card and row; the WhatsApp numbers card leaves out
+  staff's personal numbers. No migration.
+
+- **Settings → Templates says which templates Meta does not know yet**
+  ("Not linked to Meta yet, press Sync"), when a Meta number is connected. A
+  refused one keeps showing its reason. No migration.
+- **A template Meta refused is not used where only its status was looked
+  at.** The campaign wizard shows it with the reason and it cannot be chosen
+  when campaigns go out on the Meta number, and a Compass update never uses
+  one. No migration.
+- **The template that was picked is the one that is sent.** Two teammates
+  can each have a template of the same name and language, and the server
+  sent whichever came first. It sends the picked one, and where nothing
+  picks a row (campaigns, automations) the one Meta approved. No migration.
+- **A new template cannot take the name of one Meta already has.** Saving
+  one under an existing name and language dropped the first one's link to
+  Meta and showed it as approved, and no Meta chat could send it until the
+  next Sync; it is now refused with a clear message. A template Meta refused
+  can still be submitted again and keeps its reason until Meta answers, and
+  one Meta accepted keeps its Meta id when the save then fails. No
+  migration.
+- **Templates can be reached while an attachment is staged**, from the
+  same "+" menu, and the attachment stays as it is. No migration.
+- **A template sent from the customer page no longer says "sent".** It says
+  it was handed to WhatsApp, with a button that opens the chat, where a
+  refusal by Meta shows under the message. No migration.
+- **"Failed to send" and "Failed to send template" are in the app's
+  language**, with the reason after them. No migration.
+- **Editing a template no longer shows it as approved again** when Meta
+  had rejected, paused or not yet reviewed it. No migration.
+- **A chat offers the templates it can send.** The list showed every
+  template marked approved whatever number the chat sends from: one Meta
+  had refused was offered in a Meta chat and failed, and one waiting at
+  Meta was missing on linked numbers, which do not need Meta. A Meta chat
+  now shows the ones that cannot be sent with the reason. No migration.
+- **Deal values in different currencies are no longer added together.** The
+  home pipeline card, the owner's CSV, the board's column totals and its
+  analytics show "AED 200,000 + USD 100,000" when there is more than one
+  currency, and one amount, in the deals' own currency, when there is one.
+  A deal created without a currency takes the workspace's default currency
+  instead of USD; existing deals are not changed. **Migration required: 296**
+  (extended).
+- **The home "New chats today" card no longer lists personal WhatsApp
+  numbers**, and is not shown when only personal numbers are connected. No
+  migration.
+- **A message that failed to send no longer counts on the home screen.** It
+  counted as the answer in "First response time" (the card and the owner's
+  CSV) and was drawn as an outgoing message. Both figures can change for past
+  days. **Migration required: 296** (`296_home_figures.sql`).
+- **Speaking to a customer closes their missed-call task also when the call
+  rang several extensions**: the one that did not pick up had counted the
+  call as still owed, so nothing closed the task. A number several contacts
+  share no longer closes another contact's task, and a task someone opened
+  again stays open. No migration.
+- **A video call no longer ends on two refusals with a dropped network in
+  between**: only two in a row end it, and a failed account read is "try
+  again" (503), not a refusal. No migration.
+- **Push notifications open the right screen**: a meeting reminder opens the
+  meeting, a calendar invite or reminder the event, a group's join request
+  its requests tab, a message that could not be processed Settings ->
+  WhatsApp, a personal number's alert Settings -> Profile, handed-over work
+  the inbox, a task without a customer the calendar. They opened the
+  notifications list (an admin's personal number: the company numbers).
+  **Migration required: 295** (after 294, any build).
+- **A colleague who was only consulted during a call is not counted as
+  having answered it**, so they do not see the call or its recording and
+  cannot write its note. The person it is handed to still can. No migration.
+- **"Today" and "Older" on the Calls screen are Dubai's days**, also for
+  someone whose computer is set to another time zone. No migration.
+- **The call reports start the day at midnight in Dubai**, also for
+  someone whose computer is set to another time zone: their report days
+  held other calls than everyone else's. No migration.
+- **The call card and window say when some details could not be loaded**,
+  with Retry, instead of showing "None" for a deal or last message that
+  failed to load. And they stop asking for a call's customer after it has
+  ended, so what was shown during the call stays. No migration.
+- **A call that was picked up, then sent on to someone who did not take
+  it, is on the Missed list.** Both call reports counted it as missed while
+  the list, the customer page and its month figures did not. No migration.
+- **After a transfer, the other person can name the customer too.** The
+  contact picked on the incoming-call card (or just created) was refused
+  for everyone but the call's one person; anyone who answered may now fill
+  a call's empty customer. Changing the customer of a call that has one
+  stays with its person and team leaders. "My calls" also lists the calls
+  you answered after a transfer. **Migration required: 294** (extended).
+- **Speaking to a customer closes their missed-call task.** When a later
+  call with them is answered (they ring again, or a call back they pick
+  up), the open missed-call tasks of that contact or number close with a
+  note such as "Spoke at 14:05 (Sara)". **Small change of behaviour: any
+  colleague's call counts, not only the task holder's.** A task opened
+  after that call began, or one holding a call missed since, stays open.
+  No migration.
+- **The Calls screen no longer stops at 200 calls or goes stale.** "Load
+  older" brings the rest, and the list refreshes when the tab is shown
+  again, when one of your calls ends, and every minute while it is on
+  screen. A refresh that fails keeps the list and says so. No migration.
+- **A missed call shows its callback task whoever holds it.** When a ring
+  group rang two people, only the one holding the task saw a badge on
+  "My missed calls", and the other rang the customer again. Every missed
+  call now says "Open: Sara" or "Done by Sara". No migration.
+- **Someone deactivated or removed leaves the video meeting they are in.**
+  Their seat is closed and their media cut as the admin does it (a check
+  every minute catches what that misses), and their own window ends with
+  "You no longer have access to this meeting." No migration.
+- **An outage no longer ends a live "Start now" meeting.** One is ended
+  only when found empty twice, five minutes apart, so a meeting nobody is
+  in closes up to five minutes later than before.
+- **Removing and re-inviting in a meeting say what happened.** Removing
+  someone who leaves at that moment is no longer reported as a failure;
+  inviting someone who was removed names them and says to let them back in
+  from the people list, instead of "already invited".
+- **After a transfer both people can save their call note.** Only one of
+  the two who answered could: the other's outcome and note were refused,
+  and their wrap-up was never offered again. Everyone who answered a part
+  of the call can now write them, and see that call. Reports credit the
+  same person as before. One person's note no longer replaces the other's
+  unseen: the second save is refused and shows the stored note, and saving
+  a note no longer rewrites the outcome. The call window no longer loses
+  what it could not save: it stays open and says so, a wrap-up that closes
+  by itself keeps the text behind a message until it is opened again, and
+  what is typed before the call loads is saved when it does.
+  **Migration required: 294**,
+  after 292 and before the build.
+- **OpenWA numbers past the tenth were never checked.** The gateway takes
+  ten requests a second per route; the five-minute status check asked for
+  every number at once, so the last ones were refused every time and kept
+  an old "connected" or "disconnected". A call the gateway's per-second
+  limit refuses now waits a second and asks again (at most three times),
+  for status checks, sends and attachment downloads alike; its daily
+  pacing limit is never retried. No migration.
+- **A message reported failed and then delivered shows as delivered.**
+  When WhatsApp reports an error, retries and delivers, the later
+  delivered or read receipt now replaces "failed" in chats, WhatsApp
+  groups, campaigns and HR automated messages; the error text goes, the
+  campaign's failed count falls, and "Retry failed" does not send it
+  again. **Migration required: 291**, after 289.
+- **Arabic and Korean screens.** The last English texts follow the chosen
+  language: chart days and dates, "3 minutes ago", who is online, the
+  read-only hints, the calendar's all-day row and the labels screen readers
+  use. Dates no longer follow the browser's language. No migration.
+- **Phone screens.** Settings → Team chat no longer scrolls the whole page
+  sideways, wide tables everywhere scroll inside their own box, and the
+  small "how is this calculated" marks are big enough to tap and show the
+  keyboard focus. No migration.
+- **Templates can be sent from any screen.** Filling in a template's blanks
+  could push its Send button off a laptop's or phone's window, with nothing
+  to scroll: those people could not send it. The window now scrolls and its
+  buttons always show; a tap outside no longer throws away what was filled
+  in; a template list that could not be read says so instead of "No approved
+  templates"; a double tap sends once. Every dialog in the app stays inside
+  the window. On a linked number (Whapi, OpenWA) a template's header value is
+  filled in (the customer read a literal `{{1}}`) and its picture goes with
+  it. No migration.
+- **A failed message says why.** WhatsApp accepts a message and may fail it
+  a moment later with a reason; a chat showed only a red mark. The reason
+  (the person is not on WhatsApp, Meta could not charge, marketing limit,
+  template paused, ...) now stands under the message, for the last 60
+  days' failures too, and more of Meta's codes are put in words.
+  **Migration required: 292**, after 291.
+- **A webhook no longer switches itself off in a bad minute, or in
+  silence.** Fifteen failed deliveries in one burst were enough, and
+  nobody was told. The failures must now span 30 minutes, and the owners
+  and admins get a notification. An event whose webhooks could not be read
+  from the database goes back to the queue instead of being lost.
+  Removing a number now asks once more when customer messages of that
+  number are still waiting to be processed (they would be lost with it);
+  a failed read of that count never blocks a removal.
+  **Migration required: 293**, after 292; needs a superuser or BYPASSRLS
+  role.
+
+### Knowledge base: learn from team answers
+
+**Migration required:** `290_kb_learn.sql`, before the build (as a
+superuser or BYPASSRLS role; after 152 and 202).
+- New switch under **Unanswered questions** (Settings → AI Agents →
+  Knowledge): **Learn from team answers**. Off by default; owners and
+  admins switch it on. Names and numbers are masked first, but a name
+  nobody saved or a nickname can still get through, so an admin must read
+  every draft.
+- Once a week it takes open question topics the knowledge base cannot
+  answer, finds how people on the team answered them in chat (within
+  48 hours, a person's own reply, not the bot, an automation or a
+  template; personal chats, HR, IT and accounts chats, HR lines and
+  opted-out customers are skipped), and
+  drafts one general answer with the workspace's own AI key. "Let me
+  check" and greetings are not answers; an answer sent in several
+  bubbles is read as one. A topic needs answers from at least two chats.
+  AI-written, forwarded and unsent messages are left out, and so are a
+  reply that quotes another message and one given after the customer
+  asked something else or sent a file (unless it quotes the question). It runs only while the AI assistant is on. A topic the
+  AI could not answer is left for 28 days, so the others get their turn.
+  The switch shows when it last ran and how many drafts it wrote. A run
+  that could not finish (AI off or no key, a failed read, the AI service
+  down, out of time, a crash) is tried again within the hour, at most
+  three times a day, and the switch says why. At most ten topics are
+  asked in any seven days, retries included.
+- Before anything is sent, phone numbers, e-mails, IBANs, IDs, card and
+  account numbers, case numbers, links, PO boxes, any run of five or more
+  digits (also with separators or spelled out), and the names saved in the CRM (contacts and their companies, members, case
+  customers, bank contacts) are masked, in English and Arabic. If a list
+  or chat cannot be read, or a text cannot be screened, nothing is sent.
+  A name that is not saved anywhere in the CRM is not recognised.
+- The customer's own question is never stored: the AI writes a general
+  one. A question or answer that carries a known name or a number is
+  thrown away, and that topic waits 28 days.
+- Each draft appears in **Approved answers** with a **Learned** badge
+  (filter: **Learned only**) and a note on how many replies it came
+  from. It is never approved or sent by itself: edit it and approve it
+  as usual. Erasing a customer takes their questions out, and an
+  unapproved draft left with fewer than two chats is deleted. A topic is drafted once, again only if its draft is deleted
+  or set to Remove.
+- The tokens show in AI usage as **Learned answers**.
+
+### Security
+
+- **Translate and the HR assistant no longer send identifiers to the AI
+  provider.** Both masked nothing before; every chat call to a provider now
+  goes through one place that masks and checks the transfer basis. A
+  customer's message is translated with the masks in it; in an agent's draft
+  the numbers are swapped for placeholders and put back afterwards, and a
+  draft where that cannot be done safely is refused with a message. An HR
+  draft that repeats a mask is handed to a recruiter. No migration.
+- **A submission group is never an ordinary group.** A submission group
+  made by our own number was also listed as an ordinary WhatsApp group,
+  where its creator, its managers and their team leaders could read and
+  manage it whatever the submission's own list said. Such a row is now
+  nobody's, admins included: not listed, not opened, no new messages or
+  events stored in it. Submission groups are read and managed only as
+  submission groups. The existing rows are hidden, not deleted.
+  **A colleague's phone is taken out of a group also after they were
+  deactivated or changed role**, and when they have no saved number of
+  their own the screen says so instead of nothing. **Migration required:
+  299**, before the build; needs a superuser or BYPASSRLS role. Applying
+  114, 218 or 286 again calls for 299 again.
+- **The old one-shot campaign route is gone** (`POST
+  /api/whatsapp/broadcast`). Nothing has called it since campaigns moved to
+  the server, and it sent a template to any numbers it was given without
+  looking at opt-outs, do-not-contact or quiet hours. Campaigns and the
+  public API are unchanged. No migration.
+- **Small access points closed.** Case desk: an upload naming a company
+  or customer the uploader has no case of waits for a sorter, and company
+  contacts and cases are shown only as far as the reader may see them.
+  Team chat: only channel admins add to a private channel, bank guests
+  included, and a post carries only one's own uploads. Webhooks and quick
+  replies are made in one's own name and keep their maker. The recycle,
+  new-chat-limit and insight functions answer only for chats and
+  customers the caller can see; a deal room name holding a phone number
+  in local form is masked for guests; the WhatsApp rate card is not
+  readable by bank guests. **Migration required: 289**, after 288; needs
+  a superuser or BYPASSRLS role.
+- **Attachments and exports.** A download from a WhatsApp gateway stops at
+  a size limit instead of being held whole first: 16 MB for the stored
+  copy, 2 MB for a profile picture, 100 MB (WhatsApp's own limit) for a
+  deal room file and for an attachment opened through the app, which is
+  now passed on as it arrives. An answer that unpacks to more than 64 MB
+  is cut off. Forwarding takes an attachment only from this workspace's
+  own storage or from the gateway of the number that carried it; anything
+  else "cannot be forwarded", including a file sent by link through the
+  public API. The app opens a Meta attachment only for a customer's
+  message, and only with the number that carried it. In every CSV, a
+  formula sign after a semicolon, tab or line break, or written in its
+  full-width form, is neutralised too. No migration.
+
+- **Who reads automation runs, flow settings and number credentials.**
+  The run log of an automation, its steps and the nodes of a flow are read
+  by owners and admins only, the people whose screens show them. The
+  credentials of a WhatsApp number are no longer readable by any signed-in
+  session; the server reads them with the service role after the caller's
+  own read has said which numbers they may see. A customer note is always
+  the writer's own, on a customer the writer can see, and only its writer
+  can change it. **Migration required: 285. Deploy the build first, then
+  apply the migration:** the previous build reads the credentials through
+  the session and cannot send after it.
+
+### Security
+- **Chats and messages are written from a login only the way the app
+  writes them.** A chat never changes its contact or workspace; a personal
+  chat is started only by its owner on their own number; a person adds
+  only their own sent message, and nobody edits or deletes a message or
+  deletes a chat (a chat goes with its contact, with that deletion's
+  checks); taking a chat off its WhatsApp number needs an admin, like
+  moving it to another one. **Migration required: 284.** No setting to
+  change and no screen changes. `supabase/ci/verify-chat-integrity.sql`.
+
+- **API keys of someone who left.** When a person is deactivated, removed or no longer an admin, the hand-over
+  screens (and a card under the roster for keys whose maker is no longer in the workspace) list the API keys they
+  made, with Revoke. Nothing is revoked by itself: an integration may run on a key. No migration.
+- **Rules between admins, invitations and API keys.** **Migration required: 287** (apply it before the build).
+  Only the owner removes an admin. For 7 days after someone else lowers or removes an admin, only the owner of
+  that workspace can set their password or change their details, whichever workspace it is asked from. An
+  invitation and an API key can only be made in one's own name, an invitation lasts at most a year, and an API
+  key is only ever revoked afterwards. An invitation link is now opened by its token, hashed in the database.
+  *After the build is out and no rollback to the previous one is expected*, close the old form:
+  `REVOKE EXECUTE ON FUNCTION public.redeem_invitation(text), public.peek_invitation(text) FROM anon, authenticated;`
+- **Teams, reactions, notes, deals and unlocks each follow the row they
+  hang from (Migration required: 286).** A team's member row belongs to
+  the team's own workspace and names live staff of it, and everything that
+  asks who a leader leads reads it that way; the same is held on WhatsApp
+  routes, broadcasts and their recipients, contact tags and custom values,
+  and AI knowledge. A person adds, changes or removes only their own
+  reaction. A customer note is edited by its author and deleted by its
+  author or an admin. A deal is linked only to a customer, chat, pipeline
+  and stage the person can see. A spent unlock is given back only while
+  nothing of theirs went into the chat since. Rows that break the team or
+  route rule are kept, counted in a notice and ignored.
+**Migration required: 283** (`283_chat_media_owner.sql`, after 242). The app
+works before and after it; apply it as soon as you update.
+- WhatsApp files in Storage (`chat-media`, `flow-media`): a signed-in person
+  lists, reads, replaces and removes only the files they uploaded, and
+  uploads only where the app's own screens do. Files the server stores
+  (received attachments, profile pictures, the voice library) are the
+  server's alone. Links in messages open as before. See `docs/security.md`.
+
+**Migration required: 288** (`288_login_email_guard.sql`), with the build.
+- A login's email is changed only by an owner or admin, in Settings →
+  Members, whatever the sign-in service is set up to confirm by itself: cases
+  and submission groups are given to the login that holds an address.
+
+### Case satisfaction
+
+**Migration required: 281** (`281_csat_fixes.sql`, after 263). Apply it
+before switching the rating requests on; the app works without it.
+- A rating request is no longer sent when the case moved back: an approval
+  that was corrected, or a case back before submission or closed without
+  one, cancels its request.
+- A "3" that answers a staff question is no longer stored as a rating. It
+  counts only in the chat the request went to, when nothing else was said
+  there since, or when the customer quoted the request.
+- A rating with a comment ("1, please call me") is stored and still reaches
+  the automations, the AI and the team.
+- A request whose sending was interrupted before it left goes back to the
+  queue; one that timed out is recorded as unconfirmed, with its message,
+  and a reply to it counts. Neither is asked twice.
+
+### Privacy
+
+- **Migration required: 282** (`282_retention_fixes.sql`), before the
+  build. Applying it deletes nothing.
+- Automatic retention now also deletes the files of the messages it
+  removes or blanks, unless something else still uses them.
+- Retention works in small batches and continues by itself, so a first
+  Apply on years of data no longer fails as a whole. A failed run rings
+  the owners once a day, is tried again, and Settings → Privacy shows
+  the last run's outcome.
+
+### Team chat
+
+- In a thread, and on a phone, the text box has a row of its own above the
+  buttons. It was too narrow to read what you typed.
+
+### Attachments
+
+No migration.
+- An attachment on a Meta number that could not be copied (over 16 MB, or a
+  short fault) opens from the chat: the CRM asks Meta for it again. It was
+  stored with a link that dies within minutes.
+- A file a customer sent is shown in the page only when its type is one that
+  cannot run; anything else is a download.
+
+### WhatsApp numbers
+
+No migration.
+- A restart of the OpenWA gateway is no longer announced as "logged out, scan
+  the QR" for every number. A number the gateway calls disconnected is
+  reported, and marked disconnected, only when it has not come back five
+  minutes later. One that keeps retrying, disconnected and starting in turn,
+  counts as disconnected.
+- A personal number going down, or coming back, is told to the person whose
+  number it is, with where to re-link it (Settings → Profile → My WhatsApp),
+  and no longer to the owners and admins.
+- When an abandoned QR connect is cleaned up, a personal number is never
+  picked as the account's new default number; a shared one is.
+- Settings → Numbers, and the question before disconnecting a number, say when
+  its chats could not be counted. They showed 0.
+- Disconnecting a number whose row could not be read now says so (an error)
+  instead of answering that it was removed.
+- Connecting a Whapi number no longer skips the duplicate-number checks when
+  one of their reads fails (it answers an error), and when the save itself
+  fails the channel is pointed back at the callback it had, instead of staying
+  on one the CRM no longer knows.
+- The first shared Whapi number of an account that only had a personal number
+  is now its default number.
+- The bell alert for a personal number going down or coming back opens
+  Settings → Profile (My WhatsApp) for its holder, whatever their role. It
+  opened nothing for anyone who could not edit settings.
+
+### Customers
+
+- **Migration required: 280** (`280_contact_delete.sql`, apply after 262, with ON_ERROR_STOP, and before the build; re-run it after any re-run of 086).
+- A customer who opted out or must not be contacted stays so after being deleted or erased: when the number is added again, by anyone or by an import, the stamp comes back. An admin lifting it lifts it for good, also on a number the customer had before. The do-not-contact reason is not kept, and correcting a mistyped number leaves nobody else opted out.
+- A customer with an open case, an open deal room or an active submission group can no longer be deleted.
+- The delete dialog says what is deleted with the customer (chats, open
+  tasks, deal rooms) and what is kept without them (deals, documents,
+  cases), and why a customer cannot be deleted. Deleting several leaves the
+  blocked ones out, named with their reason, and deletes the rest.
+
+### Public API
+
+No migration.
+- A valid key is answered `503 unavailable` with `Retry-After` while the
+  database does not answer. It was `401`, and five in a row locked the
+  integration's IP out for 15 minutes.
+- **Integrators:** `POST /api/v1/messages` now answers `422
+  customer_opted_out`, and sends nothing, when the customer opted out or is
+  marked do-not-contact, on this contact or on another one with the same
+  number. It used to send.
+- `POST /api/v1/messages` answers `503 unavailable` instead of `500` when
+  the contacts cannot be read.
+- Broadcasts skip customers marked do-not-contact, as they skip those who
+  opted out. One already on a campaign's list is marked failed with the
+  reason.
+- A broadcast created through the API and cut off by a restart is continued
+  by the broadcast cron, half an hour later, between 08:00 and 21:00 in the
+  workspace's time zone. It stayed `sending` until
+  someone pressed Resume. This includes ones already stuck, if they were
+  created in the last 7 days.
+- Continuing, resuming or retrying a campaign sends to a customer saved with a
+  local UAE mobile number (`050...`, `50...`) on the full +971 number. Any
+  other local number is marked failed and never sent to.
+- MCP server: a request that gets no answer in 30 seconds, or an unreadable
+  one, is reported as "may have gone through" instead of hanging or
+  returning nothing. So is a write whose connection drops, or that a proxy
+  answers with an error page of its own (502, 504). `Retry-After` is passed on for 503 as well as 429.
+
+### Importing
+
+No migration.
+- Arabic names in a CSV saved by an Arabic Excel ("CSV (Comma delimited)",
+  Windows-1256) or as Unicode (UTF-16) are read; they were imported, and sent
+  to customers, as "????". A file whose letters are already lost is refused,
+  with what to save it as. Contacts import, broadcast lists and AI knowledge
+  files.
+- The contacts import takes an Excel file (.xlsx, first sheet) as well as CSV,
+  with the same preview.
+- Dates and percentages in an Excel file are read as the sheet shows them
+  (`15/12/2026`, `7.25%`), not as Excel stores them (`46371`, `0.0725`): a
+  broadcast sent the stored number. Phone numbers stay plain digits. Also in
+  the approved answers import.
+- The contacts import no longer duplicates a customer already saved in local
+  form (`050...`, `50...`, `9710...`, `00971...`): it counts as already there
+  and is listed as "Already a customer (saved as ...)" in the preview.
+
+### Calendar
+
+**Migration required: 278** (`278_calendar_meeting_bells.sql`). Apply it
+before the build: the build runs without it, and then offers no admin
+delete. After re-running 106 or 108, run 278 again.
+- A scheduled meeting that is moved or cancelled rings its invitees, with a
+  push they can switch off ("A meeting is moved", "A meeting is
+  cancelled"). Nobody was told before.
+- A meeting invitation gives its time in the workspace's time zone. It was
+  in UTC.
+- Someone taken off an event, or off one date of a repeating one, is told
+  "You are no longer invited".
+- A repeating event that has already started is called "Repeating event",
+  not by its first date. An event that is over rings nobody.
+- Owners and admins can delete an event whose organiser has left, or cancel
+  one of its dates, from the event's pop-up. They can't edit it, and
+  private events stay private.
+- Moving a meeting and adding people in one save now invites them to the new
+  time, not the old one. If the people part fails after the meeting was
+  saved, the dialog says so and reloads.
+- An all-day event now reminds you at 09:00 the day before, not at 23:50 the
+  night before. Its reminder chips are "9:00 the day before", "18:00 the day
+  before" and "At midnight". Saved events keep their reminders.
+- The calendar no longer drops attendees (and your own reply) on an event with
+  more than 1,000 invitees, and ended series are left out of the read.
+
+### Phone
+
+No migration.
+- Calling from the CRM: at most 20 calls a minute per person, and the same
+  number is not dialled twice by one person within 10 seconds.
+- Call-backs, before they are switched on: an unanswered one is tried again
+  after 30 minutes, then after 2 hours (it was tried again at once); a
+  customer is not rung twice within half an hour, also when they asked twice
+  or someone has just called them; when the phone system gives no clear
+  answer the call is not placed a second time; one request that cannot be
+  dialled yet no longer holds up the others; a number saved with a leading 0
+  is dialled correctly, and do-not-contact counts however it is saved.
+- Call recordings: a number search finds the call however it is typed
+  (`050 123 4567`, `00971 50…`, `+971…`, Arabic digits). Arabic digits were
+  refused, and a leading 0 found nothing.
+- A customer saved with a differently written number (spaces, a leading 0,
+  no country code) is recognised when their number is typed: they can be a
+  transfer target, and do-not-contact counts for them.
+- A voicemail the phone system does not send answers after 10 seconds
+  instead of hanging, and closing the player stops the download.
+
+### AI
+
+**Migration required: 279** (`279_hr_is_line.sql`). The build runs without
+it; HR lines are then recognised only while "open a Recruitment chat" is on.
+- The sales bot no longer answers HR candidates and colleagues: it stands
+  down on a chat with an HR record, in the HR, IT or Accounts inbox, or on an
+  HR line. When that cannot be checked it sends nothing.
+- The bot no longer also answers a message a meaning-trigger automation just
+  answered (one that only tagged the chat, or whose message failed, does not
+  silence it).
+- Questions kept for the knowledge-gap review are stored with identifiers
+  masked, and older ones are masked before they are grouped.
+- With a similarity floor or strict grounding set, a knowledge search that
+  fails hands the chat to a person. Before, it counted as "no knowledge base"
+  or let any keyword hit pass.
+- A held AI draft no longer appears on a chat a person took while it was being
+  written.
+- Re-indexing a document keeps its old index until the new one is ready, and
+  says the document is not indexed when the new one cannot be written.
+
 ### Cases: timers, snoozes and rules
 
 **Migration required:** `271_case_timers.sql`
@@ -235,28 +1507,6 @@ No migration.
   the group first. It said it could not be sent, so the group got it twice.
 - A message WhatsApp accepted but the CRM failed to record is recorded on a
   second try, or the sender is told it will not show here.
-
-### Knowledge base: learn from team answers
-
-**Migration required:** `278_kb_learn.sql`, before the build (as a
-superuser or BYPASSRLS role; after 277).
-- New switch under **Unanswered questions** (Settings → AI Agents →
-  Knowledge): **Learn from team answers**. Off by default; owners and
-  admins switch it on.
-- Once a week it takes open question topics the knowledge base cannot
-  answer, finds how people on the team answered them in chat (within
-  48 hours, a person's own reply, not the bot, an automation or a
-  template; personal chats and opted-out customers are skipped), and
-  drafts one general answer with the workspace's own AI key.
-- Names, phone numbers, e-mails, IBANs, IDs, card and account numbers
-  are masked before anything is sent; if a text cannot be screened, the
-  topic is skipped. An answer that still carries one is thrown away.
-- Each draft appears in **Approved answers** with a **Learned** badge
-  (filter: **Learned only**) and a note on how many replies it came
-  from. It is never approved or sent by itself: edit it and approve it
-  as usual. A topic is drafted once, again only if its draft is deleted
-  or set to Remove.
-- The tokens show in AI usage as **Learned answers**.
 
 ### Voice notes: one tap to record, one tap to send
 

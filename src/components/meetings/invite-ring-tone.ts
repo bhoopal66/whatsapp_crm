@@ -3,6 +3,7 @@
 
 import { RING_GAIN, ringNotes } from '@/lib/meetings/invite-ring';
 
+import { holdUnsaved } from '@/lib/app-update/unsaved';
 import { audioContextClass } from './room/room-sounds';
 
 // Exclusive: the one tab of the browser that rings.
@@ -122,6 +123,16 @@ export function startRingTone(): () => void {
  * let go.
  */
 export function holdRingSilent(): () => void {
+  // For as long, this tab must not reload by itself either.
+  const mayReload = holdUnsaved(() => true);
+  const mayRing = silenceRing();
+  return () => {
+    mayReload();
+    mayRing();
+  };
+}
+
+function silenceRing(): () => void {
   try {
     const { locks } = navigator;
     if (!locks) return noop;

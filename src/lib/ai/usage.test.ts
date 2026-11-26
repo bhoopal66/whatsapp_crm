@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { logAiUsage } from './usage';
+import { logAiUsage, logFailedAiUsage } from './usage';
+import { AiError } from './types';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 function fakeDb() {
@@ -57,6 +58,50 @@ describe('logAiUsage', () => {
         model: 'gpt-x',
         usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
       })
+    ).resolves.toBeUndefined();
+  });
+});
+
+describe('logFailedAiUsage', () => {
+  const ARGS = {
+    accountId: 'acct-1',
+    conversationId: 'conv-1',
+    mode: 'draft' as const,
+    provider: 'openai' as const,
+    model: 'gpt-x',
+  };
+  const USAGE = { promptTokens: 4, completionTokens: 5, totalTokens: 9 };
+
+  it('records the usage an AiError carries', async () => {
+    const { db, insert } = fakeDb();
+    await logFailedAiUsage(
+      () => db,
+      new AiError('cut off', { code: 'truncated', usage: USAGE }),
+      ARGS
+    );
+    expect(insert).toHaveBeenCalledWith(
+      expect.objectContaining({ model: 'gpt-x', total_tokens: 9 })
+    );
+  });
+
+  it('does nothing for an AiError without usage or for any other error', async () => {
+    const { db, from } = fakeDb();
+    const factory = vi.fn(() => db);
+    await logFailedAiUsage(factory, new AiError('x'), ARGS);
+    await logFailedAiUsage(factory, new Error('x'), ARGS);
+    expect(factory).not.toHaveBeenCalled();
+    expect(from).not.toHaveBeenCalled();
+  });
+
+  it('never throws when the client cannot be built', async () => {
+    await expect(
+      logFailedAiUsage(
+        () => {
+          throw new Error('no service key');
+        },
+        new AiError('cut off', { usage: USAGE }),
+        ARGS
+      )
     ).resolves.toBeUndefined();
   });
 });

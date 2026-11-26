@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
+import type { AccountRole } from '@/lib/auth/roles';
+
 import {
   notificationRow,
   notificationTarget,
@@ -160,6 +162,21 @@ describe('notificationTarget', () => {
     }
   );
 
+  it.each(['channel_disconnected', 'channel_reconnected'])(
+    '%s of a personal number opens the profile tab, for any role',
+    (type) => {
+      const row = { type, meta: { personal: true } };
+      for (const role of ['owner', 'admin', 'team_leader', 'agent', 'viewer']) {
+        expect(notificationTarget(row, role as AccountRole)).toBe(
+          '/settings?tab=profile'
+        );
+      }
+      expect(
+        notificationTarget({ type, meta: { personal: false } }, 'agent')
+      ).toBeNull();
+    }
+  );
+
   it.each([
     'channel_disconnected',
     'channel_reconnected',
@@ -244,25 +261,20 @@ describe('notificationTarget', () => {
     }
   );
 
-  it('meeting_invite opens the meeting', () => {
-    expect(
-      notificationTarget(
-        { type: 'meeting_invite', meta: { meeting_id: ROOM } },
-        'agent'
-      )
-    ).toBe(`/meetings/${ROOM}`);
-    for (const meta of [null, 'x', [], { meeting_id: 'nope' }, {}]) {
+  it.each(['meeting_invite', 'meeting_update', 'meeting_cancelled'])(
+    '%s opens the meeting',
+    (type) => {
       expect(
-        notificationTarget({ type: 'meeting_invite', meta }, 'agent')
+        notificationTarget({ type, meta: { meeting_id: ROOM } }, 'agent')
+      ).toBe(`/meetings/${ROOM}`);
+      for (const meta of [null, 'x', [], { meeting_id: 'nope' }, {}]) {
+        expect(notificationTarget({ type, meta }, 'agent')).toBeNull();
+      }
+      expect(
+        notificationTarget({ type, meta: { meeting_id: ROOM } }, 'bank_guest')
       ).toBeNull();
     }
-    expect(
-      notificationTarget(
-        { type: 'meeting_invite', meta: { meeting_id: ROOM } },
-        'bank_guest'
-      )
-    ).toBeNull();
-  });
+  );
 
   it('group_join_request opens the group requests tab', () => {
     expect(
@@ -294,6 +306,23 @@ describe('notificationTarget', () => {
     ).toBeNull();
     expect(
       notificationTarget({ type: 'submission_group_message' }, 'agent')
+    ).toBeNull();
+  });
+
+  it('a bell of an ended group the reader lost opens the customer (308)', () => {
+    const meta = { group_id: ROOM, ended: true };
+    expect(
+      notificationTarget(
+        { type: 'submission_group_message', contact_id: CH, meta },
+        'agent'
+      )
+    ).toBe(`/contacts/${CH}`);
+    // The contact was deleted since: nothing, never the group.
+    expect(
+      notificationTarget(
+        { type: 'submission_group_message', contact_id: null, meta },
+        'agent'
+      )
     ).toBeNull();
   });
 
@@ -440,5 +469,17 @@ describe('notificationRow', () => {
       href: null,
       otherWorkspace: null,
     });
+  });
+
+  it('webhook_disabled opens API for owners and admins (293)', () => {
+    const n = { type: 'webhook_disabled' } as never;
+    expect(notificationTarget(n, 'admin')).toBe('/settings?tab=api');
+    expect(notificationTarget(n, 'agent')).toBeNull();
+  });
+
+  it('retention_failed opens Privacy for owners and admins (282)', () => {
+    const n = { type: 'retention_failed' } as never;
+    expect(notificationTarget(n, 'owner')).toBe('/settings?tab=privacy');
+    expect(notificationTarget(n, 'agent')).toBeNull();
   });
 });

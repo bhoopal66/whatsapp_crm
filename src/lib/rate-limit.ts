@@ -109,6 +109,12 @@ export function rateLimitRemaining(
   return Math.max(0, limit - entry.count);
 }
 
+/** Gives back requests that turned out to have done nothing. */
+export function refundRateLimit(key: string, count: number): void {
+  const entry = buckets.get(key);
+  if (entry) entry.count = Math.max(0, entry.count - count);
+}
+
 /**
  * Standard 429 response with the headers clients expect (RFC 6585 +
  * draft-ietf-httpapi-ratelimit-headers). Callers just `return` this.
@@ -140,15 +146,10 @@ export const RATE_LIMITS = {
   /** Individual message send. 60/min per user = one per second
    *  sustained, comfortable for a live human typing. */
   send: { limit: 60, windowMs: 60_000 },
-  /** Broadcast dispatch. NOT one call per campaign: the wizard fans a
-   *  campaign out over `/api/whatsapp/broadcast` in batches of 10
-   *  recipients, roughly one call every 1–2 s, so a 1 000-recipient
-   *  send is ~100 calls over several minutes. This bucket was 5/min on
-   *  the assumption of one call per campaign, which meant everything
-   *  past the first ~50 recipients came back 429 and was recorded as a
-   *  failed recipient (issue #472). 60/min per user carries the wizard's
-   *  pacing with headroom while still bounding a script in a loop;
-   *  Meta's own per-number limits remain the real throughput ceiling. */
+  /** Campaign passes (`/api/whatsapp/broadcast/[id]/resume`): one call
+   *  works through many recipients on the server, and the page asks again
+   *  while some are left. 5/min once cut campaigns short (issue #472);
+   *  60/min per user bounds a script in a loop. */
   broadcast: { limit: 60, windowMs: 60_000 },
   /** Reaction add/swap/remove. More permissive than send — users
    *  fidget with reactions and a single "swap" is actually two calls
@@ -163,6 +164,8 @@ export const RATE_LIMITS = {
    *  WhatsApp restricts numbers that mass-add. */
   groupAddPerson: { limit: 60, windowMs: 3_600_000 },
   groupAddNumber: { limit: 120, windowMs: 3_600_000 },
+  /** WhatsApp groups created on one number, per day. */
+  groupCreateNumber: { limit: 10, windowMs: 86_400_000 },
   /** Case desk uploads, per person: each one stores a file. */
   deskUpload: { limit: 60, windowMs: 60_000 },
   /** Invitation peek (public, per-IP). 30/min lets a forwarded link
@@ -184,6 +187,9 @@ export const RATE_LIMITS = {
   // Changing one's own password. Per-user, ahead of the sign-in lockout
   // that counts the wrong ones.
   passwordChange: { limit: 10, windowMs: 60_000 },
+  /** Click-to-call, per person: each one rings a real phone. 20/min is
+   *  well above someone working a call list. */
+  pbxDial: { limit: 20, windowMs: 60_000 },
   /** Public REST API (`/api/v1/*`), keyed per API key. 120/min ≈ 2
    *  req/s sustained — comfortable for a polling integration or an
    *  automation firing on inbound events, while bounding a runaway

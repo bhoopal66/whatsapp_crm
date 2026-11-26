@@ -19,3 +19,14 @@ owned by a BYPASSRLS role or it loses the indexes. Callers (Contacts page,
 `phone_normalized` search when the RPC is missing (`isMissingSearchRpc`).
 The inbox turns ≤100 hits into `contact_id.in.(…)` inside the view's
 or-groups, one ranked page, no caching while searching.
+
+Filters (298): the Contacts page narrows (chat tags, lead source, a team
+leader's own contacts) inside the search, never after it: the 5-argument
+`search_contacts` / `search_contact_candidates` overloads, arguments from
+`contactSearchArgs` (`search-rpc.ts`), at most 500 hits ("First 500
+matches"; the 193 signature stops at 200). The overloads have no
+parameter defaults on purpose (with them a 2-argument call is ambiguous).
+The one body is now in 298: the 193 candidate signature wraps it, so
+re-run 298 after re-running 193. The tag condition is read by
+`search_contacts` under the caller's `conversations_select` and handed
+down as contact ids; the definer lookup never reads `conversations`.

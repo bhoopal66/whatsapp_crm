@@ -63,11 +63,19 @@ export const CASE_FILES_REFUSAL_HTTP: Readonly<
     status: 422,
     text: 'The case file would be too large to store',
   },
+  FORM_NOT_FLATTENED: {
+    status: 422,
+    text: 'The values of a fillable form could not be drawn',
+  },
   DOC_NOT_REQUIRED: {
     status: 422,
     text: 'That document is not on this case’s list',
   },
   SPEC_INVALID: { status: 422, text: 'That file spec is not valid' },
+  SPEC_CHANGED: {
+    status: 409,
+    text: 'Another admin changed this list meanwhile',
+  },
   DOCS_INVALID: { status: 422, text: 'That document list is not valid' },
   CHECKS_INVALID: { status: 422, text: 'Those check results are not valid' },
   FILE_INVALID: { status: 422, text: 'That file cannot be used here' },
@@ -120,7 +128,8 @@ const RECORD_REFUSAL_HTTP: Readonly<
 export function refusalResponse(
   code: CaseFilesRefusal,
   filedAs?: string,
-  failedChecks?: readonly Check[]
+  failedChecks?: readonly Check[],
+  document?: string
 ): NextResponse {
   const { status, text } = CASE_FILES_REFUSAL_HTTP[code];
   return NextResponse.json(
@@ -129,6 +138,7 @@ export function refusalResponse(
       code,
       ...(filedAs !== undefined ? { filedAs } : {}),
       ...(failedChecks !== undefined ? { failedChecks } : {}),
+      ...(document !== undefined ? { document } : {}),
     },
     { status }
   );
@@ -140,7 +150,12 @@ export function caseFilesErrorResponse(
   route: string
 ): NextResponse {
   if (err instanceof CaseFilesRefusedError)
-    return refusalResponse(err.reason, err.filedAs, err.failedChecks);
+    return refusalResponse(
+      err.reason,
+      err.filedAs,
+      err.failedChecks,
+      err.document
+    );
   if (err instanceof CustomerDocumentRecordError) {
     const r = err.hint ? RECORD_REFUSAL_HTTP[err.hint] : undefined;
     if (r)
@@ -301,6 +316,31 @@ const SPEC_ROW_KEYS = new Set([
   'minValidDays',
   'merged',
 ]);
+
+/**
+ * The PUT's `expected`: the `rows` of the GET the screen had loaded, as
+ * 309 compares them (snake_case, every key present). Absent = not compared.
+ */
+export function parseSpecExpected(
+  value: unknown
+): Record<string, unknown>[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) throw refused('SPEC_INVALID');
+  return value.map((row) => {
+    if (row === null || typeof row !== 'object') throw refused('SPEC_INVALID');
+    const r = row as Record<string, unknown>;
+    return {
+      doc_key: r.docKey ?? null,
+      position: r.position ?? null,
+      name_pattern: r.namePattern ?? null,
+      required: r.required ?? null,
+      max_mb: r.maxMb ?? null,
+      allowed_mime: r.allowedMime ?? null,
+      min_valid_days: r.minValidDays ?? null,
+      merged: r.merged ?? null,
+    };
+  });
+}
 
 const isIntIn = (v: unknown, min: number, max: number): v is number =>
   typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max;

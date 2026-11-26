@@ -18,6 +18,7 @@ const META_API_VERSION = process.env.META_API_VERSION || 'v23.0'
 export const META_API_BASE = `https://graph.facebook.com/${META_API_VERSION}`
 
 import { fetchPublicUrl, UnsafeUrlError } from '@/lib/webhooks/ssrf'
+import { readCapped } from '@/lib/media/capped-body'
 
 /**
  * Per-request ceiling, mirroring `WHAPI_TIMEOUT_MS` in the Whapi client.
@@ -44,6 +45,8 @@ interface MetaErrorResponse {
     type?: string
     error_subcode?: number
     error_data?: { details?: string }
+    error_user_title?: string
+    error_user_msg?: string
   }
 }
 
@@ -85,6 +88,14 @@ export class MetaError extends Error {
     return this.status === 401 || this.code === 190 || this.code === 200
   }
 
+  /**
+   * True when the sending number itself cannot send: not registered with
+   * the Cloud API (#133010), or its WhatsApp account is locked (#131031).
+   */
+  get isNumberUnavailable(): boolean {
+    return this.code === 133010 || this.code === 131031
+  }
+
   /** True when the WABA hit its messaging or template rate limit. */
   get isRateLimited(): boolean {
     return this.status === 429 || this.code === 4 || this.code === 80007
@@ -109,6 +120,15 @@ export class MetaError extends Error {
   /** True when the template named in the send is unknown to Meta or unapproved. */
   get isTemplateError(): boolean {
     return this.code === 132000 || this.code === 132001 || this.code === 132015
+  }
+
+  /**
+   * True when a template was not created because Meta already has one of
+   * this name in this language (#100, subcode 2388024). Not 2388023: that
+   * one is being deleted at Meta, and cannot be sent.
+   */
+  get isTemplateDuplicate(): boolean {
+    return this.subcode === 2388024
   }
 
   /**
@@ -172,6 +192,13 @@ export async function throwMetaError(response: Response, fallback: string): Prom
     if (typeof data.error?.code === 'number') code = data.error.code
     if (typeof data.error?.error_subcode === 'number') subcode = data.error.error_subcode
     if (data.error?.error_data?.details) details = data.error.error_data.details
+    // A refused template says "Invalid parameter" in `message` and what is
+    // wrong with it only here.
+    const why = [data.error?.error_user_title, data.error?.error_user_msg]
+      .map((s) => (typeof s === 'string' ? s.trim() : ''))
+      .filter(Boolean)
+      .join(': ')
+    if (why && !message.includes(why)) message = `${message} (${why})`
   } catch {
     // response body wasn't JSON — keep the fallback
   }
@@ -1308,6 +1335,10 @@ export async function getMediaUrl(
 export interface DownloadMediaArgs {
   downloadUrl: string
   accessToken: string
+  /** Past this many bytes the body is left unread (`BodyTooLargeError`). */
+  maxBytes: number
+  /** Replaces the default timeout, for a body that is streamed on. */
+  signal?: AbortSignal
 }
 
 /**
@@ -1327,24 +1358,23 @@ export function isMetaMediaHost(url: URL): boolean {
 }
 
 /**
- * Fetch the binary bytes for a media URL obtained from getMediaUrl.
- * Step two of the media-proxy flow.
+ * Ask for the bytes behind a media URL obtained from getMediaUrl; the
+ * body is unread and must be read through a cap. Step two of the media-proxy flow.
  *
  * `downloadUrl` is not always Meta-issued — forwarding re-hosts a
  * message's stored `media_url`, which a sender controls — so the token
  * goes only to a Meta host (`isMetaMediaHost`). Anything else is fetched
  * without credentials, behind the SSRF guard, redirects re-checked.
  */
-export async function downloadMedia(
-  args: DownloadMediaArgs
-): Promise<{ buffer: Buffer; contentType: string }> {
-  const { downloadUrl, accessToken } = args
+export async function openMedia(args: DownloadMediaArgs): Promise<Response> {
+  const { downloadUrl, accessToken, maxBytes } = args
   let response: Response
   try {
     response = await fetchPublicUrl(
       downloadUrl,
-      { signal: AbortSignal.timeout(META_TIMEOUT_MS) },
+      { signal: args.signal ?? AbortSignal.timeout(META_TIMEOUT_MS) },
       {
+        maxDecodedBytes: maxBytes,
         isTrusted: isMetaMediaHost,
         trustedHeaders: { Authorization: `Bearer ${accessToken}` },
       },
@@ -1365,8 +1395,15 @@ export async function downloadMedia(
     await response.body?.cancel().catch(() => {})
     throw new Error(`Media download failed: ${response.status}`)
   }
+  return response
+}
+
+/** The bytes behind a media URL, at most `maxBytes` of them. */
+export async function downloadMedia(
+  args: DownloadMediaArgs
+): Promise<{ buffer: Buffer; contentType: string }> {
+  const response = await openMedia(args)
   const contentType =
     response.headers.get('content-type') || 'application/octet-stream'
-  const buffer = Buffer.from(await response.arrayBuffer())
-  return { buffer, contentType }
+  return { buffer: await readCapped(response, args.maxBytes), contentType }
 }

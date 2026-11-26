@@ -116,6 +116,8 @@ BEGIN
   INSERT INTO hr_team_members (account_id, user_id, inbox, role)
   VALUES (a_acct, u_hr, 'recruiter', 'member');
 
+  -- 302: a new line's number is connected by somebody in HR.
+  UPDATE profiles SET department = 'hr' WHERE account_id = a_acct AND user_id IN (u_owner, u_hr);
   -- w2 is a personal number: personal numbers may be HR lines.
   UPDATE profiles SET may_connect_personal_whatsapp = true WHERE user_id = u_hr;
   INSERT INTO whatsapp_config (user_id, account_id, provider, phone_number_id, access_token)
@@ -308,6 +310,16 @@ BEGIN
                            r, 'true/false/true');
   r := pg_temp.hr_as(u_owner, format('SELECT public.hr_auto_open_recruiter(%L, %L)', c1, w1));
   c := c || pg_temp.hr_chk('an owner could call hr_auto_open_recruiter', r, 'ERROR 42501 %');
+  -- 279: hr_is_line only looks, with the switch on or off.
+  r := pg_temp.hr_as(NULL, format('SELECT public.hr_is_line(%L)', w1))
+    || '/' || pg_temp.hr_as(NULL, format('SELECT public.hr_is_line(%L)', wb))
+    || '/' || pg_temp.hr_as(NULL, 'SELECT public.hr_is_line(NULL)');
+  c := c || pg_temp.hr_chk('hr_is_line does not tell an HR line from another number', r, 'true/false/false');
+  UPDATE hr_line_settings SET auto_open_recruiter = false WHERE account_id = a_acct;
+  r := pg_temp.hr_as(NULL, format('SELECT public.hr_is_line(%L)', w1));
+  c := c || pg_temp.hr_chk('hr_is_line needs the auto-open switch', r, 'true');
+  r := pg_temp.hr_as(u_owner, format('SELECT public.hr_is_line(%L)', w1));
+  c := c || pg_temp.hr_chk('an owner could call hr_is_line', r, 'ERROR 42501 %');
   r := pg_temp.hr_as(u_owner, 'SELECT count(*)::text FROM public.hr_lines')
     || '/' || pg_temp.hr_as(u_owner, 'SELECT count(*)::text FROM public.hr_line_settings')
     || '/' || pg_temp.hr_as(u_owner, format('INSERT INTO public.hr_lines (channel_id, account_id) VALUES (%L, %L)', w2, a_acct));

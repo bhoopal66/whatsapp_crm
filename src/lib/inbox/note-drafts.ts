@@ -1,3 +1,5 @@
+import { holdUnsaved } from '@/lib/app-update/unsaved';
+
 import type { MentionCandidate } from './notes';
 
 /**
@@ -11,9 +13,14 @@ export interface NoteDraft {
   text: string;
   /** The people picked with "@". */
   picked: MentionCandidate[];
+  /** An edit: the note as it was when the edit began. */
+  base?: string;
 }
 
 export const MAX_PARKED_NOTES = 50;
+
+/** An edit of a saved note is parked under the note, beside the chats. */
+export const noteEditKey = (noteId: string) => `edit:${noteId}`;
 
 export interface NoteDrafts {
   read(userId: string | null, conversationId: string): NoteDraft | null;
@@ -26,6 +33,8 @@ export interface NoteDrafts {
     draft: NoteDraft
   ): void;
   clear(userId: string | null, conversationId: string): void;
+  /** Whether a draft is parked at all. */
+  any(): boolean;
 }
 
 export function createNoteDrafts(max = MAX_PARKED_NOTES): NoteDrafts {
@@ -63,6 +72,7 @@ export function createNoteDrafts(max = MAX_PARKED_NOTES): NoteDrafts {
       if (!userId || owner !== userId || parked.has(conversationId)) return;
       write(userId, conversationId, draft);
     },
+    any: () => parked.size > 0,
     clear: (userId, conversationId) => {
       if (userId && owner === userId) parked.delete(conversationId);
     },
@@ -71,3 +81,5 @@ export function createNoteDrafts(max = MAX_PARKED_NOTES): NoteDrafts {
 
 /** The tab's parked notes. */
 export const noteDrafts = createNoteDrafts();
+// They die with the tab: no reload by itself while one waits.
+holdUnsaved(() => noteDrafts.any());

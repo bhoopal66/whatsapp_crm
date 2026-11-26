@@ -2,9 +2,10 @@ import { NextResponse } from 'next/server';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { canViewUnroutedCalls, type AccountRole } from '@/lib/auth/roles';
 import { PbxConnectionError } from './connection';
-import { contactPhoneCandidates, normalizeRemoteNumber } from './phone';
+import { normalizeRemoteNumber, storedPhoneCandidates } from './phone';
 import { YeastarError, type CallInfo, type CallMember } from './yeastar';
 import {
+  DEFAULT_TIME_ZONE,
   isMissedCall,
   type CallDirection,
   type CallStatus,
@@ -17,6 +18,7 @@ import {
 // can import; this file pulls in next/server.
 export {
   CALL_STATUSES,
+  DEFAULT_TIME_ZONE,
   MISSED_STATUSES,
   isMissedCall,
   type CallDirection,
@@ -76,9 +78,6 @@ export {
 } from './presence';
 
 // ---------- "Calls this month" ----------
-
-/** The workspace's zone when the client names none (the UAE's). */
-export const DEFAULT_TIME_ZONE = 'Asia/Dubai';
 
 export function isTimeZone(tz: string): boolean {
   try {
@@ -152,8 +151,8 @@ export function summarizeMonth(
   };
   for (const r of rows) {
     out.total += 1;
-    if (r.status === 'answered' || r.answered_at) out.answered += 1;
-    else if (isMissedCall(r)) out.missed += 1;
+    if (isMissedCall(r)) out.missed += 1;
+    else if (r.status === 'answered' || r.answered_at) out.answered += 1;
     out.talkSeconds += r.talk_seconds ?? 0;
   }
   return out;
@@ -337,6 +336,8 @@ export function blindTransferChannel(others: CallMember[]): string | null {
 export interface OutcomePatch {
   disposition?: Disposition | null;
   notes?: string | null;
+  /** The note its writer last saw; null: an empty one. */
+  notesSeen?: string | null;
 }
 
 /**
@@ -366,9 +367,21 @@ export function parseOutcome(
     )
       return `Notes are limited to ${NOTES_MAX} characters`;
     out.notes = b.notes;
+    if (b.notesSeen !== undefined) {
+      if (b.notesSeen !== null && typeof b.notesSeen !== 'string')
+        return 'notesSeen must be text or null';
+      out.notesSeen = b.notesSeen;
+    }
   }
   return Object.keys(out).length ? out : 'Nothing to change';
 }
+
+/**
+ * PostgREST or(): the calls `userId` may write the note of, as
+ * pbx_answered_call (294): the call's person, or one who answered a leg.
+ */
+export const answeredByFilter = (userId: string): string =>
+  `user_id.eq.${userId},meta->answered_user_ids.cs.${JSON.stringify([userId])}`;
 
 // ---------- Call lists ----------
 
@@ -391,15 +404,17 @@ export const CALL_LIST_MAX = 200;
  */
 /**
  * PostgREST `or` terms for "my calls": calls `userId` took or placed
- * (user_id), was the other party to (peer_user_id), or that rang their
+ * (user_id), was the other party to (peer_user_id), that rang their
  * phone (calls.meta.rang_user_ids, a jsonb array the PBX processor
- * keeps). The last is a jsonb containment, so its value is JSON text,
- * not the `{…}` array literal postgrest-js's contains() writes for a
- * Postgres array. `userId` is the session's auth uid, never request
- * input.
+ * keeps), or that they answered a leg of (meta.answered_user_ids, 294:
+ * user_id names one person of a transferred call). The last two are
+ * jsonb containments, so the value is JSON text, not the `{…}` array
+ * literal postgrest-js's contains() writes for a Postgres array.
+ * `userId` is the session's auth uid, never request input.
  */
 export function myCallsFilter(userId: string): string {
-  return `user_id.eq.${userId},peer_user_id.eq.${userId},meta->rang_user_ids.cs.${JSON.stringify([userId])}`;
+  const listed = JSON.stringify([userId]);
+  return `user_id.eq.${userId},peer_user_id.eq.${userId},meta->rang_user_ids.cs.${listed},meta->answered_user_ids.cs.${listed}`;
 }
 
 /**
@@ -486,10 +501,16 @@ export interface CallListQuery {
   /** ISO instants: started_at >= from, < to. */
   from: string | null;
   to: string | null;
+  /** The page that continues past this call (started_at, id). */
+  before: { startedAt: string; id: string } | null;
   limit: number;
 }
 
-/** `?contactId=&userId=&userIds=&direction=&scope=&from=&to=&limit=`, checked; a string is the 400. */
+/** A timestamp as PostgREST writes it, microseconds and all. */
+const DB_INSTANT =
+  /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d{1,6})?(Z|[+-]\d\d:\d\d)$/;
+
+/** `?contactId=&userId=&userIds=&direction=&scope=&from=&to=&before=&beforeId=&limit=`, checked; a string is the 400. */
 export function parseCallListQuery(q: URLSearchParams): CallListQuery | string {
   const contactId = q.get('contactId') || null;
   if (contactId && !UUID.test(contactId)) return 'contactId must be an id';
@@ -521,6 +542,17 @@ export function parseCallListQuery(q: URLSearchParams): CallListQuery | string {
   const to = instant('to');
   if (from === undefined || to === undefined)
     return 'from and to must be dates';
+  // Kept as sent: a Date drops the microseconds, and with them skips or
+  // repeats a call.
+  const startedAt = q.get('before');
+  const beforeId = q.get('beforeId');
+  if (!startedAt !== !beforeId) return 'before and beforeId go together';
+  if (
+    startedAt &&
+    (!DB_INSTANT.test(startedAt) || !Number.isFinite(Date.parse(startedAt)))
+  )
+    return 'before must be a call’s startedAt';
+  if (beforeId && !UUID.test(beforeId)) return 'beforeId must be an id';
   const limit = q.get('limit') ? Number(q.get('limit')) : CALL_LIST_LIMIT;
   if (!Number.isInteger(limit) || limit < 1 || limit > CALL_LIST_MAX)
     return `limit must be a whole number from 1 to ${CALL_LIST_MAX}`;
@@ -532,6 +564,7 @@ export function parseCallListQuery(q: URLSearchParams): CallListQuery | string {
     scope: scope as CallScope,
     from,
     to,
+    before: startedAt && beforeId ? { startedAt, id: beforeId } : null,
     limit,
   };
 }
@@ -770,7 +803,7 @@ export async function dncContactIds(
     .from('contacts')
     .select('id')
     .eq('account_id', accountId)
-    .in('phone', contactPhoneCandidates(number))
+    .in('phone_normalized', storedPhoneCandidates(number))
     .not('do_not_contact_at', 'is', null);
   if (error) throw new Error(`contacts read failed: ${error.message}`);
   const ids = new Set(((data ?? []) as { id: string }[]).map((c) => c.id));
@@ -843,7 +876,7 @@ export async function resolveCallee(input: {
     const { data, error } = await rls
       .from('contacts')
       .select(cols)
-      .in('phone', contactPhoneCandidates(number));
+      .in('phone_normalized', storedPhoneCandidates(number));
     if (error) throw new Error(`contacts read failed: ${error.message}`);
     visible = (data ?? []) as ContactRow[];
     if (

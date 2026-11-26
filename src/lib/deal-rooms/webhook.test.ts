@@ -59,6 +59,7 @@ vi.mock('./invites', () => ({ sendRoomInvites }));
 import { MetaError } from '@/lib/whatsapp/meta-api';
 import {
   groupMessages,
+  groupRetryPauses,
   groupStatuses,
   handleGroupWebhook,
   isGroupChange,
@@ -66,6 +67,7 @@ import {
   parseGroupSettings,
   pickContactByPhone,
 } from './webhook';
+import { memoryDb } from './test-db';
 
 const GROUP = 'HBgLMTY1MDM4Nzk0MzkVAgASGBQzQTRB';
 const ROOM = {
@@ -131,13 +133,18 @@ function fakeDb(
   return { db: db as never, rpc, upload, inserts };
 }
 
-async function run(db: never, value: Record<string, unknown>) {
+async function run(
+  db: never,
+  value: Record<string, unknown>,
+  pauses?: number[]
+) {
   const done = handleGroupWebhook({
     db,
     accountId: 'acct-1',
     phoneNumberId: '106',
     accessToken: 'tok',
     value,
+    pauses,
   });
   await vi.runAllTimersAsync(); // the pause before a STOP's retry
   return done;
@@ -469,6 +476,84 @@ describe('participants and join requests', () => {
       joinRequestIds: ['jr-1'],
     });
     expect(inserts('notifications')).toEqual([]);
+  });
+
+  describe('an auto-approved join request WhatsApp did not take', () => {
+    const joinRequest = async (decision = 'auto_approved') => {
+      const mem = memoryDb(
+        {
+          deal_rooms: [
+            {
+              id: 'room-1',
+              account_id: 'acct-1',
+              wa_group_id: GROUP,
+              channel_id: 'ch-1',
+              created_by: 'user-1',
+              subject: 'Villa',
+            },
+          ],
+          chat_channel_members: [],
+          notifications: [],
+          deal_room_join_requests: [
+            {
+              id: 'r-1',
+              room_id: 'room-1',
+              join_request_id: 'jr-1',
+              decision,
+              decided_at: '2026-11-24T00:00:00Z',
+            },
+          ],
+        },
+        { rpc: () => 'auto_approved' }
+      );
+      await run(mem.db, {
+        groups: [
+          {
+            type: 'group_join_request_created',
+            group_id: GROUP,
+            join_request_id: 'jr-1',
+            wa_id: '971501234567',
+          },
+        ],
+      });
+      return mem.tables;
+    };
+
+    it.each([
+      ['the call failed', () => Promise.reject(new Error('timeout'))],
+      [
+        'it is listed among the failures',
+        () =>
+          Promise.resolve({
+            done: [],
+            failed: [{ joinRequestId: 'jr-1', code: 1, message: 'no' }],
+          }),
+      ],
+    ])(
+      'is pending again and the managers are asked: %s',
+      async (_w, answer) => {
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        approveJoinRequests.mockImplementationOnce(answer as never);
+        const tables = await joinRequest();
+        expect(tables.deal_room_join_requests[0]).toMatchObject({
+          decision: 'pending',
+          decided_at: null,
+        });
+        expect(tables.notifications).toEqual([
+          expect.objectContaining({ type: 'deal_room_join_request' }),
+        ]);
+      }
+    );
+
+    it('leaves a decision a person made meanwhile', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      approveJoinRequests.mockImplementationOnce(() =>
+        Promise.reject(new Error('timeout'))
+      );
+      const tables = await joinRequest('rejected');
+      expect(tables.deal_room_join_requests[0].decision).toBe('rejected');
+      expect(tables.notifications).toEqual([]);
+    });
   });
 
   it('asks the managers about a pending join request', async () => {
@@ -991,11 +1076,157 @@ describe('group messages and receipts', () => {
       expect(removeParticipants).toHaveBeenCalledTimes(1);
     });
 
-    it('an ordinary message is not tried twice', async () => {
-      const { db, rpc } = fakeDb({ tables: listed, blips: { deal_rooms: 1 } });
-      await run(db, stop('hello'));
+    it('gets no second opt-out from the retries of the rest', async () => {
+      const { db, rpc } = fakeDb({ tables: listed, blips: { deal_rooms: 9 } });
+      await run(db, stop());
       expect(rpc).not.toHaveBeenCalled();
       expect(removeParticipants).not.toHaveBeenCalled();
+    });
+  });
+
+  // Meta has its 200 already and delivers nothing again.
+  describe('everything else outlives a database blip too', () => {
+    const refused = { data: null, error: { code: '57P03', message: 'down' } };
+    const receipt = (id: string) => ({
+      id,
+      status: 'read',
+      recipient_type: 'group',
+      recipient_id: GROUP,
+      recipient_participant_id: '971501111111',
+    });
+    const text = (id: string) => ({
+      id,
+      from: '971501234567',
+      group_id: GROUP,
+      type: 'text',
+      text: { body: 'hello' },
+    });
+
+    it('a message: its room and its row', async () => {
+      const { db, rpc } = fakeDb({
+        tables: { deal_rooms: ROOM },
+        blips: { deal_rooms: 1 },
+      });
+      rpc.mockImplementationOnce((async () => refused) as never);
+      await run(db, { messages: [text('wamid.1')] });
+      expect(rpc).toHaveBeenCalledTimes(2);
+      expect(rpc).toHaveBeenLastCalledWith(
+        'deal_room_record_message',
+        expect.objectContaining({ p_wa_message_id: 'wamid.1' })
+      );
+      expect(removeParticipants).not.toHaveBeenCalled();
+    });
+
+    it('a receipt and a person who joined', async () => {
+      const { db, rpc } = fakeDb({ tables: { deal_rooms: ROOM } });
+      rpc.mockImplementationOnce((async () => refused) as never);
+      await run(db, { statuses: [receipt('wamid.o')] });
+      expect(rpc).toHaveBeenCalledTimes(2);
+      rpc.mockClear();
+      rpc.mockImplementationOnce((async () => refused) as never);
+      await run(db, {
+        groups: [
+          {
+            type: 'group_participants_add',
+            group_id: GROUP,
+            added_participants: [{ wa_id: '971501111111' }],
+          },
+        ],
+      });
+      expect(rpc.mock.calls.map(([fn]) => fn)).toEqual([
+        'deal_room_participant_event',
+        'deal_room_participant_event',
+      ]);
+    });
+
+    it('a file that does not download, or does not upload, at first', async () => {
+      const { db, rpc, upload } = fakeDb({ tables: { deal_rooms: ROOM } });
+      downloadMedia.mockRejectedValueOnce(new Error('timeout'));
+      upload.mockResolvedValueOnce({ error: { message: '503' } } as never);
+      await run(db, {
+        messages: [
+          {
+            id: 'wamid.3',
+            from: '971501234567',
+            group_id: GROUP,
+            type: 'document',
+            document: { id: 'media-1', filename: 'offer.pdf' },
+          },
+        ],
+      });
+      expect(upload).toHaveBeenCalledTimes(2);
+      const [, args] = rpc.mock.lastCall as unknown as [
+        string,
+        { p_media: { storage_path?: string; error?: string } },
+      ];
+      expect(args.p_media.storage_path).toMatch(/wamid\.3-offer\.pdf$/);
+      expect(args.p_media.error).toBeUndefined();
+    });
+
+    it('a file that is refused for good spends no retry of the rest', async () => {
+      const { db, rpc } = fakeDb({ tables: { deal_rooms: ROOM } });
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      downloadMedia.mockRejectedValueOnce(new Error('too large'));
+      downloadMedia.mockRejectedValueOnce(new Error('too large'));
+      const pauses = groupRetryPauses();
+      const before = pauses.length;
+      await run(
+        db,
+        {
+          messages: [
+            {
+              id: 'wamid.4',
+              from: '971501234567',
+              group_id: GROUP,
+              type: 'document',
+              document: { id: 'media-1', filename: 'offer.pdf' },
+            },
+          ],
+        },
+        pauses
+      );
+      expect(downloadMedia).toHaveBeenCalledTimes(2);
+      expect(pauses).toHaveLength(before);
+      expect(rpc).toHaveBeenLastCalledWith(
+        'deal_room_record_message',
+        expect.objectContaining({
+          p_media: expect.objectContaining({ error: 'too large' }),
+        })
+      );
+    });
+
+    it('the values of one request share the pauses', async () => {
+      const { db, rpc } = fakeDb({ tables: { deal_rooms: ROOM } });
+      rpc.mockImplementation((async () => refused) as never);
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      const pauses = groupRetryPauses();
+      await run(db, { statuses: [receipt('wamid.1')] }, pauses);
+      rpc.mockClear();
+      await run(db, { statuses: [receipt('wamid.2')] }, pauses);
+      expect(rpc).toHaveBeenCalledTimes(1);
+    });
+
+    it('three retries a delivery, then the next item is still tried', async () => {
+      const { db, rpc } = fakeDb({ tables: { deal_rooms: ROOM } });
+      rpc.mockImplementation((async () => refused) as never);
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      await run(db, {
+        statuses: [receipt('wamid.1'), receipt('wamid.2'), receipt('wamid.3')],
+      });
+      expect(
+        rpc.mock.calls.map(
+          (c) =>
+            (c as unknown as [string, { p_wa_message_id: string }])[1]
+              .p_wa_message_id
+        )
+      ).toEqual([
+        'wamid.1',
+        'wamid.1',
+        'wamid.1',
+        'wamid.1',
+        'wamid.2',
+        'wamid.3',
+      ]);
     });
   });
 

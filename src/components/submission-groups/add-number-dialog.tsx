@@ -15,6 +15,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { addNumberFailure } from '@/lib/submission-groups/ui';
 
 /**
  * Add another phone number to a submission group's WhatsApp group
@@ -32,6 +33,7 @@ export function AddNumberDialog({
   onAdded: () => void;
 }) {
   const t = useTranslations('SubmissionGroups.addNumber');
+  const tRefusal = useTranslations('SubmissionGroups.refusals');
   const [phone, setPhone] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -55,9 +57,12 @@ export function AddNumberDialog({
         added?: unknown;
         inviteLink?: unknown;
         error?: unknown;
+        code?: unknown;
       } | null;
       if (!res.ok) {
-        setError(typeof json?.error === 'string' ? json.error : t('failed'));
+        const why = addNumberFailure(res.status, json);
+        if ('refusal' in why) setError(tRefusal(why.refusal));
+        else setError([t(why.key), why.why].filter(Boolean).join(' '));
         return;
       }
       onAdded();
@@ -70,7 +75,8 @@ export function AddNumberDialog({
         });
       }
     } catch {
-      setError(t('failed'));
+      // The answer was lost, not necessarily the request.
+      setError(t('maybeAdded'));
     } finally {
       setBusy(false);
     }

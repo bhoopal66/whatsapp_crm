@@ -52,7 +52,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { createClient } from '@/lib/supabase/client';
-import { signOutReleasingPush } from '@/lib/push/sign-out';
+import { signOutThisDevice } from '@/lib/auth/sign-out';
 import { cn } from '@/lib/utils';
 
 interface PeekOk {
@@ -110,6 +110,7 @@ export default function JoinPage() {
   // step. Surface a blocking modal that walks them through it.
   const [conflictMessage, setConflictMessage] = useState<string | null>(null);
   const [signingOut, setSigningOut] = useState(false);
+  const [signOutSlow, setSignOutSlow] = useState(false);
 
   // Extracted so the "Try again" button on the server_error card
   // can re-run the same logic without remounting the component.
@@ -207,9 +208,16 @@ export default function JoinPage() {
 
   const handleSignOutAndRetry = useCallback(async () => {
     setSigningOut(true);
+    setSignOutSlow(false);
     try {
-      const supabase = createClient();
-      await signOutReleasingPush(() => supabase.auth.signOut());
+      const ended = await signOutThisDevice(createClient().auth, () =>
+        setSignOutSlow(true),
+      );
+      if (!ended) {
+        toast.error('Could not sign out, try again.');
+        setSigningOut(false);
+        return;
+      }
       // Hard reload so the new auth state propagates everywhere
       // (middleware, AuthProvider). Preserves the invite token in
       // the URL so the rebuilt page renders the signed-out CTA path.
@@ -393,7 +401,7 @@ export default function JoinPage() {
                 {signingOut ? (
                   <>
                     <Loader2 className="size-4 animate-spin" />
-                    Signing out…
+                    {signOutSlow ? 'Still signing out…' : 'Signing out…'}
                   </>
                 ) : (
                   'Sign out & use a different email'

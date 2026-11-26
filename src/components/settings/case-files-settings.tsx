@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import { Info, Loader2, RotateCcw } from 'lucide-react';
@@ -35,8 +35,11 @@ import {
   parseFileSpec,
   parseIntakeTemplates,
   readyStageOptions,
+  refreshedDrafts,
+  refreshedVersions,
   specBody,
   specDraft,
+  specExpected,
   specRowsFromDraft,
   templateBodyProblem,
   validateReadyStages,
@@ -51,6 +54,9 @@ import {
   type SpecRowDraft,
 } from '@/lib/case-files/settings-view';
 import { cn } from '@/lib/utils';
+import { ChangedNotice } from './changed-notice';
+
+export { ChangedNotice };
 
 type Answer = { ok: boolean; status: number; body: unknown };
 
@@ -247,14 +253,46 @@ const INTAKE_URL = '/api/cases/config/intake-templates';
  * own (any edit withdraws its approval) and approved by an owner other
  * than whoever last edited it. Independent of the card's Save.
  */
-function IntakeWording({ canEdit }: { canEdit: boolean }) {
+export function LoadFailed({
+  text,
+  retry,
+  onRetry,
+}: {
+  text: string;
+  retry: string;
+  onRetry: () => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2" role="alert">
+      <p className="text-destructive text-sm">{text}</p>
+      <Button type="button" size="sm" variant="outline" onClick={onRetry}>
+        {retry}
+      </Button>
+    </div>
+  );
+}
+
+interface IntakeForm {
+  drafts: Record<string, string>;
+  /** The stored version each draft may be saved over. */
+  versions: Record<string, string | null>;
+}
+
+export function IntakeWording({ canEdit }: { canEdit: boolean }) {
   const t = useTranslations('CaseFilesSettings.wording');
+  const tc = useTranslations('CaseSettings');
   const failToast = useFailToast();
   const { accountRole } = useAuth();
   const owner = !!accountRole && isOwner(accountRole);
   const [open, setOpen] = useState(false);
+  // A failed first read is not "no wording", which could be saved over.
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const [saved, setSaved] = useState<IntakeTemplateView[] | null>(null);
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [{ drafts, versions }, setForm] = useState<IntakeForm>({
+    drafts: {},
+    versions: {},
+  });
   const [busy, setBusy] = useState<string | null>(null);
 
   useEffect(() => {
@@ -262,14 +300,19 @@ function IntakeWording({ canEdit }: { canEdit: boolean }) {
     let off = false;
     void call(INTAKE_URL).then((answer) => {
       if (off) return;
-      const rows = parseIntakeTemplates(answer.ok ? answer.body : null);
+      setLoadFailed(!answer.ok);
+      if (!answer.ok) return;
+      const rows = parseIntakeTemplates(answer.body);
       setSaved(rows);
-      setDrafts(Object.fromEntries(rows.map((r) => [r.kind, r.body ?? ''])));
+      setForm({
+        drafts: Object.fromEntries(rows.map((r) => [r.kind, r.body ?? ''])),
+        versions: Object.fromEntries(rows.map((r) => [r.kind, r.updatedAt])),
+      });
     });
     return () => {
       off = true;
     };
-  }, [open, saved]);
+  }, [open, saved, attempt]);
 
   function patch(kind: IntakeKind, change: Partial<IntakeTemplateView>) {
     setSaved((rows) =>
@@ -283,22 +326,65 @@ function IntakeWording({ canEdit }: { canEdit: boolean }) {
     setBusy(kind);
     const answer = await call(`${INTAKE_URL}/${kind}`, {
       method: 'PUT',
-      body: JSON.stringify({ body: text }),
+      body: JSON.stringify({ body: text, updatedAt: versions[kind] ?? null }),
     });
+    // Somebody else's wording is shown beside what is typed here.
+    if (answer.status === 409) await refresh(saved ?? [], kind);
+    if (answer.ok) {
+      // The version an approval names is the server's: without it, the
+      // saver's own approve would read as somebody else's change.
+      const now = (saved ?? []).map((r) =>
+        r.kind === kind
+          ? { ...r, body: text, approved: false, updatedAt: null }
+          : r
+      );
+      setSaved(now);
+      await refresh(now);
+    }
     setBusy(null);
     if (!answer.ok) return failToast(answer);
-    patch(kind, { body: text, approved: false });
     toast.success(t('saved'));
   }
 
-  async function approve(kind: IntakeKind) {
+  /** Re-reads the list; a failed read leaves what is shown. */
+  async function refresh(before: IntakeTemplateView[], seen?: IntakeKind) {
+    const answer = await call(INTAKE_URL);
+    if (!answer.ok) return;
+    const rows = parseIntakeTemplates(answer.body);
+    setSaved(rows);
+    setForm((f) => ({
+      drafts: refreshedDrafts(before, rows, f.drafts),
+      versions: refreshedVersions(before, rows, f.drafts, f.versions, seen),
+    }));
+  }
+
+  async function approve(kind: IntakeKind, updatedAt: string) {
     setBusy(kind);
     const answer = await call(`${INTAKE_URL}/${kind}/approve`, {
       method: 'POST',
+      body: JSON.stringify({ updatedAt }),
     });
+    // Refused over a change: show the wording as it is now.
+    if (answer.status === 409) await refresh(saved ?? []);
     setBusy(null);
     if (!answer.ok) return failToast(answer);
-    patch(kind, { approved: true });
+    const row = answer.body as Partial<IntakeTemplateView> | null;
+    const body = typeof row?.body === 'string' ? row.body : null;
+    patch(kind, {
+      approved: true,
+      ...(body !== null ? { body } : {}),
+      ...(typeof row?.updatedAt === 'string'
+        ? { updatedAt: row.updatedAt }
+        : {}),
+    });
+    if (body !== null)
+      setForm((f) => ({
+        drafts: { ...f.drafts, [kind]: body },
+        versions:
+          typeof row?.updatedAt === 'string'
+            ? { ...f.versions, [kind]: row.updatedAt }
+            : f.versions,
+      }));
     toast.success(t('approvedToast'));
   }
 
@@ -315,7 +401,13 @@ function IntakeWording({ canEdit }: { canEdit: boolean }) {
       {open ? (
         <div className="space-y-4">
           <p className="text-muted-foreground text-xs">{t('note')}</p>
-          {saved ? (
+          {!saved && loadFailed ? (
+            <LoadFailed
+              text={tc('loadFailed')}
+              retry={tc('reload')}
+              onRetry={() => setAttempt((n) => n + 1)}
+            />
+          ) : saved ? (
             saved.map((row) => {
               const text = drafts[row.kind] ?? '';
               const problem = templateBodyProblem(text);
@@ -345,7 +437,10 @@ function IntakeWording({ canEdit }: { canEdit: boolean }) {
                     readOnly={!canEdit}
                     disabled={busy !== null}
                     onChange={(e) =>
-                      setDrafts((d) => ({ ...d, [row.kind]: e.target.value }))
+                      setForm((f) => ({
+                        ...f,
+                        drafts: { ...f.drafts, [row.kind]: e.target.value },
+                      }))
                     }
                   />
                   <p className="text-muted-foreground text-xs">
@@ -353,18 +448,25 @@ function IntakeWording({ canEdit }: { canEdit: boolean }) {
                       list: INTAKE_PLACEHOLDERS[row.kind].join(' '),
                     })}
                   </p>
+                  {changed && row.body !== null ? (
+                    <p className="text-muted-foreground text-xs whitespace-pre-wrap">
+                      {t('storedNow', { body: row.body })}
+                    </p>
+                  ) : null}
                   {changed && problem ? (
                     <p className="text-warning text-xs">
                       {t(`problems.${problem}`)}
                     </p>
                   ) : null}
                   <div className="flex justify-end gap-2">
-                    {owner && row.body !== null && !row.approved && !changed ? (
+                    {owner && row.updatedAt && !row.approved && !changed ? (
                       <Button
                         size="sm"
                         variant="outline"
                         disabled={busy !== null}
-                        onClick={() => void approve(row.kind)}
+                        onClick={() =>
+                          row.updatedAt && void approve(row.kind, row.updatedAt)
+                        }
                       >
                         {busy === row.kind ? (
                           <Loader2 className="size-4 animate-spin" />
@@ -506,6 +608,7 @@ export function FileSpecEditor({
 }) {
   const t = useTranslations('CaseFilesSettings.spec');
   const tc = useTranslations('CaseSettings');
+  const te = useTranslations('CaseFilesSettings.errors');
   const failToast = useFailToast();
   const problemText = useSpecProblemText();
   const canEdit = useCan('edit-settings');
@@ -515,7 +618,10 @@ export function FileSpecEditor({
   const [loaded, setLoaded] = useState<{
     key: string;
     view: FileSpecView | null;
+    expected: unknown[] | undefined;
   } | null>(null);
+  // The load another admin's save made stale (SPEC_CHANGED).
+  const [changedKey, setChangedKey] = useState<string | null>(null);
   const [draft, setDraft] = useState<SpecDraft | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
@@ -525,10 +631,16 @@ export function FileSpecEditor({
     : null;
   const loadKey = url ? `${url}#${version}` : null;
 
+  const keyRef = useRef(loadKey);
+  useEffect(() => {
+    keyRef.current = loadKey;
+  }, [loadKey]);
   const load = useCallback(async (u: string, key: string) => {
     const answer = await call(u);
+    // Another product or bank is shown by now.
+    if (keyRef.current !== key) return;
     const view = answer.ok ? parseFileSpec(answer.body) : null;
-    setLoaded({ key, view });
+    setLoaded({ key, view, expected: specExpected(answer.body) });
     setDraft(view ? specDraft(view) : null);
   }, []);
 
@@ -538,7 +650,8 @@ export function FileSpecEditor({
     void call(url).then((answer) => {
       if (off) return;
       const view = answer.ok ? parseFileSpec(answer.body) : null;
-      setLoaded({ key: loadKey, view });
+      setLoaded({ key: loadKey, view, expected: specExpected(answer.body) });
+      setChangedKey(null);
       setDraft(view ? specDraft(view) : null);
     });
     return () => {
@@ -561,10 +674,17 @@ export function FileSpecEditor({
     setBusy(true);
     const answer = await call(
       `/api/cases/config/banks/${encodeURIComponent(code)}/file-specs`,
-      { method: 'PUT', body: JSON.stringify(send) }
+      {
+        method: 'PUT',
+        body: JSON.stringify({ ...send, expected: current?.expected }),
+      }
     );
     setBusy(false);
-    if (!answer.ok) return failToast(answer);
+    if (!answer.ok) {
+      const code = (answer.body as { code?: unknown } | null)?.code;
+      if (code === 'SPEC_CHANGED') return setChangedKey(loadKey);
+      return failToast(answer);
+    }
     toast.success(reset ? t('resetDone') : t('saved'));
     await load(url, loadKey);
   }
@@ -633,7 +753,7 @@ export function FileSpecEditor({
           </p>
         ) : (
           <>
-            <div className="border-border overflow-x-auto rounded-lg border">
+            <div className="border-border relative overflow-x-auto rounded-lg border">
               <table className="w-full min-w-[56rem] text-sm">
                 <thead className="bg-card-2 text-muted-foreground text-xs">
                   <tr className="text-start">
@@ -792,6 +912,20 @@ export function FileSpecEditor({
               >
                 {problemText(problem, labelOf)}
               </p>
+            ) : null}
+
+            {changedKey !== null && changedKey === loadKey ? (
+              <ChangedNotice
+                text={te('specChanged')}
+                busy={busy}
+                onReload={async () => {
+                  if (!url) return;
+                  setBusy(true);
+                  await load(url, loadKey);
+                  setChangedKey(null);
+                  setBusy(false);
+                }}
+              />
             ) : null}
 
             {canEdit ? (

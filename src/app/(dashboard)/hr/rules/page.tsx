@@ -170,9 +170,13 @@ export default function HrSetupPage() {
         lineChannels ?? [],
         draftLines?.channel_ids ?? [],
         nameOf,
-        (owner) => t('setup.lines.personal', { owner })
+        (owner) => t('setup.lines.personal', { owner }),
+        (userId) =>
+          members.length === 0
+            ? null
+            : members.some((m) => m.user_id === userId && m.department === 'hr')
       ),
-    [lineChannels, draftLines, nameOf, t]
+    [lineChannels, draftLines, nameOf, members, t]
   );
   const linesDirty =
     !!savedLines && !!draftLines && isDirty(savedLines, draftLines);
@@ -464,6 +468,15 @@ export default function HrSetupPage() {
                           <span className="text-muted-foreground block truncate text-xs">
                             {row.subtitle}
                           </span>
+                          {row.notHr && (
+                            <span className="text-warning block text-xs">
+                              {t('setup.lines.ownerNotHr', {
+                                owner:
+                                  row.notHr.owner ??
+                                  t('setup.lines.ownerUnknown'),
+                              })}
+                            </span>
+                          )}
                         </span>
                       </label>
                     </li>

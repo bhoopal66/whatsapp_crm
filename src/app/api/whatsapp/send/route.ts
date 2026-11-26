@@ -30,7 +30,7 @@ import { isSendOrigin } from '@/lib/whatsapp/send-origin';
 export async function POST(request: Request) {
   try {
     // Requires the 'agent' role, matching both `canSendMessages` and the
-    // `messages_modify` RLS policy (migration 017).
+    // `messages_insert` RLS policy (migration 284).
     //
     // Resolving `account_id` off the profile — which any 'viewer' has —
     // was previously the only gate. RLS did block the message INSERT, but
@@ -60,6 +60,9 @@ export async function POST(request: Request) {
       filename,
       template_name,
       template_language,
+      // The row the person picked. Two teammates can each hold a template
+      // of one name and language; an older client sends none.
+      template_id,
       template_params,
       template_message_params,
       interactive_payload,
@@ -239,6 +242,7 @@ export async function POST(request: Request) {
         filename,
         templateName: template_name,
         templateLanguage: template_language,
+        templateId: typeof template_id === 'string' ? template_id : null,
         templateParams: template_params,
         templateMessageParams: template_message_params,
         interactivePayload: interactive_payload,
@@ -276,6 +280,8 @@ export async function POST(request: Request) {
 
       return NextResponse.json({
         success: true,
+        // Found or created here for a send by `contact_id`.
+        conversation_id: conversationId,
         message_id: result.messageId,
         whatsapp_message_id: result.whatsappMessageId,
       });

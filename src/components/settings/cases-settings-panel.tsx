@@ -42,6 +42,7 @@ import {
   STAGE_NAME_MAX,
   configErrorKey,
   configErrorText,
+  droppedStageUses,
   groupByProduct,
   keyFromLabel,
   moveStage,
@@ -54,13 +55,19 @@ import {
   validateStages,
   type CaseSwitchKey,
   type DocumentRequirement,
+  type DroppedStageUses,
   type SlaConfigRow,
   type SlaTimerKey,
   type StageProblem,
 } from '@/lib/cases/settings-ui';
 import { cn } from '@/lib/utils';
 
-import { CaseFilesSettingsCard, FileSpecEditor } from './case-files-settings';
+import {
+  CaseFilesSettingsCard,
+  ChangedNotice,
+  FileSpecEditor,
+  LoadFailed,
+} from './case-files-settings';
 import { ReviewSettingsCard } from '@/components/cases/case-page/review-drafts-section';
 import { CaseRulesSettingsCard } from './case-rules-settings';
 import { CaseMacrosSettingsCard } from './case-macros-settings';
@@ -143,7 +150,16 @@ function useConfigRead<T>(url: string, parse: (body: unknown) => T | null) {
     };
   }, [url, parse]);
   const reload = useCallback(async () => {
-    setState(await readConfig(url, parse));
+    const next = await readConfig(url, parse);
+    setState((prev) => {
+      // Another bank is shown by now.
+      if (prev && prev.url !== url) return prev;
+      // A failed reload keeps what was read before.
+      return next.failed && prev && prev.data !== null
+        ? { ...prev, failed: true }
+        : next;
+    });
+    return !next.failed;
   }, [url, parse]);
   const current = state?.url === url ? state : null;
   return {
@@ -385,14 +401,19 @@ export function CasesSettingsPanel() {
       <CaseMacrosSettingsCard />
 
       {loadFailed ? (
-        <p className="text-destructive text-sm" role="alert">
-          {t('loadFailed')}
-        </p>
-      ) : !banks ? (
-        <div
-          className="bg-muted/50 h-40 w-full animate-pulse rounded-xl"
-          aria-busy="true"
+        <LoadFailed
+          text={t('loadFailed')}
+          retry={t('reload')}
+          onRetry={() => void load()}
         />
+      ) : null}
+      {!banks ? (
+        loadFailed ? null : (
+          <div
+            className="bg-muted/50 h-40 w-full animate-pulse rounded-xl"
+            aria-busy="true"
+          />
+        )
       ) : (
         <>
           <Card>
@@ -454,7 +475,7 @@ export function CasesSettingsPanel() {
                 {t('bankHeading', { name: bank.name })}
               </h3>
               <Tabs value={tab} onValueChange={(v) => setTab(v as BankTab)}>
-                <div className="-mx-1 overflow-x-auto px-1 pb-1">
+                <div className="relative -mx-1 overflow-x-auto px-1 pb-1">
                   <TabsList aria-label={t('bankHeading', { name: bank.name })}>
                     {BANK_TABS.map((id) => (
                       <TabsTrigger
@@ -680,7 +701,7 @@ function useStageProblemText() {
   };
 }
 
-function StagesEditor({
+export function StagesEditor({
   code,
   onSaved,
 }: {
@@ -696,38 +717,88 @@ function StagesEditor({
     failed: loadFailed,
     reload: load,
   } = useConfigRead(bankUrl(code, 'stages'), parseStages);
-  // null: no edits, the stored list is shown.
-  const [edits, setEdits] = useState<string[] | null>(null);
+  // null: no edits, the stored list is shown. `from`: the list they began
+  // from, which a later read does not move.
+  const [edits, setEdits] = useState<{
+    list: string[];
+    from: string[];
+  } | null>(null);
   const [adding, setAdding] = useState('');
   const [busy, setBusy] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
+  // Another admin saved this bank's list since it was loaded.
+  const [changed, setChanged] = useState(false);
+  // A save that waits for the admin: what still uses the dropped stages.
+  const [dropping, setDropping] = useState<
+    ({ stages: string[]; reset: boolean } & DroppedStageUses) | null
+  >(null);
 
-  if (loadFailed)
-    return (
-      <p className="text-destructive text-sm" role="alert">
-        {tc('loadFailed')}
-      </p>
-    );
+  // A failed read keeps what is on screen, and says so.
+  const unread = loadFailed ? (
+    <LoadFailed
+      text={tc('loadFailed')}
+      retry={tc('reload')}
+      onRetry={() => void load()}
+    />
+  ) : null;
   if (!stored)
-    return <div className="bg-muted/50 h-40 animate-pulse rounded-xl" />;
+    return (
+      unread ?? <div className="bg-muted/50 h-40 animate-pulse rounded-xl" />
+    );
 
-  const draft = edits ?? stored.stages;
-  const setDraft = (next: string[]) => setEdits(next);
+  const draft = edits?.list ?? stored.stages;
+  const setDraft = (list: string[]) =>
+    setEdits({ list, from: edits?.from ?? stored.stages });
   const problem = validateStages(draft);
   const dirty =
     JSON.stringify(stagesBody(draft).stages) !== JSON.stringify(stored.stages);
 
-  async function put(stages: string[], reset: boolean) {
+  /** Names the Compass statuses and the deadline rules that would stay behind. */
+  function dropText({ mappings, sla }: DroppedStageUses): string {
+    return [
+      mappings.length
+        ? t('dropMappings', {
+            list: mappings.map((m) => `${m.status} (${m.stage})`).join(', '),
+          })
+        : null,
+      sla.length
+        ? t('dropSla', {
+            list: sla
+              .map((r) => {
+                const timer = SLA_TIMERS.find((k) => k === r.timer);
+                return `${r.stage} (${timer ? tc(`sla.timers.${timer}`) : r.timer})`;
+              })
+              .join(', '),
+          })
+        : null,
+      t('dropBody'),
+    ]
+      .filter(Boolean)
+      .join(' ');
+  }
+
+  async function put(stages: string[], reset: boolean, confirmDropped = false) {
     setBusy(true);
     const answer = await call(bankUrl(code, 'stages'), {
       method: 'PUT',
-      body: JSON.stringify({ stages }),
+      body: JSON.stringify({
+        stages,
+        expected: edits?.from ?? stored?.stages,
+        ...(confirmDropped ? { confirmDropped: true } : {}),
+      }),
     });
     setBusy(false);
     if (!answer.ok) {
-      failToast(answer);
+      const uses = droppedStageUses(answer.status, answer.body);
+      if (uses) setDropping({ stages, reset, ...uses });
+      else if (
+        (answer.body as { code?: unknown } | null)?.code === 'STAGES_CHANGED'
+      )
+        setChanged(true);
+      else failToast(answer);
       return;
     }
+    setChanged(false);
     toast.success(reset ? t('resetDone') : t('saved'));
     await load();
     setEdits(null);
@@ -752,6 +823,7 @@ function StagesEditor({
     <Card>
       <CardContent className="space-y-4">
         <p className="text-muted-foreground text-sm">{t('help')}</p>
+        {unread}
         {stored.isDefault ? (
           <Badge variant="secondary">{t('usingDefaults')}</Badge>
         ) : null}
@@ -839,6 +911,22 @@ function StagesEditor({
           </div>
         ) : null}
 
+        {changed ? (
+          <ChangedNotice
+            text={tc('errors.stagesChanged')}
+            busy={busy}
+            onReload={async () => {
+              setBusy(true);
+              const read = await load();
+              setBusy(false);
+              // A failed read keeps the edits and the notice.
+              if (!read) return;
+              setEdits(null);
+              setChanged(false);
+            }}
+          />
+        ) : null}
+
         <div className="flex flex-wrap gap-2">
           <Button
             disabled={busy || !dirty || !!problem}
@@ -878,6 +966,21 @@ function StagesEditor({
         }}
         destructive
       />
+      <ConfirmDialog
+        open={!!dropping}
+        onOpenChange={(open) => {
+          if (!open) setDropping(null);
+        }}
+        title={t('dropTitle')}
+        description={dropping ? dropText(dropping) : ''}
+        cancelLabel={tc('cancel')}
+        confirmLabel={t('dropConfirm')}
+        onConfirm={() => {
+          if (dropping) void put(dropping.stages, dropping.reset, true);
+          setDropping(null);
+        }}
+        destructive
+      />
     </Card>
   );
 }
@@ -906,18 +1009,22 @@ function TemplatesTab({ code }: { code: string }) {
     await load();
   }
 
-  if (loadFailed)
-    return (
-      <p className="text-destructive text-sm" role="alert">
-        {tc('loadFailed')}
-      </p>
-    );
+  const unread = loadFailed ? (
+    <LoadFailed
+      text={tc('loadFailed')}
+      retry={tc('reload')}
+      onRetry={() => void load()}
+    />
+  ) : null;
   if (!rows)
-    return <div className="bg-muted/50 h-40 animate-pulse rounded-xl" />;
+    return (
+      unread ?? <div className="bg-muted/50 h-40 animate-pulse rounded-xl" />
+    );
 
   return (
     <Card>
       <CardContent className="space-y-4">
+        {unread}
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <p className="text-muted-foreground text-sm">{t('help')}</p>
           <Button
@@ -1022,7 +1129,7 @@ function TemplateDialog({
   row: Template | null;
   taken: string[];
   onClose: () => void;
-  onSaved: () => Promise<void>;
+  onSaved: () => Promise<unknown>;
 }) {
   const t = useTranslations('CaseSettings.templates');
   const tc = useTranslations('CaseSettings');
@@ -1165,14 +1272,17 @@ function DocumentsTab({ code }: { code: string }) {
     await load();
   }
 
-  if (loadFailed)
-    return (
-      <p className="text-destructive text-sm" role="alert">
-        {tc('loadFailed')}
-      </p>
-    );
+  const unread = loadFailed ? (
+    <LoadFailed
+      text={tc('loadFailed')}
+      retry={tc('reload')}
+      onRetry={() => void load()}
+    />
+  ) : null;
   if (!rows)
-    return <div className="bg-muted/50 h-40 animate-pulse rounded-xl" />;
+    return (
+      unread ?? <div className="bg-muted/50 h-40 animate-pulse rounded-xl" />
+    );
 
   const groups = groupByProduct(rows);
 
@@ -1180,6 +1290,7 @@ function DocumentsTab({ code }: { code: string }) {
     <div className="space-y-4">
       <Card>
         <CardContent className="space-y-4">
+          {unread}
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <p className="text-muted-foreground text-sm">{t('help')}</p>
             <Button
@@ -1302,7 +1413,7 @@ function DocumentDialog({
   product: string;
   rows: DocumentRequirement[];
   onClose: () => void;
-  onSaved: () => Promise<void>;
+  onSaved: () => Promise<unknown>;
 }) {
   const t = useTranslations('CaseSettings.documents');
   const tc = useTranslations('CaseSettings');
@@ -1452,20 +1563,24 @@ function SlaTab({ code }: { code: string }) {
     timer: SlaTimerKey;
   } | null>(null);
 
-  if (loadFailed)
-    return (
-      <p className="text-destructive text-sm" role="alert">
-        {tc('loadFailed')}
-      </p>
-    );
+  const unread = loadFailed ? (
+    <LoadFailed
+      text={tc('loadFailed')}
+      retry={tc('reload')}
+      onRetry={() => void load()}
+    />
+  ) : null;
   if (!data)
-    return <div className="bg-muted/50 h-40 animate-pulse rounded-xl" />;
+    return (
+      unread ?? <div className="bg-muted/50 h-40 animate-pulse rounded-xl" />
+    );
 
   return (
     <Card>
       <CardContent className="space-y-4">
         <p className="text-muted-foreground text-sm">{t('help')}</p>
-        <div className="border-border overflow-x-auto rounded-lg border">
+        {unread}
+        <div className="border-border relative overflow-x-auto rounded-lg border">
           <table className="w-full min-w-[36rem] text-sm">
             <thead className="bg-muted/50 text-muted-foreground text-xs">
               <tr>
@@ -1547,7 +1662,7 @@ function SlaDialog({
   timer: SlaTimerKey;
   row: SlaConfigRow | null;
   onClose: () => void;
-  onSaved: () => Promise<void>;
+  onSaved: () => Promise<unknown>;
 }) {
   const t = useTranslations('CaseSettings.sla');
   const tc = useTranslations('CaseSettings');

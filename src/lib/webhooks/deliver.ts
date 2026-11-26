@@ -10,9 +10,11 @@
 // Delivery semantics (documented in docs/public-api.md):
 //   - At-most-once per event, single attempt with a short timeout.
 //   - Each consecutive failure bumps `failure_count`; once it crosses
-//     MAX_CONSECUTIVE_FAILURES the endpoint is auto-disabled
-//     (`is_active = false`) so a dead sink stops being hit. A success
-//     resets the counter and stamps `last_delivery_at`.
+//     MAX_CONSECUTIVE_FAILURES and the streak spans 30 minutes (293),
+//     the endpoint is auto-disabled (`is_active = false`) and the
+//     owners and admins are rung. A success resets the counter (the
+//     293 trigger clears `first_failure_at` with it) and stamps
+//     `last_delivery_at`.
 //   - Durable retry-with-backoff would need a queue/worker (a
 //     follow-up); in-process retries inside `after()` would burn the
 //     route's duration budget without a real durability guarantee.
@@ -30,7 +32,8 @@ import type { WebhookEvent } from '@/lib/webhooks/events';
 /** Per-endpoint HTTP timeout. Kept short — this runs in `after()`. */
 export const DELIVERY_TIMEOUT_MS = 5000;
 
-/** Auto-disable an endpoint after this many consecutive failures. */
+/** Auto-disable an endpoint after this many consecutive failures, once
+ *  they span 30 minutes (record_webhook_failure, 293). */
 export const MAX_CONSECUTIVE_FAILURES = 15;
 
 interface EndpointRow {
@@ -66,35 +69,48 @@ export async function dispatchWebhookEvent(
  * Sign `envelope` once and POST it to every active endpoint of
  * `accountId` subscribed to `event`. Shared by dispatchWebhookEvent and
  * the outbox drain (outbox.ts). Never throws.
+ *
+ * False only when the endpoints could not be read: nothing was sent, so
+ * the caller may try again. True otherwise, however the POSTs went.
  */
 export async function deliverSigned(
   db: SupabaseClient,
   accountId: string,
   event: WebhookEvent,
   envelope: Record<string, unknown>
-): Promise<void> {
+): Promise<boolean> {
+  let rows: EndpointRow[];
   try {
-    const { data: rows, error } = await db
+    const { data, error } = await db
       .from('webhook_endpoints')
       .select('id, url, secret')
       .eq('account_id', accountId)
       .eq('is_active', true)
       .contains('events', [event]);
 
-    if (error || !rows || rows.length === 0) return;
+    if (error) throw new Error(error.message);
+    rows = (data ?? []) as EndpointRow[];
+  } catch (err) {
+    console.error(
+      `[webhooks] ${event}: endpoints could not be read, nothing sent:`,
+      err instanceof Error ? err.message : err
+    );
+    return false;
+  }
+  if (rows.length === 0) return true;
 
+  try {
     const payload = JSON.stringify(envelope);
     const tsSeconds = Math.floor(Date.now() / 1000);
 
     await Promise.allSettled(
-      (rows as EndpointRow[]).map((row) =>
-        deliverOne(db, row, event, payload, tsSeconds)
-      )
+      rows.map((row) => deliverOne(db, row, event, payload, tsSeconds))
     );
   } catch (err) {
     // Never let a delivery problem bubble into the webhook response.
     console.error('[webhooks] dispatch failed:', err);
   }
+  return true;
 }
 
 async function deliverOne(

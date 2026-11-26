@@ -19,6 +19,7 @@ import {
 import { canUseMeetings } from '@/lib/auth/roles';
 import { serverSupabaseUrl } from '@/lib/supabase/urls';
 
+import { cutSeats } from './cut';
 import { isMeetingsConfigured, SfuError } from './sfu';
 import {
   PARTICIPANT_COLUMNS,
@@ -251,4 +252,35 @@ export async function loadOwnParticipant(
     .eq('user_id', ctx.userId)
     .maybeSingle();
   return { participant: (data as ParticipantRow | null) ?? null, error };
+}
+
+/**
+ * True when the caller's seat was closed while Cloudflare was answering:
+ * the cut that closed it listed the session's tracks before this request
+ * added its own, so the session is cut again here. The caller answers 404.
+ *
+ * Read through the caller's client, which a removal hides the row from
+ * (112), so no row is closed. A failed read is not: the seat was open a
+ * moment ago, and cutting on a blip would end a live call.
+ */
+export async function seatClosedMeanwhile(
+  supabase: Db,
+  ctx: { userId: string },
+  meetingId: string,
+  seat: Pick<ParticipantRow, 'id' | 'cf_session_id'>
+): Promise<boolean> {
+  const { participant, error } = await loadOwnParticipant(
+    supabase,
+    ctx,
+    meetingId,
+    seat.id
+  );
+  if (error) {
+    const e = error as { code?: unknown } | null;
+    console.error('[meetings] re-reading a seat failed', e?.code);
+    return false;
+  }
+  if (participant && !participant.left_at) return false;
+  await cutSeats([seat]);
+  return true;
 }

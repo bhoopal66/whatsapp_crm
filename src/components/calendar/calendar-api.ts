@@ -23,6 +23,8 @@ export interface EventDetail {
     responded_at: string | null;
   }[];
   canEdit: boolean;
+  /** The organiser, or an admin for a leaver's event (278). */
+  canDelete: boolean;
 }
 
 /**

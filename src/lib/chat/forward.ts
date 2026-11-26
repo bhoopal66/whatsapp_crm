@@ -11,9 +11,15 @@ import {
 } from '@/lib/auth/roles';
 
 import { countsAsChannelAdmin } from './composer-gating';
+import { newPostId } from './post-id';
 import { normalizeDigits } from './search-view';
 import { channelDisplayName, dmOthers } from './view';
-import type { ChannelWithMembership, ChatMessage, ChatPerson } from './types';
+import type {
+  ChannelWithMembership,
+  ChatAttachment,
+  ChatMessage,
+  ChatPerson,
+} from './types';
 
 /** How many channels one forward may go to. */
 export const FORWARD_MAX_TARGETS = 5;
@@ -114,6 +120,69 @@ export function toggleForwardTarget(
 ): string[] {
   if (picked.includes(id)) return picked.filter((p) => p !== id);
   return picked.length >= FORWARD_MAX_TARGETS ? [...picked] : [...picked, id];
+}
+
+/**
+ * The id each forward carries (307's p_client_id): one per open dialog
+ * and target, so a retry after a lost answer gets the copy already made.
+ */
+export interface ForwardIds {
+  idFor(target: string): string | undefined;
+  /** Forwarded: the next one there is a new copy. */
+  forget(target: string): void;
+}
+
+export function createForwardIds(newId = newPostId): ForwardIds {
+  const kept = new Map<string, string>();
+  return {
+    idFor(target) {
+      const known = kept.get(target);
+      if (known) return known;
+      const id = newId();
+      if (id) kept.set(target, id);
+      return id;
+    },
+    forget: (target) => void kept.delete(target),
+  };
+}
+
+/**
+ * One forward per target, in the order picked: each copies the files
+ * into its own channel's prefix. The files are read first, whatever the
+ * row shows (it may not hold them yet), and nothing is sent when that
+ * fails, so a message never goes without its file.
+ */
+export async function forwardToAll(
+  targets: readonly string[],
+  ids: ForwardIds,
+  calls: {
+    files: () => Promise<ChatAttachment[]>;
+    send: (
+      target: string,
+      files: ChatAttachment[],
+      clientId: string | undefined
+    ) => Promise<unknown>;
+  }
+): Promise<
+  | { read: false }
+  | { read: true; done: number; failed: { id: string; error: unknown }[] }
+> {
+  let files: ChatAttachment[];
+  try {
+    files = await calls.files();
+  } catch {
+    return { read: false };
+  }
+  const failed: { id: string; error: unknown }[] = [];
+  for (const id of targets) {
+    try {
+      await calls.send(id, files, ids.idFor(id));
+      ids.forget(id);
+    } catch (error) {
+      failed.push({ id, error });
+    }
+  }
+  return { read: true, done: targets.length - failed.length, failed };
 }
 
 /** What the preview line names: the first line of text, else the files. */

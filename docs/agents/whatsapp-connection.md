@@ -90,8 +90,11 @@ every ≤5 min from the automation cron and `GET
 /api/whatsapp/health/cron`). `nextHealth` flips only on AUTH (connected)
 or QR/ERROR/401/403/404/402 (disconnected); LAUNCH/INIT/NOT_INIT,
 unknown states, 5xx and timeouts change nothing, so a Whapi blip pages
-nobody. A transition notifies owners and admins (`channel_disconnected`
-/ `channel_reconnected`), and Compass answers `whapi_not_connected`
+nobody. OpenWA `disconnected` is down only once consecutive probes at
+least ~5 minutes apart agree (`confirmDisconnected`, in-process): the
+gateway resets every session to it on each boot. A transition notifies
+owners and admins (`channel_disconnected` / `channel_reconnected`), or for
+a personal number (190) its active holder alone, and Compass answers `whapi_not_connected`
 while the number is disconnected. The probe must never wake a stopped
 channel.
 
@@ -119,11 +122,18 @@ confirm its replay claim only when it settled `done`, else release it (a
 confirmed key swallows redeliveries for 24 h). 1:1 events run before group
 messages, which file documents inside their event. What is left is drained
 by the automations cron (`inbound-drain.ts`), one row claimed at a time,
-8 attempts, then a `inbound_message_failed` bell. A new kind of event goes
+8 attempts, then a `inbound_message_failed` bell. A STOP on an HR chat or
+HR line whose stamp failed (`owed.stop`, `recordHrStop`) is retried here too.
+A new kind of event goes
 through the queue, with its payload built in `inbound-events.ts`. **Not
 queued**: Whapi `groups` / OpenWA `group.*` events and submission-group
 membership, Meta deal rooms, message costs, template and health events.
 While 264 is missing the routes run `processWithoutQueue`, the former path.
+Removing a number cascades its rows away, so interactive removals (Whapi,
+Meta, OpenWA, personal) first ask `waitingMessages` (`waiting-messages.ts`,
+293's `webhook_inbox_waiting`) and answer 409 `messages_waiting` unless
+`?force=1`; the abandoned-connect sweep skips such a number, offboarding
+only logs the count; a failed count is 0, never a blocked removal.
 That `after()` is load-bearing: work must be *awaited inside* it, never
 detached as a floating promise, or the route returns and the runtime kills
 the callback mid-flight (issue #301 — and #409 is the same failure
@@ -170,7 +180,10 @@ Each of these is a fixed bug, not a preference:
   #478, and it is invisible until someone taps a template button.
 - Recipient status is a forward-only ladder (`pending → sent → delivered →
   read → replied`); `failed` is a side branch accepted only from `pending`/
-  `sent`.
+  `sent`, and corrected only by `delivered`/`read` (never `sent`): the
+  failure text goes and the campaign is re-settled. Same rule for
+  `messages`, WhatsApp groups (`GROUP_STATUS_PREDECESSORS`), 291's
+  `reconcile_broadcast_recipient_statuses` and `hr_automsg_delivery_apply`.
 - A Flow that consumes the message suppresses the content-level automation
   triggers (`new_message_received`, `keyword_match`, `interactive_reply`) and
   AI auto-reply; relationship triggers (`new_contact_created`,
@@ -178,8 +191,10 @@ Each of these is a fixed bug, not a preference:
 
 Gateway-hosted media links expire in ~30 days, so `mirror-inbound-media.ts`
 copies the bytes into the `chat-media` bucket (`inbound/` beneath
-`account-<id>` — migration 023's RLS only matches the first segment) and
-persists that URL instead. It is best-effort **by contract**: it returns
+`account-<id>`, with the service role: since migration 283 a signed-in
+person reaches only the objects they uploaded themselves, and uploads only
+to the top of `account-<id>`, `staged/` and `groups/`) and persists that
+URL instead. It is best-effort **by contract**: it returns
 `null` and never throws, because a webhook that throws makes Whapi redeliver
 and re-run the entire fan-out. Per-account opt-out: `mirror_inbound_media`
 (migration 039).
@@ -198,7 +213,7 @@ A parked, staged or retried attachment lives only in the browser, so the
 composer stops using one past 29 days (`isExpiredStagedMedia`,
 `lib/storage/staged-media.ts`, one day under the sweep's age): it is
 deleted and the agent told, never sent as a dead link.
-`verify-chat-media-staged.sql`.
+`verify-chat-media-staged.sql`, `verify-chat-media-owner.sql`.
 
 One `message_templates` row drives both providers, differently: Whapi has
 no template registry, so the row is rendered locally (`template-body.ts`)
@@ -207,7 +222,10 @@ already-**approved** template in the WABA registry by (name, language), so
 the same row is a hard rejection until it is submitted and approved. The
 review lifecycle (`template-webhook.ts`, `template-send-builder.ts`,
 `template-components.ts`) is live only for Meta sends; `status` is
-advisory on Whapi.
+advisory on Whapi. APPROVED without a `meta_template_id` is ours, not
+Meta's: the picker decides with `lib/whatsapp/template-offer.ts` (only one
+Meta refused is held back; an unsynced one is offered and Meta answers). An
+edit never writes `status` over a verdict of Meta's.
 
 **Message costs (migration 051)** are Meta-only: every raw `statuses[]`
 object the Meta webhook receives is handed, after the pipeline and
@@ -222,10 +240,12 @@ ledger's admin-only RLS applies through them. `pricing` is deliberately
 not lifted into `NormalizedStatus` (`collectMetaStatuses` is the
 separate raw extraction) because the neutral shape is provider-blind.
 Meta's failure reason is (`NormalizedStatus.error`), and
-`describeMetaFailure` stores it on failed broadcast recipients.
+`describeMetaFailure` stores it on failed broadcast recipients and, since
+292, on the message itself (`messages.failure_reason`, service role only;
+the bubble shows it, a correcting delivery clears it).
 Migration 066's `reconcile_broadcast_recipient_statuses` replays the
 ledger onto recipients a receipt missed (a receipt that beat the wamid
-stamp); `describe_meta_failure` (SQL) mirrors
+stamp); `describe_meta_failure` (SQL, latest body in 292) mirrors
 `lib/whatsapp/meta-failure.ts` and `meta-failure.test.ts` compares them —
 change one, change both. Status writes are forward-only in SQL
 (`handleStatusUpdate`), and an AI reply that comes back `failed` hands
@@ -253,6 +273,13 @@ for older rows. `conversations.channel_id` is the number a thread is on.
 Inbound moves it to the number the customer last wrote to. Anyone else
 may only fill it in when it is NULL; moving a thread is admin-only
 (`conversations_channel_guard`).
+
+**A limited number stays limited (314).** `whatsapp_config.access_restricted`
+is set by a trigger on any `whatsapp_channel_members` / `whatsapp_channel_teams`
+row and cleared only by `set_channel_access` with BOTH lists empty; limited with
+nobody allocated = owners and admins (`can_use_channel` ↔ `usableNumbers`,
+`startFor`, `chooseHostingNumber`). Replacing a number's lists or a team's
+members sends what the screen showed (`p_expected_*` overloads, 409).
 
 **Number allocation (migration 060).** `whatsapp_channel_members` lists
 who works each number. With no rows the number is shared, which is the
@@ -375,3 +402,9 @@ own tables and RPCs. The customer page takes the company chat as its
 conversation and links personal chats apart (`splitConversations`).
 `verify-personal-numbers.sql`, `verify-personal-chats.sql`,
 `verify-departments.sql`.
+
+**Credentials (migration 285).** No session reads `access_token`,
+`verify_token` or `app_secret`: the columns are not granted. Never
+`select('*')` from `whatsapp_config` through a session. Read the visible
+columns with the caller's client (RLS decides the rows), then
+`withChannelSecrets()`; `loadChannels` and `loadOpenWARow` already do.

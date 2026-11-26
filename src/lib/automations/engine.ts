@@ -2,6 +2,7 @@ import type {
   Automation,
   AutomationLogStepResult,
   AutomationStep,
+  AutomationStepType,
   AutomationTriggerType,
   ConditionStepConfig,
   KeywordMatchTriggerConfig,
@@ -20,11 +21,16 @@ import type {
   AssignConversationStepConfig,
 } from '@/types'
 import { supabaseAdmin } from './admin-client'
+import { isActiveStaff } from '@/lib/auth/active-staff'
+import { notSalesChat, salesAnswersOff, type SalesChatCheck } from '@/lib/ai/not-sales-chat'
 import { judgeMeanings, loadMeaningTurns, meaningCandidate } from '@/lib/insights/meaning'
 import { writeConversationChatTags } from '@/lib/chat-tags/server'
 import { chatTagTriggerMatches } from '@/lib/chat-tags/trigger-match'
 import { engineSendText, engineSendTemplate, engineSendInteractive } from './channel-send'
 import { validateInteractivePayload } from '@/lib/whatsapp/interactive'
+import { resolveTemplateRow } from '@/lib/whatsapp/template-body'
+import { resolveTemplateValues } from './template-values'
+import { consentRefusal } from '@/lib/whatsapp/send-origin'
 import { isDeliverableUrl, safeFetch } from '@/lib/webhooks/ssrf'
 import { automationPoolKey, rotateAssign } from '@/lib/assignment/rotation'
 import { isInTimeRange } from './schedule'
@@ -62,6 +68,9 @@ export interface AutomationContext {
   previous_chat_tag_id?: string | null
   /** The chat's sub-tag before the change, for chat_tag_set. */
   previous_chat_sub_tag_id?: string | null
+  /** Why this run's message steps stay off after a wait: its message came
+   *  in on a chat that is not a sales chat. It can only withhold a send. */
+  sales_answers_off?: string
 }
 
 export interface DispatchInput {
@@ -76,11 +85,16 @@ export interface DispatchInput {
   context?: AutomationContext
   /** The customer's own inbound message is being handled right now. Set
    *  ONLY by the inbound pipeline: it lets a message step answer a
-   *  contact who opted out, because they just wrote. Absent (a tag
+   *  contact who opted out, because they just wrote (never one marked do
+   *  not contact). Absent (a tag
    *  change, a manual POST, a resumed wait) an opted-out contact is sent
    *  nothing. Not part of `context`, which is caller-supplied and is
    *  stored with a parked wait. */
   customerJustWrote?: boolean
+  /** The inbound pipeline's one decision whether the message's chat is a
+   *  sales chat. In any other (HR, another department, or a check that
+   *  could not be read) message steps are skipped; the rest still runs. */
+  salesChat?: SalesChatCheck | null
 }
 
 /**
@@ -94,6 +108,8 @@ export interface DispatchInput {
 export async function runAutomationsForTrigger(input: DispatchInput): Promise<boolean> {
   // Whether any automation matched and started executing: the inbound
   // pipeline skips intent_match when a keyword_match automation acted.
+  // For intent_match, whether it sent the customer something: the AI
+  // stands down for that, not for one that only tagged or failed.
   let executed = false
   try {
     const db = supabaseAdmin()
@@ -146,9 +162,9 @@ export async function runAutomationsForTrigger(input: DispatchInput): Promise<bo
         : (automations as Automation[]).filter((a) => triggerMatches(a, input.context))
 
     for (const automation of toRun) {
-      executed = true
+      if (input.triggerType !== 'intent_match') executed = true
       try {
-        await executeAutomation(automation, input)
+        if (await executeAutomation(automation, input)) executed = true
       } catch (err) {
         console.error('[automations] execute failed:', automation.id, err)
       }
@@ -289,8 +305,13 @@ export async function resumePendingExecution(pending: {
 // Internal execution
 // ------------------------------------------------------------
 
-async function executeAutomation(automation: Automation, input: DispatchInput) {
+/** Answers whether a step sent the customer something. */
+async function executeAutomation(
+  automation: Automation,
+  input: DispatchInput,
+): Promise<boolean> {
   const db = supabaseAdmin()
+  const results: AutomationLogStepResult[] = []
 
   const { data: log, error: logErr } = await db
     .from('automation_logs')
@@ -320,7 +341,7 @@ async function executeAutomation(automation: Automation, input: DispatchInput) {
 
   if (logErr || !log) {
     console.error('[automations] cannot create log:', logErr)
-    return
+    return false
   }
 
   const { data: steps, error: stepsErr } = await loadSteps(automation.id)
@@ -335,9 +356,10 @@ async function executeAutomation(automation: Automation, input: DispatchInput) {
         logId: log.id,
         triggerEvent: input.triggerType,
         customerJustWrote: input.customerJustWrote === true,
+        salesChat: input.salesChat ?? null,
         steps,
         alreadyRun: new Set(),
-        results: [],
+        results,
         errorMessage: null,
       },
       [{ parentStepId: null, branch: null, startPosition: 0 }],
@@ -354,7 +376,16 @@ async function executeAutomation(automation: Automation, input: DispatchInput) {
   if (rpcErr) {
     console.error('[automations] increment counter failed:', rpcErr)
   }
+  return results.some((r) => r.status === 'success' && CUSTOMER_STEPS.has(r.step_type))
 }
+
+/** Steps the customer sees. */
+const CUSTOMER_STEPS: ReadonlySet<string> = new Set<AutomationStepType>([
+  'send_message',
+  'send_buttons',
+  'send_list',
+  'send_template',
+])
 
 interface ExecuteArgs {
   automation: Automation
@@ -364,6 +395,9 @@ interface ExecuteArgs {
   triggerEvent: string
   /** See DispatchInput.customerJustWrote. */
   customerJustWrote: boolean
+  /** See DispatchInput.salesChat; null in a resumed run, whose answer is
+   *  `context.sales_answers_off`. */
+  salesChat?: SalesChatCheck | null
 }
 
 /** One run of an automation: its steps as they were when it (re)started. */
@@ -472,6 +506,8 @@ async function runStepList(args: Run, frame: Frame): Promise<RunOutcome> {
     if (step.step_type === 'wait') {
       const cfg = step.step_config as WaitStepConfig
       const ms = waitMs(cfg)
+      // Kept for the resumed run, which has no inbound message to ask about.
+      const salesOff = await notSalesReason(args)
       const { error: waitErr } = await db.from('automation_pending_executions').insert({
         automation_id: args.automation.id,
         // Tenancy: account_id required NOT NULL post-017.
@@ -483,7 +519,7 @@ async function runStepList(args: Run, frame: Frame): Promise<RunOutcome> {
         branch: frame.branch,
         next_step_position: step.position + 1,
         wait_step_id: step.id,
-        context: args.context,
+        context: salesOff ? { ...args.context, sales_answers_off: salesOff } : args.context,
         run_at: new Date(Date.now() + ms).toISOString(),
         status: 'pending',
       })
@@ -530,7 +566,10 @@ async function runStepList(args: Run, frame: Frame): Promise<RunOutcome> {
         continue
       }
 
-      const skipReason = await optOutSkipReason(step, args)
+      const skipReason =
+        (await notSalesSkipReason(step, args)) ??
+        (await optOutSkipReason(step, args)) ??
+        (await assigneeSkipReason(step, args))
       if (skipReason) {
         results.push({
           step_id: step.id,
@@ -618,24 +657,23 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
       if (!args.contactId) throw new Error('send_template needs a contact')
       if (!cfg.template_name) throw new Error('send_template needs template_name')
       const conversationId = await resolveConversationId(args)
-      // Meta templates use positional {{1}}, {{2}}, … placeholders, so
-      // we MUST emit params in strict numeric order. Lexicographic sort
-      // of "1", "2", …, "10" yields "1", "10", "2", … which silently
-      // scrambles every template with ≥10 variables.
-      const params = cfg.variables
-        ? Object.keys(cfg.variables)
-            .sort((a, b) => {
-              const na = Number(a)
-              const nb = Number(b)
-              const aNum = Number.isFinite(na)
-              const bNum = Number.isFinite(nb)
-              if (aNum && bNum) return na - nb
-              if (aNum) return -1
-              if (bNum) return 1
-              return a.localeCompare(b)
-            })
-            .map((k) => String(cfg.variables![k]))
-        : []
+      // Every placeholder needs a value, on every provider: a linked
+      // number renders the text itself and sends a literal `{{1}}`.
+      const { row, readFailed } = await resolveTemplateRow(
+        db,
+        args.automation.account_id,
+        cfg.template_name,
+        cfg.language,
+      )
+      if (readFailed) throw new Error('send_template: the template could not be read')
+      const values = row
+        ? resolveTemplateValues(row, cfg, (value) => interpolate(value, args))
+        : null
+      if (values?.missing.length) {
+        throw new Error(
+          `send_template: no value for ${values.missing.join(', ')} of template ${cfg.template_name}`,
+        )
+      }
       const { whatsapp_message_id } = await engineSendTemplate({
         accountId: args.automation.account_id,
         userId: args.automation.user_id,
@@ -643,7 +681,9 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
         contactId: args.contactId,
         templateName: cfg.template_name,
         language: cfg.language,
-        params,
+        // No row: the sender refuses the send and says so.
+        params: values?.params ?? [],
+        headerText: values?.headerText,
       })
       return `template sent via Meta (${whatsapp_message_id})`
     }
@@ -702,7 +742,13 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
         accountId: args.automation.account_id,
         triggerType: 'chat_tag_set',
         contactId: args.contactId,
+        // A tag automation that answers the customer is still an answer to
+        // the message this run reacted to.
+        salesChat: args.salesChat,
         context: {
+          ...(args.context.sales_answers_off
+            ? { sales_answers_off: args.context.sales_answers_off }
+            : {}),
           conversation_id: written.conversationId,
           chat_tag_id: saved.chat_tag_id,
           chat_sub_tag_id: saved.chat_sub_tag_id,
@@ -725,16 +771,10 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
         // limit), on the contact's company chat. It leaves alone a chat
         // someone holds (inbound gives it to the customer's last caller)
         // or is already working (human_engaged_at). Never throws.
-        const { data: chat } = await db
-          .from('conversations')
-          .select('id')
-          .eq('account_id', args.automation.account_id)
-          .eq('contact_id', args.contactId)
-          .is('personal_owner_id', null)
-          .order('created_at', { ascending: true })
-          .limit(1)
-          .maybeSingle()
-        const conversationId = (chat as { id?: string } | null)?.id
+        const [conversationId] = await salesChatIds(
+          args.automation.account_id,
+          args.contactId,
+        )
         if (!conversationId) return 'no chat to assign'
         const result = await rotateAssign(db, {
           accountId: args.automation.account_id,
@@ -760,11 +800,13 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
       }
       const agentId = cfg.agent_id
       if (!agentId) return 'no agent resolved'
+      const chatIds = await salesChatIds(args.automation.account_id, args.contactId)
+      if (chatIds.length === 0) return 'no chat to assign'
       const { data: assigned, error: assignErr } = await db
         .from('conversations')
         .update({ assigned_agent_id: agentId })
         .eq('account_id', args.automation.account_id)
-        .eq('contact_id', args.contactId)
+        .in('id', chatIds)
         .is('personal_owner_id', null)
         .select('id')
       failOnWriteError(assignErr, 'assign_conversation: the chat could not be assigned')
@@ -984,24 +1026,83 @@ const STOPPED_SWITCHED_OFF = 'stopped: the automation was switched off'
 const STOPPED_INTERRUPTED = 'stopped: interrupted'
 const STOPPED_CHANGED = 'stopped: automation changed while waiting'
 
-/** The log detail of a message step not sent to an opted-out contact. */
+/** The log detail of a message step the consent register refused. */
 const SKIPPED_OPTED_OUT = 'skipped: the customer opted out'
+const SKIPPED_DO_NOT_CONTACT = 'skipped: the customer is marked do not contact'
+
+/** Why this run's chat is not a sales chat, or null. */
+async function notSalesReason(args: ExecuteArgs): Promise<string | null> {
+  return args.context.sales_answers_off || (await salesAnswersOff(args.salesChat))
+}
 
 /**
- * Why a message step must not run, or null to run it. A contact with
- * `opted_out_at` gets a message only as a direct answer to what they
- * just wrote. A flag that cannot be read counts as opted out.
+ * The contact's company chats that are sales chats, oldest first. Assigning
+ * decides who may read a chat, so a candidate's chat, or another
+ * department's, is never handed to sales, also by a trigger without a
+ * message (a tag, a time). One that cannot be checked is left alone.
+ */
+async function salesChatIds(accountId: string, contactId: string): Promise<string[]> {
+  const db = supabaseAdmin()
+  const { data, error } = await db
+    .from('conversations')
+    .select('id, inbox_department, channel_id')
+    .eq('account_id', accountId)
+    .eq('contact_id', contactId)
+    .is('personal_owner_id', null)
+    .order('created_at', { ascending: true })
+  failOnWriteError(error, 'assign_conversation: the chats could not be read')
+  const ids: string[] = []
+  for (const c of (data ?? []) as {
+    id: string
+    inbox_department: string | null
+    channel_id: string | null
+  }[]) {
+    try {
+      const reason = await notSalesChat(db, {
+        conversationId: c.id,
+        inboxDepartment: c.inbox_department ?? null,
+        inboundChannelId: c.channel_id ?? null,
+        readOnly: true,
+      })
+      if (!reason) ids.push(c.id)
+    } catch (err) {
+      console.error('[automations] chat not checked, not assigned:', c.id, err)
+    }
+  }
+  return ids
+}
+
+/**
+ * Why a step stays off in a chat that is not a sales chat, or null: those
+ * that write to the person, and the assignment.
+ */
+async function notSalesSkipReason(
+  step: AutomationStep,
+  args: ExecuteArgs,
+): Promise<string | null> {
+  if (!MESSAGE_STEP_TYPES.has(step.step_type) && step.step_type !== 'assign_conversation') {
+    return null
+  }
+  const reason = await notSalesReason(args)
+  return reason ? `skipped: ${reason}` : null
+}
+
+/**
+ * Why a message step must not run, or null to run it. A do-not-contact
+ * customer is sent nothing, also right after they wrote (as in Flows). A
+ * contact with `opted_out_at` gets a message only as a direct answer to
+ * what they just wrote. A flag that cannot be read stops the message.
  */
 async function optOutSkipReason(
   step: AutomationStep,
   args: ExecuteArgs,
 ): Promise<string | null> {
-  if (args.customerJustWrote || !MESSAGE_STEP_TYPES.has(step.step_type)) return null
+  if (!MESSAGE_STEP_TYPES.has(step.step_type)) return null
   // The step itself fails on a missing contact.
   if (!args.contactId) return null
   const { data, error } = await supabaseAdmin()
     .from('contacts')
-    .select('opted_out_at')
+    .select('opted_out_at, do_not_contact_at')
     .eq('id', args.contactId)
     .eq('account_id', args.automation.account_id)
     .maybeSingle()
@@ -1011,7 +1112,32 @@ async function optOutSkipReason(
   }
   // What the sender itself says of a contact it cannot find.
   if (!data) throw new Error('contact not found for this account')
-  return (data as { opted_out_at?: string | null }).opted_out_at ? SKIPPED_OPTED_OUT : null
+  const refusal = consentRefusal(
+    data as { opted_out_at?: string | null; do_not_contact_at?: string | null },
+  )
+  if (refusal === 'do_not_contact') return SKIPPED_DO_NOT_CONTACT
+  return refusal && !args.customerJustWrote ? SKIPPED_OPTED_OUT : null
+}
+
+/**
+ * Why "assign to a specific person" must not run, or null to run it: the
+ * person named in the saved step was deactivated, left the account or is
+ * not staff (the same check as a flow's hand-off).
+ */
+async function assigneeSkipReason(
+  step: AutomationStep,
+  args: ExecuteArgs,
+): Promise<string | null> {
+  if (step.step_type !== 'assign_conversation') return null
+  const cfg = step.step_config as AssignConversationStepConfig
+  if (cfg.enabled === false || cfg.mode === 'round_robin' || !cfg.agent_id) return null
+  const person = await isActiveStaff(
+    supabaseAdmin(),
+    args.automation.account_id,
+    cfg.agent_id,
+  )
+  failOnWriteError(person.error, 'assign_conversation: the person could not be checked')
+  return person.ok ? null : 'skipped: the person is no longer active staff'
 }
 
 /** Fails the step with a short reason; the database's own text only goes
@@ -1258,12 +1384,14 @@ async function evaluateCondition(cfg: ConditionStepConfig, args: ExecuteArgs): P
       if (!args.contactId || !cfg.operand) return false
       // Scope to the account so the condition can't be turned into a
       // cross-tenant read oracle via the service-role client.
-      const { data } = await db
+      const { data, error } = await db
         .from('contacts')
         .select(cfg.operand)
         .eq('id', args.contactId)
         .eq('account_id', args.automation.account_id)
         .maybeSingle()
+      // Never the "no" branch: a read that failed says nothing about the field.
+      failOnWriteError(error, 'condition: the contact field could not be read')
       const v = (data as Record<string, unknown> | null)?.[cfg.operand]
       return v != null && String(v) === String(cfg.value ?? '')
     }

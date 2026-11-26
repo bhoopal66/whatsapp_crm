@@ -19,6 +19,7 @@ import {
   type ContactOption,
 } from '@/components/pipelines/contact-picker';
 import { Button } from '@/components/ui/button';
+import { ConfirmDialog } from '@/components/ui-ext/confirm-dialog';
 import {
   Card,
   CardContent,
@@ -81,6 +82,7 @@ function BankPoliciesCard() {
   const [names, setNames] = useState<Map<string, string>>(new Map());
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<string | null>(null);
   const [allowing, setAllowing] = useState<string | null>(null);
 
   const fetchRows = useCallback(
@@ -152,7 +154,7 @@ function BankPoliciesCard() {
         ) : rows.length === 0 ? (
           <p className="text-muted-foreground text-sm">{t('empty')}</p>
         ) : (
-          <div className="border-border overflow-x-auto rounded-lg border">
+          <div className="border-border relative overflow-x-auto rounded-lg border">
             <table className="w-full min-w-[640px] text-sm">
               <thead className="bg-muted/50 text-muted-foreground text-start text-xs">
                 <tr>
@@ -224,14 +226,7 @@ function BankPoliciesCard() {
                         size="icon"
                         aria-label={t('remove', { bank: r.bank_code })}
                         disabled={busy === r.bank_code}
-                        onClick={() =>
-                          void save(r.bank_code, () =>
-                            table()
-                              .delete()
-                              .eq('account_id', accountId!)
-                              .eq('bank_code', r.bank_code)
-                          )
-                        }
+                        onClick={() => setRemoving(r.bank_code)}
                       >
                         <Trash2 className="size-4" />
                       </Button>
@@ -281,6 +276,25 @@ function BankPoliciesCard() {
           </Button>
         </form>
       </CardContent>
+      <ConfirmDialog
+        open={removing !== null}
+        onOpenChange={(o) => {
+          if (!o) setRemoving(null);
+        }}
+        title={t('removeTitle', { bank: removing ?? '' })}
+        description={t('removeDescription', { bank: removing ?? '' })}
+        cancelLabel={t('removeCancel')}
+        confirmLabel={t('removeConfirm')}
+        destructive
+        onConfirm={() => {
+          const bank = removing;
+          setRemoving(null);
+          if (!bank) return;
+          void save(bank, () =>
+            table().delete().eq('account_id', accountId!).eq('bank_code', bank)
+          );
+        }}
+      />
       {allowing && (
         <AllowGuestsDialog
           bank={allowing}

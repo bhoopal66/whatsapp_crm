@@ -313,6 +313,20 @@ describe('GET /api/submission-groups/[id]', () => {
     );
   });
 
+  it('hides caseId when the caller holds no role on the case', async () => {
+    admin.tables.cases = [caseRow()];
+    admin.rpc!.case_role = () => null;
+    expect(await (await get()).json()).toMatchObject({ caseId: null });
+    admin.rpc!.case_role = () => 'agent';
+    expect(await (await get()).json()).toMatchObject({ caseId: CASE });
+  });
+
+  it('keeps caseId when the role read fails', async () => {
+    admin.tables.cases = [caseRow()];
+    // No case_role handler: the fake answers an error.
+    expect(await (await get()).json()).toMatchObject({ caseId: CASE });
+  });
+
   it('answers caseId null when the group has no case in this account', async () => {
     admin.tables.cases = [
       caseRow({ account_id: 'acct-2' }),

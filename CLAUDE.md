@@ -121,7 +121,7 @@ sign-in bounces back to `/login`.
 - `lib/auth/conversation-visibility.ts` — client-side mirror of the
   `can_view_conversation` / `can_view_contact` SQL functions (migrations 042 and
   043). It informs UI decisions only; the DB decides. Change one, change both.
-  Since 217, `conversations_select`, `messages_select` and `messages_modify`
+  Since 217, `conversations_select`, `messages_select` and `messages_insert`
   restate `can_view_conversation` / `can_view_personal_chat` as set
   membership over `contact_visibility_people()` and
   `personal_number_visible_ids()`, because the per-row calls timed out for
@@ -176,7 +176,7 @@ module gets its own file and one line here; don't grow this file.
 - **Release 2026-11-22** (236–253, 257: assignment, response times, worklist, notes, voice library, CSAT, web form, saved views, recycle, drafts, contact sort) → `release-2026-11-22.md`. `assignment_rotate_assign` is the only automatic assigner; notes never enter `messages`.
 - **Shell and reports** (`nav-items.ts`, 254–255, `lib/csv/build.ts`) → `shell-and-reports.md`. A new screen is added in `nav-items.ts` once; CSV always through `build.ts`.
 - **Flows vs Automations, crons** (`lib/flows/*`, `lib/automations/*`) → `flows-automations.md`. Seven `x-cron-secret` endpoints; a new background job joins the automations cron.
-- **AI** (`lib/ai/*`, 030, 052, 054, 077–079, 081, 154, 278) → `ai.md`. Every dispatch records one outcome; `ai_usage_log.mode` ↔ `LogAiUsageArgs` ↔ `byMode`.
+- **AI** (`lib/ai/*`, 030, 052, 054, 077–079, 081, 154, 290) → `ai.md`. Every dispatch records one outcome; `ai_usage_log.mode` ↔ `LogAiUsageArgs` ↔ `byMode`.
 - **TypeSafe** (`lib/typesafe/*`, 063–064) → `typesafe.md`. `act: false` changes nothing; no database id goes into TypeSafe state.
 - **Outbound webhooks** (`lib/webhooks/*`, 134) → `outbound-webhooks.md`. Signed, SSRF-guarded, at-most-once, never throws; `WEBHOOK_EVENTS` ↔ 134.
 

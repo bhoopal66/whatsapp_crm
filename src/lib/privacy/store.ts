@@ -36,6 +36,16 @@ export class PrivacyStoreError extends Error {
 
 type DbError = { code?: string; hint?: string | null };
 
+/** The newest retention run (privacy_retention_last_run, 282). */
+export interface RetentionLastRun {
+  at: string;
+  mode: 'dry_run' | 'apply' | 'failed';
+  code: string | null;
+  more: boolean;
+  rows: number;
+  files: number;
+}
+
 export class PrivacyStore {
   constructor(private readonly db: SupabaseClient) {}
 
@@ -141,7 +151,12 @@ export class PrivacyStore {
     actor: string,
     account: string,
     change?: { policy: unknown; apply: boolean }
-  ): Promise<{ policy: unknown; apply: boolean; updatedAt: string | null }> {
+  ): Promise<{
+    policy: unknown;
+    apply: boolean;
+    updatedAt: string | null;
+    lastRun: RetentionLastRun | null;
+  }> {
     const data = (await (change
       ? this.rpc('privacy_retention_set', {
           p_actor: actor,
@@ -157,6 +172,8 @@ export class PrivacyStore {
       policy: data.policy,
       apply: data.apply === true,
       updatedAt: (data.updated_at as string | null) ?? null,
+      // Absent before 282.
+      lastRun: (data.last_run as RetentionLastRun | null | undefined) ?? null,
     };
   }
 

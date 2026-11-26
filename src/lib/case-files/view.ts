@@ -239,6 +239,17 @@ export function reuseBody(
   };
 }
 
+/**
+ * The `CaseFiles` key to show when a file an attach or upload answered (201)
+ * does not count: it failed its checks, or a newer one was accepted while
+ * they ran. null when it was filed.
+ */
+export function filedToastKey(json: unknown): string | null {
+  const file = (json as { file?: { status?: unknown } | null } | null)?.file;
+  if (file?.status === 'failed') return 'checkedFailed';
+  return file?.status === 'superseded' ? 'checkedSuperseded' : null;
+}
+
 const KNOWN_DETAILS = new Set([
   'too_large',
   'low_resolution',
@@ -459,6 +470,7 @@ const BUILD_ERROR_CODES = new Set([
   'BUILD_INVALID',
   'BUILD_STALE',
   'BUILD_TOO_LARGE',
+  'FORM_NOT_FLATTENED',
   'FILE_NOT_FOUND',
   'NOT_CONFIGURED',
 ]);

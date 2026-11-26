@@ -193,7 +193,13 @@ export function createWhapiGroupsApi(
     },
 
     async sendGroupText(channelId, waGroupId, text) {
-      const channel = await channelFor(channelId);
+      let channel: WhatsAppChannel;
+      try {
+        channel = await channelFor(channelId);
+      } catch (err) {
+        if (err instanceof SubmissionGroupChannelError) throw err;
+        throw new SubmissionGroupNotAttemptedError(err);
+      }
       const sent = await groups.sendGroupText({
         channel,
         groupId: waGroupId,
@@ -222,7 +228,11 @@ export function createWhapiGroupsApi(
     },
 
     async addParticipant(channelId, waGroupId, phone) {
-      const channel = await channelFor(channelId);
+      const channel = await channelFor(channelId).catch((err) => {
+        throw err instanceof SubmissionGroupChannelError
+          ? err
+          : new SubmissionGroupNotAttemptedError(err);
+      });
       const out = await groups.addParticipants({
         channel,
         groupId: waGroupId,
@@ -231,11 +241,15 @@ export function createWhapiGroupsApi(
       });
       if (out.added.length > 0) return 'added';
       // Only WhatsApp declining (or a number it rejects) is 'refused'.
-      // Never tried (a failed call, the deadline) is a failure.
+      // Never tried (the deadline, a gateway 4xx) is a failure.
       if (out.refused.length > 0 || out.invalid.length > 0) return 'refused';
-      throw new Error(
+      const failed = new Error(
         `add participant failed: ${out.error ?? 'not attempted'}`
       );
+      // No answer (a timeout, a gateway 5xx): the number may be in.
+      throw out.error === 'gateway_unavailable' || out.error === 'unknown'
+        ? failed
+        : new SubmissionGroupNotAttemptedError(failed);
     },
 
     async removeParticipant(channelId, waGroupId, phone) {

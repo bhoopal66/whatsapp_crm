@@ -31,6 +31,7 @@ import { FlowBuilder } from "./flow-builder";
 import { FlowCanvas } from "./flow-canvas";
 import { FlowEditorProvider } from "./flow-editor-state";
 import { EditorHeader } from "./header";
+import { SaveConflictDialog } from "./save-conflict-dialog";
 import { ValidationPanel } from "./validation-panel";
 import { NODE_META, nodeColors, type NodeType } from "./shared";
 import { cn } from "@/lib/utils";
@@ -158,6 +159,7 @@ export function FlowEditorShell({ initialFlow, initialNodes }: Props) {
         <div className="px-6 pb-5 pt-3">
           <ValidationPanel />
         </div>
+        <SaveConflictDialog />
       </div>
     </FlowEditorProvider>
   );

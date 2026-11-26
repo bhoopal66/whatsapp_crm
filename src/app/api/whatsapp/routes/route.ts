@@ -9,7 +9,10 @@ import {
   ChannelError,
   type RoutingSurface,
 } from '@/lib/whatsapp/channels';
-import { personalNumberRefusal } from '@/lib/whatsapp/personal-numbers';
+import {
+  PERSONAL_NUMBER_HINT,
+  personalNumberRefusal,
+} from '@/lib/whatsapp/personal-numbers';
 
 /**
  * The admin-level routing selector: which connected number sends what.
@@ -134,7 +137,12 @@ export async function PUT(request: Request) {
 
     const channels = await loadChannels(supabase, accountId);
     const validIds = new Set(channels.map((c) => c.id));
+    const personalIds = new Set(
+      channels.filter((c) => c.isPersonal).map((c) => c.id)
+    );
 
+    // Validate everything before writing anything, so a typo in one
+    // surface cannot leave the routing half-applied.
     if (body.primary_config_id !== undefined) {
       if (!validIds.has(body.primary_config_id)) {
         return NextResponse.json(
@@ -144,26 +152,8 @@ export async function PUT(request: Request) {
           { status: 400 }
         );
       }
-      // One transaction (migration 062): demote then promote, so the
-      // one-primary index is never tripped and the account is never
-      // left without a default if the second write fails.
-      const { error: primaryError } = await supabase.rpc(
-        'set_primary_channel',
-        { p_config_id: body.primary_config_id }
-      );
-      if (primaryError) {
-        console.error('[whatsapp/routes] set primary failed:', primaryError);
-        const refusal = personalNumberRefusal(primaryError);
-        if (refusal) return refusal;
-        return NextResponse.json(
-          { error: 'Failed to update routing' },
-          { status: 500 }
-        );
-      }
     }
 
-    // Validate everything before writing anything, so a typo in one
-    // surface cannot leave the routing half-applied.
     const toSet: Array<{ surface: RoutingSurface; configId: string }> = [];
     const toClear: RoutingSurface[] = [];
 
@@ -187,20 +177,40 @@ export async function PUT(request: Request) {
       toSet.push({ surface, configId });
     }
 
-    if (toClear.length > 0) {
-      const { error } = await supabase
-        .from('whatsapp_routes')
-        .delete()
-        .eq('account_id', accountId)
-        .in('surface', toClear);
-      if (error) {
-        console.error('[whatsapp/routes] clear failed:', error);
-        return NextResponse.json(
-          { error: 'Failed to update routing' },
-          { status: 500 }
+    // Migration 190 refuses these in the database too, but only once the
+    // writes have started.
+    if (
+      (body.primary_config_id !== undefined &&
+        personalIds.has(body.primary_config_id)) ||
+      toSet.some((r) => personalIds.has(r.configId))
+    ) {
+      return personalNumberRefusal({ hint: PERSONAL_NUMBER_HINT })!;
+    }
+
+    // The writes are separate statements, so the ones the database may
+    // still refuse (190) go first: the routes, then the default, and the
+    // clears last. A failure after a write that landed says what was
+    // saved (saving again is harmless).
+    const saved: string[] = [];
+    const failed = (error: { hint?: string | null }) => {
+      const refusal = personalNumberRefusal(error);
+      if (saved.length === 0) {
+        return (
+          refusal ??
+          NextResponse.json(
+            { error: 'Failed to update routing' },
+            { status: 500 }
+          )
         );
       }
-    }
+      return NextResponse.json(
+        {
+          error: `Only a part was saved: ${saved.join(' and ')}. The rest was not. Reload to see what is set now, then save again.`,
+          saved,
+        },
+        { status: refusal ? 409 : 500 }
+      );
+    };
 
     if (toSet.length > 0) {
       // UNIQUE(account_id, surface) makes this an idempotent upsert —
@@ -216,12 +226,35 @@ export async function PUT(request: Request) {
       );
       if (error) {
         console.error('[whatsapp/routes] upsert failed:', error);
-        const refusal = personalNumberRefusal(error);
-        if (refusal) return refusal;
-        return NextResponse.json(
-          { error: 'Failed to update routing' },
-          { status: 500 }
-        );
+        return failed(error);
+      }
+      saved.push('the chosen numbers');
+    }
+
+    if (body.primary_config_id !== undefined) {
+      // One transaction (migration 062): demote then promote, so the
+      // one-primary index is never tripped and the account is never
+      // left without a default if the second write fails.
+      const { error: primaryError } = await supabase.rpc(
+        'set_primary_channel',
+        { p_config_id: body.primary_config_id }
+      );
+      if (primaryError) {
+        console.error('[whatsapp/routes] set primary failed:', primaryError);
+        return failed(primaryError);
+      }
+      saved.push('the default number');
+    }
+
+    if (toClear.length > 0) {
+      const { error } = await supabase
+        .from('whatsapp_routes')
+        .delete()
+        .eq('account_id', accountId)
+        .in('surface', toClear);
+      if (error) {
+        console.error('[whatsapp/routes] clear failed:', error);
+        return failed(error);
       }
     }
 

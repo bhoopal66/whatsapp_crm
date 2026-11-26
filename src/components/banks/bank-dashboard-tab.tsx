@@ -294,7 +294,7 @@ function Tile({
                 <button
                   type="button"
                   aria-label={t('howCalculated', { label })}
-                  className="text-muted-foreground hover:text-foreground ms-auto focus:outline-none"
+                  className="text-muted-foreground hover:text-foreground focus-visible:ring-ring relative ms-auto rounded-sm after:absolute after:-inset-2 focus-visible:ring-2 focus-visible:outline-none"
                 />
               }
             >

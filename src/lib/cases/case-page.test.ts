@@ -1,3 +1,5 @@
+import type { CaseRecord } from './case-page';
+import type { CaseDetail } from './case-page';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -10,19 +12,25 @@ import {
   canTakeOver,
   docRequestKey,
   detailsErrorKey,
+  detailsPatch,
   fromLocalInput,
   groupEndView,
   isFinalStage,
   isSnoozed,
+  requestedRecently,
   snoozeErrorKey,
   SNOOZE_REASON_MAX,
   unsnoozeAlreadyDone,
   normaliseAmount,
   OUTCOME_REASON_CODES,
   parseCaseDetail,
+  reasonOwed,
   resolveCaseTab,
   runningTimers,
   slaChipTone,
+  caseAwayStep,
+  CASE_RETURN_RELOAD_MS,
+  stageChangedTo,
   stageErrorKey,
   stageMoveBody,
   takeoverNotApproved,
@@ -284,6 +292,27 @@ describe('stage moves', () => {
     expect(stageMoveBody('Submitted')).toEqual({ stage: 'Submitted' });
   });
 
+  it('sends the stage the person saw', () => {
+    expect(stageMoveBody('Approved', 'Bank review')).toEqual({
+      stage: 'Approved',
+      outcome: 'Approved',
+      from: 'Bank review',
+    });
+    expect(stageMoveBody('Docs', 'New')).toEqual({
+      stage: 'Docs',
+      from: 'New',
+    });
+  });
+
+  it('recognises a move refused because the stage changed', () => {
+    expect(stageErrorKey(409, 'STAGE_CHANGED')).toBe('stageChanged');
+    const body = { code: 'STAGE_CHANGED', stage: 'Docs' };
+    expect(stageChangedTo(409, body)).toBe('Docs');
+    expect(stageChangedTo(409, { code: 'MANAGED_EXTERNALLY' })).toBeNull();
+    expect(stageChangedTo(200, body)).toBeNull();
+    expect(stageChangedTo(0, null)).toBeNull();
+  });
+
   it('knows the final stages', () => {
     expect(isFinalStage('Closed')).toBe(true);
     expect(isFinalStage('Approved')).toBe(true);
@@ -344,9 +373,25 @@ describe('result codes', () => {
     expect(docRequestKey(409, 'BLOCKED')).toBe('blocked');
     expect(docRequestKey(409, 'REFUSED')).toBe('refused');
     expect(docRequestKey(409, 'SEND_FAILED')).toBe('sendFailed');
+    expect(docRequestKey(502, 'UNCONFIRMED')).toBe('unconfirmed');
+    // The browser's own error, and a proxy's page: it may have gone out.
+    for (const status of [0, 408, 500, 502, 524])
+      expect(docRequestKey(status, undefined)).toBe('unconfirmed');
     expect(docRequestKey(429, 'SEND_RATE_LIMITED')).toBe('rateLimited');
     expect(docRequestKey(429, undefined)).toBe('rateLimited');
-    expect(docRequestKey(500, undefined)).toBe('sendFailed');
+    expect(docRequestKey(400, undefined)).toBe('sendFailed');
+  });
+
+  it('reads who requested the documents a moment ago, and when (297)', () => {
+    const body = { code: 'REQUESTED_RECENTLY', by: 'u-2', at: '2026-11-24' };
+    expect(requestedRecently(409, body)).toEqual({
+      by: 'u-2',
+      at: '2026-11-24',
+    });
+    expect(requestedRecently(200, body)).toBeNull();
+    expect(requestedRecently(409, { ...body, code: 'REFUSED' })).toBeNull();
+    expect(requestedRecently(409, { ...body, at: null })).toBeNull();
+    expect(requestedRecently(409, null)).toBeNull();
   });
 
   it('maps stage and detail refusals', () => {
@@ -362,6 +407,42 @@ describe('result codes', () => {
   it('recognises the not-yet-approved take-over', () => {
     expect(takeoverNotApproved(409, 'TEMPLATE_NOT_APPROVED')).toBe(true);
     expect(takeoverNotApproved(409, 'BLOCKED')).toBe(false);
+  });
+});
+
+describe('re-reading the case after time away', () => {
+  const here = { hiddenAt: null, stale: false };
+  const LONG = CASE_RETURN_RELOAD_MS + 1;
+  const step = (
+    away: { hiddenAt: number | null; stale: boolean },
+    visible: boolean,
+    dialogOpen: boolean,
+    at: number
+  ) => caseAwayStep(away, { visible, dialogOpen, at });
+
+  it('reloads on return after more than the limit, not before', () => {
+    const left = step(here, false, false, 1_000);
+    expect(left).toEqual({ hiddenAt: 1_000, stale: false, reload: false });
+    expect(step(left, true, false, 1_000 + LONG)).toEqual({
+      hiddenAt: null,
+      stale: false,
+      reload: true,
+    });
+    expect(step(left, true, false, 1_000 + LONG - 1).reload).toBe(false);
+    expect(step(here, true, false, LONG).reload).toBe(false);
+  });
+
+  it('waits for an open dialog to close, then reloads once', () => {
+    const back = step({ hiddenAt: 0, stale: false }, true, true, LONG);
+    expect(back).toEqual({ hiddenAt: null, stale: true, reload: false });
+    const closed = step(back, true, false, LONG + 5);
+    expect(closed).toEqual({ hiddenAt: null, stale: false, reload: true });
+    expect(step(closed, true, false, LONG + 9).reload).toBe(false);
+  });
+
+  it('counts from when the tab was first hidden', () => {
+    const left = step(here, false, true, 10);
+    expect(step(left, false, false, 5_000).hiddenAt).toBe(10);
   });
 });
 
@@ -400,6 +481,63 @@ describe('inputs', () => {
     expect(normaliseAmount('150,000.50')).toBe('150000.50');
     expect(normaliseAmount('12.345')).toBeNull();
     expect(normaliseAmount('abc')).toBeNull();
+  });
+});
+
+describe('detailsPatch', () => {
+  const c = {
+    bankCode: 'ENBD',
+    product: 'Loan',
+    amount: '1000',
+    priority: 'normal' as CaseRecord['priority'],
+    dueAt: '2026-10-20T10:30:45.678Z',
+  };
+  const form = {
+    bank: 'ENBD',
+    product: 'Loan',
+    amount: '1000',
+    priority: 'normal',
+    due: toLocalInput(c.dueAt),
+  };
+  const read = (change: Partial<typeof form>, locked = false, over = {}) =>
+    detailsPatch({ ...c, ...over }, { ...form, ...change }, locked);
+
+  it('an untouched form sends nothing, the due seconds included', () => {
+    expect(read({})).toEqual({ patch: {} });
+  });
+  it('a changed or cleared due date is sent', () => {
+    const due = '2026-11-01T09:00';
+    expect(read({ due })).toEqual({ patch: { due_at: fromLocalInput(due) } });
+    expect(read({ due: '' })).toEqual({ patch: { due_at: null } });
+    expect(read({ due: 'x' })).toEqual({ error: 'dueInvalid' });
+  });
+  it('an emptied product or amount is refused', () => {
+    expect(read({ product: ' ' })).toEqual({
+      error: 'cannotEmpty',
+      field: 'product',
+    });
+    expect(read({ amount: '' })).toEqual({
+      error: 'cannotEmpty',
+      field: 'amount',
+    });
+    // Never set, or Compass's to change.
+    expect(
+      read({ product: '', amount: '' }, false, { product: null, amount: null })
+    ).toEqual({ patch: {} });
+    expect(read({ product: '', amount: '' }, true)).toEqual({ patch: {} });
+  });
+  it('sends what changed', () => {
+    expect(
+      read({ bank: 'FAB', product: 'Card', amount: '2,500', priority: 'high' })
+    ).toEqual({
+      patch: {
+        bank_code: 'FAB',
+        product: 'Card',
+        amount: '2500',
+        priority: 'high',
+      },
+    });
+    expect(read({ amount: 'abc' })).toEqual({ error: 'amountInvalid' });
   });
 });
 
@@ -485,5 +623,50 @@ describe('lead tabs (130)', () => {
     expect(caseTabDisabled('conversation', false)).toBe(false);
     expect(resolveCaseTab('conversation', false, true)).toBe('overview');
     expect(resolveCaseTab('conversation', false, false)).toBe('conversation');
+  });
+});
+
+describe('reasonOwed', () => {
+  const d = (over: Partial<CaseDetail>, c: Partial<CaseRecord> = {}) =>
+    ({
+      case: { closedAt: '2026-11-20T00:00:00Z', outcome: 'Declined', ...c },
+      permissions: { canWrite: true, canReassign: false, canSeeAudit: false },
+      outcomeReason: null,
+      locked: false,
+      ...over,
+    }) as CaseDetail;
+  it('names the outcome of a closed case with no reason yet', () => {
+    expect(reasonOwed(d({}))).toBe('Declined');
+    expect(reasonOwed(d({}, { stage: 'Closed', outcome: 'Withdrawn' }))).toBe(
+      'Withdrawn'
+    );
+  });
+  it('is null when there is nothing to record or nobody to record it', () => {
+    for (const outcome of ['Approved', null])
+      expect(reasonOwed(d({}, { outcome }))).toBeNull();
+    expect(reasonOwed(d({}, { closedAt: null }))).toBeNull();
+    expect(reasonOwed(d({ locked: true }))).toBeNull();
+    expect(
+      reasonOwed(
+        d({
+          outcomeReason: {
+            reasonCode: 'OTHER',
+            reasonText: null,
+            createdAt: '',
+          },
+        })
+      )
+    ).toBeNull();
+    expect(
+      reasonOwed(
+        d({
+          permissions: {
+            canWrite: false,
+            canReassign: true,
+            canSeeAudit: true,
+          },
+        })
+      )
+    ).toBeNull();
   });
 });

@@ -77,6 +77,7 @@ describe('parseCreate', () => {
       contactIds: [C1],
       settings: { add_participants: 'admins' },
       managerIds: [C1],
+      createAnother: false,
     });
   });
 

@@ -22,6 +22,7 @@ describe('parseListParams', () => {
   it('clamps limit to MAX_LIMIT and floors it', () => {
     expect(parseListParams(req('?limit=9999')).limit).toBe(MAX_LIMIT);
     expect(parseListParams(req('?limit=10.9')).limit).toBe(10);
+    expect(parseListParams(req('?limit=0.5')).limit).toBe(1);
   });
 
   it('falls back to default on non-positive / NaN limit', () => {

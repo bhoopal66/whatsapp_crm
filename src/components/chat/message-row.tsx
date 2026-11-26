@@ -47,6 +47,8 @@ export interface MessageRowProps {
   /** The hover toolbar's context; no toolbar without it. */
   actions?: RowActionContext;
   onToggleReaction: (messageId: string, emoji: string) => void;
+  /** Set when this message's files could not be read: reads them again. */
+  onRetryFiles?: () => void;
   /** Opens the thread panel (a later job). */
   onOpenThread?: (rootId: string) => void;
   /** Gives the row its anchor id (message-<id>); the main timeline only, so ids stay unique. */
@@ -90,6 +92,19 @@ function AttachmentView({
   return <ChatFileChip a={a} />;
 }
 
+/** Under a message shown without its files: they could not be read. */
+export function FilesNotRead({ onRetry }: { onRetry: () => void }) {
+  const t = useTranslations('Chat.timeline');
+  return (
+    <p className="text-destructive mt-1 text-xs">
+      {t('fileFailed')}{' '}
+      <button type="button" onClick={onRetry} className="font-bold underline">
+        {t('fileRetry')}
+      </button>
+    </p>
+  );
+}
+
 export function MessageRow({
   message,
   grouped,
@@ -97,6 +112,7 @@ export function MessageRow({
   callCard,
   actions,
   onToggleReaction,
+  onRetryFiles,
   onOpenThread,
   anchor = false,
   highlighted = false,
@@ -272,6 +288,9 @@ export function MessageRow({
               />
             ))}
           </div>
+        )}
+        {onRetryFiles && live && !system && (
+          <FilesNotRead onRetry={onRetryFiles} />
         )}
         {images.length > 0 && (
           <ImageLightbox

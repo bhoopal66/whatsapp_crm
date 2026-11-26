@@ -71,14 +71,18 @@ export async function POST(_request: Request, { params }: Params) {
       !canManageSubmissionGroups(ctx.role) &&
       !(await store.openAccessLabel(group.id, ctx.userId))
     )
-      throw new SgHttpError(403, 'You are not on this group');
+      throw new SgHttpError(403, 'You are not on this group', {
+        code: 'not_allowed',
+      });
 
     const out = await submissionGroupService(ctx.accountId).resendInvite(
       group.id
     );
     if (out.status === 'refused') {
       const refusal = REFUSALS[out.code];
-      throw new SgHttpError(refusal.status, refusal.message);
+      throw new SgHttpError(refusal.status, refusal.message, {
+        code: out.code,
+      });
     }
     if (out.status === 'failed') throw new SgHttpError(502, out.reason);
     return NextResponse.json({ group: out.group });

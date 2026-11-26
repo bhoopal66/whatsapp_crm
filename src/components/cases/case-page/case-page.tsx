@@ -15,6 +15,7 @@ import {
   AlarmClock,
   AlarmClockOff,
   Lock,
+  MessageSquareText,
   MessagesSquare,
   Pencil,
   UserRoundCog,
@@ -29,13 +30,17 @@ import { Button, buttonVariants } from '@/components/ui/button';
 import { GatedButton } from '@/components/ui/gated-button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useBrainNav } from '@/hooks/use-brain-nav';
+import { usePageVisible } from '@/hooks/use-page-visible';
 import {
+  caseAwayStep,
   caseLocks,
   caseTabDisabled,
   canTakeOver,
   docRequestKey,
   isSnoozed,
+  requestedRecently,
   parseCaseDetail,
+  reasonOwed,
   snoozeErrorKey,
   resolveCaseTab,
   runningTimers,
@@ -43,6 +48,7 @@ import {
   takeoverNotApproved,
   unsnoozeAlreadyDone,
   visibleCaseTabs,
+  type CaseAway,
   type CaseDetail,
   type CaseTab,
   type CaseTabProps,
@@ -69,22 +75,26 @@ import { NotesTab } from './notes-tab';
 import { OverviewTab } from './overview-tab';
 import { SlaChip } from './sla-chip';
 import { SnoozeDialog } from './snooze-dialog';
+import { CaseRefreshContext } from './tab-kit';
 import { TasksTab } from './tasks-tab';
 import { TimelineTab } from './timeline-tab';
+import { useNoteDrafts } from './use-note-drafts';
 
 /** Matches the presence TTL's spirit: others show within one poll. */
 const PRESENCE_POLL_MS = 20_000;
 
 type State = 'loading' | 'ok' | 'gone' | 'forbidden' | 'error';
-type Open = 'move' | 'edit' | 'reassign' | 'docs' | 'snooze' | null;
+type Open = 'move' | 'edit' | 'reassign' | 'docs' | 'snooze' | 'reason' | null;
 
-const TAB_BODY: Record<CaseTab, (p: CaseTabProps) => React.ReactNode> = {
+const TAB_BODY: Record<
+  Exclude<CaseTab, 'notes'>,
+  (p: CaseTabProps) => React.ReactNode
+> = {
   overview: OverviewTab,
   timeline: TimelineTab,
   conversation: ConversationTab,
   tasks: TasksTab,
   documents: DocumentsTab,
-  notes: NotesTab,
   'bank-contacts': BankContactsTab,
   memory: MemoryTab,
   brain: BrainTab,
@@ -130,14 +140,22 @@ export function CasePage({ caseId }: { caseId: string }) {
   const [state, setState] = useState<State>('loading');
   const [detail, setDetail] = useState<CaseDetail | null>(null);
   const [open, setOpen] = useState<Open>(null);
+  // Here, not in the tab: the text must survive a change of tab.
+  const noteDraft = useNoteDrafts(caseId);
+  const [recentRequest, setRecentRequest] =
+    useState<ReturnType<typeof requestedRecently>>(null);
   const [acting, setActing] = useState(false);
   const [viewers, setViewers] = useState<string[]>([]);
   const mounted = useRef(true);
   const seq = useRef(0);
+  const away = useRef<CaseAway>({ hiddenAt: null, stale: false });
+  const visible = usePageVisible();
+  const dialogOpen = open !== null || recentRequest !== null;
 
   const reload = useCallback(async () => {
     // An older reload answering after a newer one must not overwrite it.
     const mine = ++seq.current;
+    away.current.stale = false;
     const current = () => mounted.current && mine === seq.current;
     try {
       const res = await fetch(`/api/cases/${caseId}`, { cache: 'no-store' });
@@ -163,6 +181,17 @@ export function CasePage({ caseId }: { caseId: string }) {
       mounted.current = false;
     };
   }, [reload]);
+
+  // Back after a while: read the case again, once no dialog is open.
+  useEffect(() => {
+    const step = caseAwayStep(away.current, {
+      visible,
+      dialogOpen,
+      at: Date.now(),
+    });
+    away.current = { hiddenAt: step.hiddenAt, stale: step.stale };
+    if (step.reload) void reload();
+  }, [visible, dialogOpen, reload]);
 
   // "Also viewing": a hint only, polled while the tab is visible; a
   // failure just leaves the line out.
@@ -218,12 +247,14 @@ export function CasePage({ caseId }: { caseId: string }) {
     router.replace(`${url.pathname}${url.search}`, { scroll: false });
   };
 
-  const requestDocs = async () => {
+  const requestDocs = async (force = false) => {
     setOpen(null);
+    setRecentRequest(null);
     setActing(true);
     const r = await sendCaseRequest(
       `/api/cases/${caseId}/documents/request`,
-      'POST'
+      'POST',
+      force ? { force: true } : undefined
     );
     setActing(false);
     if (r.ok) {
@@ -233,9 +264,15 @@ export function CasePage({ caseId }: { caseId: string }) {
       void reload();
       return;
     }
+    const recent = requestedRecently(r.status, r.json);
+    if (recent) {
+      setRecentRequest(recent);
+      return;
+    }
     const res = r.json as { code?: unknown; refusal?: unknown } | null;
     const key = docRequestKey(r.status, res?.code, res?.refusal);
     if (key === 'nothingMissing') toast.info(t(`docs.${key}`));
+    else if (key === 'unconfirmed') toast.warning(t(`docs.${key}`));
     else toast.error(t(`docs.${key}`));
   };
 
@@ -342,6 +379,7 @@ export function CasePage({ caseId }: { caseId: string }) {
   const showSnooze = canSnoozeCase(detail.role) && !closed;
   const snoozed = isSnoozed(detail.snoozedUntil, new Date());
   const snoozedLabel = snoozed ? dateLabel(detail.snoozedUntil) : null;
+  const owedReason = reasonOwed(detail);
   const tabProps: CaseTabProps = {
     caseId,
     detail,
@@ -610,6 +648,17 @@ export function CasePage({ caseId }: { caseId: string }) {
               {t('actions.takeover')}
             </GatedButton>
           )}
+          {owedReason && (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={acting}
+              onClick={() => setOpen('reason')}
+            >
+              <MessageSquareText className="size-4" aria-hidden />
+              {t('actions.addReason')}
+            </Button>
+          )}
           {showSnooze &&
             (snoozed ? (
               <Button
@@ -650,33 +699,40 @@ export function CasePage({ caseId }: { caseId: string }) {
         )}
       </header>
 
-      <Tabs
-        value={activeTab}
-        onValueChange={changeTab}
-        className="min-h-0 flex-1"
-      >
-        <TabsList className="max-w-full justify-start overflow-x-auto">
-          {visibleCaseTabs(canSeeAudit, brainOn).map((name) => (
-            <TabsTrigger
-              key={name}
-              value={name}
-              className="flex-none"
-              disabled={caseTabDisabled(name, c.isLead)}
-              title={caseTabDisabled(name, c.isLead) ? noGroup : undefined}
-            >
-              {t(`tabs.${name}`)}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-        {visibleCaseTabs(canSeeAudit, brainOn).map((name) => {
-          const Body = TAB_BODY[name];
-          return (
-            <TabsContent key={name} value={name} className="min-h-0 flex-1">
-              {activeTab === name && <Body {...tabProps} />}
-            </TabsContent>
-          );
-        })}
-      </Tabs>
+      <CaseRefreshContext.Provider value={detail}>
+        <Tabs
+          value={activeTab}
+          onValueChange={changeTab}
+          className="min-h-0 flex-1"
+        >
+          <TabsList className="max-w-full justify-start overflow-x-auto">
+            {visibleCaseTabs(canSeeAudit, brainOn).map((name) => (
+              <TabsTrigger
+                key={name}
+                value={name}
+                className="flex-none"
+                disabled={caseTabDisabled(name, c.isLead)}
+                title={caseTabDisabled(name, c.isLead) ? noGroup : undefined}
+              >
+                {t(`tabs.${name}`)}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+          {visibleCaseTabs(canSeeAudit, brainOn).map((name) => {
+            const Body = name === 'notes' ? null : TAB_BODY[name];
+            return (
+              <TabsContent key={name} value={name} className="min-h-0 flex-1">
+                {activeTab === name &&
+                  (Body ? (
+                    <Body {...tabProps} />
+                  ) : (
+                    <NotesTab key={caseId} {...tabProps} draft={noteDraft} />
+                  ))}
+              </TabsContent>
+            );
+          })}
+        </Tabs>
+      </CaseRefreshContext.Provider>
 
       {open === 'move' && (
         <MoveStageDialog
@@ -684,6 +740,15 @@ export function CasePage({ caseId }: { caseId: string }) {
           onOpenChange={(o) => !o && setOpen(null)}
           detail={detail}
           onChanged={() => void reload()}
+        />
+      )}
+      {open === 'reason' && owedReason && (
+        <MoveStageDialog
+          open
+          onOpenChange={(o) => !o && setOpen(null)}
+          detail={detail}
+          onChanged={() => void reload()}
+          reasonFor={owedReason}
         />
       )}
       {open === 'edit' && (
@@ -719,6 +784,18 @@ export function CasePage({ caseId }: { caseId: string }) {
         cancelLabel={t('cancel')}
         confirmLabel={t('docs.confirm')}
         onConfirm={() => void requestDocs()}
+      />
+      <ConfirmDialog
+        open={recentRequest !== null}
+        onOpenChange={(o) => !o && setRecentRequest(null)}
+        title={t('docs.recentTitle')}
+        description={t('docs.recentBody', {
+          name: person(recentRequest?.by ?? null),
+          time: dateLabel(recentRequest?.at ?? null) ?? '',
+        })}
+        cancelLabel={t('cancel')}
+        confirmLabel={t('docs.sendAgain')}
+        onConfirm={() => void requestDocs(true)}
       />
     </div>
   );

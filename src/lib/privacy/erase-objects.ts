@@ -81,44 +81,66 @@ export async function deleteErasedObjects(
   return { deleted, remaining, skipped };
 }
 
+/** Requests per call: each one scans every table that may hold a path. */
+const RETRY_PAGE = 5;
+
 /**
- * The daily job's retry (262): erasures whose files are not recorded as
- * deleted, e.g. because the process died after the commit. The SQL leaves
- * out a file used again since. Never throws.
+ * The daily job's retry (262): erasures, and from 282 retention sweeps,
+ * whose files are not recorded as deleted. The SQL leaves out a file used
+ * again since. Takes page after page until `deadline`; a request that comes
+ * back (its files still could not be deleted) waits for the next day. True
+ * when the deadline left some untried. Never throws.
  */
-export async function retryErasedObjects(db: RetryDb): Promise<void> {
+export async function retryErasedObjects(
+  db: RetryDb,
+  deadline = Infinity,
+  now: () => number = Date.now
+): Promise<boolean> {
+  const tried = new Set<number>();
   try {
-    const { data, error } = await db.rpc('privacy_erase_objects_pending');
-    if (error) {
-      console.error(
-        `[privacy] erase files: list failed (${(error as { code?: string }).code ?? '-'})`
-      );
-      return;
-    }
-    for (const row of (data as PendingErase[] | null) ?? []) {
-      const out = await deleteErasedObjects(
-        db.storage,
-        row.account_id,
-        row.objects
-      );
-      const { error: e } = await db.rpc('privacy_erase_objects_settle', {
-        p_request: row.request_id,
-        p_remaining: out.remaining,
+    for (;;) {
+      const { data, error } = await db.rpc('privacy_erase_objects_pending', {
+        p_limit: RETRY_PAGE,
       });
-      console.log(
-        JSON.stringify({
-          msg: 'privacy_erase_files',
-          account: row.account_id,
-          request: row.request_id,
-          deleted: out.deleted,
-          skipped: out.skipped,
-          remaining: out.remaining.length,
-          recorded: !e,
-        })
-      );
+      if (error) {
+        console.error(
+          `[privacy] erase files: list failed (${(error as { code?: string }).code ?? '-'})`
+        );
+        return false;
+      }
+      const page = (data as PendingErase[] | null) ?? [];
+      const fresh = page.filter((row) => !tried.has(row.request_id));
+      for (const row of fresh) {
+        tried.add(row.request_id);
+        const out = await deleteErasedObjects(
+          db.storage,
+          row.account_id,
+          row.objects
+        );
+        const { error: e } = await db.rpc('privacy_erase_objects_settle', {
+          p_request: row.request_id,
+          p_remaining: out.remaining,
+        });
+        console.log(
+          JSON.stringify({
+            msg: 'privacy_erase_files',
+            account: row.account_id,
+            request: row.request_id,
+            deleted: out.deleted,
+            skipped: out.skipped,
+            remaining: out.remaining.length,
+            recorded: !e,
+          })
+        );
+      }
+      // Oldest first, and a retried one goes to the back: a page with a
+      // request seen before has nothing new behind it.
+      if (page.length < RETRY_PAGE || fresh.length < page.length) return false;
+      if (now() >= deadline) return true;
     }
   } catch {
     console.error('[privacy] erase files: retry failed');
+    return false;
   }
 }
 

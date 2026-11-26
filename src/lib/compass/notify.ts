@@ -82,7 +82,9 @@ import {
   SendMessageError,
 } from '@/lib/whatsapp/send-message';
 import {
+  SubmissionGroupSendUnconfirmedError,
   SubmissionGroupSentNotRecordedError,
+  SubmissionGroupSystemNotSentError,
   type SystemSendResult,
 } from '@/lib/submission-groups/service';
 
@@ -250,6 +252,13 @@ export function parseNotificationRequest(input: unknown): NotificationRequest {
 const deliveryUnconfirmed = () =>
   new NotifyError(DELIVERY_UNCONFIRMED, DELIVERY_UNCONFIRMED_MESSAGE, 409);
 
+const notificationLookupFailed = () =>
+  new NotifyError(
+    'notification_lookup_failed',
+    'The notification could not be looked up. Retry later with the same idempotency_key.',
+    503
+  );
+
 const sendInProgress = () =>
   new NotifyError(
     'in_progress',
@@ -313,11 +322,13 @@ export function serializeNotification(
     whatsapp_message_id: message?.message_id ?? null,
     conversation_id: (row.conversation_id as string | null) ?? null,
     contact_id: (row.contact_id as string | null) ?? null,
-    delivered_to: row.submission_group_id
-      ? 'group'
-      : row.message_id
-        ? 'customer'
-        : null,
+    // An unconfirmed group post names its group too.
+    delivered_to:
+      row.submission_group_id && status === 'sent'
+        ? 'group'
+        : row.message_id
+          ? 'customer'
+          : null,
     submission_group_id: (row.submission_group_id as string | null) ?? null,
     error:
       row.error_code && status !== 'sending'
@@ -341,6 +352,7 @@ export interface NotificationOutcome {
   conversationCreated: boolean;
 }
 
+/** Null: no such row. A failed read throws a retryable 503. */
 async function loadNotification(
   db: SupabaseClient,
   accountId: string,
@@ -354,8 +366,46 @@ async function loadNotification(
     'id' in where
       ? query.eq('id', where.id)
       : query.eq('idempotency_key', where.idempotency_key);
-  const { data } = await query.maybeSingle();
+  const { data, error } = await query.maybeSingle();
+  if (error) throw notificationLookupFailed();
   return (data as Record<string, unknown> | null) ?? null;
+}
+
+/**
+ * An unconfirmed group post that WhatsApp's echo has since proved: the
+ * group's own row was corrected to 'sent' (inbound.ts), so the notification
+ * is settled sent and returned. Null: still unconfirmed.
+ */
+async function settledByEcho(
+  db: SupabaseClient,
+  row: Record<string, unknown>
+): Promise<Record<string, unknown> | null> {
+  // Both: only a post marked as handed over in a group carries the group.
+  if (!row.submission_group_id || !row.group_message_id) return null;
+  const { data, error } = await db
+    .from('submission_group_messages')
+    .select('send_status')
+    .eq('id', row.group_message_id)
+    .maybeSingle();
+  if (error) throw notificationLookupFailed();
+  if ((data as { send_status?: string } | null)?.send_status !== 'sent') {
+    return null;
+  }
+  const fields = {
+    status: 'sent',
+    error_code: null,
+    error_message: null,
+    updated_at: stampAfter(row.updated_at as string),
+  };
+  const { error: writeError } = await db
+    .from('compass_notifications')
+    .update(fields)
+    .eq('id', row.id as string)
+    .eq('updated_at', row.updated_at as string);
+  if (writeError) {
+    console.error('[compass/notify] could not record the echo:', writeError);
+  }
+  return { ...row, ...fields };
 }
 
 export async function getNotificationByKey(
@@ -366,8 +416,14 @@ export async function getNotificationByKey(
   const row = await loadNotification(db, accountId, {
     idempotency_key: idempotencyKey,
   });
-  return row ? serializeNotification(row) : null;
+  if (!row) return null;
+  const echoed = isUnconfirmed(row as unknown as StoredRow)
+    ? await settledByEcho(db, row)
+    : null;
+  return serializeNotification(echoed ?? row);
 }
+
+type StoredRow = Parameters<typeof isUnconfirmed>[0];
 
 /** Now, but always later than `previous`: two writers never share a stamp. */
 function stampAfter(previous?: string): string {
@@ -376,8 +432,10 @@ function stampAfter(previous?: string): string {
 }
 
 /**
- * Claim the key. Returns the claimed row id and the claim's token (the
- * `updated_at` it wrote), or the already-sent row when this is a duplicate. Throws `in_progress` (409) while another
+ * Claim the key. Returns the claimed row id, the claim's token (the
+ * `updated_at` it wrote) and the group message of the last try, which sent
+ * nothing (a try that may have is never claimed again), or the already-sent
+ * row when this is a duplicate. Throws `in_progress` (409) while another
  * request holds a live claim.
  */
 async function claim(
@@ -385,7 +443,8 @@ async function claim(
   accountId: string,
   req: NotificationRequest
 ): Promise<
-  { id: string; token: string } | { duplicateOf: Record<string, unknown> }
+  | { id: string; token: string; lastGroupMessage: string | null }
+  | { duplicateOf: Record<string, unknown> }
 > {
   const fields = {
     compass_id: req.compassId,
@@ -410,7 +469,11 @@ async function claim(
     .single();
 
   if (inserted) {
-    return { id: inserted.id as string, token: fields.updated_at };
+    return {
+      id: inserted.id as string,
+      token: fields.updated_at,
+      lastGroupMessage: null,
+    };
   }
   if (!isUniqueViolation(error)) {
     throw new NotifyError('internal', 'Failed to record the notification', 500);
@@ -430,7 +493,11 @@ async function claim(
     error_code: string | null;
   };
   // A marked `sending` row that is still fresh is a live send (below).
-  if (isUnconfirmed(row)) throw deliveryUnconfirmed();
+  if (isUnconfirmed(row)) {
+    const echoed = await settledByEcho(db, existing);
+    if (echoed) return { duplicateOf: echoed };
+    throw deliveryUnconfirmed();
+  }
   if (isClaimRetryable(row)) {
     // Compare-and-set on updated_at: of two retries racing for the same
     // failed/stale claim, exactly one matches the old timestamp.
@@ -442,7 +509,13 @@ async function claim(
       .eq('updated_at', existing.updated_at as string)
       .select('id');
     if (reclaimed && reclaimed.length > 0) {
-      return { id: reclaimed[0].id as string, token };
+      return {
+        id: reclaimed[0].id as string,
+        token,
+        lastGroupMessage: existing.group_message_id
+          ? String(existing.group_message_id)
+          : null,
+      };
     }
   }
 
@@ -501,7 +574,8 @@ async function consentingContact(
 /**
  * The Meta number this notification would go out on, and the chat this
  * contact already has, or null when the account has no Meta number.
- * Read-only: nothing is created.
+ * Read-only: nothing is created. `chatUnread`: whether they have a chat
+ * could not be read (the Meta number is the same either way).
  *
  * It asks `resolveSendChannel` exactly what the send core will ask it
  * (surface 'api', provider 'meta', the chat's own numbers). A provider pin outranks a chat pinned to a linked-device
@@ -511,11 +585,16 @@ async function metaNumberFor(
   db: SupabaseClient,
   accountId: string,
   contact: ExistingContact | null
-): Promise<{ channel: WhatsAppChannel; conversationId: string | null } | null> {
+): Promise<{
+  channel: WhatsAppChannel;
+  conversationId: string | null;
+  chatUnread: boolean;
+} | null> {
   let conversationId: string | null = null;
+  let chatUnread = false;
   let numbers: ConversationNumbers | undefined;
   if (contact) {
-    const { data } = await db
+    const { data, error } = await db
       .from('conversations')
       .select('id, channel_id, send_channel_id')
       .eq('account_id', accountId)
@@ -523,6 +602,7 @@ async function metaNumberFor(
       .is('personal_owner_id', null)
       .order('created_at', { ascending: true })
       .limit(1);
+    chatUnread = !!error;
     const chat = (
       data as Array<{
         id: string;
@@ -558,20 +638,22 @@ async function metaNumberFor(
   }
   // No Meta number at all: the resolver fell back to another kind,
   // which `requireProvider` would refuse at send time anyway.
-  return channel.provider === 'meta' ? { channel, conversationId } : null;
+  return channel.provider === 'meta'
+    ? { channel, conversationId, chatUnread }
+    : null;
 }
 
 /**
  * Is the customer's 24-hour window on this Meta number open? It is when
- * they wrote to that number less than `SERVICE_WINDOW_MS` ago. A read
- * error counts as closed: the template is accepted inside the window
- * too, so that is the send that cannot be refused for timing.
+ * they wrote to that number less than `SERVICE_WINDOW_MS` ago. Null when
+ * it cannot be read: the template is accepted inside the window too, so
+ * that is the send that cannot be refused for timing.
  */
 async function metaWindowOpen(
   db: SupabaseClient,
   conversationId: string | null,
   channelId: string
-): Promise<boolean> {
+): Promise<boolean | null> {
   if (!conversationId) return false;
   const { data, error } = await db
     .from('messages')
@@ -582,9 +664,17 @@ async function metaWindowOpen(
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();
-  if (error || !data) return false;
+  if (error) return null;
+  if (!data) return false;
   return serviceWindowOpen((data as { created_at?: string }).created_at);
 }
+
+const windowLookupFailed = () =>
+  new NotifyError(
+    'window_lookup_failed',
+    "The customer's last message to the Meta number could not be read, so it is unknown whether the 24-hour window is open. Nothing was sent — retry later with the same idempotency_key.",
+    503
+  );
 
 const TEMPLATE_PROBLEMS: Record<CompassTemplateProblem, string> = {
   missing: 'is not on this account',
@@ -597,16 +687,19 @@ const TEMPLATE_PROBLEMS: Record<CompassTemplateProblem, string> = {
  * worded like this message, with the company and bank read out of it,
  * checked against the local row as it is now. Throws a `NotifyError`
  * (nothing sent, key retryable) when no template matches the message
- * or its row cannot be used.
+ * or its row cannot be used. `windowUnknown`: the window may be open, so
+ * a message no template matches is a try-again, not a refusal.
  */
 async function compassTemplateSend(
   db: SupabaseClient,
   accountId: string,
   event: string | null,
-  text: string
+  text: string,
+  windowUnknown: boolean
 ): Promise<{ name: string; language: string; params: string[] }> {
   const hit = compassTemplateFor(event, text);
   if (!hit) {
+    if (windowUnknown) throw windowLookupFailed();
     throw new NotifyError(
       'no_template_for_message',
       "The customer hasn't written to the Meta number in the last 24 hours, so WhatsApp only allows an approved template, and this message matches none (only the submitted and approved messages have one, word for word). Nothing was sent.",
@@ -642,6 +735,8 @@ export type CompassGroupSender = (input: {
   kind: 'status_update';
   key: string;
   text: string;
+  /** Runs last before the gateway; a throw stops the send. */
+  beforeGateway: (messageId: string) => Promise<void>;
 }) => Promise<SystemSendResult>;
 
 export interface NotifyDeps {
@@ -649,13 +744,8 @@ export interface NotifyDeps {
   groupSender?: CompassGroupSender;
 }
 
-const MAX_SYSTEM_KEY_LENGTH = 240;
-/**
- * Group attempts per idempotency key. A failed attempt spends its system
- * key (170's unique index), so a retry posts under `<key>#2`, `<key>#3`;
- * after that the update is reported failed rather than sent 1:1.
- */
-const MAX_GROUP_ATTEMPTS = 3;
+/** No second try into a group sooner than this after one that sent nothing. */
+export const GROUP_RETRY_MS = 60_000;
 
 interface GroupCandidate {
   id: string;
@@ -714,21 +804,75 @@ async function groupCandidate(
   return (data as GroupCandidate[] | null)?.[0] ?? null;
 }
 
+function groupSendFailed(): NotifyError {
+  return new NotifyError(
+    'group_send_failed',
+    "The update could not be sent into the customer's submission group. Nothing was sent — retry later with the same idempotency_key.",
+    502
+  );
+}
+
+/** The group message of the last try that sent nothing, and when that was. */
+type LastTry = { messageId: string | null; triedAt?: string };
+
+/**
+ * Reads the last try again: when it was, and the group WhatsApp's echo has
+ * since shown it in after all, if any.
+ */
+async function sentAfterAll(
+  db: SupabaseClient,
+  last: LastTry
+): Promise<GroupCandidate | null> {
+  if (!last.messageId) return null;
+  const { data, error } = await db
+    .from('submission_group_messages')
+    .select('group_id, created_at, send_status')
+    .eq('id', last.messageId)
+    .maybeSingle();
+  if (error) throw lookupFailed();
+  const message = data as {
+    group_id: string;
+    created_at: string;
+    send_status: string | null;
+  } | null;
+  last.triedAt = message?.created_at;
+  if (message?.send_status !== 'sent') return null;
+  const { data: group, error: groupError } = await db
+    .from('submission_groups')
+    .select('id, contact_id')
+    .eq('id', message.group_id)
+    .maybeSingle();
+  if (groupError) throw lookupFailed();
+  return (group as GroupCandidate | null) ?? null;
+}
+
 /**
  * Posts the update into the group. Returns where it went, or null when it
  * should go 1:1 instead: the group refused it (no WhatsApp group, closed,
- * past the hold) and no earlier attempt under this key reached the
- * gateway. Throws otherwise, never falling back to 1:1 once a group
- * attempt may have been delivered: a consent block (422, the customer
- * opted out, on this try or an earlier one), a send in flight (409), a
- * failed send (502, retried under the next attempt key), or the attempts
- * used up.
+ * past the hold), and any earlier try under this key is known to have sent
+ * nothing.
+ *
+ * 170 takes a system key once per group. The first try posts under the
+ * plain key; the next one under `<key>#r<message of the last try>`, which
+ * is only ever known for a try that sent nothing (`last.messageId`, kept
+ * in the notification's group_message_id). A try that may have reached
+ * WhatsApp leaves the row marked DELIVERY_UNCONFIRMED (`handOver`, right
+ * before the gateway) and never gets here again. A 'failed' row found
+ * under the key is one nobody can account for (swept after a crash, or
+ * written before that mark existed): it counts as unconfirmed too.
  */
 async function sendToGroup(
+  db: SupabaseClient,
   send: CompassGroupSender,
   group: GroupCandidate,
   baseKey: string,
-  text: string
+  text: string,
+  last: LastTry,
+  gateway: {
+    handOver: (messageId: string) => Promise<void>;
+    /** Nothing was sent after all. */
+    refused: () => void;
+  }
 ): Promise<{
   groupId: string;
   contactId: string | null;
@@ -739,58 +883,63 @@ async function sendToGroup(
     contactId: group.contact_id,
     messageId,
   });
-  const failed = (message: string) =>
-    new NotifyError('group_send_failed', message, 502);
-  const base = baseKey.slice(0, MAX_SYSTEM_KEY_LENGTH - 2);
-  for (let attempt = 1; attempt <= MAX_GROUP_ATTEMPTS; attempt++) {
-    const key = attempt === 1 ? base : `${base}#${attempt}`;
-    let result: SystemSendResult;
-    try {
-      result = await send({
-        groupId: group.id,
-        kind: 'status_update',
-        key,
-        text,
-      });
-    } catch (err) {
-      if (err instanceof SubmissionGroupSentNotRecordedError) {
-        return delivered(err.messageId);
-      }
-      console.error('[compass/notify] group send failed:', err);
-      throw failed(
-        "The update could not be sent into the customer's submission group. Retry later with the same idempotency_key."
-      );
-    }
-    switch (result.status) {
-      case 'sent':
-        return delivered(result.messageId);
-      case 'blocked':
-        throw customerOptedOut();
-      case 'refused':
-        // A first attempt the group refused never reached WhatsApp: 1:1 is
-        // safe. After a failed attempt it may have, so report instead.
-        if (attempt === 1) return null;
-        throw failed(
-          "An earlier attempt to post this update into the customer's submission group failed, and the group can no longer take it. Nothing more was sent, to avoid a double message."
-        );
-      case 'duplicate':
-        if (result.sendStatus === 'sent' || result.sendStatus === null) {
-          return delivered(result.messageId);
-        }
-        if (result.sendStatus === 'pending') {
-          throw new NotifyError(
-            'in_progress',
-            'This update is being sent into the submission group right now — check its status with GET before retrying',
-            409
-          );
-        }
-        if (result.sendStatus === 'blocked') throw customerOptedOut();
-        continue; // failed: try the next attempt key
-    }
+  if (last.triedAt && Date.now() - Date.parse(last.triedAt) < GROUP_RETRY_MS) {
+    throw new NotifyError(
+      'group_retry_too_soon',
+      "The last try to post this update into the customer's submission group was less than a minute ago. Nothing was sent — retry with the same idempotency_key after a minute.",
+      503
+    );
   }
-  throw failed(
-    `Posting this update into the customer's submission group failed ${MAX_GROUP_ATTEMPTS} times. Nothing more will be sent for this idempotency_key.`
-  );
+  let result: SystemSendResult;
+  try {
+    result = await send({
+      groupId: group.id,
+      kind: 'status_update',
+      key: last.messageId ? `${baseKey}#r${last.messageId}` : baseKey,
+      text,
+      beforeGateway: gateway.handOver,
+    });
+  } catch (err) {
+    if (err instanceof SubmissionGroupSentNotRecordedError) {
+      return delivered(err.messageId);
+    }
+    console.error('[compass/notify] group send failed:', err);
+    if (err instanceof SubmissionGroupSendUnconfirmedError) {
+      throw deliveryUnconfirmed();
+    }
+    if (err instanceof SubmissionGroupSystemNotSentError) {
+      last.messageId = err.messageId;
+      gateway.refused();
+      if (err.cause instanceof NotifyError) throw err.cause;
+    }
+    throw groupSendFailed();
+  }
+  switch (result.status) {
+    case 'sent':
+      return delivered(result.messageId);
+    case 'blocked':
+      throw customerOptedOut();
+    case 'refused':
+      // About this call, not about the group, which may be alive.
+      if (result.code === 'BAD_INPUT') throw groupSendFailed();
+      last.messageId = result.messageId ?? last.messageId;
+      return null;
+    case 'duplicate':
+      if (result.sendStatus === 'sent' || result.sendStatus === null) {
+        return delivered(result.messageId);
+      }
+      if (result.sendStatus === 'pending') {
+        throw new NotifyError(
+          'in_progress',
+          'This update is being sent into the submission group right now — check its status with GET before retrying',
+          409
+        );
+      }
+      if (result.sendStatus === 'blocked') throw customerOptedOut();
+      // Names the group message, so that its echo can still settle this.
+      await gateway.handOver(result.messageId);
+      throw deliveryUnconfirmed();
+  }
 }
 
 /**
@@ -849,13 +998,18 @@ export async function sendCompassNotification(
 
   // Compare-and-set: a claim taken over, or already handed over, is not
   // handed over twice.
-  const markHandedToGateway = async () => {
+  const markHandedToGateway = async (inGroup?: {
+    submission_group_id: string;
+    group_message_id: string;
+    contact_id: string | null;
+  }) => {
     const stamp = stampAfter(token);
     const { data, error } = await db
       .from('compass_notifications')
       .update({
         error_code: DELIVERY_UNCONFIRMED,
         error_message: DELIVERY_UNCONFIRMED_MESSAGE,
+        ...inGroup,
         updated_at: stamp,
       })
       .eq('id', notificationId)
@@ -882,16 +1036,26 @@ export async function sendCompassNotification(
   // key exists to prevent.
   let handedToGateway = false;
   let accepted = false;
+  // The group message of the last try that sent nothing; kept on the row
+  // (without the group, which only a marked row names) for the next one.
+  const lastTry: LastTry = { messageId: claimed.lastGroupMessage };
   try {
     let phone = req.to;
     let name = req.name;
     if (req.compassId) {
-      const { data: customer } = await db
+      const { data: customer, error } = await db
         .from('compass_contacts')
         .select('name, phone')
         .eq('account_id', accountId)
         .eq('compass_id', req.compassId)
         .maybeSingle();
+      if (error) {
+        throw new NotifyError(
+          'compass_contact_lookup_failed',
+          'The Compass customer could not be looked up. Nothing was sent — retry later with the same idempotency_key.',
+          503
+        );
+      }
       if (!customer) {
         throw new NotifyError(
           'compass_contact_not_found',
@@ -933,24 +1097,51 @@ export async function sendCompassNotification(
     // so this runs before the Meta number check. Media stays 1:1 (the
     // group send is text-only).
     if (deps.groupSender && req.type === 'text' && req.text) {
-      const group = await groupCandidate(db, accountId, req.reference, phone);
-      const inGroup = group
-        ? await sendToGroup(
-            deps.groupSender,
-            group,
-            `compass:${req.idempotencyKey}`,
-            req.text
-          )
-        : null;
+      const already = await sentAfterAll(db, lastTry);
+      const group =
+        already ?? (await groupCandidate(db, accountId, req.reference, phone));
+      const inGroup = already
+        ? {
+            groupId: already.id,
+            contactId: already.contact_id,
+            messageId: lastTry.messageId,
+          }
+        : group
+          ? await sendToGroup(
+              db,
+              deps.groupSender,
+              group,
+              `compass:${req.idempotencyKey}`,
+              req.text,
+              lastTry,
+              {
+                handOver: async (messageId) => {
+                  await markHandedToGateway({
+                    submission_group_id: group.id,
+                    group_message_id: messageId,
+                    contact_id: group.contact_id,
+                  });
+                  handedToGateway = true;
+                },
+                refused: () => {
+                  handedToGateway = false;
+                },
+              }
+            )
+          : null;
       if (inGroup) {
-        await record({
+        accepted = true;
+        const outcome = {
           status: 'sent',
+          error_code: null,
+          error_message: null,
           submission_group_id: inGroup.groupId,
           group_message_id: inGroup.messageId,
           contact_id: inGroup.contactId,
           message_id: null,
           conversation_id: null,
-        });
+        };
+        const recorded = await record(outcome);
         if (req.compassId && inGroup.contactId) {
           await db
             .from('compass_contacts')
@@ -960,10 +1151,10 @@ export async function sendCompassNotification(
         }
         const row = await loadNotification(db, accountId, {
           id: notificationId,
-        });
+        }).catch(() => null);
         return {
           notification: serializeNotification(
-            row ?? {
+            (row && !recorded ? { ...row, ...outcome } : row) ?? {
               id: notificationId,
               idempotency_key: req.idempotencyKey,
               status: 'sent',
@@ -1000,22 +1191,27 @@ export async function sendCompassNotification(
     // Free text inside the customer's 24-hour window; outside it, the
     // approved template worded like the message, and media cannot go. Decided
     // before the chat is created, so a refusal leaves nothing behind.
-    const windowOpen = await metaWindowOpen(
-      db,
-      meta.conversationId,
-      meta.channel.id
-    );
+    const windowOpen = meta.chatUnread
+      ? null
+      : await metaWindowOpen(db, meta.conversationId, meta.channel.id);
     let template: { name: string; language: string; params: string[] } | null =
       null;
     if (!windowOpen) {
       if (req.type !== 'text' || !req.text) {
+        if (windowOpen === null) throw windowLookupFailed();
         throw new NotifyError(
           'outside_service_window',
           "The customer hasn't written to the Meta number in the last 24 hours, so WhatsApp only allows a template, and an image or document cannot be sent that way. Nothing was sent.",
           409
         );
       }
-      template = await compassTemplateSend(db, accountId, req.event, req.text);
+      template = await compassTemplateSend(
+        db,
+        accountId,
+        req.event,
+        req.text,
+        windowOpen === null
+      );
     }
 
     const resolved = await readContacts(
@@ -1057,6 +1253,7 @@ export async function sendCompassNotification(
       message_id: sent.messageId,
       conversation_id: resolved.conversationId,
       contact_id: resolved.contactId,
+      ...(lastTry.messageId ? { group_message_id: null } : {}),
     };
     const recorded = await record(outcome);
 
@@ -1088,7 +1285,10 @@ export async function sendCompassNotification(
       reference: req.reference,
     });
 
-    const row = await loadNotification(db, accountId, { id: notificationId });
+    // Sent: a failed read is not this request's failure.
+    const row = await loadNotification(db, accountId, {
+      id: notificationId,
+    }).catch(() => null);
     return {
       notification: serializeNotification(
         row
@@ -1143,6 +1343,9 @@ export async function sendCompassNotification(
       status: delivered ? 'sent' : 'failed',
       error_code: code,
       error_message: message,
+      ...(!delivered && lastTry.messageId
+        ? { submission_group_id: null, group_message_id: lastTry.messageId }
+        : {}),
     });
     throw err;
   }

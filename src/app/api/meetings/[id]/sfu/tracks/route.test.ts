@@ -10,6 +10,9 @@ const mocks = vi.hoisted(() => ({
   newTracks: vi.fn(),
   configured: vi.fn(() => true),
   adminUpdate: vi.fn(),
+  cutSeats: vi.fn(),
+  /** Set: the own-row read that follows Cloudflare's answer. */
+  reread: null as null | { data: unknown; error: unknown },
   own: null as unknown,
   present: [] as { cf_session_id: string }[],
 }));
@@ -37,6 +40,8 @@ vi.mock('@/lib/meetings/server', async (importOriginal) => ({
   }),
 }));
 
+vi.mock('@/lib/meetings/cut', () => ({ cutSeats: mocks.cutSeats }));
+
 import { POST } from './route';
 
 const M = '22222222-2222-4222-8222-222222222222';
@@ -48,7 +53,10 @@ const params = { params: Promise.resolve({ id: M }) };
 function participants() {
   const q: Record<string, unknown> = {};
   for (const m of ['select', 'eq', 'is', 'gt']) q[m] = () => q;
-  q.maybeSingle = async () => ({ data: mocks.own, error: null });
+  q.maybeSingle = async () =>
+    mocks.reread && mocks.newTracks.mock.calls.length > 0
+      ? mocks.reread
+      : { data: mocks.own, error: null };
   q.then = (ok: (v: unknown) => unknown) =>
     Promise.resolve({ data: mocks.present, error: null }).then(ok);
   return q;
@@ -77,6 +85,7 @@ describe('POST /api/meetings/[id]/sfu/tracks', () => {
       accountId: 'acct-1',
       supabase: { from: participants },
     });
+    mocks.reread = null;
     mocks.own = {
       id: P,
       cf_session_id: 'sess-own',
@@ -102,6 +111,7 @@ describe('POST /api/meetings/[id]/sfu/tracks', () => {
     expect(mocks.adminUpdate).toHaveBeenCalledWith({
       tracks: [{ trackName: `${P}:audio`, kind: 'audio' }],
     });
+    expect(mocks.cutSeats).not.toHaveBeenCalled();
   });
 
   it('pulls a track from a present participant', async () => {
@@ -142,6 +152,28 @@ describe('POST /api/meetings/[id]/sfu/tracks', () => {
     mocks.own = { id: P, cf_session_id: 's', left_at: 'x', tracks: [] };
     expect((await post({ tracks: [localAudio] })).status).toBe(404);
     expect(mocks.newTracks).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['closed', { id: P, cf_session_id: 'sess-own', left_at: 'x', tracks: [] }],
+    ['hidden by a removal', null],
+  ])('cuts the session of a seat %s meanwhile', async (_what, data) => {
+    mocks.reread = { data, error: null };
+    const res = await post({ tracks: [localAudio] });
+    expect(res.status).toBe(404);
+    expect(mocks.newTracks).toHaveBeenCalled();
+    expect(mocks.cutSeats).toHaveBeenCalledWith([
+      expect.objectContaining({ cf_session_id: 'sess-own' }),
+    ]);
+    expect(mocks.adminUpdate).not.toHaveBeenCalled();
+  });
+
+  it('does not read a failed re-read as closed', async () => {
+    mocks.reread = { data: null, error: { code: '57014' } };
+    const res = await post({ tracks: [localAudio] });
+    expect(res.status).toBe(200);
+    expect(mocks.cutSeats).not.toHaveBeenCalled();
+    expect(mocks.adminUpdate).toHaveBeenCalled();
   });
 
   it('answers 503 meetings_not_configured without the env vars', async () => {

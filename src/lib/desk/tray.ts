@@ -17,6 +17,9 @@ export const TRAY_REASONS = [
   'evidence_conflict',
   'other_person',
   'file_refused',
+  // Migration 303: the document could not be routed or copied (an error, or
+  // a file the desk does not take). The original is in the chat.
+  'copy_failed',
 ] as const;
 export type TrayReason = (typeof TRAY_REASONS)[number];
 
@@ -52,9 +55,23 @@ export interface TrayItem {
   originalName: string | null;
   caption: string | null;
   mediaUrl: string | null;
+  /** Known once the nightly copy has read it. */
+  sizeBytes: number | null;
+  /** The chat it arrived in. */
+  conversationId: string | null;
   resolvedCaseId: string | null;
   dismissReason: string | null;
 }
+
+/** One answer of the tray: the first items and how many there are. */
+export interface TrayPage {
+  items: TrayItem[];
+  total: number;
+  hasMore: boolean;
+}
+
+export const TRAY_PAGE = 100;
+export const TRAY_PAGE_MAX = 1000;
 
 export interface DeskSettings {
   routingEnabled: boolean;

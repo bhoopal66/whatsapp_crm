@@ -17,6 +17,11 @@ const mocks = vi.hoisted(() => ({
   admin: null as unknown as FakeDb,
 }));
 
+// `loadGroupForCaller` asks whether the row mirrors a submission group
+// (299); server.load-group.test.ts pins its answers.
+vi.mock('@/lib/groups/submission-ids', () => ({
+  submissionGroupIds: async () => new Set<string>(),
+}));
 vi.mock('@/lib/auth/account', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/auth/account')>()),
   getCurrentAccount: mocks.getCurrentAccount,
@@ -36,6 +41,8 @@ vi.mock('@/lib/groups/server', async (importOriginal) => ({
   supabaseAdmin: () => fakeSupabase(mocks.admin),
 }));
 
+import { __resetRateLimitForTests } from '@/lib/rate-limit';
+import { addBudget } from '@/lib/groups/add-budget';
 import { GET, POST } from './route';
 
 const G = '22222222-2222-4222-8222-222222222222';
@@ -62,6 +69,7 @@ const post = (body: unknown) =>
 
 beforeEach(() => {
   vi.clearAllMocks();
+  __resetRateLimitForTests();
   vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'http://supabase.test');
   vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'service-key');
   vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -175,6 +183,26 @@ describe('POST invite', () => {
     expect(mocks.admin.tables.whatsapp_group_invites[0]).toMatchObject({
       invite_code: 'NewCode456',
     });
+  });
+
+  it('messages only as many people as the hourly add limit leaves', async () => {
+    addBudget('agent-1', 'other').spend(59);
+    const body = {
+      action: 'send',
+      phones: ['971504444444', '971505555555'],
+    };
+    const json = await (await post(body)).json();
+    expect(mocks.sendInviteLink).toHaveBeenCalledTimes(1);
+    expect(json.results).toContainEqual(
+      expect.objectContaining({
+        waId: '971505555555',
+        status: 'not_attempted',
+        reason: 'too_many_adds',
+      })
+    );
+    const res = await post(body);
+    expect(res.status).toBe(429);
+    expect(await res.json()).toMatchObject({ code: 'too_many_adds' });
   });
 
   it('skips opted-out and do-not-contact people and reports them', async () => {

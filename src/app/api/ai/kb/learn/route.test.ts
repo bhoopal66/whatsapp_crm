@@ -26,7 +26,10 @@ import { GET, PUT } from './route';
 function client(read: { data: unknown; error: unknown }, rpc = read) {
   const calls: { name: string; args: unknown }[] = [];
   const builder: Record<string, unknown> = {
-    select: () => builder,
+    select: (columns: string) => {
+      calls.push({ name: 'select', args: columns });
+      return builder;
+    },
     eq: () => builder,
     maybeSingle: () => Promise.resolve(read),
   };
@@ -64,11 +67,35 @@ describe('/api/ai/kb/learn', () => {
     expect(await (await GET()).json()).toEqual({
       enabled: false,
       lastRunAt: null,
+      lastRunDrafted: null,
+      lastRunError: null,
+      nextRunAt: null,
       available: true,
     });
   });
 
-  it('says unavailable before migration 278', async () => {
+  it('hands over why the last run failed and the next try', async () => {
+    const c = client({
+      data: {
+        enabled: true,
+        last_run_error: 'no_ai',
+        next_run_at: '2026-11-24T10:50:00Z',
+      },
+      error: null,
+    });
+    mocks.requireRole.mockResolvedValue({
+      supabase: c.supabase,
+      accountId: 'a',
+    });
+    expect(await (await GET()).json()).toMatchObject({
+      lastRunError: 'no_ai',
+      nextRunAt: '2026-11-24T10:50:00Z',
+    });
+    for (const column of ['last_run_error', 'next_run_at'])
+      expect(c.calls[0]!.args).toContain(column);
+  });
+
+  it('says unavailable before migration 290', async () => {
     const c = client({ data: null, error: { code: 'PGRST205' } });
     mocks.requireRole.mockResolvedValue({
       supabase: c.supabase,

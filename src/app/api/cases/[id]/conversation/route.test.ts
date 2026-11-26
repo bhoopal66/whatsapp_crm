@@ -27,6 +27,7 @@ const m = vi.hoisted(() => ({
   store: {} as Record<string, ReturnType<typeof vi.fn>>,
   conv: {} as Record<string, ReturnType<typeof vi.fn>>,
   convAccount: [] as unknown[],
+  probeDb: null as null | { from: (table: string) => unknown },
 }));
 
 // The send-limit count: from().select().eq()...gte() resolves to countResult.
@@ -34,7 +35,9 @@ const chain: Record<string, unknown> = {};
 chain.select = () => chain;
 chain.eq = (col: string, val: unknown) => (m.eqs.push([col, val]), chain);
 chain.gte = () => Promise.resolve(m.countResult);
-const admin = { from: () => chain };
+const admin = {
+  from: (table: string): unknown => (m.probeDb ? m.probeDb.from(table) : chain),
+};
 
 vi.mock('@/lib/auth/account', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/auth/account')>()),
@@ -57,6 +60,7 @@ vi.mock('@/lib/submission-groups/view-refs', () => ({
   loadNames: m.loadNames,
 }));
 
+import { FakeClient, type Query } from '@/lib/cases/read-fakes';
 import { CaseRefusedError } from '@/lib/cases/store';
 import {
   SubmissionGroupSendBlockedError,
@@ -93,6 +97,7 @@ const message = {
 beforeEach(() => {
   vi.clearAllMocks();
   m.convAccount.length = 0;
+  m.probeDb = null;
   m.countResult = { count: 0, error: null };
   m.eqs.length = 0;
   m.getCurrentAccount.mockResolvedValue({
@@ -103,6 +108,7 @@ beforeEach(() => {
   m.store = {
     get: vi.fn(async () => aCase()),
     role: vi.fn(async () => 'coordinator'),
+    viewCases: vi.fn(async () => [ID]),
   };
   m.conv = { read: vi.fn(), reply: vi.fn(), replyMedia: vi.fn() };
   m.loadNames.mockResolvedValue(new Map([['u-2', 'Sara']]));
@@ -164,6 +170,99 @@ describe('GET /api/cases/[id]/conversation', () => {
       prefixed_body: '*Sara*: hello',
       created_at: '2026-10-01T10:00:00.000Z',
     });
+  });
+});
+
+describe('GET /api/cases/[id]/conversation?since', () => {
+  const SINCE = '2026-10-01T10:00:00.123Z';
+  const probeDb = (newest: string | null, status = 'ACTIVE') => {
+    const db = new FakeClient(
+      'admin',
+      [],
+      {},
+      {
+        submission_groups: () => ({
+          data: [{ id: 'g-1', status, created_at: SINCE, wa_mode: 'group' }],
+        }),
+        submission_group_messages: () => ({
+          data: newest ? [{ created_at: newest }] : [],
+        }),
+      }
+    );
+    m.probeDb = db;
+    return db;
+  };
+  const probe = (since = SINCE) =>
+    GET(
+      new Request(
+        `http://x/api/cases/${ID}/conversation?since=${encodeURIComponent(since)}`
+      ),
+      p()
+    );
+
+  it('says whether there is something new, without reading or auditing', async () => {
+    const db = probeDb('2026-10-01T10:05:00.000001+00:00');
+    const res = await probe();
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ changed: true });
+    // view_case is reached through either of these, and nothing else.
+    expect(m.conv.read).not.toHaveBeenCalled();
+    expect(m.store.viewCases).not.toHaveBeenCalled();
+    expect(db.rpcs).toEqual([]);
+    expect(m.convAccount).toEqual([]);
+
+    const [q]: Query[] = db.queriesOf('submission_group_messages');
+    expect(q).toMatchObject({
+      columns: 'created_at',
+      filters: [
+        ['eq', 'group_id', 'g-1'],
+        ['eq', 'post_end', false],
+      ],
+      orders: ['created_at', 'id'],
+      limit: 1,
+    });
+    expect(db.queriesOf('submission_groups')[0].filters).toContainEqual([
+      'eq',
+      'account_id',
+      'acct-1',
+    ]);
+  });
+
+  it('compares in milliseconds, as the view shows them', async () => {
+    probeDb('2026-10-01T10:00:00.123456+00:00');
+    expect(await (await probe()).json()).toEqual({ changed: false });
+    probeDb('2026-10-01T10:00:00.124000+00:00');
+    expect(await (await probe()).json()).toEqual({ changed: true });
+  });
+
+  it('an empty chat is unchanged from the epoch', async () => {
+    probeDb(null);
+    expect(await (await probe(new Date(0).toISOString())).json()).toEqual({
+      changed: false,
+    });
+    // The newest message shown was removed.
+    expect(await (await probe()).json()).toEqual({ changed: true });
+  });
+
+  it('an ended or missing group counts as changed, its messages unread', async () => {
+    const ended = probeDb(SINCE, 'ENDED');
+    expect(await (await probe()).json()).toEqual({ changed: true });
+    expect(ended.queriesOf('submission_group_messages')).toEqual([]);
+    m.store.get.mockResolvedValue(aCase({ groupId: null }));
+    expect(await (await probe()).json()).toEqual({ changed: true });
+  });
+
+  it('is 404 without a role on the case, 400 for a bad time, 500 when a read fails', async () => {
+    const db = probeDb(SINCE);
+    expect((await probe('yesterday')).status).toBe(400);
+    m.store.role.mockResolvedValue(null);
+    expect((await probe()).status).toBe(404);
+    expect(db.queries).toEqual([]);
+    m.store.role.mockResolvedValue('agent');
+    db.tables.submission_group_messages = () => ({ error: { code: '57014' } });
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect((await probe()).status).toBe(500);
+    err.mockRestore();
   });
 });
 

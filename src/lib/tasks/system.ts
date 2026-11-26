@@ -184,19 +184,30 @@ export async function resolveTaskOwner(
  * which the trigger stamps as completed. Only an `open` task moves, so
  * one a person already finished or cancelled stays as they left it.
  * Answers how many closed (at most one: the key is unique).
+ * `outcome` is written with it: the note and meta that say how it was
+ * dealt with, and the `updated_at` they were built on, so a write that
+ * landed since (a repeat call folding in) closes nothing.
  */
 export async function closeSystemTasks(
   db: SupabaseClient,
-  ref: { accountId: string; source: SystemTaskSource; sourceRef: string }
+  ref: { accountId: string; source: SystemTaskSource; sourceRef: string },
+  outcome?: { note: string; meta: Record<string, unknown>; updatedAt: string }
 ): Promise<number> {
-  const { data, error } = await db
+  let close = db
     .from('tasks')
-    .update({ status: 'done' })
+    .update({
+      status: 'done',
+      ...(outcome && {
+        note: truncateChars(outcome.note, TASK_NOTE_MAX).trimEnd(),
+        meta: outcome.meta,
+      }),
+    })
     .eq('account_id', ref.accountId)
     .eq('source', ref.source)
     .eq('source_ref', ref.sourceRef)
-    .eq('status', 'open')
-    .select('id');
+    .eq('status', 'open');
+  if (outcome) close = close.eq('updated_at', outcome.updatedAt);
+  const { data, error } = await close.select('id');
   if (error) throw dbError('closeSystemTasks: update', error);
   return data?.length ?? 0;
 }

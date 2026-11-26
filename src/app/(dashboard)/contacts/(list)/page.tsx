@@ -6,6 +6,8 @@ import { LoadingState } from '@/components/dashboard/loading-state';
 import { isUuid } from '@/lib/chat/mentions';
 import { customerAccess } from '@/lib/contacts/customer-access';
 import { customerPath } from '@/lib/contacts/customer-links';
+import { deleteContacts } from '@/lib/contacts/delete-contacts';
+import { reasonsText, stayedText } from '@/lib/contacts/delete-preview';
 import {
   Fragment,
   useState,
@@ -15,7 +17,7 @@ import {
   useRef,
   type ReactNode,
 } from 'react';
-import { bulkAnswer, deleteRows } from '@/lib/supabase/changed-rows';
+import { bulkAnswer } from '@/lib/supabase/changed-rows';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 import type { Contact } from '@/types';
@@ -38,14 +40,6 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from '@/components/ui/dialog';
-import {
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -57,7 +51,6 @@ import {
   MoreHorizontal,
   Pencil,
   Trash2,
-  Loader2,
   Users,
   ChevronLeft,
   ChevronRight,
@@ -71,6 +64,10 @@ import {
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ContactForm } from '@/components/contacts/contact-form';
+import {
+  DeleteContactsDialog,
+  type DeleteTarget,
+} from '@/components/contacts/delete-contacts-dialog';
 import { ImportModal } from '@/components/contacts/import-modal';
 import { CustomFieldsManager } from '@/components/contacts/custom-fields-manager';
 import {
@@ -110,11 +107,12 @@ import {
   contactSearchFilter,
   firstCloseMatchId,
   inIdOrder,
-  narrowHits,
   pageOfHits,
   toContactListRows,
   type ContactListRow,
   type ContactWithConversations,
+  isRangeNotSatisfiable,
+  pageToRecoverTo,
 } from '@/lib/contacts/list-query';
 import {
   isMissingSortRpc,
@@ -129,6 +127,7 @@ import {
   searchRpcTerm,
   type SearchHit,
 } from '@/lib/contacts/fuzzy-search';
+import { contactSearchArgs, isSearchCapped } from '@/lib/contacts/search-rpc';
 import { pruneSelection } from '@/lib/contacts/selection';
 import { SortHeader } from '@/components/contacts/sort-header';
 import { PhoneCell } from '@/components/contacts/phone-cell';
@@ -188,10 +187,6 @@ const FILTER_PAGE_SIZE = 1000;
 const FILTER_CHUNK_CONCURRENCY = 4;
 /** How long one filter's matched contact ids are reused while paging. */
 const FILTER_MATCHES_TTL_MS = 30_000;
-/** Hits the close-match RPC returns per search. */
-// Asked of the RPC before the personal / chat-tag narrowing: a term that
-// matches more than this many visible contacts can still lose hits there.
-const SEARCH_RPC_LIMIT = 500;
 const NO_CHAT_TAGS: readonly string[] = [];
 
 /** Opaque, so scrolled cells never show through; follows the row hover. */
@@ -206,6 +201,8 @@ type ContactRow = ContactListRow;
 interface ContactListPage {
   rows: ContactRow[];
   total: number;
+  /** A search that filled its limit: `total` is only what it listed. */
+  capped?: boolean;
 }
 
 /**
@@ -236,6 +233,7 @@ export function ContactsPageInner({
   const tSearch = useTranslations('ContactSearch');
   const tSaved = useTranslations('SavedViews');
   const tTable = useTranslations('ContactsTable');
+  const tDelete = useTranslations('Contacts.deleteDialog');
   const tTeams = useTranslations('Settings.teams');
   const tPaging = useTranslations('MeetingRoom.stage');
   const locale = useLocale();
@@ -292,6 +290,9 @@ export function ContactsPageInner({
   // Bulk selection (page-scoped — only the loaded rows are selectable)
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  // Fixed when the dialog opens: a list refresh under it may untick rows,
+  // and Delete removes the ones it named.
+  const [bulkTargets, setBulkTargets] = useState<DeleteTarget[]>([]);
 
   // Only ids still in the tree count: a tag another admin deleted
   // meanwhile would otherwise keep filtering on an id no chat carries,
@@ -323,7 +324,7 @@ export function ContactsPageInner({
     rows: { id: string; created_at: string }[];
   } | null>(null);
 
-  // The close-match search's ranked, narrowed hits, reused while paging
+  // The close-match search's ranked hits, reused while paging
   // (same TTL and reasoning as `filterMatches`).
   const searchMatches = useRef<{
     key: string;
@@ -365,9 +366,9 @@ export function ContactsPageInner({
     const filterGroup = chatTagFilterOrGroup(chatTagFilterIds);
     const sourceList = LEAD_SOURCE_COLUMN_AVAILABLE ? sources : [];
 
-    // Close-match search: the RPC ranks (as the caller, so RLS applies),
-    // then the page's own filters narrow its hits. A missing RPC
-    // (migration 193 not applied) falls through to the ilike paths.
+    // Close-match search: the RPC ranks (as the caller, so RLS applies)
+    // and narrows by the page's own filters before its limit. A missing
+    // RPC (migration 298 not applied) falls through to the ilike paths.
     const rpcTerm = searchRpcTerm(term);
     if (rpcTerm) {
       const searchKey = JSON.stringify([
@@ -383,74 +384,18 @@ export function ContactsPageInner({
           ? cachedSearch.hits
           : null;
       if (!ranked) {
-        const rpc = await supabase.rpc('search_contacts', {
-          p_term: rpcTerm,
-          p_limit: SEARCH_RPC_LIMIT,
-        });
+        const rpc = await supabase.rpc(
+          'search_contacts',
+          contactSearchArgs({
+            term: rpcTerm,
+            personalOnlyUserId,
+            chatTagIds: chatTagFilterIds,
+            sources: sourceList,
+          })
+        );
         if (rpc.error && !isMissingSearchRpc(rpc.error)) throw rpc.error;
         if (!rpc.error) {
-          const hits = parseSearchHits(rpc.data);
-          const ids = hits.map((h) => h.contactId);
-          let owned: Set<string> | null = null;
-          let tagged: Set<string> | null = null;
-          let sourced: Set<string> | null = null;
-          // Chunked: 500 UUIDs in one `in.(…)` is ~18 KB of URL, over
-          // Cloudflare's ~16 KB limit in front of the tunnelled install.
-          if (ids.length > 0 && personalOnlyUserId) {
-            const results = await mapWithConcurrency(
-              chunkIds(ids),
-              FILTER_CHUNK_CONCURRENCY,
-              (chunk) =>
-                supabase
-                  .from('contacts')
-                  .select('id')
-                  .in('id', chunk)
-                  .eq('user_id', personalOnlyUserId)
-            );
-            const failed = results.find((r) => r.error)?.error;
-            if (failed) throw failed;
-            owned = new Set(
-              results.flatMap((r) => (r.data ?? []).map((x) => x.id as string))
-            );
-          }
-          if (ids.length > 0 && filterGroup) {
-            const results = await mapWithConcurrency(
-              chunkIds(ids),
-              FILTER_CHUNK_CONCURRENCY,
-              (chunk) =>
-                supabase
-                  .from('conversations')
-                  .select('contact_id')
-                  .in('contact_id', chunk)
-                  .or(filterGroup)
-                  .is('personal_owner_id', null)
-            );
-            const failed = results.find((r) => r.error)?.error;
-            if (failed) throw failed;
-            tagged = new Set(
-              results.flatMap((r) =>
-                (r.data ?? []).map((x) => x.contact_id as string)
-              )
-            );
-          }
-          if (ids.length > 0 && sourceList.length > 0) {
-            const results = await mapWithConcurrency(
-              chunkIds(ids),
-              FILTER_CHUNK_CONCURRENCY,
-              (chunk) =>
-                supabase
-                  .from('contacts')
-                  .select('id')
-                  .in('id', chunk)
-                  .in('lead_source', sourceList)
-            );
-            const failed = results.find((r) => r.error)?.error;
-            if (failed) throw failed;
-            sourced = new Set(
-              results.flatMap((r) => (r.data ?? []).map((x) => x.id as string))
-            );
-          }
-          ranked = narrowHits(hits, [owned, tagged, sourced]);
+          ranked = parseSearchHits(rpc.data);
           searchMatches.current = {
             key: searchKey,
             at: Date.now(),
@@ -460,7 +405,8 @@ export function ContactsPageInner({
       }
       if (ranked) {
         const { hits: pageHits, total } = pageOfHits(ranked, from, PAGE_SIZE);
-        if (pageHits.length === 0) return { rows: [], total };
+        const capped = isSearchCapped(total);
+        if (pageHits.length === 0) return { rows: [], total, capped };
         const { data, error } = await supabase
           .from('contacts')
           .select(CONTACT_LIST_SELECT)
@@ -478,7 +424,7 @@ export function ContactsPageInner({
           pageHits
         );
         // The rows keep `closeMatch` (the embed strip spreads the rest).
-        return { rows: toContactListRows(ordered), total };
+        return { rows: toContactListRows(ordered), total, capped };
       }
     }
 
@@ -661,6 +607,7 @@ export function ContactsPageInner({
   const list = useSessionQuery(listKey, fetchList);
   const contacts = useMemo(() => list.data?.rows ?? [], [list.data]);
   const totalCount = list.data?.total ?? 0;
+  const searchCapped = list.data?.capped ?? false;
   const closeDividerId = firstCloseMatchId(contacts);
   const shownColumns = useMemo(
     () =>
@@ -694,8 +641,24 @@ export function ContactsPageInner({
 
   // A failed load keeps what the view showed before (or nothing).
   useEffect(() => {
-    if (list.error) toast.error(t('toastFailedLoad'));
+    if (list.error && !isRangeNotSatisfiable(list.error)) {
+      toast.error(t('toastFailedLoad'));
+    }
   }, [list.error, t]);
+
+  // Deleting or retagging a whole last page leaves `page` past the end
+  // (an empty list, or a refused range): step back to a page that exists.
+  const recoverTo = pageToRecoverTo({
+    page,
+    pageSize: PAGE_SIZE,
+    loading: list.loading,
+    rowCount: contacts.length,
+    total: totalCount,
+    error: list.error,
+  });
+  useEffect(() => {
+    if (recoverTo !== null) setPage(recoverTo);
+  }, [recoverTo]);
 
   // The visible rows change with the view: drop any selection that
   // referred to the old page/search results so the bulk bar can't act
@@ -837,29 +800,32 @@ export function ContactsPageInner({
     setDeleteConfirmOpen(true);
   }
 
-  async function handleDelete() {
+  async function handleDelete(ids: string[]) {
     if (!deleteTarget) return;
     setDeleting(true);
 
-    const res = await deleteRows(supabase, 'contacts', [deleteTarget.id]);
+    const res = await deleteContacts(supabase, ids);
+    const refused = res.refused[0];
 
-    if (res.kind === 'failed') {
+    if (refused) {
       toast.error(
-        t(
-          res.error.hint === 'LEGAL_HOLD'
-            ? 'toastLegalHold'
-            : 'toastFailedDelete'
-        )
+        refused.legalHold
+          ? t('toastLegalHold')
+          : tDelete('toastRefused', {
+              name: deleteTarget.name || deleteTarget.phone,
+              reason: reasonsText(refused, tDelete, locale),
+            })
       );
+    } else if (res.failed.length > 0) {
+      toast.error(t('toastFailedDelete'));
     } else {
-      if (res.kind === 'none') toast.error(t('toastNotDeleted'));
+      if (res.deleted.length === 0) toast.error(t('toastNotDeleted'));
       else toast.success(t('toastDeleted'));
       refreshContacts();
     }
 
     setDeleting(false);
     setDeleteConfirmOpen(false);
-    setDeleteTarget(null);
   }
 
   const allOnPageSelected =
@@ -942,26 +908,39 @@ export function ContactsPageInner({
     router.push(AUDIENCE_HANDOFF_URL);
   }
 
-  async function handleBulkDelete() {
-    const ids = [...selected];
-    if (ids.length === 0) return;
+  function confirmBulkDelete() {
+    setBulkTargets(
+      contacts
+        .filter((c) => selected.has(c.id))
+        .map((c) => ({ id: c.id, name: c.name || c.phone }))
+    );
+    setBulkDeleteOpen(true);
+  }
+
+  async function handleBulkDelete(ids: string[]) {
     setDeleting(true);
 
-    const res = await deleteRows(supabase, 'contacts', ids);
+    const res = await deleteContacts(supabase, ids);
+    const nameOfTarget = (id: string) =>
+      bulkTargets.find((c) => c.id === id)?.name ?? id;
 
-    if (res.kind === 'failed') {
-      toast.error(
-        t(
-          res.error.hint === 'LEGAL_HOLD'
-            ? 'toastLegalHold'
-            : 'toastBulkFailedDelete'
-        )
+    const allFailed = res.failed.length === ids.length;
+
+    if (allFailed) {
+      toast.error(t('toastBulkFailedDelete'));
+    } else if (res.refused.length + res.failed.length > 0) {
+      // Someone stayed though the dialog offered them (no preview, or the
+      // work was opened since): who, and why.
+      toast.warning(
+        tDelete('toastBulkStayed', {
+          count: res.deleted.length,
+          total: ids.length,
+          names: stayedText(res, nameOfTarget, tDelete, locale),
+        }),
+        { duration: 15000 }
       );
     } else {
-      const answer = bulkAnswer(
-        ids.length,
-        res.kind === 'changed' ? res.ids.length : 0
-      );
+      const answer = bulkAnswer(ids.length, res.deleted.length);
       if (answer.kind === 'all')
         toast.success(t('toastBulkDeleted', { count: answer.count }));
       else if (answer.kind === 'some')
@@ -972,6 +951,8 @@ export function ContactsPageInner({
           })
         );
       else toast.error(t('toastBulkNotDeleted'));
+    }
+    if (!allFailed) {
       setSelected(new Set());
       refreshContacts();
     }
@@ -982,6 +963,11 @@ export function ContactsPageInner({
 
   const totalPages = Math.ceil(totalCount / PAGE_SIZE);
   const hasNext = page < totalPages - 1;
+  const shown = {
+    start: page * PAGE_SIZE + 1,
+    end: Math.min((page + 1) * PAGE_SIZE, totalCount),
+    total: totalCount,
+  };
   const hasPrev = page > 0;
 
   // A close-match search is ranked by relevance; sorting does not apply.
@@ -1093,7 +1079,9 @@ export function ContactsPageInner({
         <div>
           <p className="text-muted-foreground mt-1 text-sm">
             {totalCount > 0
-              ? t('subtitle', { count: totalCount })
+              ? searchCapped
+                ? t('subtitleFirst', { count: totalCount })
+                : t('subtitle', { count: totalCount })
               : t('subtitleZero')}
           </p>
         </div>
@@ -1295,7 +1283,7 @@ export function ContactsPageInner({
           canDelete={canDelete}
           tree={chatTagTree}
           onClear={() => setSelected(new Set())}
-          onDelete={() => setBulkDeleteOpen(true)}
+          onDelete={confirmBulkDelete}
           onApplyTag={applyBulkTag}
           onAddToCampaign={addSelectedToCampaign}
         />
@@ -1315,7 +1303,7 @@ export function ContactsPageInner({
                   indeterminate={!allOnPageSelected && someOnPageSelected}
                   onCheckedChange={toggleSelectAll}
                   disabled={contacts.length === 0}
-                  aria-label="Select all contacts on this page"
+                  aria-label={t('selectAllOnPage')}
                 />
               </TableHead>
               <SortHeader
@@ -1462,7 +1450,7 @@ export function ContactsPageInner({
                     contact={contact}
                     teamView={teamView}
                     onOpen={() => openDetail(contact.id)}
-                    onEdit={() => openEditForm(contact)}
+                    onEdit={canEdit ? () => openEditForm(contact) : undefined}
                     onDelete={
                       canDelete ? () => confirmDelete(contact) : undefined
                     }
@@ -1474,7 +1462,9 @@ export function ContactsPageInner({
                       <Checkbox
                         checked={selected.has(contact.id)}
                         onCheckedChange={() => toggleSelect(contact.id)}
-                        aria-label={`Select ${contact.name || contact.phone}`}
+                        aria-label={t('selectOne', {
+                          name: contact.name || contact.phone,
+                        })}
                       />
                     </TableCell>
                     <TableCell
@@ -1615,19 +1605,23 @@ export function ContactsPageInner({
                           align="end"
                           className="bg-popover border-border"
                         >
-                          <DropdownMenuItem
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openEditForm(contact);
-                            }}
-                            className="text-popover-foreground focus:bg-muted focus:text-foreground"
-                          >
-                            <Pencil className="size-4" />
-                            {t('editAction')}
-                          </DropdownMenuItem>
+                          {canEdit && (
+                            <DropdownMenuItem
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openEditForm(contact);
+                              }}
+                              className="text-popover-foreground focus:bg-muted focus:text-foreground"
+                            >
+                              <Pencil className="size-4" />
+                              {t('editAction')}
+                            </DropdownMenuItem>
+                          )}
                           {canDelete && (
                             <>
-                              <DropdownMenuSeparator className="bg-border" />
+                              {canEdit && (
+                                <DropdownMenuSeparator className="bg-border" />
+                              )}
                               <DropdownMenuItem
                                 variant="destructive"
                                 onClick={(e) => {
@@ -1655,11 +1649,9 @@ export function ContactsPageInner({
       {totalPages > 1 && (
         <div className="flex items-center justify-between">
           <p className="text-muted-foreground text-xs">
-            {t('showingPagination', {
-              start: page * PAGE_SIZE + 1,
-              end: Math.min((page + 1) * PAGE_SIZE, totalCount),
-              total: totalCount,
-            })}
+            {searchCapped
+              ? t('showingFirst', shown)
+              : t('showingPagination', shown)}
           </p>
           <div className="flex items-center gap-1">
             <Button
@@ -1716,69 +1708,30 @@ export function ContactsPageInner({
         />
       )}
 
-      {/* Delete Confirmation */}
-      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
-        <DialogContent className="bg-popover border-border text-popover-foreground sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="text-popover-foreground">
-              {t('deleteContactTitle')}
-            </DialogTitle>
-            <DialogDescription className="text-muted-foreground">
-              {t('deleteContactDesc', {
-                name: deleteTarget?.name || deleteTarget?.phone || '',
-              })}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="bg-popover border-border">
-            <Button
-              variant="outline"
-              onClick={() => setDeleteConfirmOpen(false)}
-              className="border-border text-muted-foreground hover:bg-muted"
-            >
-              {t('cancel')}
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleDelete}
-              disabled={deleting}
-            >
-              {deleting && <Loader2 className="size-4 animate-spin" />}
-              {t('deleteBtn')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Bulk Delete Confirmation */}
-      <Dialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
-        <DialogContent className="bg-popover border-border text-popover-foreground sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="text-popover-foreground">
-              {t('deleteBulkTitle')}
-            </DialogTitle>
-            <DialogDescription className="text-muted-foreground">
-              {t('deleteBulkDesc', { count: selected.size })}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="bg-popover border-border">
-            <Button
-              variant="outline"
-              onClick={() => setBulkDeleteOpen(false)}
-              className="border-border text-muted-foreground hover:bg-muted"
-            >
-              {t('cancel')}
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleBulkDelete}
-              disabled={deleting}
-            >
-              {deleting && <Loader2 className="size-4 animate-spin" />}
-              {t('deleteBtn')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <DeleteContactsDialog
+        open={deleteConfirmOpen}
+        targets={
+          deleteTarget
+            ? [
+                {
+                  id: deleteTarget.id,
+                  name: deleteTarget.name || deleteTarget.phone,
+                },
+              ]
+            : []
+        }
+        deleting={deleting}
+        onCancel={() => setDeleteConfirmOpen(false)}
+        onDelete={(ids) => void handleDelete(ids)}
+      />
+      <DeleteContactsDialog
+        open={bulkDeleteOpen}
+        targets={bulkTargets}
+        bulk
+        deleting={deleting}
+        onCancel={() => setBulkDeleteOpen(false)}
+        onDelete={(ids) => void handleBulkDelete(ids)}
+      />
     </div>
   );
 }
@@ -1833,7 +1786,8 @@ function ContactRow({
   contact: Contact;
   teamView: boolean;
   onOpen: () => void;
-  onEdit: () => void;
+  /** Absent for someone who may not edit a customer. */
+  onEdit?: () => void;
   /** Absent for someone who may not delete a customer. */
   onDelete?: () => void;
   children: ReactNode;
@@ -1879,15 +1833,15 @@ function ContactRow({
         onSelect: () => void copyWithToast(email, copied),
       });
     }
-    items.push(
-      { type: 'separator' },
-      {
+    if (onEdit || onDelete) items.push({ type: 'separator' });
+    if (onEdit) {
+      items.push({
         id: 'edit',
         label: tMenu('records.edit'),
         icon: Pencil,
         onSelect: onEdit,
-      }
-    );
+      });
+    }
     if (onDelete) {
       items.push({
         id: 'delete',

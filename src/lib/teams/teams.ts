@@ -40,7 +40,10 @@ export interface Team {
 export type TeamDraft = Pick<Team, 'name' | 'leader_user_id' | 'member_ids'>;
 
 /** Body for `PATCH /api/account/teams/[id]`; only changed fields. */
-export type TeamPatch = Partial<TeamDraft>;
+export type TeamPatch = Partial<TeamDraft> & {
+  /** The members the editor was opened with; sent with `member_ids` (314). */
+  expected_member_ids?: string[];
+};
 
 /** The fields of a member these helpers read. */
 export interface TeamPerson {
@@ -86,6 +89,7 @@ export function buildTeamPatch(original: Team, draft: TeamDraft): TeamPatch {
   }
   if (!sameSet(draft.member_ids, original.member_ids)) {
     patch.member_ids = [...new Set(draft.member_ids)];
+    patch.expected_member_ids = [...original.member_ids];
   }
   return patch;
 }
@@ -105,11 +109,10 @@ export function teamNameProblem(name: string): TeamNameProblem {
 
 /**
  * True when the team has numbers but the draft leaves nobody in it — no
- * members and no leader. The database treats a number allocated only
- * to an empty team as still shared with everyone, so the admin is
- * warned rather than led to think the number is now restricted.
+ * members and no leader. Such a number is for owners and admins only
+ * until someone joins (314), so the admin is warned.
  */
-export function allocationStaysShared(
+export function allocationReachesNobody(
   channelIds: readonly string[],
   draft: TeamDraft
 ): boolean {

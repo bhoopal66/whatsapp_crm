@@ -11,8 +11,11 @@
 // are mandatory and none is chosen (it stays, opens itself once if
 // minimised, and the PBX cron rings a reminder). A reload re-opens
 // it (CallProvider). Outcome and notes autosave to the call (PATCH, one
-// save at a time); the optional call card goes to a team chat channel
-// when the panel closes. Nothing here is ever sent to the customer.
+// save at a time, queued until the call's row is there: use-call-note);
+// what could not be saved keeps the panel open on a person's Close, and
+// is kept behind a message when the panel goes by itself. The optional
+// call card goes to a team chat channel when the panel closes. Nothing
+// here is ever sent to the customer.
 //
 // It sits at z-50, under the ringing card (z-[60]): an open or queued
 // wrap-up must never cover Answer and Decline.
@@ -49,6 +52,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@/hooks/use-auth';
 import { useCan } from '@/hooks/use-can';
 import { channelsWithGuests, listChannels, shareCall } from '@/lib/chat';
+import { createPostIds } from '@/lib/chat/post-id';
 import {
   OUTCOMES,
   canTransferToOwner,
@@ -66,6 +70,14 @@ import {
   type Outcome,
   type WrapUpPhase,
 } from '@/lib/pbx/call-ui';
+import {
+  closeDecision,
+  isUnsaved,
+  keepMine,
+  keepTheirs,
+  onNotes,
+  onOutcome,
+} from '@/lib/pbx/call-note';
 import { CALL_WINDOW_DEFAULT } from '@/lib/pbx/call-window';
 import { customerHref } from '@/lib/pbx/timeline';
 import { createClient } from '@/lib/supabase/client';
@@ -77,11 +89,13 @@ import { CallHistoryList, useCallHistory } from './call-history';
 import { OpenTasks } from './call-tasks';
 import {
   CandidatePicker,
+  FactsIncomplete,
   useCallFacts,
   useNow,
   type CallFacts,
 } from './incoming-call-card';
 import { useNewCallerForm } from './new-caller-form';
+import { useCallNote } from './use-call-note';
 import { useFloatingWindow } from './use-floating-window';
 
 interface CallRow {
@@ -119,11 +133,13 @@ function Panel() {
   const { accountId } = useAuth();
   const sb = useMemo(() => createClient(), []);
   const [row, setRow] = useState<CallRow | null>(null);
-  const [outcome, setOutcome] = useState<Outcome | null>(null);
-  const [notes, setNotes] = useState('');
-  const [save, setSave] = useState<'idle' | 'saving' | 'saved' | 'failed'>(
-    'idle'
-  );
+  const [loadFailed, setLoadFailed] = useState(false);
+  const { note, draft, saved, leaving } = useCallNote(accountId, p, calls);
+  const { outcome, notes } = draft;
+  // A person's Close found something unsaved.
+  const [stayed, setStayed] = useState(false);
+  // One id per call and channel: the retries below post one card.
+  const [shareIds] = useState(() => createPostIds());
   const [muted, setMuted] = useState(false);
   const [held, setHeld] = useState(false);
   const [transfer, setTransfer] = useState<string | null>(null);
@@ -143,20 +159,18 @@ function Panel() {
       label: t('moveWindow'),
       roleDescription: t('draggable'),
     });
-  const chain = useRef<Promise<unknown>>(Promise.resolve());
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const loaded = useRef(false);
   const ended = p.endedAt !== null;
   // Ticks after hang-up too: the wrap-up's countdown.
   const now = useNow(true);
   const wrapLeft = p.endedAt === null ? null : wrapUpLeftMs(p.endedAt, now);
   const pickedId = calls.picks[p.key];
-  const facts = useCallFacts(
+  const { facts, retry: retryFacts } = useCallFacts(
     row?.contact_id ?? p.contactId ?? pickedId ?? null,
     {
       connectionId: p.connectionId,
       pbxCallId: p.pbxCallId,
-    }
+    },
+    ended
   );
   const ref = { pbxCallId: p.pbxCallId, remoteNumber: p.remoteNumber };
   const owner = otherOwner(facts?.ownerId, calls.userId);
@@ -195,7 +209,7 @@ function Panel() {
   );
 
   const load = useCallback(async () => {
-    const { data } = await sb
+    const { data, error } = await sb
       .from('calls')
       .select(
         'id, direction, contact_id, disposition, notes, answered_at, talk_seconds, recording_state'
@@ -203,27 +217,27 @@ function Panel() {
       .eq('connection_id', p.connectionId)
       .eq('pbx_call_id', p.pbxCallId)
       .maybeSingle();
+    setLoadFailed(Boolean(error));
     const r = data as CallRow | null;
     if (!r) return;
     setRow(r);
-    if (!loaded.current) {
-      loaded.current = true;
-      setOutcome((o) => o ?? r.disposition);
-      setNotes((n) => n || (r.notes ?? ''));
-    }
-  }, [sb, p.connectionId, p.pbxCallId]);
+    note.row(r.id, r);
+  }, [sb, p.connectionId, p.pbxCallId, note]);
 
+  const hasRow = row !== null;
   useEffect(() => {
     const first = setTimeout(() => void load(), 0);
     const id = setInterval(() => void load(), 4000);
-    // After hang-up, long enough for the final talk time to land.
-    const stop = ended ? setTimeout(() => clearInterval(id), 12_000) : null;
+    // After hang-up, long enough for the final talk time to land; a row
+    // that has not come is asked for as long as the panel is open.
+    const stop =
+      ended && hasRow ? setTimeout(() => clearInterval(id), 12_000) : null;
     return () => {
       clearTimeout(first);
       clearInterval(id);
       if (stop) clearTimeout(stop);
     };
-  }, [load, ended]);
+  }, [load, ended, hasRow]);
 
   useEffect(() => {
     if (!accountId || !calls.userId) return;
@@ -268,32 +282,6 @@ function Panel() {
     });
   }, [row, pickedId, calls, p.key, load]);
 
-  const patch = useCallback(
-    (body: object) => {
-      if (!row) return Promise.resolve(false);
-      setSave('saving');
-      const run = chain.current.then(async () => {
-        const r = await fetch(`/api/pbx/calls/${row.id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        }).catch(() => null);
-        setSave(r?.ok ? 'saved' : 'failed');
-        return Boolean(r?.ok);
-      });
-      chain.current = run;
-      return run;
-    },
-    [row]
-  );
-
-  const onNotes = (v: string) => {
-    setNotes(v);
-    setSave('idle');
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => void patch({ notes: v }), 800);
-  };
-
   const act = async (
     sp: () => Promise<void>,
     action: Parameters<typeof calls.control>[1]
@@ -322,32 +310,52 @@ function Panel() {
 
   // `auto`: the wrap-up's own close. A ticked call card that will not
   // post is retried, then the panel closes anyway with the error showing
-  // (the outcome and notes are on the call); a person's Close stays open
-  // on failure, to try again.
+  // (the outcome and notes are on the call, or kept by `leaving`); a
+  // person's Close stays open on failure, to try again.
   const close = async (auto = false) => {
     if (needsOutcome(calls.settings.mandatoryDisposition, outcome)) {
       setBlocked(true);
       return;
     }
-    if (timer.current) {
-      clearTimeout(timer.current);
-      await patch({ notes });
-    }
-    await chain.current;
+    await note.save();
+    const decision = closeDecision(note.get(), auto);
+    setStayed(decision === 'stay');
+    if (decision === 'stay') return;
     // A card (103): its details reach only colleagues who may see the
     // call, so the post's own text names nothing of the customer.
     const callId = row?.id;
     if (share && channelId) {
+      const body = t('shareCardBody');
+      const clientId = shareIds.idFor(channelId, {
+        body,
+        fileIds: callId ? [callId] : [],
+        replyToId: null,
+        threadRootId: null,
+      });
       const shared =
         !!callId &&
         (await tryTimes(auto ? AUTO_SHARE_TRIES : 1, () =>
-          shareCall(sb, { channelId, callId, body: t('shareCardBody') })
+          shareCall(sb, { channelId, callId, body, clientId })
         ));
       if (!shared) {
-        toast.error(t(auto ? 'shareFailedClosed' : 'shareFailed'));
+        toast.error(
+          t(auto && decision === 'close' ? 'shareFailedClosed' : 'shareFailed')
+        );
         if (!auto) return;
       }
     }
+    if (decision === 'keep') leaving('tried');
+    calls.closePanel(p.key);
+  };
+  // The way out of a call that takes no note any more (erased, or no
+  // longer this person's to write on). Posts no call card: that may be
+  // refused too.
+  const closeUnsaved = () => {
+    if (needsOutcome(calls.settings.mandatoryDisposition, outcome)) {
+      setBlocked(true);
+      return;
+    }
+    leaving('discard');
     calls.closePanel(p.key);
   };
 
@@ -423,6 +431,30 @@ function Panel() {
       ? formatTimer(Math.ceil(wrapLeft / 1000) * 1000)
       : null;
 
+  const choice =
+    'border-border hover:bg-muted rounded-md border px-3 py-1 text-sm font-medium';
+  const copy = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success(t('noteCopied'));
+    } catch {
+      toast.error(t('noteCopyFailed'));
+    }
+  };
+  // Why the outcome or note is not saved; shown on every tab.
+  const unsaved = !isUnsaved(draft)
+    ? null
+    : draft.failed === 'refused'
+      ? t('unsavedRefused')
+      : draft.failed === 'lost'
+        ? t('unsavedLost')
+        : !stayed
+          ? null
+          : draft.conflict
+            ? t('unsavedConflict')
+            : row
+              ? t('unsavedLost')
+              : t('unsavedNoCall');
   const notesPanel = (
     <div className="space-y-4">
       <div role="radiogroup" aria-label={t('outcome')}>
@@ -436,9 +468,9 @@ function Panel() {
               aria-checked={outcome === o}
               onClick={() => {
                 const next = outcome === o ? null : o;
-                setOutcome(next);
                 setBlocked(false);
-                void patch({ disposition: next });
+                setStayed(false);
+                note.edit((d) => onOutcome(d, next), 'now');
               }}
               className={cn(
                 'rounded-full border px-3 py-1 text-sm transition-colors',
@@ -461,23 +493,94 @@ function Panel() {
         <span className="flex justify-between text-sm font-medium">
           {t('notes')}
           <span className="text-muted-foreground text-xs font-normal">
-            {save === 'saving'
+            {draft.saving
               ? t('saving')
-              : save === 'saved'
-                ? t('saved')
-                : save === 'failed'
-                  ? t('notSaved')
-                  : ''}
+              : draft.failed || draft.conflict
+                ? t('notSaved')
+                : isUnsaved(draft)
+                  ? row
+                    ? ''
+                    : t('noteQueued')
+                  : saved
+                    ? t('saved')
+                    : ''}
           </span>
         </span>
         <textarea
           value={notes}
           maxLength={4000}
-          onChange={(e) => onNotes(e.target.value)}
+          onChange={(e) => {
+            const text = e.target.value;
+            setStayed(false);
+            note.edit((d) => onNotes(d, text));
+          }}
           placeholder={t('notesPlaceholder')}
           className="border-input bg-card dark:bg-input/30 mt-1 min-h-20 w-full rounded-lg border p-2 text-sm"
         />
       </label>
+      {loadFailed && !row && (
+        <p role="alert" className="text-destructive text-xs">
+          {t('noteLoadFailed')}{' '}
+          <button
+            type="button"
+            className="font-medium underline"
+            onClick={() => void load()}
+          >
+            {t('retry')}
+          </button>
+        </p>
+      )}
+      {draft.conflict && (
+        <div
+          role="alert"
+          className="border-warning/40 bg-warning-soft space-y-2 rounded-lg border p-3 text-sm"
+        >
+          <p className="font-medium">{t('noteConflict')}</p>
+          {(
+            [
+              ['noteMine', notes],
+              ['noteTheirs', draft.conflict.theirs ?? ''],
+            ] as const
+          ).map(([label, text]) => (
+            <div key={label}>
+              <p className="text-muted-foreground flex justify-between text-xs">
+                {t(label)}
+                {text && (
+                  <button
+                    type="button"
+                    className="underline"
+                    onClick={() => void copy(text)}
+                  >
+                    {t('noteCopy')}
+                  </button>
+                )}
+              </p>
+              <p
+                dir="auto"
+                className="max-h-24 overflow-y-auto break-words whitespace-pre-wrap"
+              >
+                {text || t('noteEmpty')}
+              </p>
+            </div>
+          ))}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className={choice}
+              onClick={() => note.edit(keepMine, 'now')}
+            >
+              {t('noteKeepMine')}
+            </button>
+            <button
+              type="button"
+              className={choice}
+              onClick={() => note.edit(keepTheirs, 'now')}
+            >
+              {t('noteKeepTheirs')}
+            </button>
+          </div>
+        </div>
+      )}
       <FollowUpReminder
         contactId={visibleId}
         conversationId={facts?.conversationId ?? null}
@@ -522,6 +625,7 @@ function Panel() {
       panel: (
         <CustomerTab
           facts={facts}
+          onRetryFacts={retryFacts}
           contactId={contactId}
           now={now}
           onCreate={
@@ -617,7 +721,7 @@ function Panel() {
           <div
             {...handleProps}
             className={cn(
-              'flex h-12 items-center gap-2 pe-1.5 ps-3',
+              'flex h-12 items-center gap-2 ps-3 pe-1.5',
               handleRing
             )}
           >
@@ -931,6 +1035,37 @@ function Panel() {
               {x.panel}
             </div>
           ))}
+          {unsaved && (
+            <div
+              role="alert"
+              className="text-destructive bg-destructive-soft shrink-0 space-y-2 border-t p-3 text-sm"
+            >
+              <p>{unsaved}</p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={draft.saving}
+                  className={choice}
+                  onClick={() => {
+                    if (!row) void load();
+                    if (draft.conflict) setTab('notes');
+                    void note.save();
+                  }}
+                >
+                  {t('retry')}
+                </button>
+                {stayed && (ended || calls.closable) && (
+                  <button
+                    type="button"
+                    className={choice}
+                    onClick={closeUnsaved}
+                  >
+                    {t('closeUnsaved')}
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
           {/* A live call has no Close, unless its hang-up may be lost. */}
           {(ended || calls.closable) && (
             <div className="shrink-0 border-t p-3">
@@ -952,11 +1087,13 @@ function Panel() {
 /** The Customer tab: what useCallFacts knows, and where to go next. */
 function CustomerTab({
   facts,
+  onRetryFacts,
   contactId,
   onCreate,
   now,
 }: {
   facts: CallFacts | null;
+  onRetryFacts: () => void;
   contactId: string | null;
   /** Create contact for an unknown caller; null without send-messages. */
   onCreate: (() => void) | null;
@@ -965,6 +1102,8 @@ function CustomerTab({
   const calls = useCalls()!;
   const t = useTranslations('PbxCall');
   const ownedBy = otherOwner(facts?.ownerId, calls.userId);
+  // "None" only when it was read.
+  const none = facts?.incomplete ? '—' : t('none');
   const owner = facts?.ownerId
     ? facts.ownerId === calls.userId
       ? t('you', { name: calls.names[facts.ownerId] ?? '' })
@@ -1004,13 +1143,13 @@ function CustomerTab({
       {facts && (
         <dl className="bg-card-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 rounded-lg border p-3 text-xs">
           {fact(t('owner'), owner)}
-          {!facts.hidden && fact(t('openDeal'), facts.deal ?? t('none'))}
+          {!facts.hidden && fact(t('openDeal'), facts.deal ?? none)}
           {!facts.hidden &&
             fact(
               t('lastWhatsApp'),
               facts.last
                 ? `${messageWhen(facts.last.at, now)} — “${facts.last.text}”`
-                : t('none')
+                : none
             )}
           {fact(
             t('consent'),
@@ -1023,7 +1162,8 @@ function CustomerTab({
               marketingOff: t('marketingOff'),
             })
           )}
-          {facts.hidden && (
+          {facts.incomplete && <FactsIncomplete onRetry={onRetryFacts} />}
+          {facts.hidden && !facts.incomplete && (
             <p className="text-muted-foreground col-span-2 mt-1">
               {t('detailsHidden')}
             </p>

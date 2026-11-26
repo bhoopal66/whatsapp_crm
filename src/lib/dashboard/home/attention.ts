@@ -1,17 +1,6 @@
 import type { InboxRow } from '@/lib/cases/ui';
-import {
-  inMainInbox,
-  type DepartmentChatRow,
-  type InboxDepartment,
-} from '@/lib/inbox/departments';
-import {
-  isOthersPersonalChat,
-  type PersonalChatRow,
-} from '@/lib/inbox/personal-chats';
-import {
-  inCampaignInbox,
-  type CampaignInboxFields,
-} from '@/lib/inbox/campaign-inbox';
+import type { InboxDepartment } from '@/lib/inbox/departments';
+import { isListedInInbox, type ListedChatRow } from '@/lib/inbox/listed';
 
 // ------------------------------------------------------------
 // The "Needs your attention" strip's counts and tile states.
@@ -28,9 +17,7 @@ import {
  * `ownDepartment`.
  */
 export function countInboxUnread(
-  rows: readonly (CampaignInboxFields &
-    PersonalChatRow &
-    DepartmentChatRow & { unread_count?: number | null })[],
+  rows: readonly (ListedChatRow & { unread_count?: number | null })[],
   aiLive: boolean,
   userId: string | null,
   wideView = false,
@@ -39,9 +26,8 @@ export function countInboxUnread(
   let n = 0;
   for (const row of rows) {
     if ((row.unread_count ?? 0) <= 0) continue;
-    if (inCampaignInbox(row, aiLive)) continue;
-    if (!wideView && isOthersPersonalChat(row, userId)) continue;
-    if (!inMainInbox(row, userId, ownDepartment)) continue;
+    if (!isListedInInbox(row, aiLive, userId, wideView, ownDepartment))
+      continue;
     n += 1;
   }
   return n;

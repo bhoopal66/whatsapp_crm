@@ -37,6 +37,7 @@ import {
   runMessage,
 } from '@/lib/hr/agents/panel';
 import type { DraftStatus } from '@/lib/hr/agents/types';
+import { dateFnsLocale } from '@/i18n/ui-locale';
 
 const PILL =
   'inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium';
@@ -108,6 +109,7 @@ export function HrAgentDraftList({
               <span className="text-muted-foreground ms-auto text-xs">
                 {formatDistanceToNow(new Date(d.created_at), {
                   addSuffix: true,
+                  locale: dateFnsLocale(),
                 })}
               </span>
             </div>

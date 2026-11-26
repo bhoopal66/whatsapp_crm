@@ -14,6 +14,8 @@ export interface FakeDb {
   rpc?: Record<string, (args: Row) => { data?: unknown; error?: unknown }>;
   /** Table → primary-key columns an insert may not repeat (23505). */
   unique?: Record<string, string[]>;
+  /** Rows one read answers at most, as PostgREST's cap. */
+  maxRows?: number;
   /** Every write, in order: [table, op, values]. */
   writes?: [table: string, op: string, values: unknown][];
 }
@@ -22,6 +24,27 @@ type Op = 'select' | 'update' | 'insert' | 'upsert' | 'delete';
 
 let seq = 0;
 
+/** Splits at the commas outside parentheses and quotes. */
+const splitGroup = (group: string) =>
+  group.match(/(?:"[^"]*"|\([^)]*\)|[^,])+/g) ?? [];
+
+function groupTerm(term: string): (r: Row) => boolean {
+  const and = term.match(/^and\((.*)\)$/);
+  if (and) {
+    const all = splitGroup(and[1]).map(groupTerm);
+    return (r) => all.every((t) => t(r));
+  }
+  const m = term.match(/^(\w+)\.(lt|eq)\."?([^"]*)"?$/);
+  if (!m) throw new Error(`test-db: unsupported or() term ${term}`);
+  const [, col, op, v] = m;
+  return (r) => (op === 'lt' ? String(r[col]) < v : String(r[col]) === v);
+}
+
+function orGroup(group: string): (r: Row) => boolean {
+  const any = splitGroup(group).map(groupTerm);
+  return (r) => any.some((t) => t(r));
+}
+
 class FakeQuery {
   private preds: ((r: Row) => boolean)[] = [];
   private op: Op = 'select';
@@ -29,6 +52,7 @@ class FakeQuery {
   private returning = false;
   private orderBy: [string, boolean][] = [];
   private max: number | null = null;
+  private from = 0;
   private counting = false;
   private head = false;
   private conflict: string[] = [];
@@ -74,12 +98,29 @@ class FakeQuery {
       (x) => x != null && Date.parse(String(x)) >= Date.parse(v)
     );
   }
+  lte(col: string, v: string) {
+    return this.where(
+      col,
+      (x) => x != null && Date.parse(String(x)) <= Date.parse(v)
+    );
+  }
+  /** `col.op.value` and `and(...)` groups; lt and eq only. */
+  or(group: string) {
+    const test = orGroup(group);
+    this.preds.push(test);
+    return this;
+  }
   order(col: string, opts: { ascending?: boolean } = {}) {
     this.orderBy.push([col, opts.ascending !== false]);
     return this;
   }
   limit(n: number) {
     this.max = n;
+    return this;
+  }
+  range(from: number, to: number) {
+    this.from = from;
+    this.max = to - from + 1;
     return this;
   }
   update(v: Row) {
@@ -174,7 +215,8 @@ class FakeQuery {
         return (x < y ? -1 : x > y ? 1 : 0) * (asc ? 1 : -1);
       });
     }
-    if (this.max !== null) view = view.slice(0, this.max);
+    const cap = Math.min(this.max ?? Infinity, this.db.maxRows ?? Infinity);
+    view = view.slice(this.from, this.from + cap);
     if (this.counting) {
       return { data: this.head ? null : view, error: null, count: view.length };
     }

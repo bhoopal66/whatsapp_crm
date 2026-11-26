@@ -1,6 +1,13 @@
 'use client';
 
-import { useCallback, useLayoutEffect, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
+import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 import { Eye, Loader2, Lock, MessageSquareOff } from 'lucide-react';
 import { toast } from 'sonner';
@@ -12,6 +19,7 @@ import {
 import { MessageList } from '@/components/submission-groups/message-list';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/use-auth';
+import { usePageVisible } from '@/hooks/use-page-visible';
 import type { CaseTabProps } from '@/lib/cases/case-page';
 import {
   composerDone,
@@ -20,6 +28,14 @@ import {
   sendResultMessageKey,
   type CaseConversation,
 } from '@/lib/cases/case-tabs';
+import {
+  canRefresh,
+  CONVERSATION_PROBE_MS,
+  ConversationRefresh,
+  mergeConversation,
+  type ConversationAnswer,
+} from '@/lib/cases/conversation-refresh';
+import { bottomGap, isNearBottom } from '@/lib/inbox/thread-scroll';
 import { ownSendStored } from '@/lib/submission-groups/ui';
 
 import { sendCaseRequest } from './case-dialogs';
@@ -31,7 +47,9 @@ type State = 'gated' | 'loading' | 'ok' | 'notReadable' | 'error';
  * for supervisors, so nothing is fetched until the reader asks. An ended
  * group is read-only; an active one gets the group composer (text, files,
  * voice notes) for case writers. A submission opened without a WhatsApp
- * group (136) gets neither.
+ * group (136) gets neither. While it is open and on screen an active group
+ * is asked for news, without an audit row, and read again when there is
+ * some (`ConversationRefresh`).
  */
 export function ConversationTab({ caseId, detail }: CaseTabProps) {
   const t = useTranslations('CasePage');
@@ -39,41 +57,100 @@ export function ConversationTab({ caseId, detail }: CaseTabProps) {
   const [convo, setConvo] = useState<CaseConversation | null>(null);
   const userId = useAuth().user?.id ?? null;
   const scrollRef = useRef<HTMLDivElement>(null);
+  const atBottom = useRef(true);
+  const [refresh] = useState(() => new ConversationRefresh());
+  // Found ended by a background read: the composer stays (it may hold
+  // unsent text and files) until the person's next send.
+  const [endedInView, setEndedInView] = useState(false);
+
+  const read = useCallback(async (): Promise<ConversationAnswer> => {
+    try {
+      const res = await fetch(`/api/cases/${caseId}/conversation`, {
+        cache: 'no-store',
+      });
+      const json: unknown = await res.json().catch(() => null);
+      if (res.ok) return { kind: 'ok', convo: parseConversation(json) };
+      if (
+        res.status === 404 &&
+        (json as { code?: unknown } | null)?.code === 'NOT_READABLE'
+      )
+        return { kind: 'notReadable' };
+    } catch {
+      /* failed */
+    }
+    return { kind: 'failed' };
+  }, [caseId]);
 
   /** What was read, or null. */
   const load = useCallback(
     async (quiet = false): Promise<CaseConversation | null> => {
       if (!quiet) setState('loading');
-      try {
-        const res = await fetch(`/api/cases/${caseId}/conversation`, {
-          cache: 'no-store',
-        });
-        const json: unknown = await res.json().catch(() => null);
-        if (res.ok) {
-          const read = parseConversation(json);
-          setConvo(read);
-          setState('ok');
-          return read;
-        }
-        if (
-          res.status === 404 &&
-          (json as { code?: unknown } | null)?.code === 'NOT_READABLE'
-        ) {
-          setState('notReadable');
-        } else if (!quiet) setState('error');
-      } catch {
+      const mine = refresh.start();
+      const answer = await read();
+      if (answer.kind === 'failed') {
         if (!quiet) setState('error');
+        return null;
       }
-      return null;
+      const ok = answer.kind === 'ok';
+      if (refresh.settle(mine, ok)) {
+        if (ok) {
+          setConvo(answer.convo);
+          setEndedInView(false);
+        }
+        setState(ok ? 'ok' : 'notReadable');
+      }
+      return ok ? answer.convo : null;
     },
-    [caseId]
+    [read, refresh]
   );
 
-  // Newest at the bottom: follow it whenever the list changes.
+  // Newest at the bottom: follow it, unless the reader scrolled away.
+  const shown = useRef(convo);
   useLayoutEffect(() => {
+    shown.current = convo;
     const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (el && atBottom.current) el.scrollTop = el.scrollHeight;
   }, [convo]);
+
+  const visible = usePageVisible();
+  const wasHidden = useRef(false);
+  const refreshing = state === 'ok' && canRefresh(convo);
+  useEffect(() => {
+    if (!visible) {
+      wasHidden.current = true;
+      return;
+    }
+    const back = wasHidden.current;
+    wasHidden.current = false;
+    if (!refreshing) return;
+    let active = true;
+    const tick = () => {
+      if (!shown.current) return;
+      void refresh.tick({
+        shown: shown.current,
+        probe: async (since) => {
+          const res = await fetch(
+            `/api/cases/${caseId}/conversation?since=${encodeURIComponent(since)}`,
+            { cache: 'no-store' }
+          );
+          const json = (await res.json()) as { changed?: unknown };
+          return res.ok && json.changed === true;
+        },
+        read,
+        active: () => active,
+        show: (fresh) => {
+          setConvo((prev) => (prev ? mergeConversation(prev, fresh) : fresh));
+          if (fresh.archived) setEndedInView(true);
+        },
+      });
+    };
+    if (back) tick();
+    const timer = setInterval(tick, CONVERSATION_PROBE_MS);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [visible, refreshing, caseId, read, refresh]);
 
   /** Sends, and says how it went. False gives it back to the composer. */
   const post = async (
@@ -91,6 +168,7 @@ export function ConversationTab({ caseId, detail }: CaseTabProps) {
     else if (key === 'sentNotRecorded')
       toast.warning(t('conversation.send.sentNotRecorded'));
     else toast.error(t(`conversation.send.${key}`));
+    atBottom.current = true;
     const now = await load(true);
     return composerDone({
       status: res.status,
@@ -170,6 +248,9 @@ export function ConversationTab({ caseId, detail }: CaseTabProps) {
       )}
       <div
         ref={scrollRef}
+        onScroll={(e) => {
+          atBottom.current = isNearBottom(bottomGap(e.currentTarget));
+        }}
         className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3"
       >
         {messages.length === 0 ? (
@@ -177,15 +258,36 @@ export function ConversationTab({ caseId, detail }: CaseTabProps) {
             {t(noGroup ? 'conversation.noGroup' : 'conversation.empty')}
           </p>
         ) : (
-          <MessageList messages={messages} />
+          <>
+            {convo?.truncated && convo.groupId && (
+              <p className="text-muted-foreground text-center text-xs">
+                {t.rich('conversation.olderNotShown', {
+                  link: (chunks) => (
+                    <Link
+                      href={`/submission-groups/${convo.groupId}`}
+                      className="text-primary underline"
+                    >
+                      {chunks}
+                    </Link>
+                  ),
+                })}
+              </p>
+            )}
+            <MessageList messages={messages} />
+          </>
         )}
       </div>
 
-      {!archived &&
+      {(!archived || endedInView) &&
         !noGroup &&
         (detail.permissions.canWrite ? (
           <GroupComposer
             chatKey={`case:${caseId}`}
+            chatName={
+              detail.case.contactName ||
+              detail.case.submissionRef ||
+              t('untitled')
+            }
             userId={userId}
             onSendText={(text) => post({ text })}
             onSendMedia={(media) => post({ media })}

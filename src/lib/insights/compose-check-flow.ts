@@ -369,6 +369,26 @@ export function parkIfFree<R, A>(
 }
 
 /**
+ * Park a text that was written for an empty box (a late AI draft), unless
+ * that chat has words parked already: those win. Whether it was parked.
+ */
+export function parkTextIfNone<R, A>(
+  stash: ParkedDrafts<R, A>,
+  conversationId: string,
+  text: string
+): boolean {
+  const prev = stash.get(conversationId);
+  if (prev && hasText(prev)) return false;
+  parkDraft(stash, conversationId, {
+    text,
+    origin: null,
+    reply: null,
+    attachment: null,
+  });
+  return true;
+}
+
+/**
  * Empty the stash and return the attachments it held, which nothing owns
  * any more (the caller deletes their objects).
  */

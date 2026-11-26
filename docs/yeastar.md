@@ -150,10 +150,12 @@ One PBX can serve several workspaces.
 - Recordings sit in a private bucket. Every play is logged, and the
   owner can erase a customer's call records on request, unless a
   recording is under legal hold. The erasure takes every call of the
-  workspace that is linked to the customer, that listed them as a
-  possible match, or that came from their number (matched as incoming
-  calls are, so also calls from before the contact existed). It deletes
-  the recordings and clears the notes, the outcome, the caller's number,
+  workspace that is linked to the customer and, of the calls linked to
+  nobody, each one that listed them as a possible match or came from
+  their number (matched as incoming calls are, so also calls from before
+  the contact existed). A call linked to another customer is never
+  taken. It deletes the recordings, with their references on deals,
+  and clears the notes, the outcome, the caller's number,
   the recording's file name and the match details. What stays is the
   bare call: time, duration, extension, direction and status. Audio the
   erasure could not delete at once is swept by the phone-system cron
@@ -181,6 +183,17 @@ workspace; errors are `{ error }`):
 | `GET/PUT /api/pbx/routes`                                      | `{ routes: [{ didNumber, nameOnPbx?, accountId }] }`, replaces the list |
 | `GET/PUT /api/pbx/settings`                                    | Recording and missed-call settings                                      |
 | `GET/PUT /api/pbx/bank-numbers`                                | `{ bankNumbers }`; PUT adds `loaded`, deletes only those removed        |
+
+**Where the PBX may be.** The server calls the address a workspace admin
+saves, so `PUT /api/pbx/connection` and the test refuse a private,
+loopback, link-local or internal address (the cloud metadata address,
+the internal Supabase host, another container) with the same rules as
+outbound webhooks. A public Yeastar Cloud or a PBX on a public address
+needs nothing. An on-premises PBX on the office network does: list its
+host (or `host:port`) in `PBX_ALLOWED_HOSTS`, comma-separated, on the
+server. That is the operator's decision, not a workspace admin's. The
+check is made on the name when it is saved and tested; it does not pin
+the address a later call connects to, nor what that host redirects to.
 
 ## 6. Live events
 
@@ -459,8 +472,9 @@ run.
 
 **Calls whose events were lost.** At most every 15 minutes the cron also
 reads the last hour of call records and adds the calls the CRM has no
-trace of (the PBX could not reach it), once they have been over for 10
-minutes. They are added quietly, except that a customer call nobody
+trace of (the PBX could not reach it), or still shows ringing or in
+progress although the PBX no longer has them up, once they have been
+over for 10 minutes. They are added quietly, except that a customer call nobody
 answered that ended within the hour opens its usual missed-call task and
 bell, once. Calls that started over an hour ago are not found this way:
 the gateway's backfill or the CDR import below covers them.

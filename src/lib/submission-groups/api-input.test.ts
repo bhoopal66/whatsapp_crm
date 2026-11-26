@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { WhatsAppChannel } from '@/lib/whatsapp/channels';
 import {
   chooseHostingNumber,
@@ -226,6 +226,20 @@ describe('parsePatchInput', () => {
       },
     });
     expect(parsePatchInput({ status: ' ', stage: 'Submitted' }).ok).toBe(false);
+  });
+
+  it('a changed_at from the future counts as now', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime('2026-11-24T10:00:00.000Z');
+    const at = (changed_at: string) => {
+      const r = parsePatchInput({ changed_at });
+      return r.ok ? r.value.sync?.changedAt : r;
+    };
+    expect(at('2026-11-24T13:59:00+04:00')).toBe('2026-11-24T09:59:00.000Z');
+    // A local time without its zone, four hours ahead; a wrong year.
+    expect(at('2026-11-24T14:00:00')).toBe('2026-11-24T10:00:00.000Z');
+    expect(at('2062-11-24T10:00:00Z')).toBe('2026-11-24T10:00:00.000Z');
+    vi.useRealTimers();
   });
 
   it('refuses malformed sync keys with a 400 message naming the field', () => {
@@ -525,5 +539,24 @@ describe('coordinatorPhoneList (142)', () => {
     expect(coordinatorPhoneList(bank, null, '971501234567')).toEqual(
       bank.slice(0, 5)
     );
+  });
+});
+
+describe('chooseHostingNumber: a limited number nobody is left on (314)', () => {
+  it('is not shared with an agent; an admin may use it', () => {
+    const channels = [
+      { ...ch('w-limited', 'whapi', true), accessRestricted: true },
+    ];
+    const pick = (agentRole: string, requestedId: string | null) =>
+      chooseHostingNumber({
+        channels,
+        members: [],
+        agentUserId: 'u1',
+        agentRole,
+        requestedId,
+      }).ok;
+    expect(pick('agent', null)).toBe(false);
+    expect(pick('agent', 'w-limited')).toBe(false);
+    expect(pick('admin', 'w-limited')).toBe(true);
   });
 });

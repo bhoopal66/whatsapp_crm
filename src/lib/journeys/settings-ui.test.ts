@@ -93,6 +93,27 @@ describe('templateChecklist', () => {
     expect(item(items, 'pos_quote').meta).toBe('pending');
   });
 
+  it('never calls a row Meta refused approved, and says why', () => {
+    const refused = {
+      name: 'pos_quote',
+      language: 'en_US',
+      status: 'APPROVED',
+      submission_error: 'Invalid parameter',
+      created_at: '2026-11-20T00:00:00Z',
+    };
+    expect(
+      item(templateChecklist(DEF, [refused], ['meta']), 'pos_quote')
+    ).toMatchObject({ meta: 'notApproved', metaRefusal: 'Invalid parameter' });
+    // A teammate's approved copy is the row a send uses.
+    const items = templateChecklist(
+      DEF,
+      [refused, { ...refused, submission_error: null, meta_template_id: 'M1' }],
+      ['meta']
+    );
+    expect(item(items, 'pos_quote').meta).toBe('approved');
+    expect(item(items, 'pos_quote').metaRefusal).toBeUndefined();
+  });
+
   it('counts any row as present on Whapi, whatever its status', () => {
     const items = templateChecklist(
       DEF,

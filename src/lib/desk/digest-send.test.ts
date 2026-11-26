@@ -48,7 +48,7 @@ const CONV = {
 };
 
 // Rows carry only the columns asked for, as PostgREST's would.
-function db() {
+function db(failing: string | null = null) {
   const from = (table: string) => {
     const row: Record<string, unknown> =
       table === 'contacts'
@@ -57,12 +57,15 @@ function db() {
           ? { id: 'm1' }
           : CONV;
     let cols: string[] = [];
-    const read = async () => ({
-      data: Object.fromEntries(
-        Object.entries(row).filter(([k]) => cols.includes(k))
-      ),
-      error: null,
-    });
+    const read = async () =>
+      table === failing
+        ? { data: null, error: { code: '57014' } }
+        : {
+            data: Object.fromEntries(
+              Object.entries(row).filter(([k]) => cols.includes(k))
+            ),
+            error: null,
+          };
     const q = {
       select: (c: string) => {
         cols = c.split(',').map((x) => x.trim());
@@ -126,4 +129,25 @@ describe('sendDeskDigest', () => {
       expect(h.sendText).not.toHaveBeenCalled();
     }
   );
+
+  it.each(['conversations', 'contacts'])(
+    'a failed read of %s is not a bad number',
+    async (table) => {
+      await expect(sendDeskDigest(db(table), CLAIM)).rejects.toMatchObject({
+        name: 'DigestRefusal',
+        code: 'read_failed',
+      });
+      expect(h.sendText).not.toHaveBeenCalled();
+    }
+  );
+
+  it('logs a sent digest that could not be recorded', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(await sendDeskDigest(db('messages'), CLAIM)).toEqual({
+      providerMessageId: 'w1',
+      messageId: null,
+    });
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('57014'));
+    log.mockRestore();
+  });
 });

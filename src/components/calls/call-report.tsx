@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 
 import { useAuth } from '@/hooks/use-auth';
 import { hasMinRole } from '@/lib/auth/roles';
+import { DEFAULT_TIME_ZONE } from '@/lib/pbx/call-status';
 import {
   CALL_REPORT_PERIODS,
   averageSeconds,
@@ -31,10 +32,6 @@ export function CallReport() {
   const tOutcome = useTranslations('PbxCall.outcomes');
   const locale = useLocale();
   const { accountRole, reviewsAllCalls } = useAuth();
-  const viewerZone = useMemo(
-    () => Intl.DateTimeFormat().resolvedOptions().timeZone,
-    []
-  );
   const [period, setPeriod] = useState<CallReportPeriod>('month');
   const [draft, setDraft] = useState({ from: '', to: '' });
   const [custom, setCustom] = useState<{ from: string; to: string } | null>(
@@ -52,7 +49,9 @@ export function CallReport() {
   useEffect(() => {
     if (!query) return;
     let cancelled = false;
-    fetch(`/api/pbx/calls/report?${query}&tz=${encodeURIComponent(viewerZone)}`)
+    fetch(
+      `/api/pbx/calls/report?${query}&tz=${encodeURIComponent(DEFAULT_TIME_ZONE)}`
+    )
       .then(async (r) => {
         if (!r.ok) throw new Error(r.status === 403 ? 'forbidden' : 'failed');
         return r.json();
@@ -71,7 +70,7 @@ export function CallReport() {
     return () => {
       cancelled = true;
     };
-  }, [query, viewerZone]);
+  }, [query]);
 
   const current = query && loaded?.key === query ? loaded : null;
   const problem = checkCustomDays(draft.from, draft.to);
@@ -87,9 +86,7 @@ export function CallReport() {
     const outcomes = outcomeCounts(f);
     return (
       <>
-        <td className="px-3 py-2 text-end tabular-nums">
-          {f.inboundAnswered}
-        </td>
+        <td className="px-3 py-2 text-end tabular-nums">{f.inboundAnswered}</td>
         <td className="px-3 py-2 text-end tabular-nums">{f.outbound}</td>
         <td className="px-3 py-2 text-end tabular-nums">{f.missed}</td>
         <td className="px-3 py-2 text-end tabular-nums">
@@ -183,7 +180,7 @@ export function CallReport() {
       ) : !report || !hasCalls(report.total) ? (
         <p className="text-muted-foreground text-sm">{t('empty')}</p>
       ) : (
-        <section className="border-border bg-card overflow-x-auto rounded-xl border">
+        <section className="border-border bg-card relative overflow-x-auto rounded-xl border">
           <table className="w-full min-w-[48rem] text-sm">
             <thead className="text-muted-foreground border-border border-b text-xs">
               <tr>

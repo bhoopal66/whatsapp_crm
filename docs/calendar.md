@@ -26,6 +26,12 @@ API refuses anyone else with 403 _Only the organiser can change this
 event_; the database refuses them as well (RLS), so a direct write
 changes nothing either.
 
+**A leaver's event.** When the organiser has been deactivated or is no
+longer a member, owners and admins may delete the event, or cancel one
+date of a series (migration 278). They still can't edit it, and a
+private event stays out of reach. The API's `canDelete` says which;
+`canEdit` stays the organiser's.
+
 **Meetings** keep their own rules (`docs/meetings.md`): the host edits a
 meeting (title, time, invitees); owners and admins can still end or
 cancel one, but not edit it. The calendar only shows them.
@@ -40,7 +46,12 @@ attendee may change only their own answer and reminders.
 
 Changing an event's title, time, place or repeat rule rings every
 attendee (`calendar_update`); cancelling or deleting it rings them
-`calendar_cancelled`. Removing someone from the list deletes their row.
+`calendar_cancelled`. Removing someone from the list deletes their row
+and rings them `calendar_cancelled` ("You are no longer invited"); so
+does leaving them out of one date of a series, for that date only. A
+series whose first date is past is called "Repeating event", without a
+date. An event that is over, or a date that is, rings nobody. Migration
+278.
 
 ## Reminders
 
@@ -92,12 +103,13 @@ on `lib/reminders/alarm.ts`.
 
 A repeating event is one row with an RFC 5545 repeat rule (daily,
 weekly, monthly, yearly; an end date or a count), expanded in the app,
-never stored per occurrence. When the organiser changes or deletes one
-occurrence they choose:
+never stored per occurrence. Whoever changes or deletes one
+occurrence chooses:
 
 - **This event**: a delete adds the occurrence's original start to the
   series' exceptions (`exdates`) and rings every attendee
-  `calendar_cancelled` for that date (`calendar_cancel_occurrence`). A
+  `calendar_cancelled` for that date, unless it is over
+  (`calendar_cancel_occurrence`). A
   change makes a standalone copy of the occurrence with the change
   applied and adds the exception in one database transaction
   (`calendar_split_occurrence`): attendees keep their answers and get
@@ -139,5 +151,8 @@ everything in the viewer's zone.
 | PUT    | `/api/calendar/events/[id]/response` | `{ response, reminders? }`                                                | `{ ok: true, response }`                                               |
 
 `start`, `end`, `allDay` and `timeZone` are always sent together.
+`moveSeries: true` marks a drag of all events: cancelled dates move too.
+A series whose first date is not one of its repeat days is a 400, unless
+it was stored that way and the change leaves both, or drags them together.
 Errors are `{ error }`: 400 invalid input, 403 not the organiser, 404
 not visible, 409 changed elsewhere.

@@ -16,8 +16,9 @@
 //
 // PATCH: any of bank_code / product / amount (setDetails), priority,
 // due_at (ISO string, or null to clear). Applied in that order, each its
-// own RPC; a refusal part-way leaves the earlier ones applied. Answers
-// the fresh case.
+// own RPC; a priority or a date that is not valid is refused before the
+// first of them, but a refusal only the database can make part-way leaves
+// the earlier ones applied. Answers the fresh case.
 // ============================================================
 
 import { NextResponse } from 'next/server';
@@ -40,8 +41,8 @@ import {
   readJsonObject,
 } from '@/lib/cases/http';
 import { caseSlaStore, caseStore } from '@/lib/cases/server';
-import { CaseStoreError } from '@/lib/cases/store';
-import type { CasePriority } from '@/lib/cases/types';
+import { CaseRefusedError, CaseStoreError } from '@/lib/cases/store';
+import { PRIORITIES, type CasePriority } from '@/lib/cases/types';
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -147,9 +148,13 @@ function parsePatch(body: Record<string, unknown> | null): CasePatch {
   if (bankCode !== undefined) out.details.bankCode = bankCode;
   if (product !== undefined) out.details.product = product;
   if (amount !== undefined) out.details.amount = amount;
-  // A value outside the list is the database's PRIORITY_INVALID (422).
-  if (body.priority !== undefined)
-    out.priority = text('priority', (v) => parseText(v, 20)) as CasePriority;
+  if (body.priority !== undefined) {
+    const priority = text('priority', (v) => parseText(v, 20)) as CasePriority;
+    // The database's own refusal (422), before anything is written.
+    if (!PRIORITIES.includes(priority))
+      throw new CaseRefusedError('PRIORITY_INVALID');
+    out.priority = priority;
+  }
   if (body.due_at !== undefined)
     out.dueAt = optionalDate(body.due_at, 'due_at');
   if (

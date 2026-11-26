@@ -5,6 +5,8 @@ const mocks = vi.hoisted(() => ({
   loadAiConfig: vi.fn(),
   translateText: vi.fn(),
   logAiUsage: vi.fn(),
+  logFailedAiUsage: vi.fn(),
+  translationModel: vi.fn(),
   admin: null as unknown,
   limits: [] as string[],
 }));
@@ -27,9 +29,16 @@ vi.mock('@/lib/rate-limit', () => ({
 }));
 vi.mock('@/lib/ai/config', () => ({ loadAiConfig: mocks.loadAiConfig }));
 vi.mock('@/lib/ai/admin-client', () => ({ supabaseAdmin: () => mocks.admin }));
-vi.mock('@/lib/ai/translate', () => ({ translateText: mocks.translateText }));
-vi.mock('@/lib/ai/usage', () => ({ logAiUsage: mocks.logAiUsage }));
+vi.mock('@/lib/ai/translate', () => ({
+  translateText: mocks.translateText,
+  translationModel: mocks.translationModel,
+}));
+vi.mock('@/lib/ai/usage', () => ({
+  logAiUsage: mocks.logAiUsage,
+  logFailedAiUsage: mocks.logFailedAiUsage,
+}));
 
+import { AiError } from '@/lib/ai/types';
 import { POST } from './route';
 
 type Result = { data: unknown; error: unknown };
@@ -100,6 +109,8 @@ beforeEach(() => {
     usage: USAGE,
   });
   mocks.logAiUsage.mockReset().mockResolvedValue(undefined);
+  mocks.logFailedAiUsage.mockReset().mockResolvedValue(undefined);
+  mocks.translationModel.mockReset().mockReturnValue('claude-std');
   mocks.limits = [];
 });
 
@@ -123,6 +134,30 @@ describe('POST /api/ai/translate', () => {
     expect(res.status).toBe(400);
     expect((await res.json()).code).toBe('invalid_request');
     expect(mocks.translateText).not.toHaveBeenCalled();
+  });
+
+  it('logs the usage of a billed translation that failed, once, and still answers the error', async () => {
+    setup();
+    const err = new AiError('cut off', {
+      code: 'truncated',
+      status: 502,
+      usage: USAGE,
+    });
+    mocks.translateText.mockRejectedValue(err);
+    const res = await post(DRAFT);
+    expect(res.status).toBe(502);
+    expect((await res.json()).code).toBe('truncated');
+    expect(mocks.logFailedAiUsage).toHaveBeenCalledTimes(1);
+    const [, loggedErr, args] = mocks.logFailedAiUsage.mock.calls[0];
+    expect(loggedErr).toBe(err);
+    expect(args).toEqual({
+      accountId: ACCOUNT,
+      conversationId: CONV,
+      mode: 'translate',
+      provider: 'anthropic',
+      model: 'claude-std',
+    });
+    expect(mocks.logAiUsage).not.toHaveBeenCalled();
   });
 
   it('refuses a draft longer than WhatsApp allows', async () => {

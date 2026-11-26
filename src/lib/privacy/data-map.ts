@@ -90,6 +90,14 @@ export const PERSONAL: Readonly<Record<string, PersonalTable>> = {
     reason: CONSENT,
     exported: true,
   },
+  contact_suppressions: {
+    link: 'phone',
+    class: 'identifier',
+    erase: 'anonymise',
+    reason:
+      'opt-outs of numbers whose contact is gone, by keyed hash, and of numbers a contact left (contact_id): the erase drops who deleted it and whose it was, and keeps the hash and dates',
+    exported: true,
+  },
   conversations: {
     link: 'contact',
     class: 'content',
@@ -315,6 +323,22 @@ export const PERSONAL: Readonly<Record<string, PersonalTable>> = {
     erase: 'anonymise',
     exported: true,
   },
+  // 315: queued events, and delivered ones for 7 days: an opt-out carries
+  // the number, a lead the contact.
+  webhook_event_outbox: {
+    link: 'contact',
+    class: 'identifier',
+    erase: 'delete',
+    exported: true,
+  },
+  // 305: ids and a hash of the request, 30 days; also goes with its message.
+  // A broadcast's key names no contact.
+  v1_message_keys: {
+    link: 'contact',
+    class: 'identifier',
+    erase: 'delete',
+    exported: true,
+  },
   personal_history_import_chats: {
     link: 'phone',
     class: 'identifier',
@@ -400,6 +424,13 @@ export const PERSONAL: Readonly<Record<string, PersonalTable>> = {
     erase: 'retain',
     reason: KYC,
     exported: true,
+  },
+  case_doc_requests: {
+    link: 'case',
+    class: 'identifier',
+    erase: 'retain',
+    reason: AUDIT,
+    exported: false,
   },
   case_document_files: {
     link: 'case',
@@ -880,7 +911,7 @@ export const NOT_PERSONAL: Readonly<Record<string, string>> =
             'account_departments',
             'ai_configs',
             'ai_insight_settings',
-            // 278: the learn-from-team-answers switch and its last run.
+            // 290: the learn-from-team-answers switch and its last run.
             'kb_learn_settings',
             'assignment_settings',
             'automations',
@@ -909,6 +940,7 @@ export const NOT_PERSONAL: Readonly<Record<string, string>> =
             'desk_digest_settings',
             'desk_number_seq',
             'desk_settings',
+            'contact_suppression_keys',
             'privacy_extensions',
             'flow_nodes',
             'flows',
@@ -943,10 +975,28 @@ export const NOT_PERSONAL: Readonly<Record<string, string>> =
             'broadcasts',
             'kb_entries',
             'kb_imports',
+            // 152: the label IS a customer's question (phone numbers and other
+            // identifiers masked when the gap is stored, names not). No link to
+            // a person, so neither export nor erase reaches it: an erased
+            // customer's label goes with the next daily recompute.
             'kb_gap_topics',
             'kb_gap_topic_members',
-            // 278: gap ids and a topic label per learned draft; no message text.
+            // 290: gap ids and a keyed hash (HMAC, secret not in the
+            // database) of the topic's label per learned draft, and when a
+            // gap was last looked at; no message text. Erasing a customer
+            // deletes their gaps: the ids leave the ledger, and an
+            // unapproved draft left with fewer than two chats is deleted
+            // (trigger). An approved entry stays. The entry's question and
+            // answers (kb_entries) are the model's, screened for known names
+            // and identifiers; a name nobody saved, or a nickname, can still
+            // be in one, which is why an admin must read every draft. 318
+            // keeps the drafted English answer beside the ledger row (same
+            // screening) and clears it when any of its gaps is deleted.
             'kb_learned_drafts',
+            // 318: general rules distilled from admins' reviews; a CHECK refuses
+            // e-mails, links, long numbers and redaction masks.
+            'kb_learn_skills',
+            'kb_learn_looks',
             'ai_knowledge_chunks',
             'ai_knowledge_documents',
             'ts_label',
@@ -1045,7 +1095,6 @@ export const NOT_PERSONAL: Readonly<Record<string, string>> =
             'meta_template_health',
             'pbx_connection_secrets',
             'pbx_events_raw',
-            'webhook_event_outbox',
             // 264: inbound WhatsApp events waiting to be processed. Not
             // erased by contact: a row exists before any contact does,
             // so purge by age is the rule. The payload is emptied when
@@ -1065,6 +1114,9 @@ export const NOT_PERSONAL: Readonly<Record<string, string>> =
             // CASCADE); the meta row is the day the log began.
             'chat_tag_history',
             'chat_tag_history_meta',
+            // 288: a staff login's new address, good for two minutes and
+            // gone within a day. No customer.
+            'login_email_permits',
           ],
         ],
       ] as const

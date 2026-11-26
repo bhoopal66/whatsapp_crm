@@ -12,11 +12,18 @@
 // `vars._chat_tag_chain_depth`, the way `_tag_chain_depth` travels for
 // contact tags, so a `set_chat_tag` step can stop a loop.
 //
+// `salesChat` is the decision of the inbound message that set the tag.
+// Without one (a person's pick, a flow's tag step) it is read here, only
+// when a message step asks: in a chat that is not a sales chat no message
+// step runs, the internal steps do.
+//
 // Awaits the engine, which never throws; run it inside `after()`.
 // ============================================================
 
+import { salesChatOnce, type SalesChatCheck } from '@/lib/ai/not-sales-chat';
 import type { ChatTagsPatch } from '@/types';
 
+import { supabaseAdmin } from './admin-client';
 import { runAutomationsForTrigger } from './engine';
 
 export async function dispatchChatTagSet(args: {
@@ -26,6 +33,7 @@ export async function dispatchChatTagSet(args: {
   previous: ChatTagsPatch;
   saved: ChatTagsPatch;
   depth?: number;
+  salesChat?: SalesChatCheck | null;
 }): Promise<void> {
   const { previous, saved } = args;
   if (
@@ -39,6 +47,12 @@ export async function dispatchChatTagSet(args: {
     accountId: args.accountId,
     triggerType: 'chat_tag_set',
     contactId: args.contactId,
+    salesChat:
+      args.salesChat ??
+      salesChatOnce(supabaseAdmin, {
+        conversationId: args.conversationId,
+        inboundChannelId: null,
+      }),
     context: {
       conversation_id: args.conversationId,
       chat_tag_id: saved.chat_tag_id,

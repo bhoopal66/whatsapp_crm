@@ -69,8 +69,8 @@ export const TRANSFER_REFUSED_CODE = 'transfer_basis_required';
 
 /**
  * Throws when the workspace requires a basis and has none. A config
- * without an account (tests, a key check, the playground's own text) is
- * not checked.
+ * without an account (tests, a key check) is not checked; the playground's
+ * text is, under its own purpose.
  */
 export async function assertAiTransfer(
   config: { accountId?: string; provider: string },

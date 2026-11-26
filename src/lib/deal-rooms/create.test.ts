@@ -224,3 +224,21 @@ describe('createDealRoom', () => {
     expect(userRpc).not.toHaveBeenCalled();
   });
 });
+
+describe('parseCreateBody', () => {
+  it('refuses a second customer: nobody would ever invite them', () => {
+    const person = (role: string, phone: string) => ({
+      displayName: role,
+      phone,
+      role,
+    });
+    const body = (second: string) => ({
+      contactId: 'c-1',
+      subject: 'Villa',
+      participants: [person('customer', '971501'), person(second, '971502')],
+      consent: { textVersion: 'v1', consentText: 'ok', method: 'verbal' },
+    });
+    expect(parseCreateBody(body('partner'))).toMatchObject({ ok: true });
+    expect(parseCreateBody(body('customer'))).toMatchObject({ ok: false });
+  });
+});

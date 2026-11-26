@@ -16,9 +16,14 @@ Port of package 033h-k. `docs/privacy.md` is the contract.
   rolled-back block; executing needs `ERASE <id>`; a customer hold or a
   093 recording hold blocks it. Cases and all filed to them, the case
   group, consent and audit are retained (owner's decision); the contact
-  row is anonymised; its opt-out stays on that row only (a re-imported
-  number starts with none). Calls inline 093's match
-  (`pbx_erase_contact_calls` needs `auth.uid()`): change both. Files are
+  row is anonymised; its opt-out stays on that row and, from 280, by
+  keyed hash of the number (`contact_suppressions`), so a re-imported
+  number is opted out again. Calls inline 093's match
+  (`pbx_erase_contact_calls` needs `auth.uid()`): change both. An
+  indirect match (candidate, number, last 8) counts only for a call
+  linked to nobody (311), and both erases delete the calls' `deal_files`
+  references on any deal. The retention sweep's held calls (282) keep the
+  wider match on purpose. 311 restates the erase: in order. Files are
   deleted by the route after the commit (`erase-objects.ts`).
 - **Files (262).** `privacy_objects_unreferenced` runs after the erase's
   deletes and before every retry: only `account-<id>/` paths, nothing a
@@ -33,6 +38,15 @@ Port of package 033h-k. `docs/privacy.md` is the contract.
   cron): allow-list `privacy_retention_rules()` = `RETENTION_RULES`
   (`retention.test.ts` compares); no retained table may join it. Dry
   run until the workspace applies; holds skipped.
+- **Retention runs (282).** 282 restates 262's sweep, pending and settle
+  and 223's get: apply in order, once. `privacy_retention_sweep(account,
+  dry, limit)` is one slice and answers `more`; a kind whose rows point at
+  files collects them (`privacy_media_objects`) before the row goes, into
+  `detail.objects_list` of the `retention` row. `retentionRunner` loops
+  slices, then `retryErasedObjects`; a failure goes to
+  `privacy_retention_failed` (row plus the owners' `retention_failed`
+  bell, once a day) and never spends the day's run.
+  `verify-retention-fixes.sql`.
 - **AI transfer** (`ai_transfer_check`): `assertAiTransfer` before every
   OpenAI/Anthropic call of a config with `accountId` (generate,
   translate, HR agents, query and gap embeddings) and the TypeSafe
@@ -41,3 +55,21 @@ Port of package 033h-k. `docs/privacy.md` is the contract.
   when the check cannot run. A new AI call path calls it too.
 - `privacy_requests` and `ai_transfer_log` are append-only and hold
   hashes and counts, never contact ids or text. `verify-privacy.sql`.
+- **Deleting a customer (280).** A stamped number that leaves a contact
+  (delete, number change, erase) is kept in `contact_suppressions`; insert
+  or a change to that number restores the stamps with one `restored`
+  consent event; lifting a stamp clears the kept one. Never the
+  do-not-contact reason. A number change writes `contact_id`, so going back
+  to that number keeps nothing for the one undone, and a lift, the export
+  and the erase reach the numbers left before; a row two contacts wrote has
+  none (one's lift must not lift a stranger's). `contact_open_work`
+  refuses a signed-in person's delete (ZC280, HINT `HAS_OPEN_WORK`, DETAIL
+  the counts); the service role, no-user statements and an account deletion
+  pass. 280 restates 086's `contacts_consent_log`: re-run 280 after 086; it
+  refuses while the `kind` CHECK lacks `restored`.
+  `verify-contact-delete.sql`. App side: `lib/contacts/delete-preview.ts`
+  (dialog, reasons) and `delete-contacts.ts` (a refused bulk delete retries
+  each id); the only way a screen deletes a contact.
+- **Webhook queue (315).** `privacy_webhook_outbox_erase` deletes the
+  `webhook_event_outbox` rows whose payload names the contact or one of its
+  chats (`contact_id`, `conversation_id`), queued or delivered.

@@ -226,3 +226,59 @@ describe('middleware — the auth service does not answer', () => {
     }
   });
 });
+
+describe('middleware — the session cookie', () => {
+  it('is capped at the idle limit, unchanged chunks included', async () => {
+    mockUser = { id: 'u1' };
+    refreshedCookies = [
+      {
+        name: 'sb-wacrm-auth-token.0',
+        value: 'head',
+        options: { path: '/', maxAge: 400 * 86_400 },
+      },
+    ];
+    const res = await middleware(
+      new NextRequest('https://app.test/inbox', {
+        headers: {
+          cookie: 'sb-wacrm-auth-token.0=old; sb-wacrm-auth-token.1=tail',
+        },
+      })
+    );
+    expect(
+      res.cookies.getAll().map((c) => [c.name, c.value, c.maxAge])
+    ).toEqual([
+      ['sb-wacrm-auth-token.0', 'head', 604800],
+      ['sb-wacrm-auth-token.1', 'tail', 604800],
+    ]);
+  });
+});
+
+describe('middleware — cross-site writes', () => {
+  const post = (url: string, headers: Record<string, string>) =>
+    middleware(
+      new NextRequest(`https://app.test${url}`, { method: 'POST', headers })
+    );
+
+  it('refuses one a browser marks as cross-site, before any session work', async () => {
+    mockUser = { id: 'u1' };
+    refreshedCookies = [ROTATED];
+    const res = await post('/api/account/members', {
+      'sec-fetch-site': 'same-site',
+    });
+    expect(res.status).toBe(403);
+    expect(res.cookies.getAll()).toEqual([]);
+  });
+
+  it('lets the app, a webhook, the web form and API keys through', async () => {
+    mockUser = { id: 'u1' };
+    for (const [url, headers] of [
+      ['/api/account/members', { 'sec-fetch-site': 'same-origin' }],
+      ['/api/whatsapp/webhook', {}],
+      ['/api/public/web-form/t', { 'sec-fetch-site': 'cross-site' }],
+      ['/api/v1/messages', { 'sec-fetch-site': 'cross-site' }],
+    ] as Array<[string, Record<string, string>]>) {
+      const res = await post(url, headers);
+      expect(res.status, url).not.toBe(403);
+    }
+  });
+});

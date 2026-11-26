@@ -35,6 +35,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { dateFnsLocale } from '@/i18n/ui-locale';
 
 const PAGE_SIZE = 50;
 
@@ -72,7 +73,10 @@ function sanitizeSearch(raw: string): string {
 }
 
 function ago(iso: string) {
-  return formatDistanceToNow(new Date(iso), { addSuffix: true });
+  return formatDistanceToNow(new Date(iso), {
+    addSuffix: true,
+    locale: dateFnsLocale(),
+  });
 }
 
 export default function CompassPage() {

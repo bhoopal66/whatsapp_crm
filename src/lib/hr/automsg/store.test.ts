@@ -280,3 +280,28 @@ describe('migration 275', () => {
     expect(await store.claim('r1', new Date(0))).toBe('cancelled');
   });
 });
+
+describe('due: pages (migration 302)', () => {
+  it('reads the first page from hr_automsg_due, the next without seen ids', async () => {
+    const { rpc, store } = rig({ data: [], error: null });
+    await store.due(100);
+    expect(rpc).toHaveBeenLastCalledWith('hr_automsg_due', {
+      p_limit: 100,
+      p_account_id: null,
+    });
+    await store.due(100, 'acc', ['r1']);
+    expect(rpc).toHaveBeenLastCalledWith('hr_automsg_due_page', {
+      p_limit: 100,
+      p_account_id: 'acc',
+      p_exclude: ['r1'],
+    });
+  });
+
+  it('has no next page on a database before 302, and throws on any other error', async () => {
+    const fail = (code: string) =>
+      rig({ data: null, error: { message: 'x', code } } as never).store;
+    await expect(fail('PGRST202').due(100, 'acc', ['r1'])).resolves.toEqual([]);
+    await expect(fail('57014').due(100, 'acc', ['r1'])).rejects.toThrow('x');
+    await expect(fail('PGRST202').due(100, 'acc')).rejects.toThrow('x');
+  });
+});

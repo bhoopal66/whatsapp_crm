@@ -54,9 +54,15 @@ const FIGURES: DashboardFigures = {
       name: '=Qualified',
       color: '#000',
       dealCount: 2,
-      totalValue: 500,
+      totals: [{ currency: 'AED', value: 500 }],
     },
-    { id: 's2', name: 'Won', color: '#000', dealCount: 1, totalValue: 100 },
+    {
+      id: 's2',
+      name: 'Won',
+      color: '#000',
+      dealCount: 1,
+      totals: [{ currency: 'AED', value: 100 }],
+    },
   ],
   campaigns: {
     week: { campaigns: 2, sent: 100, deliveredPct: 90, readPct: 40 },
@@ -101,6 +107,29 @@ describe('dashboardRows', () => {
     expect(find('Pipeline (open deals)', 'Open deals')).toBe(3);
     expect(find('Pipeline (open deals)', 'Open deal value')).toBe(600);
     expect(find('Pipeline (open deals)', 'Deals in Won')).toBe(1);
+  });
+
+  it('never adds two currencies', () => {
+    const mixed = dashboardRows({
+      ...FIGURES,
+      pipeline: [
+        {
+          ...FIGURES.pipeline[0],
+          totals: [
+            { currency: 'USD', value: 100000 },
+            { currency: 'AED', value: 150000 },
+          ],
+        },
+        {
+          ...FIGURES.pipeline[1],
+          totals: [{ currency: 'AED', value: 50000 }],
+        },
+      ],
+    });
+    const value = (metric: string) => mixed.find((r) => r[1] === metric)?.[3];
+    expect(value('Open deal value')).toBe('AED 200,000 + USD 100,000');
+    expect(value('Value in =Qualified')).toBe('AED 150,000 + USD 100,000');
+    expect(value('Value in Won')).toBe(50000);
   });
 
   it('rounds response times and keeps no-sample weeks blank', () => {

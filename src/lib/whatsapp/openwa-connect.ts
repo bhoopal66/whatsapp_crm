@@ -33,6 +33,12 @@ export function openwaPollDelayMs(
  */
 export const OPENWA_GIVE_UP_MS = 5 * 60_000;
 
+/**
+ * The status route's code (409) when the phone that scanned is already
+ * connected as another number. The server has removed the new one.
+ */
+export const PHONE_ALREADY_CONNECTED = 'phone_already_connected';
+
 /** OpenWA's own words for a session, as the status route relays them. */
 export type OpenWASessionStatus =
   | 'created'
@@ -118,7 +124,9 @@ export type ConnectFailure =
   /** OpenWA answered failed / action_required / disconnected. */
   | 'notLinked'
   /** No `ready` within OPENWA_GIVE_UP_MS. */
-  | 'timedOut';
+  | 'timedOut'
+  /** The server refused the phone and removed the number; `error` says why. */
+  | 'refused';
 
 export interface ConnectState {
   phase: ConnectPhase;
@@ -152,6 +160,8 @@ export type ConnectEvent =
       phone?: string | null;
       at: number;
     }
+  /** The server refused the phone that scanned and removed the number. */
+  | { type: 'refused'; error: string }
   /** A poll that did not answer. Transient: only the clock can fail it. */
   | { type: 'pollFailed'; at: number }
   | { type: 'cancel' }
@@ -235,6 +245,18 @@ export function connectReducer(
         phase: 'failed',
         failure: event.notConfigured ? 'notConfigured' : 'createFailed',
         error: event.error ?? null,
+      };
+    case 'refused':
+      if (!isPolling(state)) return state;
+      // The number is gone already: nothing is left for the dialog to
+      // remove, and a retry starts a fresh session.
+      return {
+        ...state,
+        phase: 'failed',
+        failure: 'refused',
+        error: event.error,
+        configId: null,
+        qrCode: null,
       };
     case 'pollFailed':
       if (!isPolling(state)) return state;

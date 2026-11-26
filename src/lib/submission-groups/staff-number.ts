@@ -2,7 +2,8 @@
  * A staff member's saved WhatsApp number (`coordinator_phones`, read through
  * migration 219's `staff_saved_phone`) follows their access to a submission
  * group: giving access adds the number to the WhatsApp group, removing
- * access takes it out. The reverse grant (a saved number joining the group)
+ * access takes it out (read through 299's `staff_removal_phone`, so also for
+ * someone deactivated or demoted since). The reverse grant (a saved number joining the group)
  * is `sg_staff_number_joined`, called from the webhook and after Add number.
  *
  * Staff adds never go through 211's sg_add_number ledger: that is the
@@ -41,7 +42,6 @@ export function planStaffNumber(
   customerPhone: string | null
 ): StaffNumberPlan {
   const phone = (savedPhone ?? '').replace(/\D/g, '');
-  if (!phone) return { go: false, status: 'none', reason: 'no_saved_number' };
   if (group.status !== 'ACTIVE')
     return { go: false, status: 'skipped', reason: 'not_active' };
   if (group.waMode === 'none')
@@ -50,6 +50,9 @@ export function planStaffNumber(
     return { go: false, status: 'skipped', reason: 'detached' };
   if (!group.waGroupId)
     return { go: false, status: 'skipped', reason: 'no_group_yet' };
+  // After the group's own reasons: on a removal it is shown as a warning,
+  // which a case without a WhatsApp group must not give.
+  if (!phone) return { go: false, status: 'none', reason: 'no_saved_number' };
   if (samePhone(phone, customerPhone))
     return { go: false, status: 'skipped', reason: 'customer_number' };
   return {
@@ -69,6 +72,8 @@ export function samePhone(a: string | null, b: string | null): boolean {
 
 export interface StaffNumberDeps {
   savedPhone(accountId: string, userId: string): Promise<string | null>;
+  /** Like savedPhone, also for a person who is no longer live staff. */
+  removalPhone(accountId: string, userId: string): Promise<string | null>;
   customerPhone(contactId: string): Promise<string | null>;
   /** null: the group or number is gone or disconnected. */
   getParticipants(
@@ -94,9 +99,8 @@ type LinkGroup = GroupSide &
 async function prepare(
   deps: StaffNumberDeps,
   group: LinkGroup,
-  userId: string
+  saved: string | null
 ): Promise<StaffNumberPlan> {
-  const saved = await deps.savedPhone(group.accountId, userId);
   const customer = group.contactId
     ? await deps.customerPhone(group.contactId)
     : null;
@@ -113,7 +117,8 @@ export async function addStaffNumber(
   userId: string
 ): Promise<StaffNumberOutcome<StaffNumberAddStatus>> {
   try {
-    const plan = await prepare(deps, group, userId);
+    const saved = await deps.savedPhone(group.accountId, userId);
+    const plan = await prepare(deps, group, saved);
     if (!plan.go) return { status: plan.status, reason: plan.reason };
     const members = await deps.getParticipants(plan.channelId, plan.waGroupId);
     if (members === null)
@@ -144,13 +149,18 @@ export async function removeStaffNumber(
   userId: string
 ): Promise<StaffNumberOutcome<StaffNumberRemoveStatus>> {
   try {
-    const plan = await prepare(deps, group, userId);
+    const saved = await deps.removalPhone(group.accountId, userId);
+    const plan = await prepare(deps, group, saved);
     if (!plan.go) return { status: plan.status, reason: plan.reason };
     const members = await deps.getParticipants(plan.channelId, plan.waGroupId);
     if (members === null)
       return { status: 'skipped', reason: 'number_unavailable' };
-    if (!members.some((m) => samePhone(plan.phone, m)))
-      return { status: 'none', reason: 'not_in_group' };
+    // `samePhone` drops the suffix, and a LID's digits are no phone.
+    const hidden = members.some((m) => m.endsWith('@lid'));
+    if (!members.some((m) => !m.endsWith('@lid') && samePhone(plan.phone, m)))
+      return hidden
+        ? { status: 'failed', reason: 'number_unconfirmed' }
+        : { status: 'none', reason: 'not_in_group' };
     await deps.removeParticipant(plan.channelId, plan.waGroupId, plan.phone);
     return { status: 'removed' };
   } catch (err) {

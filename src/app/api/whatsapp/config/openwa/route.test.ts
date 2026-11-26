@@ -22,6 +22,12 @@ const h = vi.hoisted(() => ({
   deletes: 0,
   insertError: null as { code: string; message: string } | null,
   siblings: 0,
+  /** What the cross-workspace same-phone read answers. */
+  samePhone: { data: [], error: null } as {
+    data: Record<string, unknown>[] | null;
+    error: { message: string } | null;
+  },
+  samePhoneReads: [] as unknown[][],
 }));
 
 /** A chainable, awaitable Supabase fake over `whatsapp_config`. */
@@ -64,6 +70,28 @@ function fakeDb() {
   };
 }
 
+vi.mock('@/lib/whatsapp/personal-numbers', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  personalNumbersAdmin: () => ({
+    from: () => {
+      const b: Record<string, unknown> = { select: () => b };
+      for (const m of ['in', 'neq']) {
+        b[m] = (...args: unknown[]) => {
+          h.samePhoneReads.push([m, ...args]);
+          return b;
+        };
+      }
+      b.then = (resolve: (r: unknown) => unknown) => resolve(h.samePhone);
+      return b;
+    },
+  }),
+}));
+
+// The secrets come through the service role (migration 285).
+vi.mock('@/lib/whatsapp/channel-secrets', () => ({
+  withChannelSecrets: async (rows: Array<{ id: string }>) =>
+    rows.map((r) => ({ access_token: 'enc:scoped', app_secret: null, ...r })),
+}));
 vi.mock('@/lib/auth/account', () => ({
   requireRole: async () => ({
     supabase: fakeDb(),
@@ -120,6 +148,8 @@ beforeEach(() => {
   h.deletes = 0;
   h.insertError = null;
   h.siblings = 0;
+  h.samePhone = { data: [], error: null };
+  h.samePhoneReads = [];
 });
 
 describe('POST /api/whatsapp/config/openwa', () => {
@@ -304,6 +334,74 @@ describe('GET /api/whatsapp/config/openwa/[configId]/status', () => {
     };
     await GET(new Request('https://crm.test/x'), params);
     expect(h.updates).toHaveLength(0);
+  });
+
+  describe('the same phone twice', () => {
+    const clash = {
+      id: 'cfg-9',
+      account_id: 'acct-1',
+      label: 'Company line',
+      is_personal: false,
+    };
+    beforeEach(() => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+      h.gw.getSession.mockResolvedValue({
+        status: 'ready',
+        phone: '971500000001',
+      });
+    });
+
+    it('refuses a first link of a phone another number holds and removes it', async () => {
+      h.samePhone = { data: [clash], error: null };
+      const res = await GET(new Request('https://crm.test/x'), params);
+      expect(res.status).toBe(409);
+      const body = (await res.json()) as { error: string; code: string };
+      expect(body.code).toBe('phone_already_connected');
+      expect(body.error).toContain('"Company line"');
+      expect(h.gw.deleteSession).toHaveBeenCalled();
+      expect(h.deletes).toBe(1);
+      expect(h.updates).toHaveLength(0);
+      // Both gateways that store the phone, every workspace, not this row.
+      expect(h.samePhoneReads).toEqual([
+        ['in', 'provider', ['whapi', 'openwa']],
+        ['in', 'waba_id', ['971500000001', '+971500000001']],
+        ['neq', 'id', 'cfg-1'],
+      ]);
+    });
+
+    it('names no label of another workspace', async () => {
+      h.samePhone = {
+        data: [{ ...clash, account_id: 'acct-2' }],
+        error: null,
+      };
+      const res = await GET(new Request('https://crm.test/x'), params);
+      const { error } = (await res.json()) as { error: string };
+      expect(error).toContain('another workspace');
+      expect(error).not.toContain('Company line');
+    });
+
+    it('a failed read stamps nothing and tears nothing down', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      h.samePhone = { data: null, error: { message: 'connection reset' } };
+      const res = await GET(new Request('https://crm.test/x'), params);
+      expect(res.status).toBe(503);
+      expect(h.gw.deleteSession).not.toHaveBeenCalled();
+      expect(h.deletes).toBe(0);
+      expect(h.updates).toHaveLength(0);
+    });
+
+    it('never tears down a number that is already linked', async () => {
+      h.row = {
+        ...h.row,
+        status: 'connected',
+        waba_id: '971500000001',
+        connected_at: '2026-10-28T08:00:00Z',
+      };
+      h.samePhone = { data: [clash], error: null };
+      const res = await GET(new Request('https://crm.test/x'), params);
+      expect(await res.json()).toMatchObject({ status: 'ready' });
+      expect(h.deletes).toBe(0);
+    });
   });
 
   it('leaves a number that went down to the sweep, still showing it live', async () => {

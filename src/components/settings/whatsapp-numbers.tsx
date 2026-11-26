@@ -7,8 +7,9 @@
 // which one is the default, who works it, and — for a second or third
 // Whapi number — connecting it in the first place (migration 060).
 //
-// "Who works it" is the allocation list. A number with nobody on it is
-// shared, exactly as before 060. A number with people on it becomes
+// "Who works it" is the allocation list. A number nobody was ever put on
+// is shared, exactly as before 060; one whose people all left is for
+// owners and admins until both lists are saved empty (314). A number with people on it becomes
 // the numbers they send from, and their new chats start from it.
 // Allocation grants no visibility (migration 072): they still see only
 // their own and assigned chats (leaders also their team's); admins see
@@ -25,7 +26,7 @@
 // owns the provider-specific checks — each card links there.
 // ============================================================
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { useTranslations } from 'next-intl';
 import {
@@ -73,6 +74,7 @@ import {
   teamPeople,
   type TeamRoster,
 } from '@/lib/whatsapp/team-allocation';
+import { ChangedNotice } from './changed-notice';
 import { SettingsPanelHead } from './settings-panel-head';
 import { staffOnly } from '@/lib/account/members';
 import type { AccountMember } from '@/types';
@@ -92,9 +94,12 @@ interface NumberRow {
   member_ids: string[];
   /** Teams allocated to the number. */
   team_ids: string[];
+  /** Limited by an admin (314). */
+  access_restricted?: boolean;
   /** People who have the number through one of those teams. */
   team_member_ids: string[];
-  conversation_count: number;
+  /** Null when it could not be counted. */
+  conversation_count: number | null;
 }
 
 /**
@@ -139,6 +144,14 @@ export function WhatsAppNumbers() {
   const [accessDraft, setAccessDraft] = useState<string[]>([]);
   const [accessTeamsDraft, setAccessTeamsDraft] = useState<string[]>([]);
   const [accessSearch, setAccessSearch] = useState('');
+  // Another admin saved meanwhile: what is stored now, null when it could
+  // not be read. The draft stays and Save waits for Reload.
+  const [accessChanged, setAccessChanged] = useState<{
+    stored: NumberRow | null;
+  } | null>(null);
+  const [rereading, setRereading] = useState(false);
+  // The number whose dialog is open, for a save that ends after it closed.
+  const openAccessId = useRef<string | null>(null);
 
   const [addOpen, setAddOpen] = useState(false);
   const [addName, setAddName] = useState('');
@@ -150,6 +163,9 @@ export function WhatsAppNumbers() {
   const [rescanId, setRescanId] = useState<string | null>(null);
 
   const [removing, setRemoving] = useState<NumberRow | null>(null);
+  // Set after the server answered 409 messages_waiting: the dialog then
+  // asks once more, with this count.
+  const [waitingCount, setWaitingCount] = useState<number | null>(null);
   const [health, setHealth] = useState<Record<string, NumberHealth>>({});
   // The member roster is what the access dialog edits. If it failed to
   // load, an empty checklist saved back would un-allocate everyone —
@@ -160,31 +176,46 @@ export function WhatsAppNumbers() {
   const [teams, setTeams] = useState<TeamRoster[]>([]);
   const [teamsLoaded, setTeamsLoaded] = useState(false);
 
-  const load = useCallback(async () => {
-    try {
-      const [numbersRes, membersRes, teamsRes] = await Promise.all([
-        fetch('/api/whatsapp/channels', { cache: 'no-store' }),
-        fetch('/api/account/members', { cache: 'no-store' }),
-        fetch('/api/account/teams', { cache: 'no-store' }),
-      ]);
-      const numbersBody = await numbersRes.json().catch(() => ({}));
-      const membersBody = await membersRes.json().catch(() => ({}));
-      const teamsBody = await teamsRes.json().catch(() => ({}));
-      if (!numbersRes.ok)
-        throw new Error(numbersBody?.error || t('loadFailed'));
-      const rows: NumberRow[] = numbersBody.channels ?? [];
-      setNumbers(rows);
-      setMembers(staffOnly(membersBody?.members ?? []));
-      setMembersLoaded(membersRes.ok && Array.isArray(membersBody?.members));
-      setTeams(teamsBody?.teams ?? []);
-      setTeamsLoaded(teamsRes.ok && Array.isArray(teamsBody?.teams));
-      void checkHealth(rows);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('loadFailed'));
-    } finally {
-      setLoading(false);
-    }
-  }, [t]);
+  const load = useCallback(
+    async (
+      quiet = false
+    ): Promise<{ rows: NumberRow[]; complete: boolean } | null> => {
+      try {
+        const [numbersRes, membersRes, teamsRes] = await Promise.all([
+          fetch('/api/whatsapp/channels', { cache: 'no-store' }),
+          fetch('/api/account/members', { cache: 'no-store' }),
+          fetch('/api/account/teams', { cache: 'no-store' }),
+        ]);
+        const numbersBody = await numbersRes.json().catch(() => ({}));
+        const membersBody = await membersRes.json().catch(() => ({}));
+        const teamsBody = await teamsRes.json().catch(() => ({}));
+        if (!numbersRes.ok)
+          throw new Error(numbersBody?.error || t('loadFailed'));
+        const rows: NumberRow[] = numbersBody.channels ?? [];
+        setNumbers(rows);
+        // A failed re-read keeps the last good list: an open dialog edits it.
+        const membersOk = membersRes.ok && Array.isArray(membersBody?.members);
+        if (membersOk) {
+          setMembers(staffOnly(membersBody.members));
+          setMembersLoaded(true);
+        }
+        const teamsOk = teamsRes.ok && Array.isArray(teamsBody?.teams);
+        if (teamsOk) {
+          setTeams(teamsBody.teams);
+          setTeamsLoaded(true);
+        }
+        void checkHealth(rows);
+        return { rows, complete: membersOk && teamsOk };
+      } catch (err) {
+        if (!quiet)
+          toast.error(err instanceof Error ? err.message : t('loadFailed'));
+        return null;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [t]
+  );
 
   useEffect(() => {
     void load();
@@ -265,9 +296,15 @@ export function WhatsAppNumbers() {
     },
     [memberById, t]
   );
-  const memberIds = useMemo(
-    () => new Set(members.map((m) => m.user_id)),
+  /** A person who left or is deactivated cannot use a number. */
+  const liveIds = useMemo(
+    () =>
+      new Set(members.filter((m) => !m.deactivated_at).map((m) => m.user_id)),
     [members]
+  );
+  const isLiveMember = useCallback(
+    (userId: string) => !membersLoaded || liveIds.has(userId),
+    [membersLoaded, liveIds]
   );
   const teamById = useMemo(
     () => new Map(teams.map((team) => [team.id, team])),
@@ -276,9 +313,34 @@ export function WhatsAppNumbers() {
 
   /** What the access dialog would save, recomputed on every tick. */
   const draftAccess = useMemo(
-    () => effectiveAccess(accessDraft, accessTeamsDraft, teams, memberIds),
-    [accessDraft, accessTeamsDraft, teams, memberIds]
+    () =>
+      teamsLoaded
+        ? effectiveAccess(accessDraft, accessTeamsDraft, teams, liveIds)
+        : {
+            // The teams stay as they are stored.
+            ...savedAccess(
+              {
+                member_ids: accessDraft,
+                team_ids: accessFor?.team_ids ?? [],
+                team_member_ids: accessFor?.team_member_ids ?? [],
+              },
+              isLiveMember
+            ),
+            viaTeams: new Map<string, string[]>(),
+          },
+    [
+      accessDraft,
+      accessTeamsDraft,
+      teams,
+      teamsLoaded,
+      liveIds,
+      accessFor,
+      isLiveMember,
+    ]
   );
+  // An empty people list on its own leaves the number to its teams or to
+  // admins, never to everyone (314): not saved without seeing the teams.
+  const emptyWithoutTeams = !teamsLoaded && accessDraft.length === 0;
 
   async function patchNumber(
     row: NumberRow,
@@ -286,6 +348,8 @@ export function WhatsAppNumbers() {
       label?: string;
       member_ids?: string[];
       team_ids?: string[];
+      expected_member_ids?: string[];
+      expected_team_ids?: string[];
       is_primary?: true;
     },
     /** Fields only the server derives, to show without a reload. */
@@ -299,6 +363,15 @@ export function WhatsAppNumbers() {
         body: JSON.stringify(patch),
       });
       const body = await res.json().catch(() => ({}));
+      if (res.status === 409 && body?.code === 'access_changed') {
+        // Another admin saved meanwhile: the dialog keeps the draft and
+        // says what is stored.
+        invalidateNumberCaches();
+        if (!(await readStoredAccess(row))) {
+          toast.error(t('accessChanged', { name: channelDisplayName(row) }));
+        }
+        return false;
+      }
       if (!res.ok) {
         toast.error(body?.error || t('saveFailed'));
         // Re-read rather than trust what the card held: the server may
@@ -350,7 +423,46 @@ export function WhatsAppNumbers() {
     }
   }
 
+  /** What is stored, into the open dialog; false when it was closed. */
+  async function readStoredAccess(row: NumberRow): Promise<boolean> {
+    setRereading(true);
+    const loaded = await load(true);
+    setRereading(false);
+    if (openAccessId.current !== row.id) return false;
+    const stored = loaded?.rows.find((n) => n.id === row.id);
+    if (loaded && !stored) {
+      toast.error(t('accessGone', { name: channelDisplayName(row) }));
+      closeAccess();
+      return true;
+    }
+    setAccessChanged({ stored: (loaded?.complete && stored) || null });
+    return true;
+  }
+
+  /** The stored lists by name, for the notice. */
+  function storedText(row: NumberRow): string {
+    const people = row.member_ids.map(nameOf).join(', ');
+    const teamNames = row.team_ids
+      .map((id) => teamById.get(id)?.name)
+      .filter(Boolean)
+      .join(', ');
+    const parts = [
+      people && t('storedPeople', { names: people }),
+      teamNames && t('storedTeams', { names: teamNames }),
+    ].filter(Boolean);
+    if (parts.length > 0) return parts.join(' · ');
+    return row.access_restricted ? t('adminsOnlyTitle') : t('sharedTitle');
+  }
+
+  function closeAccess() {
+    openAccessId.current = null;
+    setAccessFor(null);
+    setAccessChanged(null);
+  }
+
   function openAccess(row: NumberRow) {
+    openAccessId.current = row.id;
+    setAccessChanged(null);
     setAccessFor(row);
     setAccessDraft(row.member_ids);
     setAccessTeamsDraft(row.team_ids);
@@ -358,7 +470,7 @@ export function WhatsAppNumbers() {
   }
 
   async function saveAccess() {
-    if (!accessFor) return;
+    if (!accessFor || accessChanged || emptyWithoutTeams) return;
     const access = draftAccess;
     // Direct ticks and teams go separately: the server keeps a team's
     // people apart from the hand-ticked ones. Teams are only sent when
@@ -366,20 +478,36 @@ export function WhatsAppNumbers() {
     const saved = await patchNumber(
       accessFor,
       teamsLoaded
-        ? { member_ids: accessDraft, team_ids: accessTeamsDraft }
-        : { member_ids: accessDraft },
-      teamsLoaded ? { team_member_ids: [...access.viaTeams.keys()] } : {}
+        ? {
+            member_ids: accessDraft,
+            team_ids: accessTeamsDraft,
+            expected_member_ids: accessFor.member_ids,
+            expected_team_ids: accessFor.team_ids,
+          }
+        : {
+            member_ids: accessDraft,
+            expected_member_ids: accessFor.member_ids,
+          },
+      teamsLoaded
+        ? {
+            team_member_ids: [...access.viaTeams.keys()],
+            access_restricted: !access.shared,
+          }
+        : {}
     );
     if (saved) {
       toast.success(
         access.shared
           ? t('accessShared', { name: channelDisplayName(accessFor) })
-          : t('accessSaved', {
-              name: channelDisplayName(accessFor),
-              count: access.people.length,
-            })
+          : access.adminsOnly
+            ? t('accessAdminsOnly', { name: channelDisplayName(accessFor) })
+            : t('accessSaved', {
+                name: channelDisplayName(accessFor),
+                count: access.people.length,
+              })
       );
-      setAccessFor(null);
+      // Not the dialog of another number, opened while this one was saved.
+      if (openAccessId.current === accessFor.id) closeAccess();
     }
   }
 
@@ -424,17 +552,28 @@ export function WhatsAppNumbers() {
     }
   }
 
-  async function handleRemove(row: NumberRow) {
+  async function handleRemove(row: NumberRow, force = false) {
     setBusyId(row.id);
     try {
-      const url =
+      const base =
         row.provider === 'meta'
           ? '/api/whatsapp/config/meta'
           : row.provider === 'openwa'
             ? `/api/whatsapp/config/openwa/${encodeURIComponent(row.id)}`
             : `/api/whatsapp/config?config_id=${encodeURIComponent(row.id)}`;
+      const url = force
+        ? `${base}${base.includes('?') ? '&' : '?'}force=1`
+        : base;
       const res = await fetch(url, { method: 'DELETE' });
       const body = await res.json().catch(() => ({}));
+      if (
+        res.status === 409 &&
+        body?.code === 'messages_waiting' &&
+        typeof body?.count === 'number'
+      ) {
+        setWaitingCount(body.count);
+        return;
+      }
       if (!res.ok) {
         toast.error(body?.error || t('removeFailed'));
         return;
@@ -447,6 +586,7 @@ export function WhatsAppNumbers() {
         toast.success(t('removed', { name: channelDisplayName(row) }));
       }
       setRemoving(null);
+      setWaitingCount(null);
       invalidateNumberCaches();
       await load();
     } catch {
@@ -537,7 +677,7 @@ export function WhatsAppNumbers() {
               ? row.waba_id || rowHealth?.phone
               : rowHealth?.phone;
             const isPersonal = row.is_personal === true;
-            const access = savedAccess(row);
+            const access = savedAccess(row, isLiveMember);
             const teamNames = row.team_ids
               .map((id) => teamById.get(id)?.name)
               .filter((name): name is string => !!name);
@@ -606,7 +746,9 @@ export function WhatsAppNumbers() {
 
                     <div className="text-muted-foreground mt-1 flex flex-wrap items-center gap-1.5 text-xs">
                       {shownPhone ? (
-                        <span className="font-mono" dir="ltr">{shownPhone}</span>
+                        <span className="font-mono" dir="ltr">
+                          {shownPhone}
+                        </span>
                       ) : null}
                       <Badge variant="outline">
                         {row.provider === 'meta'
@@ -649,7 +791,9 @@ export function WhatsAppNumbers() {
                       ) : null}
                       <span className="inline-flex items-center gap-1">
                         <MessagesSquare className="size-3" />
-                        {t('chatCount', { count: row.conversation_count })}
+                        {row.conversation_count === null
+                          ? t('chatCountUnknown')
+                          : t('chatCount', { count: row.conversation_count })}
                       </span>
                     </div>
                   </div>
@@ -740,11 +884,13 @@ export function WhatsAppNumbers() {
                   <div className="border-border bg-muted/30 mt-4 flex flex-wrap items-center justify-between gap-3 rounded-md border px-3 py-2.5">
                     <div className="min-w-0 text-sm">
                       <p className="text-foreground font-medium">
-                        {access.shared
-                          ? t('sharedTitle')
-                          : t('allocatedTitle', {
-                              count: access.people.length,
-                            })}
+                        {access.adminsOnly
+                          ? t('adminsOnlyTitle')
+                          : access.shared
+                            ? t('sharedTitle')
+                            : t('allocatedTitle', {
+                                count: access.people.length,
+                              })}
                       </p>
                       {teamNames.length > 0 && (
                         <p className="text-muted-foreground mt-0.5 truncate text-xs">
@@ -753,16 +899,18 @@ export function WhatsAppNumbers() {
                       )}
                       <p
                         className={
-                          access.teamsEmpty && access.shared
+                          access.adminsOnly
                             ? 'text-warning mt-0.5 text-xs'
                             : 'text-muted-foreground mt-0.5 truncate text-xs'
                         }
                       >
-                        {access.shared
+                        {access.adminsOnly
                           ? access.teamsEmpty
                             ? t('teamsEmptyShared')
-                            : t('sharedBody')
-                          : access.people.map(nameOf).join(', ')}
+                            : t('adminsOnlyBody')
+                          : access.shared
+                            ? t('sharedBody')
+                            : access.people.map(nameOf).join(', ')}
                       </p>
                     </div>
                     <Button
@@ -788,7 +936,7 @@ export function WhatsAppNumbers() {
       {/* Who works this number */}
       <Dialog
         open={accessFor !== null}
-        onOpenChange={(o) => !o && setAccessFor(null)}
+        onOpenChange={(o) => !o && closeAccess()}
       >
         <DialogContent className="border-border bg-popover text-popover-foreground sm:max-w-md">
           <DialogHeader>
@@ -809,7 +957,7 @@ export function WhatsAppNumbers() {
                 <div className="border-border bg-muted/40 max-h-40 space-y-1 overflow-y-auto rounded-md border p-2">
                   {teams.map((team) => {
                     const count = teamPeople(team).filter((id) =>
-                      memberIds.has(id)
+                      liveIds.has(id)
                     ).length;
                     return (
                       <label
@@ -839,9 +987,12 @@ export function WhatsAppNumbers() {
               </div>
             )
           ) : (
-            <p className="text-muted-foreground text-xs">
-              {t('teamsUnavailable')}
-            </p>
+            <div className="border-warning/30 bg-warning-soft text-warning flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 text-xs">
+              <p>{t(emptyWithoutTeams ? 'teamsNeeded' : 'teamsUnavailable')}</p>
+              <Button size="sm" variant="outline" onClick={() => void load()}>
+                {t('retry')}
+              </Button>
+            </div>
           )}
 
           <Label>{t('peopleHeading')}</Label>
@@ -912,20 +1063,43 @@ export function WhatsAppNumbers() {
             )}
           </div>
 
+          {draftAccess.adminsOnly && !draftAccess.teamsEmpty && (
+            <p className="border-warning/30 bg-warning-soft text-warning rounded-md border px-3 py-2 text-xs">
+              {t('draftAdminsOnly')}
+            </p>
+          )}
           {draftAccess.teamsEmpty && (
             <p className="border-warning/30 bg-warning-soft text-warning rounded-md border px-3 py-2 text-xs">
-              {draftAccess.shared
+              {draftAccess.adminsOnly
                 ? t('draftTeamsEmptyShared')
                 : t('draftTeamsEmpty')}
             </p>
           )}
-          {!(draftAccess.teamsEmpty && draftAccess.shared) && (
+          {!draftAccess.adminsOnly && !emptyWithoutTeams && (
             <p className="text-muted-foreground text-xs">
               {draftAccess.shared
                 ? t('draftShared')
                 : t('draftAllocated', { count: draftAccess.people.length })}
             </p>
           )}
+
+          {accessChanged && accessFor ? (
+            <ChangedNotice
+              text={
+                accessChanged.stored
+                  ? t('accessChangedStored', {
+                      stored: storedText(accessChanged.stored),
+                    })
+                  : t('accessChangedUnread')
+              }
+              busy={rereading}
+              label={accessChanged.stored ? undefined : t('retry')}
+              onReload={async () => {
+                if (accessChanged.stored) openAccess(accessChanged.stored);
+                else await readStoredAccess(accessFor);
+              }}
+            />
+          ) : null}
 
           <DialogFooter>
             {(accessDraft.length > 0 || accessTeamsDraft.length > 0) && (
@@ -939,12 +1113,14 @@ export function WhatsAppNumbers() {
                 {t('clearAll')}
               </Button>
             )}
-            <Button variant="ghost" onClick={() => setAccessFor(null)}>
+            <Button variant="ghost" onClick={closeAccess}>
               {t('cancel')}
             </Button>
             <Button
               onClick={() => void saveAccess()}
-              disabled={busyId !== null}
+              disabled={
+                busyId !== null || accessChanged !== null || emptyWithoutTeams
+              }
             >
               {busyId === accessFor?.id ? (
                 <Loader2 className="size-4 animate-spin" />
@@ -1042,7 +1218,11 @@ export function WhatsAppNumbers() {
       {/* Disconnect */}
       <Dialog
         open={removing !== null}
-        onOpenChange={(o) => !o && setRemoving(null)}
+        onOpenChange={(o) => {
+          if (o) return;
+          setRemoving(null);
+          setWaitingCount(null);
+        }}
       >
         <DialogContent className="border-border bg-popover text-popover-foreground sm:max-w-sm">
           <DialogHeader>
@@ -1052,23 +1232,41 @@ export function WhatsAppNumbers() {
               })}
             </DialogTitle>
             <DialogDescription className="text-muted-foreground">
-              {removing?.provider === 'meta'
-                ? t('removeBodyMeta')
-                : removing?.provider === 'openwa'
-                  ? t('openwa.removeBody')
-                  : t('removeBody')}
+              {waitingCount !== null
+                ? t('waitingBody', { count: waitingCount })
+                : removing?.provider === 'meta'
+                  ? t('removeBodyMeta')
+                  : removing?.provider === 'openwa'
+                    ? t('openwa.removeBody')
+                    : t('removeBody')}
             </DialogDescription>
+            {removing ? (
+              <p className="text-muted-foreground text-sm">
+                {removing.conversation_count === null
+                  ? t('removeChatsUnknown')
+                  : t('chatCount', { count: removing.conversation_count })}
+              </p>
+            ) : null}
           </DialogHeader>
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setRemoving(null)}>
+            <Button
+              variant="ghost"
+              autoFocus
+              onClick={() => {
+                setRemoving(null);
+                setWaitingCount(null);
+              }}
+            >
               {t('cancel')}
             </Button>
             <Button
-              onClick={() => removing && void handleRemove(removing)}
+              onClick={() =>
+                removing && void handleRemove(removing, waitingCount !== null)
+              }
               disabled={busyId !== null}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {t('remove')}
+              {waitingCount !== null ? t('removeAnyway') : t('remove')}
             </Button>
           </DialogFooter>
         </DialogContent>

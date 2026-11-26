@@ -157,3 +157,55 @@ describe('serializeCompassContact', () => {
     expect(out.attributes).toEqual({});
   });
 });
+
+describe('characters Postgres cannot store', () => {
+  const NUL = '\0';
+  const HALF = '\ud83d';
+
+  it('repairs free text', () => {
+    const parsed = parseCompassContact({
+      compass_id: 'c1',
+      name: `A${NUL}B`,
+      company: `x${HALF}y`,
+      email: NUL,
+    });
+    expect(parsed).toMatchObject({
+      ok: true,
+      row: { name: 'AB', company: 'x�y', email: null },
+    });
+  });
+
+  it('repairs attributes, keys and values, at any depth', () => {
+    const parsed = parseCompassContact({
+      compass_id: 'c1',
+      attributes: {
+        [`k${NUL}1`]: `v${NUL}`,
+        deep: [{ [`a${HALF}`]: [`b${HALF}c`, 1, null] }],
+        kept: 'é 😀 \\u0000 \\ud83d " \n',
+      },
+    });
+    expect(parsed).toMatchObject({
+      ok: true,
+      row: {
+        attributes: {
+          k1: 'v',
+          deep: [{ 'a�': ['b�c', 1, null] }],
+          kept: 'é 😀 \\u0000 \\ud83d " \n',
+        },
+      },
+    });
+  });
+
+  it.each([`c${NUL}1`, `c${HALF}1`])(
+    'rejects a record with a bad id by index, the rest kept',
+    (id) => {
+      const { rows, rejected } = parseCompassContactBatch([
+        { compass_id: 'ok1' },
+        { compass_id: id },
+        { compass_id: 'ok2' },
+      ]);
+      expect(rows.map((r) => r.compass_id)).toEqual(['ok1', 'ok2']);
+      expect(rejected).toMatchObject([{ index: 1, compass_id: null }]);
+    }
+  );
+});

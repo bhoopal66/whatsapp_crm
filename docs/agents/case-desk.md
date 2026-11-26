@@ -61,6 +61,10 @@ package 035a-c. `docs/case-desk.md` is the contract.
   `desk_tray_resolve`. Escalation: `runDeskTrayEscalation` (automations
   cron, 5 min) through `createSystemTask`, `source_ref desk_tray:<id>`.
   `TRAY_REASONS` is pinned to the CHECK by `tray.test.ts`.
+  303: filing from the tray needs `case_can_write`, as `intake_file` does;
+  a document that could not be copied leaves a `COPY_FAILED` row
+  (`desk_tray_copy_failed`, through 230's own routing rule) instead of only
+  a log line; the list is read through `desk_tray_page` (items + total).
   `verify-desk-whatsapp-routing.sql`.
 - **Shared documents and reuse consent (231, design 035 D5/D11/D13).**
   `case_document_files_same_customer` (BEFORE INSERT, every writer):
@@ -70,8 +74,8 @@ package 035a-c. `docs/case-desk.md` is the contract.
   into another open case of the same company (no copy; per-case status),
   needing `desk_doc_consents` live for the target's bank when it differs
   (CONSENT_MISSING). Consents are append-only (revoked once, with a
-  reason). `desk_company_overview` lists every case with stage only, and
-  files only of cases `case_can_read` allows (D11).
+  reason). `desk_company_overview` lists, below team leader, only
+  cases `case_can_read` allows (289; D11 listed all), and their files.
   `verify-desk-shared-documents.sql`.
 - **Cover and queue alerts (232, design 035 revision A).**
   `desk_bank_roles` (primary | second, FK to the holder's
@@ -127,6 +131,13 @@ package 035a-c. `docs/case-desk.md` is the contract.
   installed 221/222 have them). `data-map.test.ts` reads the registered
   function bodies as well as 221/222. Name a plpgsql record variable in
   221 anything but `r`: its body aliases tables as `r`.
+- **289.** `intake_route` (the uploader's own filing) queues an upload as
+  `COMPANY_RESTRICTED` when the licence is a company the uploader fails
+  `desk_customer_can_read` on, or the open case found is of a contact
+  `memory_can_read` hides. A sorter's filing is unchanged (it passes the
+  uploader to `desk_case_open`, so the check cannot live there).
+  `desk_customer_contacts_list` masks such a contact: first word of the
+  name, no phone. `verify-access-points.sql`.
 - **263.** `case_open` gives a desk lead (`desk_customer_id`) a submission
   only when the names match (`desk_normalise_name`), or, with no customer
   name, when the contact is linked to that one company; else a separate
@@ -134,3 +145,21 @@ package 035a-c. `docs/case-desk.md` is the contract.
   `desk_digest_stop` also covers `sending` digests and CSAT requests; the
   digest template is checked in its language
   (`desk_digest_template_ok/3`); `desk_doc_tasks_due` skips tasked files.
+- **316 (the rest of the desk audit).** `desk_settings_set` /
+  `desk_digest_settings_set` with `p_expected` refuse `SETTINGS_CHANGED`
+  when the stored `updated_at` is another (NULL expected = nothing was
+  stored when the card loaded); the routes take it as `expectedUpdatedAt`,
+  and a body without the key is a 409 too (a tab from before 316). Pass the
+  string PostgREST gave: a JS Date drops the microseconds and every save
+  would be stale. A duty change moves `desk_settings.updated_at`, so it also
+  makes an open routing card stale. `desk_digest_settings_read` exists only
+  to return `updated_at` (234's `_get` cannot gain a column). The cards keep
+  what was typed until Reload and disable Save meanwhile
+  (`desk-cards.test.tsx`). `customer_documents_stats()` is read only by
+  `/api/metrics`. In the bundle, `drawFormValues`
+  (`form-appearances.ts`) gives a form's value an appearance before
+  `copyPages` (which keeps the widgets and what they store, but not the form)
+  where one is missing or `NeedAppearances` says stale, and refuses the build
+  (`FORM_NOT_FLATTENED`, with the document's name) rather than send a blank.
+  Never flatten: pdf-lib's flatten loses ticks and misplaces appearances.
+  Hidden fields stay undrawn. `exif.ts` gives the rotation pdf-lib ignores.

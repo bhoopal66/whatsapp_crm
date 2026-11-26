@@ -4,12 +4,12 @@ import dynamic from 'next/dynamic';
 import { Clock } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
-import { DOW_SHORT_MON_FIRST } from '@/lib/dashboard/date-utils';
 import { loadResponseTime } from '@/lib/dashboard/queries';
 import { createClient } from '@/lib/supabase/client';
 import { Skeleton } from '../skeleton';
 import { DashboardPanel, PanelEmpty } from './panel';
 import { useWidgetData } from './use-widget-data';
+import { uiLocale } from '@/i18n/ui-locale';
 
 // recharts is the heaviest dependency on the dashboard and only this
 // chart uses it — load it in its own chunk, client-only, behind a
@@ -48,9 +48,11 @@ export function ResponseTimeCard({
 
   // Null `avgMinutes` (no samples) collapses to 0; the chart renders an
   // empty slot for it. `samples` stays on the row for a future tooltip.
+  const weekday = new Intl.DateTimeFormat(uiLocale(), { weekday: 'short' });
   const chartData =
     data?.buckets.map((b, i) => ({
-      day: DOW_SHORT_MON_FIRST[i],
+      // 1 January 2024 was a Monday.
+      day: weekday.format(new Date(2024, 0, 1 + i)),
       [CATEGORY]: b.avgMinutes ?? 0,
       samples: b.samples,
     })) ?? [];

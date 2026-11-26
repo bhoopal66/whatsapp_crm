@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import {
+  dropShortInboxList,
   inboxListCacheKey,
   inboxListQuestion,
   inboxListRowsKey,
@@ -169,6 +170,22 @@ describe('writeThroughInboxList', () => {
 
   it('does nothing without a key', () => {
     expect(writeThroughInboxList(null, null, snap(['1']))).toBe(false);
+  });
+});
+
+describe('dropShortInboxList', () => {
+  it('a list without its pins is not kept, nor written back', () => {
+    resetSessionCacheForTests();
+    const key = inboxListCacheKey('acct', 'user', BASE)!;
+    const rows = [{ id: '1' }];
+    sessionCache.set(key, { rows, cursor: null });
+    dropShortInboxList(key, { rows, cursor: null });
+    expect(sessionCache.get(key)).toBeDefined();
+    dropShortInboxList(key, { rows, cursor: null, short: true });
+    expect(sessionCache.get(key)).toBeUndefined();
+    const snapshot = { rows, cursor: null };
+    expect(writeThroughInboxList(key, key, snapshot)).toBe(false);
+    dropShortInboxList(null, { rows, cursor: null, short: true });
   });
 });
 

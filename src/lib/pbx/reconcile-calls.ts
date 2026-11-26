@@ -5,15 +5,21 @@ import { planCdrImport } from './cdr-import';
 import { PbxConnectionError, pbxApiFor, type PbxHandle } from './connection';
 import { cdrRecordToEventFrame } from './gateway';
 import { ingestPbxEvent } from './process';
-import { CDR_MAX_PAGE_SIZE, type CdrRecord } from './yeastar/api';
+import { clearLive } from './stale-calls';
+import {
+  CDR_MAX_PAGE_SIZE,
+  type CdrRecord,
+  type YeastarApi,
+} from './yeastar/api';
 import { dedupeRecords } from './yeastar/cdr';
 import { isMissedCall, parseYeastarEvent } from './yeastar/events';
 
 /**
  * Calls the CRM never heard of, because the PBX could not reach it. The
  * PBX cron reads the last hour of the PBX's call records (CDR) and
- * ingests the calls with no `calls` row, as scripts/pbx-import-cdr.ts
- * does: `historical`, so nothing rings. The one exception is a customer
+ * ingests the calls with no `calls` row, or one still live whose end was
+ * lost (`lostCalls`), as scripts/pbx-import-cdr.ts does: `historical`, so
+ * nothing rings. The one exception is a customer
  * call nobody answered, still young enough to act on: its last leg runs
  * as a live end, which opens the ordinary task and bell once (they dedupe
  * on the call's row id).
@@ -59,22 +65,71 @@ export interface ReconcileSummary {
 const message = (err: unknown) =>
   err instanceof Error ? err.message : String(err);
 
-/** Which of `callIds` already have a calls row. */
+const LIVE = ['ringing', 'in_progress'];
+
+/**
+ * The live rows of calls that are over on the PBX, by call id: their end
+ * event was lost. The PBX's own list of calls up now decides, as a call
+ * can have CDR records of its finished legs (a queue nobody answered, a
+ * transferred leg) while the customer is still on the line. Read before
+ * the CDR, so a call off this list has its legs in that. Empty when the
+ * list cannot be read: those calls stay stale-calls.ts's.
+ */
+async function lostCalls(
+  db: SupabaseClient,
+  connectionId: string,
+  api: YeastarApi,
+  windowStart: number,
+  nowMs: number
+): Promise<Map<string, string>> {
+  const { data, error } = await db
+    .from('calls')
+    .select('pbx_call_id, status')
+    .eq('connection_id', connectionId)
+    .in('status', LIVE)
+    .gte('started_at', new Date(windowStart).toISOString())
+    .lt('started_at', new Date(nowMs - RECONCILE_GRACE_MS).toISOString());
+  if (error) throw new Error(`calls read failed: ${error.message}`);
+  const lost = new Map(
+    ((data ?? []) as { pbx_call_id: string; status: string }[]).map((r) => [
+      r.pbx_call_id,
+      r.status,
+    ])
+  );
+  if (!lost.size) return lost;
+  try {
+    for (const type of ['inbound', 'outbound', 'internal'] as const) {
+      for (const c of await api.queryCalls({ type })) lost.delete(c.callId);
+    }
+  } catch (err) {
+    console.warn(
+      `[pbx-reconcile] ${connectionId}: calls in progress not read (${message(err)}); ${lost.size} live rows left`
+    );
+    return new Map();
+  }
+  return lost;
+}
+
+/**
+ * Which of `callIds` the CRM has: a row that ended, or a live one that is
+ * not (or, read again, no longer is as it was) among the lost.
+ */
 async function knownCalls(
   db: SupabaseClient,
   connectionId: string,
-  callIds: string[]
+  callIds: string[],
+  lost: ReadonlyMap<string, string>
 ): Promise<Set<string>> {
   const known = new Set<string>();
   for (let i = 0; i < callIds.length; i += CHUNK) {
     const { data, error } = await db
       .from('calls')
-      .select('pbx_call_id')
+      .select('pbx_call_id, status')
       .eq('connection_id', connectionId)
       .in('pbx_call_id', callIds.slice(i, i + CHUNK));
     if (error) throw new Error(`calls read failed: ${error.message}`);
-    for (const r of (data ?? []) as { pbx_call_id: string }[]) {
-      known.add(r.pbx_call_id);
+    for (const r of (data ?? []) as { pbx_call_id: string; status: string }[]) {
+      if (lost.get(r.pbx_call_id) !== r.status) known.add(r.pbx_call_id);
     }
   }
   return known;
@@ -88,6 +143,7 @@ function planCall(
 ): {
   frames: ReturnType<typeof cdrRecordToEventFrame>[];
   ring: boolean;
+  answered: boolean;
 } | null {
   // Records that differ only outside the frame are one event (same hash),
   // which a live last leg must not lose to its historical twin.
@@ -118,6 +174,7 @@ function planCall(
     ANSWERED_STATUSES.has(l.leg.status) ? 0 : 1;
   legs.sort((a, b) => answered(a) - answered(b));
   return {
+    answered: merged.answered,
     frames: legs.map((l) => l.frame),
     ring:
       isMissedCall(merged.direction, merged.pbxStatus) &&
@@ -154,6 +211,7 @@ export async function reconcileLostCalls(input: {
       const { api } = await open(db, id);
       const readAt = now();
       const windowStart = readAt - RECONCILE_WINDOW_MS;
+      const lost = await lostCalls(db, id, api, windowStart, readAt);
       const res = await api.searchCdr({
         startTime: new Date(windowStart),
         endTime: new Date(readAt),
@@ -177,20 +235,28 @@ export async function reconcileLostCalls(input: {
       ];
       const plan = planCdrImport(
         res.records,
-        await knownCalls(db, id, callIds)
+        await knownCalls(db, id, callIds, lost)
       );
       const byCall = new Map<string, CdrRecord[]>();
       for (const record of plan.toImport) {
         const callId = String(record.call_id);
         byCall.set(callId, [...(byCall.get(callId) ?? []), record]);
       }
-      for (const [callId, records] of byCall) {
+      // Answered calls first: a missed call before one owes no call back.
+      const calls = [...byCall]
+        .flatMap(([callId, records]) => {
+          const call = planCall(records, windowStart, now());
+          return call ? [{ callId, call }] : [];
+        })
+        .sort((a, b) => Number(b.call.answered) - Number(a.call.answered));
+      for (const { callId, call } of calls) {
         // Between calls only: a call started is recorded whole.
         if (out()) break;
-        const call = planCall(records, windowStart, now());
-        if (!call) continue;
+        // An extension answered it and its answered leg is not in the CDR
+        // read: not a missed call.
+        if (lost.get(callId) === 'in_progress' && !call.answered) continue;
         // Its own event may have arrived since the read above.
-        if ((await knownCalls(db, id, [callId])).size) continue;
+        if ((await knownCalls(db, id, [callId], lost)).size) continue;
         const ring = call.ring && complete;
         let written = 0;
         for (const [i, frame] of call.frames.entries()) {
@@ -214,6 +280,10 @@ export async function reconcileLostCalls(input: {
           }
         }
         if (written) summary.recovered++;
+        // Historical leaves the screen pop; a live leg clears its own.
+        if (written && !ring && lost.has(callId)) {
+          await clearLive(db, id, callId);
+        }
       }
     } catch (err) {
       // Not set up, or backing off after a refused login: not news.

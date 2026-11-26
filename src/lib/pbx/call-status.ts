@@ -3,6 +3,13 @@
 // the inbox composer via ./timeline) use these, and ./calls, which
 // re-exports them, pulls in next/server.
 
+/**
+ * The workspace's zone (the UAE's): where a day of calls starts and ends,
+ * whatever the browser's own zone says, so every person, every screen and
+ * the server count the same day.
+ */
+export const DEFAULT_TIME_ZONE = 'Asia/Dubai';
+
 export const CALL_STATUSES = [
   'ringing',
   'in_progress',
@@ -24,6 +31,13 @@ export const MISSED_STATUSES: readonly CallStatus[] = [
   'voicemail',
 ];
 
+/**
+ * Whether a stored call is missed, as both call reports count it (098,
+ * 119): by its final status alone. answered_at is kept from the live
+ * frames even when the call ends no_answer / busy / voicemail (answered,
+ * then sent on to a leg nobody took), so it never makes a call that
+ * ended so answered.
+ */
 export function isMissedCall(c: { direction: string; status: string }) {
   return (
     c.direction === 'inbound' &&

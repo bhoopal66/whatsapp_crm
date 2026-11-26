@@ -307,6 +307,7 @@ describe('settings form', () => {
 describe('refusals and Run now', () => {
   it('maps refusal codes to labels, unknown ones to UNKNOWN', () => {
     expect(automsgErrorKey('LIMIT')).toBe('LIMIT');
+    expect(automsgErrorKey('STALE')).toBe('STALE');
     expect(automsgErrorKey('NOT_ALLOWED')).toBe('NOT_ALLOWED');
     expect(automsgErrorKey('CLOSED')).toBe('UNKNOWN');
     expect(automsgErrorKey('Network error')).toBe('UNKNOWN');

@@ -224,7 +224,9 @@ export async function POST(request: Request, { params }: Params) {
     if (error) return meetingDbErrorResponse(error, 'Failed to moderate');
     // The seat closed between the lookup and the write (the person left or
     // rejoined on a new seat): nothing changed, so cut nothing and say so.
+    // A removal still did its job: the person is recorded, and barred.
     if (!changed?.length) {
+      if (action === 'remove') return NextResponse.json({ ok: true });
       return jsonError('That person is not in this meeting', 404);
     }
     if (action === 'remove') {

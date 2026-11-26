@@ -110,9 +110,9 @@ async function linkCompassContact(
   db: Pick<SupabaseClient, 'rpc'>,
   accountId: string,
   group: SubmissionGroup,
-  phone: string
+  phone: string | null
 ): Promise<void> {
-  if (!group.contactId) return;
+  if (!group.contactId || !phone) return;
   try {
     const { error } = await db.rpc('compass_link_contact_by_phone', {
       p_account: accountId,
@@ -159,8 +159,13 @@ export async function POST(request: Request) {
     const existing = await store.findByRef(ctx.accountId, input.submissionId);
     let open: Parameters<typeof service.openForSubmission>[0];
     let emails = new Map<string, string>();
-    let customerPhone = input.customerPhone;
+    // The Compass contact of this phone is linked to the group's customer.
+    let customerPhone: string | null = input.customerPhone;
     if (existing) {
+      // A repeat may name another number: only the customer's own links.
+      customerPhone = existing.contactId
+        ? (await store.contactConsent(existing.contactId)).phone
+        : null;
       open = {
         accountId: ctx.accountId,
         submissionRef: existing.submissionRef,

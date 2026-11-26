@@ -302,6 +302,11 @@ function parseSync(body: Record<string, unknown>): Parsed<PatchInput['sync']> {
   if (!absent(body.changed_at)) {
     changedAt = isoDate(body.changed_at);
     if (!changedAt) return bad("'changed_at' must be an ISO 8601 date-time");
+    // The latest one applied makes every older one stale: one from the
+    // future (a wrong year, a local time sent without its zone) would
+    // refuse the case's updates until that day. It counts as now.
+    if (Date.parse(changedAt) > Date.now())
+      changedAt = new Date().toISOString();
   }
   if (!absent(body.stage)) {
     const stage = typeof body.stage === 'string' ? body.stage.trim() : '';
@@ -494,7 +499,8 @@ export type HostingChoice =
 /**
  * The Whapi number that hosts the group. A number with allocation rows
  * (whatsapp_channel_members) is usable by those people and by owners and
- * admins; a number with none is shared. Without `requestedId` the agent's
+ * admins; a number with none is shared, unless an admin limited it (314).
+ * Without `requestedId` the agent's
  * own number is picked as a new chat would be (pickChannelForUser) — and
  * refused if even that one is not theirs to use.
  */
@@ -515,10 +521,12 @@ export function chooseHostingNumber(input: {
     set.add(m.user_id);
     allocated.set(m.config_id, set);
   }
+  const isShared = (c: WhatsAppChannel) =>
+    !allocated.has(c.id) && !c.accessRestricted;
   const usable = (c: WhatsAppChannel) =>
     isAdmin ||
-    !allocated.has(c.id) ||
-    allocated.get(c.id)!.has(input.agentUserId);
+    isShared(c) ||
+    allocated.get(c.id)?.has(input.agentUserId) === true;
 
   if (input.requestedId !== null) {
     const asked = whapi.find((c) => c.id === input.requestedId);
@@ -532,7 +540,7 @@ export function chooseHostingNumber(input: {
   const routed = whapi.find((c) => c.isPrimary) ?? whapi[0];
   const shared = isAdmin
     ? undefined
-    : new Set(whapi.filter((c) => !allocated.has(c.id)).map((c) => c.id));
+    : new Set(whapi.filter(isShared).map((c) => c.id));
   const picked = pickChannelForUser([...whapi], mine, routed, shared);
   return usable(picked)
     ? { ok: true, channel: picked }

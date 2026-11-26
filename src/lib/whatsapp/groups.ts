@@ -570,7 +570,7 @@ export async function listGroups(
 /**
  * `listGroups`, saying whether the list is the number's whole set.
  * `complete: false` when the OpenWA walk ran out of time or a group's
- * read failed: a caller that marks unlisted groups as left (Sync) must
+ * read failed, or Whapi's rows could not all be read: a caller that marks unlisted groups as left (Sync) must
  * not do so from a partial list.
  */
 export async function listGroupsWithStatus(
@@ -578,13 +578,7 @@ export async function listGroupsWithStatus(
 ): Promise<{ groups: whapi.WhapiGroup[]; complete: boolean }> {
   const gw = gatewayFor(args.channel);
   if (gw.kind === 'whapi') {
-    return {
-      groups: await whapi.listAllGroups({
-        token: gw.token,
-        maxGroups: args.maxGroups,
-      }),
-      complete: true,
-    };
+    return whapi.walkAllGroups({ token: gw.token, maxGroups: args.maxGroups });
   }
   const budget: TimeBudget = {
     deadline: args.deadline ?? groupDeadline(args.now?.()),
@@ -854,6 +848,25 @@ function openwaParticipantList(inputs: string[]): string[] {
 /** A hidden member's id, as the gateway gives it. */
 const isHiddenId = (x: string) => /^[0-9]{5,25}@lid$/.test(x);
 
+/** OpenWA answers 200 even when WhatsApp refused someone: each is told apart. */
+function perPersonResult(
+  results: openwa.ParticipantResult[]
+): whapi.ParticipantsResult {
+  const out: whapi.ParticipantsResult = { processed: [], failed: [] };
+  for (const r of results) {
+    (r.success ? out.processed : out.failed).push(
+      openwa.fromOpenWAParticipantId(r.id)
+    );
+  }
+  return out;
+}
+
+/** Whapi answers for the whole call: a 2xx changed everyone named. */
+const allProcessed = (waIds: string[]): whapi.ParticipantsResult => ({
+  processed: waIds.map((waId) => ({ jid: waId, waId })),
+  failed: [],
+});
+
 /**
  * `includeHidden` (a submission group's close only): a hidden member's
  * `<digits>@lid` goes to Whapi as it is, and an id that is neither that nor
@@ -883,13 +896,8 @@ export async function removeParticipants(
       args.groupId,
       openwaParticipantList(participants)
     );
-    const out: whapi.ParticipantsResult = { processed: [], failed: unusable };
-    for (const r of results) {
-      (r.success ? out.processed : out.failed).push(
-        openwa.fromOpenWAParticipantId(r.id)
-      );
-    }
-    return out;
+    const out = perPersonResult(results);
+    return { ...out, failed: [...unusable, ...out.failed] };
   }
   const out = await whapi.removeGroupParticipants({
     token: gw.token,
@@ -904,40 +912,46 @@ export async function removeParticipants(
 
 export async function promoteAdmins(
   args: GroupRef & { participants: string[] }
-): Promise<void> {
+): Promise<whapi.ParticipantsResult> {
   const gw = gatewayFor(args.channel);
   if (gw.kind === 'openwa') {
-    await openwa.promoteParticipants(
-      gw.creds,
-      args.groupId,
-      openwaParticipantList(args.participants)
+    return perPersonResult(
+      await openwa.promoteParticipants(
+        gw.creds,
+        args.groupId,
+        openwaParticipantList(args.participants)
+      )
     );
-    return;
   }
-  return whapi.promoteGroupAdmins({
+  const participants = participantList(args.participants);
+  await whapi.promoteGroupAdmins({
     token: gw.token,
     groupId: args.groupId,
-    participants: participantList(args.participants),
+    participants,
   });
+  return allProcessed(participants);
 }
 
 export async function demoteAdmins(
   args: GroupRef & { participants: string[] }
-): Promise<void> {
+): Promise<whapi.ParticipantsResult> {
   const gw = gatewayFor(args.channel);
   if (gw.kind === 'openwa') {
-    await openwa.demoteParticipants(
-      gw.creds,
-      args.groupId,
-      openwaParticipantList(args.participants)
+    return perPersonResult(
+      await openwa.demoteParticipants(
+        gw.creds,
+        args.groupId,
+        openwaParticipantList(args.participants)
+      )
     );
-    return;
   }
-  return whapi.demoteGroupAdmins({
+  const participants = participantList(args.participants);
+  await whapi.demoteGroupAdmins({
     token: gw.token,
     groupId: args.groupId,
-    participants: participantList(args.participants),
+    participants,
   });
+  return allProcessed(participants);
 }
 
 /** Only WhatsApp's own CDN is fetched for an OpenWA picture URL. */

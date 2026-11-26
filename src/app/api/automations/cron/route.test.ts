@@ -13,6 +13,7 @@ const h = vi.hoisted(() => ({
   resume: vi.fn(),
   health: vi.fn(),
   lapse: vi.fn(),
+  seatAccess: vi.fn(),
   sweep: vi.fn(),
   rpc: vi.fn(),
   journeyTick: vi.fn(),
@@ -27,6 +28,7 @@ const h = vi.hoisted(() => ({
   inboxTick: vi.fn(),
   outboxDrain: vi.fn(),
   outboxPurge: vi.fn(),
+  keyPurge: vi.fn(),
   pbx: vi.fn(),
   chatFiles: vi.fn(),
   push: vi.fn(),
@@ -85,6 +87,7 @@ vi.mock('@/lib/whatsapp/channel-health', async (importOriginal) => ({
 
 vi.mock('@/lib/meetings/lapse', () => ({
   runMeetingLapseSweep: h.lapse,
+  runSeatAccessSweep: h.seatAccess,
 }));
 
 vi.mock('@/lib/team-activity/alert-sweep', () => ({
@@ -128,6 +131,9 @@ vi.mock('@/lib/webhooks/outbox', () => ({
   drainWebhookOutbox: h.outboxDrain,
   purgeWebhookOutbox: h.outboxPurge,
 }));
+vi.mock('@/lib/api/v1/message-keys', () => ({
+  purgeMessageKeys: h.keyPurge,
+}));
 vi.mock('@/lib/pbx/housekeeping', () => ({ runPbxCron: h.pbx }));
 vi.mock('@/lib/chat/file-cleanup', () => ({ runChatFileSweep: h.chatFiles }));
 vi.mock('@/lib/push/dispatch', () => ({ dispatchPush: h.push }));
@@ -168,6 +174,7 @@ beforeEach(() => {
     .mockReset()
     .mockResolvedValue({ checked: 1, changed: 0, notified: 0, failed: 0 });
   h.lapse.mockReset().mockResolvedValue({ checked: 0, ended: 0 });
+  h.seatAccess.mockReset().mockResolvedValue({ checked: 0, cut: 0 });
   h.sweep.mockReset().mockResolvedValue({ alerts: 0, notifications: 0 });
   h.responseSweep.mockReset().mockResolvedValue({
     accounts: 0,
@@ -211,6 +218,7 @@ beforeEach(() => {
   h.inboxTick.mockReset().mockResolvedValue(undefined);
   h.outboxDrain.mockReset().mockResolvedValue({ claimed: 0, delivered: 0 });
   h.outboxPurge.mockReset().mockResolvedValue(0);
+  h.keyPurge.mockReset().mockResolvedValue(undefined);
   h.chatFiles
     .mockReset()
     .mockResolvedValue({ found: 0, deleted: 0, failed: [] });
@@ -353,6 +361,25 @@ describe('GET /api/automations/cron — meeting lapse piggy-back', () => {
     expect((await GET(req())).status).toBe(200);
     await expect(runAfter()).resolves.toBeUndefined();
     expect(h.lapse).toHaveBeenCalledTimes(2);
+    expect(log).toHaveBeenCalled();
+    log.mockRestore();
+  });
+});
+
+describe('GET /api/automations/cron — meeting access piggy-back', () => {
+  it('runs every minute and survives its failure', async () => {
+    vi.resetModules();
+    const { GET } = await import('./route');
+    await GET(req());
+    await runAfter();
+    expect(h.seatAccess).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(new Date('2026-09-29T13:01:00Z'));
+    h.seatAccess.mockRejectedValue(new Error('db down'));
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect((await GET(req())).status).toBe(200);
+    await expect(runAfter()).resolves.toBeUndefined();
+    expect(h.seatAccess).toHaveBeenCalledTimes(2);
     expect(log).toHaveBeenCalled();
     log.mockRestore();
   });
@@ -987,6 +1014,7 @@ describe('GET /api/automations/cron — webhook outbox piggy-back', () => {
     await runAfter();
     expect(h.outboxDrain).toHaveBeenCalledTimes(1);
     expect(h.outboxPurge).toHaveBeenCalledTimes(1);
+    expect(h.keyPurge).toHaveBeenCalledTimes(1);
 
     vi.setSystemTime(new Date('2026-10-21T09:00:30Z'));
     await GET(req());

@@ -23,6 +23,7 @@ import {
   describeSendFailure,
   isChannelLevelFailure,
   isDefiniteSendRefusal,
+  isGatewayUnavailable,
 } from '@/lib/whatsapp/provider';
 import {
   resolveChannelForSurface,
@@ -36,13 +37,23 @@ import {
 } from '@/lib/whatsapp/phone-utils';
 import { validateContactPhone } from '@/lib/contacts/phone-validation';
 import { resolveTemplateRow } from '@/lib/whatsapp/template-body';
+import { refusedByMeta } from '@/lib/whatsapp/template-offer';
 import { headerMediaProblem } from '@/lib/whatsapp/template-send-builder';
 import { isInQuietHours, type QuietHours } from '@/lib/broadcasts/quiet-hours';
+import {
+  capCutoff,
+  frequencyCapReason,
+  MESSAGED_STATUSES,
+} from '@/lib/broadcasts/frequency-cap';
 import {
   RESENDABLE_FILTER,
   SEND_UNCONFIRMED_REASON,
   SENT_NOT_RECORDED_REASON,
 } from '@/lib/broadcasts/unconfirmed-send';
+import {
+  consentRefusal,
+  type ConsentRefusal,
+} from '@/lib/whatsapp/send-origin';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
 import type { MessageTemplate } from '@/types';
 import { findOrCreateContact } from '@/lib/api/v1/contacts';
@@ -56,12 +67,26 @@ import {
 export class BroadcastError extends Error {
   readonly code: string;
   readonly status: number;
-  constructor(code: string, message: string, status: number) {
+  /** The database refused the creation: certainly nothing was created. */
+  readonly refused: boolean;
+  constructor(code: string, message: string, status: number, refused = false) {
     super(message);
     this.name = 'BroadcastError';
     this.code = code;
     this.status = status;
+    this.refused = refused;
   }
+}
+
+/**
+ * Whether a database error proves that its transaction was rolled back: a
+ * SQLSTATE, except those of a connection or server that broke (nobody knows
+ * whether it committed). No answer at all has no code.
+ */
+export function isRefusal(code: string | null | undefined): boolean {
+  return (
+    /^[0-9A-Z]{5}$/.test(code ?? '') && !/^(08|57P|58|XX|40003)/.test(code!)
+  );
 }
 
 /**
@@ -79,10 +104,45 @@ export function assertHeaderMedia(
   }
 }
 
+/**
+ * Throw `template_refused` for a campaign that would go out on the Meta
+ * number with a template Meta refused: every send would fail. The wizard
+ * does not offer one, but a campaign is also made by the API, resumed,
+ * or re-routed to the Meta number after it was made. A linked number
+ * renders the row itself, so Meta's verdict does not matter there.
+ *
+ * `status` is the caller's: the wizard reads a 409 from Resume as "a
+ * pass is running" and waits for it, so a resume never answers one.
+ */
+export function assertTemplateNotRefused(
+  template: MessageTemplate,
+  channel: Pick<WhatsAppChannel, 'provider'>,
+  status: 400 | 409
+): void {
+  if (channel.provider !== 'meta' || !refusedByMeta(template)) return;
+  throw new BroadcastError(
+    'template_refused',
+    `Meta refused the template "${template.name}", so the Meta number cannot send it: ${template.submission_error}`,
+    status
+  );
+}
+
+/** A failed read of the template: never "there is none". Try again. */
+export function templateReadFailed(): BroadcastError {
+  return new BroadcastError(
+    'internal',
+    'The template could not be read. Try again in a moment.',
+    503
+  );
+}
+
 export interface BroadcastRecipientInput {
   /** International phone with its country code (validateContactPhone). */
   to: string;
-  /** Positional body params for the template ({{1}}, {{2}}…). */
+  /**
+   * Positional body params for the template ({{1}}, {{2}}…). The caller
+   * has checked them: one left out here would move the rest up.
+   */
   params?: string[];
 }
 
@@ -97,6 +157,11 @@ export interface CreateBroadcastParams {
    * before anything is persisted.
    */
   flowId?: string | null;
+  /**
+   * Awaited right before the campaign is inserted; throwing creates
+   * nothing. An error after it does not prove that nothing was created.
+   */
+  beforeCreate?: () => Promise<void>;
 }
 
 interface PlannedRecipient {
@@ -143,12 +208,18 @@ export interface BroadcastPlan {
    * again before every send. Null/undefined: the campaign has none.
    */
   quietHours?: QuietHours | null;
+  /**
+   * The campaign's frequency cap (migration 301), asked again before
+   * every send. Null/undefined: the campaign has none.
+   */
+  skipRecentDays?: number | null;
   planned: PlannedRecipient[];
   /** Phones rejected up front by validateContactPhone; no row is created. */
   rejected: number;
   /**
-   * Recipients left out because the customer asked not to be messaged
-   * (`contacts.opted_out_at`, migration 076). At plan time no row is
+   * Recipients left out because the customer opted out
+   * (`contacts.opted_out_at`, migration 076) or is marked do-not-contact
+   * (`do_not_contact_at`, 086). At plan time no row is
    * created for them; a resume pass stamps their pending rows failed.
    */
   skippedOptedOut: number;
@@ -158,6 +229,12 @@ const MAX_RECIPIENTS = 1000;
 
 /** The failure reason stamped on a recipient who opted out. */
 export const OPTED_OUT_REASON = 'Customer opted out of messages';
+
+/** The failure reason for each answer of the consent register. */
+export const CONSENT_FAILURE_REASONS: Record<ConsentRefusal, string> = {
+  opted_out: OPTED_OUT_REASON,
+  do_not_contact: 'Customer is marked do-not-contact',
+};
 
 /**
  * Why a pass stopped, or a Resume was refused, for quiet hours. The
@@ -176,30 +253,32 @@ export function quietHoursMessage(quiet: QuietHours): string {
 const OPT_OUT_LOOKUP_CHUNK = 100;
 
 /**
- * Which of these contacts asked not to be messaged (migration 076).
- * Throws on a failed read: a broadcast must not go out to people who
+ * Which of these contacts must not be messaged, and why: opted out
+ * (migration 076) or do-not-contact (086). Throws on a failed read: a broadcast must not go out to people who
  * opted out because the check could not run.
  */
-async function optedOutContactIds(
+async function consentRefusals(
   db: SupabaseClient,
   accountId: string,
   contactIds: string[]
-): Promise<Set<string>> {
-  const optedOut = new Set<string>();
+): Promise<Map<string, ConsentRefusal>> {
+  const refusals = new Map<string, ConsentRefusal>();
   for (let i = 0; i < contactIds.length; i += OPT_OUT_LOOKUP_CHUNK) {
     const { data, error } = await db
       .from('contacts')
-      .select('id')
+      .select('id, opted_out_at, do_not_contact_at')
       .eq('account_id', accountId)
-      .in('id', contactIds.slice(i, i + OPT_OUT_LOOKUP_CHUNK))
-      .not('opted_out_at', 'is', null);
+      .in('id', contactIds.slice(i, i + OPT_OUT_LOOKUP_CHUNK));
     if (error) {
       console.error('[broadcast-core] opted-out lookup error:', error);
       throw new BroadcastError('internal', 'Failed to check opt-outs', 500);
     }
-    for (const row of (data ?? []) as { id: string }[]) optedOut.add(row.id);
+    for (const row of data ?? []) {
+      const refusal = consentRefusal(row);
+      if (refusal) refusals.set(row.id, refusal);
+    }
   }
-  return optedOut;
+  return refusals;
 }
 
 /**
@@ -269,6 +348,7 @@ export async function createBroadcast(
       500
     );
   }
+  if (resolvedTemplate.readFailed) throw templateReadFailed();
   if (!resolvedTemplate.row) {
     throw new BroadcastError(
       'template_not_found',
@@ -277,6 +357,7 @@ export async function createBroadcast(
     );
   }
   const templateRow = resolvedTemplate.row;
+  assertTemplateNotRefused(templateRow, channel, 409);
 
   // A media header with no media fails every recipient identically at
   // send time on Meta; say so once, before anything is persisted.
@@ -344,9 +425,7 @@ export async function createBroadcast(
     resolved.push({
       contactId: id,
       phone: checked.normalized,
-      params: Array.isArray(r.params)
-        ? r.params.filter((p): p is string => typeof p === 'string')
-        : [],
+      params: r.params ?? [],
     });
   }
 
@@ -364,18 +443,18 @@ export async function createBroadcast(
 
   // A customer who asked not to be messaged (migration 076) gets no
   // recipient row at all, so no later pass can send to them either.
-  const optedOut = await optedOutContactIds(
+  const refusals = await consentRefusals(
     db,
     accountId,
     unique.map((r) => r.contactId)
   );
-  const deduped = unique.filter((r) => !optedOut.has(r.contactId));
+  const deduped = unique.filter((r) => !refusals.has(r.contactId));
   const skippedOptedOut = unique.length - deduped.length;
 
   if (deduped.length === 0 && skippedOptedOut > 0) {
     throw new BroadcastError(
       'bad_request',
-      'Every recipient with a valid phone number has opted out of messages.',
+      'Every recipient with a valid phone number has opted out of messages or is marked do-not-contact.',
       400
     );
   }
@@ -388,6 +467,8 @@ export async function createBroadcast(
       400
     );
   }
+
+  await params.beforeCreate?.();
 
   // Persist the broadcast + its recipients. The count columns
   // (sent/delivered/read/replied/failed) are owned by the DB aggregate
@@ -421,7 +502,12 @@ export async function createBroadcast(
   );
   if (createErr || !createdRows || createdRows.length === 0) {
     console.error('[broadcast-core] create broadcast error:', createErr);
-    throw new BroadcastError('internal', 'Failed to create broadcast', 500);
+    throw new BroadcastError(
+      'internal',
+      'Failed to create broadcast',
+      500,
+      isRefusal(createErr?.code)
+    );
   }
 
   const broadcastId = createdRows[0].broadcast_id as string;
@@ -511,11 +597,14 @@ export async function deliverBroadcast(
   // Set when the delivery lock is no longer certainly this pass's: the
   // campaign is then another pass's to send and to settle.
   let lockLost = false;
+  // Set when the gateway answered that it is unavailable: the recipient it
+  // was at may have the message, the ones after it are left pending.
+  let unavailable: string | null = null;
   let attempted = 0;
   let refreshedAt = Date.now();
   let refreshedAtAttempt = 0;
 
-  for (const recipient of plan.planned) {
+  for (const [index, recipient] of plan.planned.entries()) {
     if (
       opts.keepLock &&
       (attempted - refreshedAtAttempt >= LOCK_REFRESH_SENDS ||
@@ -542,19 +631,48 @@ export async function deliverBroadcast(
       break;
     }
     if (recipient.contactId && plan.channel.accountId) {
-      let optedOut: Set<string>;
+      let refusal: ConsentRefusal | undefined;
       try {
-        optedOut = await optedOutContactIds(db, plan.channel.accountId, [
-          recipient.contactId,
-        ]);
+        refusal = (
+          await consentRefusals(db, plan.channel.accountId, [
+            recipient.contactId,
+          ])
+        ).get(recipient.contactId);
       } catch {
         stopped = 'the opt-out check failed';
         break;
       }
-      if (optedOut.has(recipient.contactId)) {
+      if (refusal) {
         await db
           .from('broadcast_recipients')
-          .update({ status: 'failed', error_message: OPTED_OUT_REASON })
+          .update({
+            status: 'failed',
+            error_message: CONSENT_FAILURE_REASONS[refusal],
+          })
+          .eq('id', recipient.recipientRowId);
+        continue;
+      }
+    }
+    if (recipient.contactId && plan.skipRecentDays) {
+      const { data: recent, error } = await db
+        .from('broadcast_recipients')
+        .select('id')
+        .eq('contact_id', recipient.contactId)
+        .neq('broadcast_id', plan.broadcastId)
+        .in('status', MESSAGED_STATUSES)
+        .gte('sent_at', capCutoff(plan.skipRecentDays))
+        .limit(1);
+      if (error) {
+        stopped = 'the frequency cap check failed';
+        break;
+      }
+      if (recent && recent.length > 0) {
+        await db
+          .from('broadcast_recipients')
+          .update({
+            status: 'failed',
+            error_message: frequencyCapReason(plan.skipRecentDays),
+          })
           .eq('id', recipient.recipientRowId);
         continue;
       }
@@ -590,7 +708,8 @@ export async function deliverBroadcast(
     // Write-ahead: the row says "may have been sent" BEFORE the gateway is
     // asked, so a pass that dies mid-send leaves a row the next plan fails
     // instead of sending again. Conditional, so a row another pass already
-    // sent or is sending matches nothing and is skipped.
+    // sent or is sending matches nothing and is skipped, and so is every
+    // row of a campaign that is not 'sending' (migration 301).
     const { data: marked, error: markError } = await db
       .from('broadcast_recipients')
       .update({ error_message: SEND_UNCONFIRMED_REASON })
@@ -602,7 +721,15 @@ export async function deliverBroadcast(
       stopped = `the next send could not be recorded: ${markError.message}`;
       break;
     }
-    if (!marked || marked.length === 0) continue;
+    if (!marked || marked.length === 0) {
+      // Nothing is marked either once the campaign is no longer 'sending'
+      // (the trigger of migration 301): then the whole pass ends.
+      if (await noLongerSending(db, plan.broadcastId)) {
+        stopped = 'the campaign is no longer being sent';
+        break;
+      }
+      continue;
+    }
 
     const variants = phoneVariants(recipient.phone);
     let sentMessageId: string | null = null;
@@ -633,6 +760,9 @@ export async function deliverBroadcast(
             describeSendFailure(error)
           );
           lastError = SEND_UNCONFIRMED_REASON;
+          if (isGatewayUnavailable(error)) {
+            unavailable = describeSendFailure(error);
+          }
           break;
         }
         // Provider-aware: names Meta's closed 24-hour window and
@@ -679,6 +809,9 @@ export async function deliverBroadcast(
           .update({
             status: 'failed',
             error_message: SENT_NOT_RECORDED_REASON,
+            // So that its receipt can find the row and correct it.
+            whatsapp_message_id: sentMessageId,
+            sent_at: new Date().toISOString(),
           })
           .eq('id', recipient.recipientRowId);
         stopped = `a send could not be recorded: ${stampError}`;
@@ -692,6 +825,22 @@ export async function deliverBroadcast(
           error_message: lastError || 'Unknown error',
         })
         .eq('id', recipient.recipientRowId);
+    }
+
+    if (unavailable) {
+      stopped = unavailable;
+      // On the next recipient, as this one is never sent to again: the
+      // reason shows, and the cron waits before it continues.
+      const next = plan.planned[index + 1];
+      if (next) {
+        await db
+          .from('broadcast_recipients')
+          .update({ error_message: unavailable })
+          .eq('id', next.recipientRowId)
+          .in('status', ['pending', 'failed'])
+          .or(RESENDABLE_FILTER);
+      }
+      break;
     }
   }
 
@@ -710,6 +859,22 @@ export async function deliverBroadcast(
   // Receipts that beat a wamid stamp above were matched to nothing.
   await reconcileBroadcastStatuses({ broadcastId: plan.broadcastId });
   if (!lockLost) await finalizeBroadcastStatus(db, plan.broadcastId);
+}
+
+/**
+ * Stopped, finished, deleted, or not readable: the pass ends either way,
+ * since a recipient that could not be marked is never sent to.
+ */
+async function noLongerSending(
+  db: SupabaseClient,
+  broadcastId: string
+): Promise<boolean> {
+  const { data, error } = await db
+    .from('broadcasts')
+    .select('status')
+    .eq('id', broadcastId)
+    .maybeSingle();
+  return !!error || data?.status !== 'sending';
 }
 
 /**
@@ -857,6 +1022,36 @@ export async function settleBroadcastAfterLateFailure(
   } catch (err) {
     console.error(
       '[broadcast-core] late-failure settle threw:',
+      err instanceof Error ? err.message : err
+    );
+  }
+}
+
+/**
+ * The reverse: a receipt said a recipient recorded as failed was delivered
+ * after all, so a campaign that read 'failed' because every recipient had
+ * failed reads 'sent'. Moves 'failed' to 'sent' and nothing else, and never
+ * while a recipient is pending. Never throws (the status webhook's path).
+ */
+export async function settleBroadcastAfterCorrection(
+  db: SupabaseClient,
+  broadcastId: string
+): Promise<void> {
+  try {
+    if ((await terminalStatusFromRecipients(db, broadcastId)) !== 'sent') {
+      return;
+    }
+    const { error } = await db
+      .from('broadcasts')
+      .update({ status: 'sent', updated_at: new Date().toISOString() })
+      .eq('id', broadcastId)
+      .eq('status', 'failed');
+    if (error) {
+      console.error('[broadcast-core] correction settle failed:', error);
+    }
+  } catch (err) {
+    console.error(
+      '[broadcast-core] correction settle threw:',
       err instanceof Error ? err.message : err
     );
   }

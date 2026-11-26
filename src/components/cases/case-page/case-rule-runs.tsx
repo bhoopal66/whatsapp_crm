@@ -13,6 +13,8 @@ import {
   type RulesT,
 } from '@/lib/cases/rules-ui';
 
+import { useCaseRefreshKey } from './tab-kit';
+
 type Loaded = { runs: RuleRunView[]; names: Map<string, string> } | 'error';
 
 async function getJson(url: string): Promise<unknown> {
@@ -33,6 +35,7 @@ export function CaseRuleRuns({ caseId }: { caseId: string }) {
   const locale = useLocale();
   const [loaded, setLoaded] = useState<Loaded | null>(null);
 
+  const refreshKey = useCaseRefreshKey();
   useEffect(() => {
     let current = true;
     (async () => {
@@ -50,13 +53,13 @@ export function CaseRuleRuns({ caseId }: { caseId: string }) {
         }
         if (current) setLoaded({ runs: [...runs].reverse(), names });
       } catch {
-        if (current) setLoaded('error');
+        if (current) setLoaded((prev) => prev ?? 'error');
       }
     })();
     return () => {
       current = false;
     };
-  }, [caseId]);
+  }, [caseId, refreshKey]);
 
   if (loaded === null || (loaded !== 'error' && loaded.runs.length === 0))
     return null;

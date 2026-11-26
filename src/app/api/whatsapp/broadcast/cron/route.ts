@@ -25,8 +25,14 @@
 // hours, the number's daily limit, a logged-out phone) or die with the
 // process: leftovers stay 'pending', the campaign stays 'sending', and a
 // later tick continues it, at most one per tick, for a week after its
-// appointment. Only scheduled campaigns: one sent from the wizard has
-// no appointment and is finished by the tab or by Resume.
+// appointment. So is a campaign the public API created, for a week after
+// that: nobody has a tab open on it. The mark of one is a NULL
+// `audience_filter`: the wizard always writes it, and
+// `create_broadcast_with_recipients`, which only the API calls, never
+// does (pinned in `cron-continue.test.ts`). Such a campaign has no quiet
+// hours to obey, so it is continued in the daytime only
+// (`apiCampaignNight`). One sent from the wizard has no appointment and is
+// finished by the tab or by Resume.
 //
 // Every tick also replays Meta receipts that no recipient row matched
 // when they arrived (migration 066), so a lost 'failed' is still
@@ -44,8 +50,10 @@ import {
   reconcileBroadcastStatuses,
 } from '@/lib/whatsapp/broadcast-core';
 import {
+  failRefusedCampaign,
   mayContinueBroadcast,
   recordContinueRefusal,
+  waitForNumber,
   type ContinueCandidate,
 } from '@/lib/whatsapp/broadcast-continue';
 import { runBroadcastPass } from '@/lib/whatsapp/broadcast-pass';
@@ -60,7 +68,9 @@ import {
   isInQuietHours,
   nextAllowedSendTime,
   parseQuietHours,
+  type QuietHours,
 } from '@/lib/broadcasts/quiet-hours';
+import { DEFAULT_TIMEZONE } from '@/lib/response-times/hours';
 import { serverErrorResponse } from '@/lib/api/server-error';
 
 export const maxDuration = 300;
@@ -71,8 +81,11 @@ const MAX_PER_TICK = 5;
 /** Unfinished campaigns looked at per tick; the first that may run does. */
 const CONTINUE_CANDIDATES = 20;
 
-/** How long after its appointment an unfinished campaign is continued. */
+/** How long after its appointment (API: its creation) one is continued. */
 const CONTINUE_WITHIN_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** When an API campaign, which has no quiet hours, is not continued. */
+const API_NIGHT = { start: '21:00', end: '08:00' };
 
 interface DueRow {
   id: string;
@@ -171,20 +184,45 @@ export async function GET(request: Request) {
       }
       if (
         err instanceof BroadcastError &&
-        (err.code === 'quiet_hours' || err.code === 'internal')
+        (err.code === 'quiet_hours' ||
+          err.code === 'internal' ||
+          err.code === 'campaign_stopped')
       ) {
         // The window began since the check above: the next tick moves
         // the appointment. Or the database did not answer: it stays due.
+        // Or someone stopped it in between.
         skipped++;
         continue;
       }
-      // Channel / template problems are per-account and won't fix
+      if (
+        err instanceof BroadcastError &&
+        err.code === 'whatsapp_not_configured' &&
+        (await waitForNumber(admin, row, err.message, now))
+      ) {
+        // Someone may connect the number again: the appointment moved.
+        deferred++;
+        continue;
+      }
+      // Other channel / template problems are per-account and won't fix
       // themselves by retrying every minute: mark the campaign failed so
       // it surfaces on the detail page instead of silently re-queuing.
       console.error(
         `[broadcast-cron] planning ${row.id} failed:`,
         err instanceof Error ? err.message : err
       );
+      if (err instanceof BroadcastError && err.code === 'template_refused') {
+        await failRefusedCampaign(admin, row.id, err.message);
+        skipped++;
+        continue;
+      }
+      // The page shows why it failed; the rest stay pending for Resume.
+      await recordContinueRefusal(
+        admin,
+        row.id,
+        err instanceof BroadcastError
+          ? err.message
+          : 'The campaign could not be started.'
+      ).catch(() => {});
       await admin
         .from('broadcasts')
         .update({ status: 'failed', updated_at: now.toISOString() })
@@ -194,19 +232,23 @@ export async function GET(request: Request) {
     }
   }
 
-  // Scheduled campaigns a capped, stopped or killed pass left unfinished.
+  // Scheduled and API campaigns a capped, stopped or killed pass left
+  // unfinished. A new API campaign is left to its request first; that also
+  // covers one whose request could not take the delivery lock.
   // Longest untouched first: a campaign that just had its pass goes to
   // the back, and one that may not run yet does not use the tick.
-  const staleCutoff = new Date(now.getTime() - DELIVERY_LOCK_STALE_MS);
+  const nowIso = now.toISOString();
+  const stale = new Date(+now - DELIVERY_LOCK_STALE_MS).toISOString();
+  const weekAgo = new Date(+now - CONTINUE_WITHIN_MS).toISOString();
   const { data: unfinished, error: unfinishedError } = await admin
     .from('broadcasts')
-    .select('id, account_id, quiet_hours, updated_at')
+    .select('id, account_id, scheduled_at, quiet_hours, updated_at')
     .eq('status', 'sending')
-    .lte('scheduled_at', now.toISOString())
-    .gte('scheduled_at', new Date(+now - CONTINUE_WITHIN_MS).toISOString())
     .or(
-      `delivery_locked_at.is.null,delivery_locked_at.lt.${staleCutoff.toISOString()}`
+      `and(scheduled_at.lte.${nowIso},scheduled_at.gte.${weekAgo}),` +
+        `and(scheduled_at.is.null,audience_filter.is.null,created_at.lte.${stale},created_at.gte.${weekAgo})`
     )
+    .or(`delivery_locked_at.is.null,delivery_locked_at.lt.${stale}`)
     .order('updated_at', { ascending: true })
     .limit(CONTINUE_CANDIDATES);
   if (unfinishedError) {
@@ -229,7 +271,28 @@ export async function GET(request: Request) {
 }
 
 interface UnfinishedRow extends ContinueCandidate {
+  /** Null: the public API created it. */
+  scheduled_at: string | null;
   quiet_hours: unknown;
+}
+
+/** `API_NIGHT` in the account's time zone. Throws when it cannot be read. */
+async function apiCampaignNight(
+  admin: SupabaseClient,
+  accountId: string
+): Promise<QuietHours> {
+  const { data, error } = await admin
+    .from('team_activity_settings')
+    .select('timezone')
+    .eq('account_id', accountId)
+    .maybeSingle();
+  if (error) throw new Error(`time zone read failed: ${error.message}`);
+  return (
+    parseQuietHours({ ...API_NIGHT, tz: data?.timezone }) ?? {
+      ...API_NIGHT,
+      tz: DEFAULT_TIMEZONE,
+    }
+  );
 }
 
 /** Start the next pass of an unfinished campaign, if it may run now. */
@@ -238,13 +301,14 @@ async function continueBroadcast(
   row: UnfinishedRow,
   now: Date
 ): Promise<'started' | 'skipped'> {
-  const quiet = parseQuietHours(row.quiet_hours);
-  if (quiet && isInQuietHours(now, quiet)) return 'skipped';
-
   const claimedAt = new Date();
   const token = claimedAt.toISOString();
   let claimed = false;
   try {
+    const quiet =
+      parseQuietHours(row.quiet_hours) ??
+      (row.scheduled_at ? null : await apiCampaignNight(admin, row.account_id));
+    if (quiet && isInQuietHours(now, quiet)) return 'skipped';
     if (!(await mayContinueBroadcast(admin, row, now))) return 'skipped';
     claimed = await claimBroadcastDelivery(
       admin,
@@ -260,7 +324,8 @@ async function continueBroadcast(
       row.id,
       'pending'
     );
-    after(() => runBroadcastPass(admin, plan, token));
+    // Read again before every send, so a pass also stops when they begin.
+    after(() => runBroadcastPass(admin, { ...plan, quietHours: quiet }, token));
     return 'started';
   } catch (err) {
     const code = err instanceof BroadcastError ? err.code : null;
@@ -271,7 +336,19 @@ async function continueBroadcast(
         `[broadcast-cron] continuing ${row.id} failed:`,
         err instanceof Error ? err.message : err
       );
-      if (claimed && code && code !== 'internal' && code !== 'quiet_hours') {
+      if (claimed && code === 'template_refused') {
+        await failRefusedCampaign(
+          admin,
+          row.id,
+          (err as BroadcastError).message
+        ).catch(() => {});
+      } else if (
+        claimed &&
+        code &&
+        code !== 'internal' &&
+        code !== 'campaign_stopped' &&
+        code !== 'quiet_hours'
+      ) {
         await recordContinueRefusal(
           admin,
           row.id,

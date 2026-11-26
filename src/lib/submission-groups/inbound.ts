@@ -243,7 +243,8 @@ export type MembershipStore = Pick<
  * (174). Event ids are phone digits; a hidden number is only counted in
  * `unresolved`, so it matches nobody and absence is never inferred from it.
  * An add of a hidden number may be the customer joining, which is 'unsure' and
- * lifts a stale 'absent'; a remove of one changes nothing. Each event is isolated. A failure is logged, never thrown: the cron reads the
+ * lifts a stale 'absent'; a remove of one may be the customer leaving, so a
+ * 'joined' is asked about again ('left_unsure'). Each event is isolated. A failure is logged, never thrown: the cron reads the
  * group again, so this is no reason for Whapi to redeliver. Answers the failures.
  */
 export async function recordSubmissionGroupMembership(
@@ -298,6 +299,8 @@ export async function recordSubmissionGroupMembership(
         );
       } else if (e.action === 'add' && hidden) {
         await store.noteCustomerMembership(group.id, 'unsure');
+      } else if (e.action === 'remove' && hidden) {
+        await store.noteCustomerMembership(group.id, 'left_unsure');
       }
     } catch (error) {
       failed++;

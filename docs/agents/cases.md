@@ -124,3 +124,9 @@ documents, notes, bank contact log, SLA timers, the coordinator inbox at
   case; a `reuse` of anything else not superseded is `FILE_STATE`. A reuse
   under its own document keeps its expiry date. 270 restates 181's guard and
   classify: never re-apply 181 without 270 after it.
+- **Case file versions (320).** Restates 270's classify: re-run 320 after 270.
+  The document attached last is the newest: classified again as what it
+  already was, a file keeps its version only while it is the type's highest
+  (any status), else it takes the highest + 1. Its name carries the Dubai day
+  (`day.ts`). `filedToastKey` tells a failed or replaced answer from a filed
+  one; attach and upload answer 201 for all three.

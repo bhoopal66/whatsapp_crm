@@ -274,19 +274,6 @@ export function buildContactListQuery<Q extends ContactListQuery<Q>>(
   return query;
 }
 
-/**
- * Keep the hits whose contact is in every narrowing set (personal
- * owner, chat-tag filter), in the RPC's rank order. A null set means
- * that narrowing does not apply.
- */
-export function narrowHits(
-  hits: readonly SearchHit[],
-  allowed: readonly (ReadonlySet<string> | null)[]
-): SearchHit[] {
-  const sets = allowed.filter((s): s is ReadonlySet<string> => s !== null);
-  return hits.filter((h) => sets.every((s) => s.has(h.contactId)));
-}
-
 /** One page of ranked hits, plus how many hits there are in all. */
 export function pageOfHits(
   hits: readonly SearchHit[],
@@ -301,4 +288,36 @@ export function firstCloseMatchId(
   rows: readonly { id: string; closeMatch?: boolean }[]
 ): string | null {
   return rows.find((r) => r.closeMatch)?.id ?? null;
+}
+
+/** PostgREST's answer to a Range past the last row (HTTP 416). */
+export function isRangeNotSatisfiable(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) return false;
+  const e = err as { code?: unknown; status?: unknown };
+  return e.code === 'PGRST103' || e.status === 416;
+}
+
+/**
+ * Where to go when the page being shown no longer exists — the last page
+ * was deleted or retagged away, so the list reads "Page 3 of 2" over an
+ * empty body. Null when the page is fine (or still loading). An empty
+ * page with a total goes to the real last page; a refused range (no total
+ * to go by) goes back to the first.
+ */
+export function pageToRecoverTo(args: {
+  page: number;
+  pageSize: number;
+  loading: boolean;
+  rowCount: number;
+  total: number;
+  error: unknown;
+}): number | null {
+  const { page, pageSize, loading, rowCount, total, error } = args;
+  if (loading || page <= 0) return null;
+  if (error) return isRangeNotSatisfiable(error) ? 0 : null;
+  if (rowCount === 0 && total > 0) {
+    const last = Math.ceil(total / pageSize) - 1;
+    return last < page ? last : null;
+  }
+  return null;
 }

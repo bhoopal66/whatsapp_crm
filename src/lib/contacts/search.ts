@@ -1,3 +1,4 @@
+import { latinDigits } from './digits';
 import { phoneSearchDigits } from './phone-search';
 
 /**
@@ -25,7 +26,10 @@ export const CONTACT_SEARCH_LIMIT = 20;
  */
 export function sanitizeContactSearch(term: string): string {
   // `*` is PostgREST's own wildcard (it reads it as `%`), so it is dropped.
-  const clean = term
+  // Arabic-keyboard digits become 0-9: phones are stored in 0-9. Not in a
+  // term with letters, which searches names, and a name keeps the digits
+  // it was typed with (phoneSearchDigits converts for itself).
+  const clean = (/\p{L}/u.test(term) ? term : latinDigits(term))
     .replace(/[,()"\\]/g, ' ')
     .replace(/\*/g, '')
     .trim();

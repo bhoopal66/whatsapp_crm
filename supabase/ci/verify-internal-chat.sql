@@ -227,6 +227,20 @@ BEGIN
 
   -- deal room: the guest sees the room and its members, never the Team notes
   INSERT INTO chat_channels (account_id, kind, name, created_by) VALUES (a, 'deal_room', 'IC deal', u_sup) RETURNING id INTO dr;
+  -- 312: a guest sees the channel of a room whose bank has a person in the
+  -- group, so the channel has its room, as in the app.
+  INSERT INTO whatsapp_config (user_id, account_id, provider, phone_number_id, access_token, waba_id, status, is_primary)
+  VALUES (u_sup, a, 'meta', 'ic-312', 'x', 'ic-312', 'connected', false);
+  INSERT INTO contacts (account_id, user_id, phone, name) VALUES (a, u_sup, '+971500003129', 'ic 312');
+  INSERT INTO deal_rooms (account_id, channel_id, contact_id, whatsapp_config_id, wa_group_id, subject, status, created_by)
+  SELECT a, dr, ct.id, w.id, 'ic-312', 'ic 312', 'open', u_sup
+    FROM contacts ct, whatsapp_config w
+   WHERE ct.account_id = a AND ct.name = 'ic 312' AND w.account_id = a AND w.phone_number_id = 'ic-312';
+  INSERT INTO deal_room_participants (room_id, account_id, display_name, phone, role, bank_code, status)
+  SELECT d.id, a, 'ADCB officer', '971500003128', 'bank_guest', 'ADCB', 'joined' FROM deal_rooms d WHERE d.channel_id = dr;
+  INSERT INTO bank_guest_policies (account_id, bank_code, guests_allowed, dsa_checked_by, dsa_checked_at)
+  VALUES (a, 'ADCB', true, u_sup, now())
+  ON CONFLICT (account_id, bank_code) DO UPDATE SET guests_allowed = true, dsa_checked_by = excluded.dsa_checked_by, dsa_checked_at = excluded.dsa_checked_at;
   INSERT INTO chat_channel_members (channel_id, user_id, role) VALUES (dr, u_sup, 'admin'), (dr, u_g, 'guest');
   PERFORM pg_temp.must(pg_temp.post(u_sup, dr, 'team note'));
   PERFORM pg_temp.ck('staff reads deal room notes', pg_temp.cnt(u_sup, format('public.internal_messages WHERE channel_id = %L', dr)), '1');

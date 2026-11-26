@@ -26,7 +26,14 @@ export async function POST(
       'deal_room_can_manage',
       { p_room: id }
     );
-    if (error) console.error('[deal-rooms] can_manage failed:', error.message);
+    if (error) {
+      // Unanswered is not "no": the caller may retry.
+      console.error('[deal-rooms] can_manage failed:', error.message);
+      return NextResponse.json(
+        { error: 'Could not check your access to this deal room. Try again.' },
+        { status: 503, headers: { 'Retry-After': '2' } }
+      );
+    }
     if (canManage !== true) {
       return NextResponse.json(
         { error: 'Only a manager of this deal room can send its invites' },

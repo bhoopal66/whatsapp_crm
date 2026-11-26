@@ -126,6 +126,8 @@ describe('POST /api/whatsapp/groups/sync', () => {
     const res = await POST();
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
+      failedNumbers: [],
+      failedGroups: 0,
       synced: 2,
       created: 1,
       left: 1,
@@ -221,6 +223,66 @@ describe('POST /api/whatsapp/groups/sync', () => {
     expect(mocks.listGroups.mock.calls[0][0].deadline).toEqual(
       expect.any(Number)
     );
+  });
+
+  it('does not believe an empty list until a second sync ten minutes on', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      mocks.listGroups.mockResolvedValue([]);
+      const first = await (await POST()).json();
+      expect(first).toMatchObject({ left: 0, incomplete: true });
+      vi.setSystemTime(Date.now() + 9 * 60_000);
+      expect(await (await POST()).json()).toMatchObject({ left: 0 });
+      expect(mocks.updates).toEqual([]);
+      vi.setSystemTime(Date.now() + 60_000);
+      const third = await (await POST()).json();
+      expect(third).toMatchObject({ left: 2, truncated: false });
+      expect(third.incomplete).toBeUndefined();
+      expect(mocks.updates).toEqual([
+        { values: { our_role: 'left' }, ids: ['row-1', 'row-9'] },
+      ]);
+      // A listing with groups starts the wait again.
+      mocks.listGroups.mockResolvedValueOnce([group(1)]);
+      await POST();
+      expect(await (await POST()).json()).toMatchObject({
+        left: 0,
+        incomplete: true,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('names a number that failed beside one that worked', async () => {
+    mocks.loadChannels.mockResolvedValue([
+      {
+        id: 'ch-bad',
+        accountId: 'acct-1',
+        provider: 'whapi',
+        status: 'connected',
+        label: 'Sales',
+      },
+      { id: CH, accountId: 'acct-1', provider: 'whapi', status: 'connected' },
+    ]);
+    mocks.listGroups.mockRejectedValueOnce(new Error('token abc'));
+    const res = await POST();
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      synced: 2,
+      channels: 1,
+      failedNumbers: ['Sales'],
+      failedGroups: 0,
+    });
+  });
+
+  it('counts the groups it could not save', async () => {
+    mocks.persist.mockRejectedValueOnce(new Error('db'));
+    expect(await (await POST()).json()).toMatchObject({
+      synced: 1,
+      failedNumbers: [],
+      failedGroups: 1,
+    });
   });
 
   it('marks nothing left when the listing was incomplete', async () => {

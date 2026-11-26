@@ -22,6 +22,7 @@ import {
   canArchiveWorkspace,
   canExportReports,
   canChangePasswordOf,
+  canRemoveMember,
   canEditDetailsOf,
   canViewOnly,
   canCreateGroups,
@@ -347,6 +348,20 @@ describe('adding people (migration 175)', () => {
 // Migration 140: authorize_member_password_change wants a live owner /
 // admin who strictly outranks the person (in this workspace and in each
 // of the person's others, which only the database can see).
+describe('canRemoveMember (287)', () => {
+  const removable = (caller: AccountRole) =>
+    ACCOUNT_ROLES.filter((r) => canRemoveMember(caller, r));
+  it('only the owner removes an admin, nobody the owner', () => {
+    expect(removable('owner')).toEqual(
+      ACCOUNT_ROLES.filter((r) => r !== 'owner')
+    );
+    expect(removable('admin')).toEqual(
+      ACCOUNT_ROLES.filter((r) => r !== 'owner' && r !== 'admin')
+    );
+    expect(removable('team_leader')).toEqual([]);
+  });
+});
+
 describe('canChangePasswordOf (140)', () => {
   it('an admin: team leaders, agents, viewers and bank guests', () => {
     expect(

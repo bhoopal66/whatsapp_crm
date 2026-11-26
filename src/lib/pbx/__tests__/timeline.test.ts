@@ -5,6 +5,7 @@ import en from '../../../../messages/en.json';
 import {
   aiDraftBox,
   callHeading,
+  callTone,
   callsSidebar,
   editBox,
   EMPTY_COMPOSER_BOX,
@@ -157,6 +158,16 @@ describe('groupByDay', () => {
 });
 
 describe('headings', () => {
+  it('reads a call missed by its final status, as the reports do', () => {
+    expect(callTone(missed)).toBe('missed');
+    // Answered in a live frame, then sent on to a leg nobody took (098).
+    expect(callTone({ ...missed, answeredAt: missed.startedAt })).toBe(
+      'missed'
+    );
+    expect(callTone(call())).toBe('ok');
+    expect(callTone({ ...missed, direction: 'outbound' })).toBe('ok');
+  });
+
   it('words a missed call with who it rang and for how long', () => {
     const h = callHeading(missed, {
       timeZone: TZ,
@@ -176,6 +187,19 @@ describe('headings', () => {
     );
     expect(line(callHeading(sara, { ...at, rang: ['Faisal'] }))).toBe(
       'Missed call · incoming · 11:40 · rang Faisal for 24 s'
+    );
+  });
+
+  it('keeps what was said of a call passed on and missed at the end', () => {
+    const passedOn = call({ status: 'no_answer', userName: 'Sara' });
+    expect(callTone(passedOn)).toBe('missed');
+    const text = line(
+      callHeading(passedOn, { timeZone: TZ, locale: 'en', rang: ['Sara'] })
+    );
+    expect(text).toContain('Missed call · incoming');
+    expect(text).toContain('6 min 18 s · Docs requested');
+    expect(line(callHeading(missed, { timeZone: TZ, locale: 'en' }))).toBe(
+      'Missed call · incoming · 11:40 · rang Sara for 24 s'
     );
   });
 

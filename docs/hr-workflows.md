@@ -146,8 +146,10 @@ chat like any other message.
   chat a day; a waiting draft expires after 24 hours.
 - **STOP.** A candidate who writes stop / unsubscribe (or the Arabic
   equivalents) is opted out (`contacts.opted_out_at`, the same opt-out
-  campaigns use) and their waiting drafts are withdrawn. This happens
-  only while AI drafts or automated messages are switched on.
+  campaigns use) and their waiting drafts are withdrawn. This happens on
+  every HR chat and HR line, also with AI drafts and automated messages
+  both switched off, and is tried again when the database is briefly
+  unavailable.
 - **Switches.** HR → Rules → Recruiter AI drafts: "Draft replies"
   is the master switch; each agent can be switched off on its own (its
   messages then go to a person). Admins and recruiter leads change
@@ -221,7 +223,9 @@ candidates. It is for admins (everything) and Recruitment leads
 - **Receipts (migration 212).** WhatsApp's sent, delivered, read and
   failed receipts for an automated message are recorded on it
   (`delivery_state`, `delivery_at`). They only move forward: a late
-  "delivered" never overwrites "read", and nothing overwrites "failed".
+  "delivered" never overwrites "read", and only "delivered" or "read"
+  overwrites "failed" (migration 291: WhatsApp retried and it arrived; the
+  message is sent again and its reason is removed).
   A "failed" receipt marks the message failed for good with WhatsApp's
   error code (`delivery_failed:<code>`). A receipt that arrives in the
   moment before the message is marked sent lands on the chat's own copy

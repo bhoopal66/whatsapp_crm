@@ -1,28 +1,32 @@
--- Behavioural regression suite for migration 278: learn from team
+-- Behavioural regression suite for migration 290: learn from team
 -- answers (knowledge base).
 --
 -- Asserts: the switch is off by default and, while off, nothing is
--- drafted and no run is claimed; only an admin+ sets it; a run is
--- claimed at most once per 7 days; a learned entry is always a draft
+-- drafted and no run is claimed; only an admin+ sets it; a finished run
+-- is claimed again only after 7 days, an unfinished or failed one after
+-- 50 minutes and at most 3 times in 24 hours; off to on forgets the last
+-- run; the week's asked topics are counted; a learned entry is always a draft
 -- (source 'learned', never approved); a topic is drafted once (by its
--- gaps or its label) and again only after its draft was set to 'remove'
--- or deleted; another account's gaps are refused; a non-admin member
+-- gaps or its label's hash) and again only after its draft was set to
+-- 'remove' or deleted, a discarded one after 28 days; another account's gaps are refused; a non-admin member
 -- cannot read the ledger and no member can write it; the usage log
 -- takes 'kb_learn'; the writer functions are service role only.
 --
 -- ONE statement on purpose (the pinned CLI rejects several); fixtures
--- are rolled back through a sentinel. Fixture emails: kb278-*.
+-- are rolled back through a sentinel. Fixture emails: kb290-*.
 
 DO $verify$
 DECLARE
-  u_owner  UUID := '00000000-0000-4000-8000-000000278001';
-  u_admin  UUID := '00000000-0000-4000-8000-000000278002';
-  u_agent  UUID := '00000000-0000-4000-8000-000000278003';
-  u_owner2 UUID := '00000000-0000-4000-8000-000000278004';
+  u_owner  UUID := '00000000-0000-4000-8000-000000290001';
+  u_admin  UUID := '00000000-0000-4000-8000-000000290002';
+  u_agent  UUID := '00000000-0000-4000-8000-000000290003';
+  u_owner2 UUID := '00000000-0000-4000-8000-000000290004';
   a_acct UUID; b_acct UUID;
-  g1 UUID; g2 UUID; g3 UUID; g_other UUID;
+  g1 UUID; g2 UUID; g3 UUID; g4 UUID; g_other UUID; g_gone UUID;
   e1 UUID; e2 UUID;
+  c_id UUID; v_id UUID; cs UUID[] := '{}'; gs UUID[] := '{}';
   res JSONB; r TEXT;
+  st kb_learn_settings;
   n INT := 0;
   failed TEXT[] := '{}';
 BEGIN
@@ -58,10 +62,10 @@ BEGIN
   $fn$;
 
   INSERT INTO auth.users (id, email) VALUES
-    (u_owner,  'kb278-owner@example.invalid'),
-    (u_admin,  'kb278-admin@example.invalid'),
-    (u_agent,  'kb278-agent@example.invalid'),
-    (u_owner2, 'kb278-owner2@example.invalid')
+    (u_owner,  'kb290-owner@example.invalid'),
+    (u_admin,  'kb290-admin@example.invalid'),
+    (u_agent,  'kb290-agent@example.invalid'),
+    (u_owner2, 'kb290-owner2@example.invalid')
   ON CONFLICT DO NOTHING;
   SELECT account_id INTO a_acct FROM profiles WHERE user_id = u_owner;
   SELECT account_id INTO b_acct FROM profiles WHERE user_id = u_owner2;
@@ -74,13 +78,14 @@ BEGIN
   INSERT INTO ai_knowledge_gaps (account_id, question) VALUES (a_acct, 'Can I open an account without a trade licence?') RETURNING id INTO g1;
   INSERT INTO ai_knowledge_gaps (account_id, question) VALUES (a_acct, 'Account without trade licence possible?') RETURNING id INTO g2;
   INSERT INTO ai_knowledge_gaps (account_id, question) VALUES (a_acct, 'What documents for a POS machine?') RETURNING id INTO g3;
+  INSERT INTO ai_knowledge_gaps (account_id, question, created_at) VALUES (a_acct, 'POS fees?', now() + interval '1 minute') RETURNING id INTO g4;
   INSERT INTO ai_knowledge_gaps (account_id, question) VALUES (b_acct, 'Other workspace question') RETURNING id INTO g_other;
 
   -- ---------- off by default: nothing ----------
   IF EXISTS (SELECT 1 FROM kb_learn_settings WHERE account_id = a_acct AND enabled) THEN
     failed := failed || 'switch on by default'::text; END IF; n := n + 1;
   IF kb_learn_claim_run(a_acct) THEN failed := failed || 'claimed while off'::text; END IF; n := n + 1;
-  res := kb_learn_record_draft(a_acct, NULL, 'Account without a trade licence', ARRAY[g1, g2],
+  res := kb_learn_record_draft(a_acct, NULL, encode(sha256(convert_to(lower(btrim('Account without a trade licence')), 'UTF8')), 'hex'), ARRAY[g1, g2],
     'LRN-AAAAAA', 'Account without a trade licence', 'Yes, with conditions.', NULL, 'notes', 2);
   IF res->>'status' <> 'disabled'
      OR EXISTS (SELECT 1 FROM kb_entries WHERE account_id = a_acct)
@@ -97,14 +102,84 @@ BEGIN
   IF r <> 'true' OR NOT EXISTS (SELECT 1 FROM kb_learn_settings WHERE account_id = a_acct AND enabled) THEN
     failed := failed || ('admin could not set the switch: ' || r); END IF; n := n + 1;
 
-  -- ---------- once per 7 days ----------
+  -- ---------- the claim: a crash retries by itself ----------
   IF NOT kb_learn_claim_run(a_acct) THEN failed := failed || 'first claim refused'::text; END IF; n := n + 1;
+  IF kb_learn_claim_run(a_acct) THEN failed := failed || 'claimed twice at once'::text; END IF; n := n + 1;
+  SELECT s.* INTO st FROM kb_learn_settings s WHERE account_id = a_acct;
+  IF st.last_run_error IS DISTINCT FROM 'running' OR st.attempts <> 1 OR st.attempts_since IS DISTINCT FROM now()
+     OR st.next_run_at IS DISTINCT FROM now() + interval '50 minutes' OR st.last_run_at IS DISTINCT FROM now() THEN
+    failed := failed || ('first claim: ' || to_jsonb(st)::text); END IF; n := n + 1;
+  -- Nothing finished it (a crash): due once the 50 minutes are over.
+  UPDATE kb_learn_settings SET next_run_at = now(), attempts_since = now() - interval '2 hours' WHERE account_id = a_acct;
+  r := kb_learn_claim_run(a_acct)::text;
+  IF r <> 'true' OR NOT EXISTS (SELECT 1 FROM kb_learn_settings WHERE account_id = a_acct
+       AND attempts = 2 AND next_run_at = now() + interval '50 minutes' AND attempts_since = now() - interval '2 hours') THEN
+    failed := failed || 'a crashed run is not retried'::text; END IF; n := n + 1;
+  -- The third attempt waits until 24 hours after the first.
+  UPDATE kb_learn_settings SET next_run_at = now() WHERE account_id = a_acct;
+  r := kb_learn_claim_run(a_acct)::text;
+  IF r <> 'true' OR NOT EXISTS (SELECT 1 FROM kb_learn_settings WHERE account_id = a_acct
+       AND attempts = 3 AND next_run_at = now() + interval '22 hours') THEN
+    failed := failed || 'third attempt'::text; END IF; n := n + 1;
+
+  -- ---------- the result: a failure keeps the retry ----------
+  PERFORM kb_learn_finish_run(a_acct, 0, 'read_failed');
+  PERFORM kb_learn_finish_run(a_acct, 9, NULL);  -- not running any more: ignored
+  SELECT s.* INTO st FROM kb_learn_settings s WHERE account_id = a_acct;
+  IF st.last_run_error IS DISTINCT FROM 'read_failed' OR st.attempts <> 3 OR st.last_run_drafted <> 0
+     OR st.next_run_at IS DISTINCT FROM now() + interval '22 hours' THEN
+    failed := failed || ('failed run: ' || to_jsonb(st)::text); END IF; n := n + 1;
+  -- A new day: the count starts again.
+  UPDATE kb_learn_settings SET next_run_at = now() WHERE account_id = a_acct;
+  r := kb_learn_claim_run(a_acct)::text;
+  IF r <> 'true' OR NOT EXISTS (SELECT 1 FROM kb_learn_settings WHERE account_id = a_acct
+       AND attempts = 1 AND attempts_since = now() AND next_run_at = now() + interval '50 minutes') THEN
+    failed := failed || 'attempts do not start again'::text; END IF; n := n + 1;
+  PERFORM kb_learn_finish_run(a_acct, 1, 'running');
+  IF NOT EXISTS (SELECT 1 FROM kb_learn_settings WHERE account_id = a_acct AND last_run_error = 'failed') THEN
+    failed := failed || 'an unknown code is not ''failed'''::text; END IF; n := n + 1;
+  -- Two attempts a day apart are two days' attempts, not one day's.
+  UPDATE kb_learn_settings SET next_run_at = now(), attempts = 2, attempts_since = now() - interval '25 hours' WHERE account_id = a_acct;
+  r := kb_learn_claim_run(a_acct)::text;
+  IF r <> 'true' OR NOT EXISTS (SELECT 1 FROM kb_learn_settings WHERE account_id = a_acct
+       AND attempts = 1 AND next_run_at = now() + interval '50 minutes') THEN
+    failed := failed || 'yesterday''s attempts count today'::text; END IF; n := n + 1;
+
+  -- ---------- success: 7 days, attempts forgotten ----------
+  PERFORM kb_learn_finish_run(a_acct, 3);
+  r := pg_temp.kl_try(u_admin, 'select last_run_drafted::text from public.kb_learn_settings');
+  SELECT s.* INTO st FROM kb_learn_settings s WHERE account_id = a_acct;
+  IF r <> '3' OR st.last_run_error IS NOT NULL OR st.attempts <> 0 OR st.attempts_since IS NOT NULL
+     OR st.next_run_at IS DISTINCT FROM now() + interval '7 days' THEN
+    failed := failed || ('finished run: ' || to_jsonb(st)::text); END IF; n := n + 1;
   IF kb_learn_claim_run(a_acct) THEN failed := failed || 'claimed twice in a week'::text; END IF; n := n + 1;
-  UPDATE kb_learn_settings SET last_run_at = now() - interval '8 days' WHERE account_id = a_acct;
+  UPDATE kb_learn_settings SET next_run_at = now() WHERE account_id = a_acct;
   IF NOT kb_learn_claim_run(a_acct) THEN failed := failed || 'claim refused after a week'::text; END IF; n := n + 1;
+  -- A row with last_run_at only.
+  UPDATE kb_learn_settings SET next_run_at = NULL, attempts = 0, attempts_since = NULL, last_run_error = NULL,
+         last_run_at = now() - interval '3 days' WHERE account_id = a_acct;
+  IF kb_learn_claim_run(a_acct) THEN failed := failed || 'old row claimed within its week'::text; END IF; n := n + 1;
+  UPDATE kb_learn_settings SET last_run_at = now() - interval '7 days' WHERE account_id = a_acct;
+  IF NOT kb_learn_claim_run(a_acct) THEN failed := failed || 'old row never due again'::text; END IF; n := n + 1;
+
+  -- ---------- off to on forgets the last run; on to on does not ----------
+  r := pg_temp.kl_try(u_admin, 'select (public.kb_learn_set_enabled(true))->>''last_run_error''');
+  IF r <> 'running' OR kb_learn_claim_run(a_acct) THEN failed := failed || ('on to on reset the run: ' || r); END IF; n := n + 1;
+  r := pg_temp.kl_try(u_admin, 'select (public.kb_learn_set_enabled(false))->>''last_run_error''');
+  IF r <> 'running' THEN failed := failed || ('on to off reset the run: ' || r); END IF; n := n + 1;
+  r := pg_temp.kl_try(u_admin, 'select ((public.kb_learn_set_enabled(true)) - ''updated_at'')::text');
+  SELECT s.* INTO st FROM kb_learn_settings s WHERE account_id = a_acct;
+  IF r::jsonb <> '{"enabled": true, "last_run_at": null, "last_run_drafted": null, "last_run_error": null, "next_run_at": null}'
+     OR st.attempts <> 0 OR st.attempts_since IS NOT NULL OR NOT kb_learn_claim_run(a_acct) THEN
+    failed := failed || ('off to on kept the last run: ' || r); END IF; n := n + 1;
+  -- Off and on while a run works: its result does not cost the new start.
+  r := pg_temp.kl_try(u_admin, 'select (public.kb_learn_set_enabled(false))->>''enabled''');
+  r := pg_temp.kl_try(u_admin, 'select (public.kb_learn_set_enabled(true))->>''enabled''');
+  PERFORM kb_learn_finish_run(a_acct, 1, NULL);
+  IF NOT kb_learn_claim_run(a_acct) THEN failed := failed || 'a stale finish cost the week'::text; END IF; n := n + 1;
 
   -- ---------- a learned entry is a draft ----------
-  res := kb_learn_record_draft(a_acct, gen_random_uuid(), 'Account without a trade licence', ARRAY[g1, g2],
+  res := kb_learn_record_draft(a_acct, gen_random_uuid(), encode(sha256(convert_to(lower(btrim('Account without a trade licence')), 'UTF8')), 'hex'), ARRAY[g1, g2],
     'LRN-AAAAAA', 'Account without a trade licence', 'Yes, with conditions.', 'نعم، بشروط.',
     'Drafted from 2 team replies', 2);
   e1 := (res->>'entry_id')::uuid;
@@ -117,27 +192,93 @@ BEGIN
 
   -- ---------- drafted once ----------
   -- The same gaps under a new topic id (a recompute) ...
-  res := kb_learn_record_draft(a_acct, gen_random_uuid(), 'Opening without a licence', ARRAY[g1, g2, g3],
+  res := kb_learn_record_draft(a_acct, gen_random_uuid(), encode(sha256(convert_to(lower(btrim('Opening without a licence')), 'UTF8')), 'hex'), ARRAY[g1, g2, g3],
     'LRN-BBBBBB', 'Opening without a licence', 'Again.', NULL, NULL, 3);
   IF res->>'status' <> 'already' THEN failed := failed || ('same gaps drafted again: ' || res::text); END IF; n := n + 1;
   -- ... or the same label with other gaps.
-  res := kb_learn_record_draft(a_acct, NULL, '  account WITHOUT a trade licence ', ARRAY[g3],
+  res := kb_learn_record_draft(a_acct, NULL, encode(sha256(convert_to(lower(btrim('  account WITHOUT a trade licence ')), 'UTF8')), 'hex'), ARRAY[g3],
     'LRN-CCCCCC', 'q', 'Again.', NULL, NULL, 1);
   IF res->>'status' <> 'already' THEN failed := failed || ('same label drafted again: ' || res::text); END IF; n := n + 1;
   IF (SELECT count(*) FROM kb_entries WHERE account_id = a_acct) <> 1 THEN
     failed := failed || 'a refused draft wrote an entry'::text; END IF; n := n + 1;
-  IF NOT kb_learn_topic_drafted(a_acct, ARRAY[g1], 'x') OR kb_learn_topic_drafted(a_acct, ARRAY[g3], 'POS documents') THEN
+  IF NOT kb_learn_topic_drafted(a_acct, ARRAY[g1], encode(sha256(convert_to(lower(btrim('x')), 'UTF8')), 'hex')) OR kb_learn_topic_drafted(a_acct, ARRAY[g3], encode(sha256(convert_to(lower(btrim('POS documents')), 'UTF8')), 'hex')) THEN
     failed := failed || 'kb_learn_topic_drafted'::text; END IF; n := n + 1;
 
   -- ---------- another account's gaps, a bad ref ----------
-  res := kb_learn_record_draft(a_acct, NULL, 'Other', ARRAY[g_other], 'LRN-DDDDDD', 'q', 'a', NULL, NULL, 1);
+  res := kb_learn_record_draft(a_acct, NULL, encode(sha256(convert_to(lower(btrim('Other')), 'UTF8')), 'hex'), ARRAY[g_other], 'LRN-DDDDDD', 'q', 'a', NULL, NULL, 1);
   IF res->>'status' <> 'invalid' THEN failed := failed || ('foreign gaps: ' || res::text); END IF; n := n + 1;
-  res := kb_learn_record_draft(a_acct, NULL, 'POS documents', ARRAY[g3], 'GAP-DDDDDD', 'q', 'a', NULL, NULL, 1);
+  res := kb_learn_record_draft(a_acct, NULL, encode(sha256(convert_to(lower(btrim('POS documents')), 'UTF8')), 'hex'), ARRAY[g3], 'GAP-DDDDDD', 'q', 'a', NULL, NULL, 1);
   IF res->>'status' <> 'invalid' THEN failed := failed || ('bad ref: ' || res::text); END IF; n := n + 1;
+
+  res := kb_learn_record_draft(a_acct, NULL, 'a customer''s own words', ARRAY[g3], 'LRN-DDDDDD', 'q', 'a', NULL, NULL, 1);
+  IF res->>'status' <> 'invalid' THEN failed := failed || ('a label stored as the key: ' || res::text); END IF; n := n + 1;
+
+  -- ---------- open topics: the covered and the drafted are left out ----------
+  PERFORM kb_gap_topics_replace(a_acct, jsonb_build_array(
+    jsonb_build_object('label', 'drafted', 'question_count', 9, 'first_seen_at', now(), 'last_seen_at', now(), 'gap_ids', jsonb_build_array(g1, g2)),
+    jsonb_build_object('label', 'covered', 'question_count', 8, 'first_seen_at', now(), 'last_seen_at', now(), 'coverage', 'full', 'gap_ids', jsonb_build_array(g3)),
+    jsonb_build_object('label', 'open', 'question_count', 1, 'first_seen_at', now(), 'last_seen_at', now(), 'gap_ids', jsonb_build_array(g3, g4))), '{}');
+  SELECT string_agg(t.label || ':' || (t.gap_ids = ARRAY[g4, g3])::text, '|') INTO r FROM kb_learn_open_topics(a_acct, 1) t;
+  IF r IS DISTINCT FROM 'open:true' THEN failed := failed || ('open topics: ' || coalesce(r, 'null')); END IF; n := n + 1;
+  PERFORM kb_learn_record_discard(a_acct, NULL, repeat('f', 64), ARRAY[g4, g3], 2);
+  IF EXISTS (SELECT 1 FROM kb_learn_open_topics(a_acct)) THEN failed := failed || 'a backed-off topic is still offered'::text; END IF; n := n + 1;
+  DELETE FROM kb_learned_drafts WHERE account_id = a_acct AND topic_key = repeat('f', 64);
+
+  -- ---------- looks: the looked-at wait behind, three failures back off ----------
+  PERFORM kb_gap_topics_replace(a_acct, jsonb_build_array(
+    jsonb_build_object('label', 'busy', 'question_count', 9, 'first_seen_at', now(), 'last_seen_at', now(), 'gap_ids', jsonb_build_array(g3)),
+    jsonb_build_object('label', 'quiet', 'question_count', 1, 'first_seen_at', now(), 'last_seen_at', now(), 'gap_ids', jsonb_build_array(g4))),
+    (SELECT jsonb_object_agg(id::text, jsonb_build_object('status', status, 'dismissed_at', dismissed_at)) FROM kb_gap_topics WHERE account_id = a_acct));
+  PERFORM kb_learn_note_look(a_acct, ARRAY[g3, g_other], false);
+  SELECT string_agg(t.label, '|' ORDER BY o) INTO r FROM kb_learn_open_topics(a_acct) WITH ORDINALITY AS t(id, label, coverage, gap_ids, o);
+  IF r IS DISTINCT FROM 'quiet|busy' OR EXISTS (SELECT 1 FROM kb_learn_looks WHERE gap_id = g_other) THEN failed := failed || ('looks: ' || coalesce(r, 'null')); END IF; n := n + 1;
+  FOR i IN 1..3 LOOP PERFORM kb_learn_note_look(a_acct, ARRAY[g3], true); END LOOP;
+  SELECT string_agg(t.label, '|') INTO r FROM kb_learn_open_topics(a_acct) t;
+  IF r IS DISTINCT FROM 'quiet' THEN failed := failed || ('failed topic offered: ' || coalesce(r, 'null')); END IF; n := n + 1;
+  UPDATE kb_learn_looks SET looked_at = now() - interval '29 days' WHERE gap_id = g3;
+  IF (SELECT count(*) FROM kb_learn_open_topics(a_acct)) <> 2 THEN failed := failed || 'backed off for ever'::text; END IF; n := n + 1;
+  IF has_table_privilege('authenticated', 'public.kb_learn_looks', 'SELECT')
+     OR has_function_privilege('authenticated', 'public.kb_learn_note_look(uuid,uuid[],boolean)', 'EXECUTE')
+     OR NOT has_function_privilege('service_role', 'public.kb_learn_note_look(uuid,uuid[],boolean)', 'EXECUTE') THEN failed := failed || 'looks grants'::text; END IF; n := n + 1;
+
+  -- ---------- discarded: not again for 28 days ----------
+  r := kb_learn_record_discard(a_acct, NULL, repeat('b', 64), ARRAY[g3], 2)::text;
+  IF r <> 'true' OR NOT kb_learn_topic_drafted(a_acct, ARRAY[g3], repeat('c', 64)) THEN
+    failed := failed || 'a discarded topic is asked again at once'::text; END IF; n := n + 1;
+  UPDATE kb_learned_drafts SET discarded_at = now() - interval '29 days' WHERE topic_key = repeat('b', 64);
+  IF kb_learn_topic_drafted(a_acct, ARRAY[g3], repeat('b', 64)) THEN
+    failed := failed || 'a discard holds for ever'::text; END IF; n := n + 1;
+  IF kb_learn_record_discard(a_acct, NULL, repeat('d', 64), ARRAY[g_other], 2) THEN
+    failed := failed || 'another account''s gaps discarded'::text; END IF; n := n + 1;
+  -- ---------- the week's count: every ledger row of the last 7 days ----------
+  -- Here: one draft and one discard of this account, one of another's.
+  INSERT INTO kb_learned_drafts (account_id, topic_key, evidence_count) VALUES (b_acct, repeat('e', 64), 2);
+  IF kb_learn_asked_this_week(a_acct) <> 2 THEN
+    failed := failed || ('asked this week: ' || kb_learn_asked_this_week(a_acct)); END IF; n := n + 1;
+  UPDATE kb_learned_drafts SET created_at = now() - interval '7 days' WHERE topic_key = repeat('b', 64);
+  IF kb_learn_asked_this_week(a_acct) <> 1 THEN
+    failed := failed || 'last week counts this week'::text; END IF; n := n + 1;
+  DELETE FROM kb_learned_drafts WHERE account_id = b_acct;
+  -- The service role reads every table the names come from.
+  IF NOT (has_table_privilege('service_role', 'public.contacts', 'SELECT')
+      AND has_table_privilege('service_role', 'public.profiles', 'SELECT')
+      AND has_table_privilege('service_role', 'public.submission_groups', 'SELECT')
+      AND has_function_privilege('service_role', 'public.kb_learn_case_names(uuid,text,integer)', 'EXECUTE')
+      AND NOT has_function_privilege('authenticated', 'public.kb_learn_case_names(uuid,text,integer)', 'EXECUTE')
+      AND has_table_privilege('service_role', 'public.hr_conversations', 'SELECT')) THEN
+    failed := failed || 'service_role cannot read a names table'::text; END IF; n := n + 1;
+
+  INSERT INTO desk_customers (account_id, trade_licence_no, legal_name, created_by) VALUES
+    (a_acct, '2900001', 'Al Noor Trading LLC', u_owner), (a_acct, '2900002', 'Zenith Foods', u_owner),
+    (b_acct, '2900001', 'Other Workspace Co', u_owner2);
+  SELECT string_agg(x, '|') INTO r FROM kb_learn_case_names(a_acct) x;
+  IF r IS DISTINCT FROM 'Al Noor Trading LLC|Zenith Foods' THEN failed := failed || ('case names: ' || coalesce(r, 'null')); END IF; n := n + 1;
+  SELECT string_agg(x, '|') INTO r FROM kb_learn_case_names(a_acct, 'Al Noor Trading LLC') x;
+  IF r IS DISTINCT FROM 'Zenith Foods' THEN failed := failed || ('case names page: ' || coalesce(r, 'null')); END IF; n := n + 1;
 
   -- ---------- removed or deleted: drafted again ----------
   UPDATE kb_entries SET status = 'remove' WHERE id = e1;
-  res := kb_learn_record_draft(a_acct, NULL, 'Account without a trade licence', ARRAY[g1, g2],
+  res := kb_learn_record_draft(a_acct, NULL, encode(sha256(convert_to(lower(btrim('Account without a trade licence')), 'UTF8')), 'hex'), ARRAY[g1, g2],
     'LRN-EEEEEE', 'Account without a trade licence', 'Second try.', NULL, NULL, 2);
   e2 := (res->>'entry_id')::uuid;
   IF res->>'status' <> 'drafted' THEN failed := failed || ('not re-drafted after remove: ' || res::text); END IF; n := n + 1;
@@ -145,7 +286,7 @@ BEGIN
   IF EXISTS (SELECT 1 FROM kb_learned_drafts WHERE entry_id = e2)
      OR NOT EXISTS (SELECT 1 FROM kb_learned_drafts WHERE account_id = a_acct AND entry_id IS NULL) THEN
     failed := failed || 'a deleted draft did not clear its ledger entry'::text; END IF; n := n + 1;
-  res := kb_learn_record_draft(a_acct, NULL, 'Account without a trade licence', ARRAY[g1, g2],
+  res := kb_learn_record_draft(a_acct, NULL, encode(sha256(convert_to(lower(btrim('Account without a trade licence')), 'UTF8')), 'hex'), ARRAY[g1, g2],
     'LRN-FFFFFF', 'Account without a trade licence', 'Third try.', NULL, NULL, 2);
   IF res->>'status' <> 'drafted' THEN failed := failed || ('not re-drafted after delete: ' || res::text); END IF; n := n + 1;
 
@@ -156,15 +297,61 @@ BEGIN
   IF r <> '0' THEN failed := failed || ('agent read the ledger: ' || r); END IF; n := n + 1;
   r := pg_temp.kl_try(u_agent, 'select count(*)::text from public.kb_learn_settings');
   IF r <> '0' THEN failed := failed || ('agent read the settings: ' || r); END IF; n := n + 1;
-  r := pg_temp.kl_try(u_admin, 'insert into public.kb_learned_drafts (account_id, topic_label, evidence_count) values (''' || a_acct || ''', ''x'', 1)');
+  r := pg_temp.kl_try(u_admin, 'insert into public.kb_learned_drafts (account_id, topic_key, evidence_count) values (''' || a_acct || ''', repeat(''a'', 64), 1)');
   IF r NOT LIKE 'ERROR:%' THEN failed := failed || ('admin wrote the ledger: ' || r); END IF; n := n + 1;
   r := pg_temp.kl_try(u_owner2, 'select count(*)::text from public.kb_learned_drafts');
   IF r <> '0' THEN failed := failed || ('another workspace read the ledger: ' || r); END IF; n := n + 1;
 
+  -- ---------- a deleted gap leaves the ledger; its thin draft goes ----------
+  INSERT INTO ai_knowledge_gaps (account_id, question) VALUES (a_acct, 'gone soon') RETURNING id INTO g_gone;
+  res := kb_learn_record_draft(a_acct, NULL, repeat('9', 64), ARRAY[g_gone, g4], 'LRN-HHHHHH', 'q', 'a', NULL, NULL, 2);
+  e2 := (res->>'entry_id')::uuid;
+  DELETE FROM ai_knowledge_gaps WHERE id = g_gone;
+  IF e2 IS NULL OR EXISTS (SELECT 1 FROM kb_learned_drafts WHERE g_gone = ANY (gap_ids))
+     OR NOT EXISTS (SELECT 1 FROM kb_learned_drafts WHERE topic_key = repeat('9', 64) AND gap_ids = ARRAY[g4]) THEN
+    failed := failed || 'a deleted gap stayed in the ledger'::text; END IF; n := n + 1;
+  IF EXISTS (SELECT 1 FROM kb_entries WHERE id = e2) THEN failed := failed || 'the thin draft stayed'::text; END IF; n := n + 1;
+
+  -- ---------- erasing a customer (262) does the same; two in one transaction too ----------
+  FOR i IN 1..3 LOOP
+    INSERT INTO contacts (account_id, user_id, phone, name) VALUES (a_acct, u_owner, '97150029000' || i, 'Kb Customer') RETURNING id INTO c_id;
+    INSERT INTO conversations (account_id, user_id, contact_id) VALUES (a_acct, u_owner, c_id) RETURNING id INTO v_id;
+    INSERT INTO ai_knowledge_gaps (account_id, conversation_id, question) VALUES (a_acct, v_id, 'erase me') RETURNING id INTO g_gone;
+    cs := cs || c_id; gs := gs || g_gone;
+  END LOOP;
+  res := kb_learn_record_draft(a_acct, NULL, repeat('8', 64), gs, 'LRN-JJJJJJ', 'q', 'a', NULL, NULL, 3);
+  e2 := (res->>'entry_id')::uuid;
+  PERFORM privacy_subject_erase(u_owner, a_acct, cs[1], false, 'ERASE ' || cs[1]);
+  IF e2 IS NULL OR NOT EXISTS (SELECT 1 FROM kb_entries WHERE id = e2)
+     OR NOT EXISTS (SELECT 1 FROM kb_learned_drafts WHERE entry_id = e2 AND gap_ids @> gs[2:3] AND gap_ids <@ gs[2:3]) THEN
+    failed := failed || 'an erase that leaves two chats'::text; END IF; n := n + 1;
+  PERFORM privacy_subject_erase(u_owner, a_acct, cs[2], false, 'ERASE ' || cs[2]);
+  IF EXISTS (SELECT 1 FROM kb_entries WHERE id = e2)
+     OR NOT EXISTS (SELECT 1 FROM kb_learned_drafts WHERE topic_key = repeat('8', 64) AND entry_id IS NULL AND gap_ids = gs[3:3]) THEN
+    failed := failed || 'an erased customer stayed in the ledger'::text; END IF; n := n + 1;
+
+  -- ---------- an approved entry stays ----------
+  res := kb_learn_record_draft(a_acct, NULL, repeat('7', 64), ARRAY[gs[3], g4], 'LRN-KKKKKK', 'q', 'a', NULL, NULL, 2);
+  e2 := (res->>'entry_id')::uuid;
+  UPDATE kb_entries SET status = 'approved', approved_at = now() WHERE id = e2;
+  DELETE FROM ai_knowledge_gaps WHERE id = gs[3];
+  IF NOT EXISTS (SELECT 1 FROM kb_entries WHERE id = e2 AND status = 'approved') THEN failed := failed || 'an approved entry went with its gap'::text; END IF; n := n + 1;
+
+  -- ---------- deleting an account is not held up ----------
+  INSERT INTO kb_learned_drafts (account_id, topic_key, gap_ids, evidence_count, discarded_at) VALUES (b_acct, repeat('6', 64), ARRAY[g_other], 2, now());
+  BEGIN
+    DELETE FROM desk_customers WHERE account_id = b_acct;
+    DELETE FROM accounts WHERE id = b_acct;
+    r := (SELECT count(*)::text FROM kb_learned_drafts WHERE account_id = b_acct);
+  EXCEPTION WHEN OTHERS THEN r := SQLERRM;
+  END;
+  IF r <> '0' THEN failed := failed || ('deleting an account: ' || r); END IF; n := n + 1;
+
   -- ---------- switched off again: nothing ----------
+  UPDATE kb_learn_settings SET next_run_at = NULL, last_run_at = NULL WHERE account_id = a_acct;
   r := pg_temp.kl_try(u_owner, 'select (public.kb_learn_set_enabled(false))->>''enabled''');
-  res := kb_learn_record_draft(a_acct, NULL, 'POS documents', ARRAY[g3], 'LRN-GGGGGG', 'POS documents', 'a', NULL, NULL, 1);
-  IF r <> 'false' OR res->>'status' <> 'disabled' OR kb_learn_claim_run(a_acct, interval '0') THEN
+  res := kb_learn_record_draft(a_acct, NULL, encode(sha256(convert_to(lower(btrim('POS documents')), 'UTF8')), 'hex'), ARRAY[g3], 'LRN-GGGGGG', 'POS documents', 'a', NULL, NULL, 1);
+  IF r <> 'false' OR res->>'status' <> 'disabled' OR kb_learn_claim_run(a_acct) THEN
     failed := failed || ('off again: ' || r || ' ' || res::text); END IF; n := n + 1;
 
   -- ---------- usage mode, grants ----------
@@ -175,20 +362,33 @@ BEGIN
   END;
   IF r <> 'ok' THEN failed := failed || 'usage log refused kb_learn'::text; END IF; n := n + 1;
   IF has_function_privilege('authenticated', 'public.kb_learn_record_draft(uuid,uuid,text,uuid[],text,text,text,text,text,integer)', 'EXECUTE')
-     OR has_function_privilege('authenticated', 'public.kb_learn_claim_run(uuid,interval)', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public.kb_learn_claim_run(uuid)', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public.kb_learn_finish_run(uuid,integer,text)', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public.kb_learn_asked_this_week(uuid)', 'EXECUTE')
+     OR NOT has_function_privilege('service_role', 'public.kb_learn_asked_this_week(uuid)', 'EXECUTE')
+     OR NOT has_function_privilege('service_role', 'public.kb_learn_finish_run(uuid,integer,text)', 'EXECUTE')
+     OR NOT has_function_privilege('service_role', 'public.kb_learn_claim_run(uuid)', 'EXECUTE')
+     OR (SELECT count(*) FROM pg_proc WHERE proname IN ('kb_learn_claim_run', 'kb_learn_finish_run')) <> 2
      OR has_function_privilege('authenticated', 'public.kb_learn_topic_drafted(uuid,uuid[],text)', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public.kb_learn_open_topics(uuid,integer)', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public.kb_learn_record_discard(uuid,uuid,text,uuid[],integer)', 'EXECUTE')
+     OR NOT has_function_privilege('service_role', 'public.kb_learn_record_discard(uuid,uuid,text,uuid[],integer)', 'EXECUTE')
      OR has_function_privilege('anon', 'public.kb_learn_set_enabled(boolean)', 'EXECUTE')
      OR NOT has_function_privilege('service_role', 'public.kb_learn_record_draft(uuid,uuid,text,uuid[],text,text,text,text,text,integer)', 'EXECUTE')
      OR has_table_privilege('authenticated', 'public.kb_learned_drafts', 'INSERT')
      OR has_table_privilege('authenticated', 'public.kb_learn_settings', 'UPDATE') THEN
     failed := failed || 'grants'::text; END IF; n := n + 1;
 
+  IF pg_get_constraintdef((SELECT oid FROM pg_constraint WHERE conname = 'ai_usage_log_mode_check')) !~ 'auto_reply.*draft.*translate.*hr_agent.*kb_learn'
+     OR NOT (SELECT convalidated FROM pg_constraint WHERE conname = 'ai_usage_log_mode_check') THEN
+    failed := failed || 'usage mode check'::text; END IF; n := n + 1;
+
   RAISE EXCEPTION 'KL_ROLLBACK';
   EXCEPTION WHEN raise_exception THEN
     IF SQLERRM <> 'KL_ROLLBACK' THEN RAISE; END IF;
   END;
 
-  IF n <> 29 THEN RAISE EXCEPTION 'verify-kb-learn: only % checks ran', n; END IF;
+  IF n <> 66 THEN RAISE EXCEPTION 'verify-kb-learn: only % checks ran', n; END IF;
   IF cardinality(failed) > 0 THEN
     RAISE EXCEPTION 'verify-kb-learn: % failed: %', cardinality(failed), array_to_string(failed, '; ');
   END IF;

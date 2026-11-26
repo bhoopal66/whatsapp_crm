@@ -15,7 +15,9 @@ const U1 = '11111111-1111-4111-8111-111111111111';
 const U2 = '22222222-2222-4222-8222-222222222222';
 const U3 = '33333333-3333-4333-8333-333333333333';
 
-function client(role: string) {
+const U4 = '44444444-4444-4444-8444-444444444444';
+
+function client(role: string, extra: Record<string, unknown[]> = {}) {
   const tables: Record<string, unknown[]> = {
     coordinator_banks: [
       { user_id: U1, bank_code: 'ADCB' },
@@ -46,6 +48,7 @@ function client(role: string) {
     // RLS hands these rows to owners and admins only.
     coordinator_phones:
       role === 'admin' ? [{ user_id: U1, phone: '971501234567' }] : [],
+    ...extra,
   };
   mocks.requireRole.mockResolvedValue({
     supabase: {
@@ -117,5 +120,38 @@ describe('GET /api/coordinators', () => {
         (c: { whatsapp_phone: string | null }) => c.whatsapp_phone
       )
     ).toEqual(['971501234567', null]);
+  });
+
+  it('gives an admin the number of somebody without banks', async () => {
+    const phones = [
+      { user_id: U1, phone: '971501234567' },
+      { user_id: U4, phone: '971507654321' },
+    ];
+    const expected = [
+      { user_id: U1, whatsapp_phone: '971501234567' },
+      { user_id: U4, whatsapp_phone: '971507654321' },
+    ];
+    const list = async (url = 'http://localhost/api/coordinators') =>
+      (await GET(new Request(url))).json();
+
+    client('admin', { coordinator_phones: phones });
+    const body = await list();
+    expect(body.phones).toEqual(expected);
+    // The list itself is still the bank holders: shares go to them.
+    expect(
+      body.coordinators.map((c: { user_id: string }) => c.user_id)
+    ).not.toContain(U4);
+
+    // Nobody holds a bank at all.
+    client('admin', { coordinator_phones: phones, coordinator_banks: [] });
+    expect(await list()).toEqual({ coordinators: [], phones: expected });
+
+    // Not for an agent, nor for a bank's list.
+    client('agent');
+    expect(await list()).not.toHaveProperty('phones');
+    client('admin', { coordinator_phones: phones });
+    expect(
+      await list('http://localhost/api/coordinators?bank=FAB')
+    ).not.toHaveProperty('phones');
   });
 });

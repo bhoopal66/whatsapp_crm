@@ -9,6 +9,11 @@ const gw = vi.hoisted(() => ({
   getSession: vi.fn(),
 }));
 
+const waiting = vi.hoisted(() => ({ count: 0 }));
+vi.mock('./waiting-messages', () => ({
+  waitingMessages: async () => waiting.count,
+}));
+
 // Real OpenWAError and env reader; gateway calls stubbed.
 vi.mock('./openwa-api', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
@@ -179,6 +184,11 @@ describe('sweepAbandonedOpenWASessions', () => {
         ['eq', ['id', 'cfg-2']],
       ])
     );
+    // Never a personal number: 190 refuses one as the default.
+    expect(ofKind('select').flat()).toContainEqual([
+      'eq',
+      ['is_personal', false],
+    ]);
   });
 
   it('stamps a phone that linked after all instead of logging it out', async () => {
@@ -305,6 +315,19 @@ describe('sweepAbandonedOpenWASessions', () => {
     );
     expect(requeue[0][0]).toBe('update');
     expect(Object.keys(requeue[0][1][0] as object)).toEqual(['updated_at']);
+  });
+
+  it('leaves a number with waiting customer messages alone, gateway included', async () => {
+    waiting.count = 4;
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { db, ofKind } = fakeAdmin({ abandoned: [row] });
+    const summary = await sweepAbandonedOpenWASessions(db, { now: () => NOW });
+    waiting.count = 0;
+    expect(summary).toMatchObject({ removed: 0, kept: 1 });
+    expect(ofKind('delete')).toEqual([]);
+    expect(gw.getSession).not.toHaveBeenCalled();
+    expect(gw.deleteSession).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledTimes(1);
   });
 
   it('does nothing without the admin key', async () => {

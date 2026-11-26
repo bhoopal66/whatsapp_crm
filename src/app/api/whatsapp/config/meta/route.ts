@@ -9,8 +9,18 @@ import {
   verifyPhoneNumber,
   subscribeWabaToApp,
 } from '@/lib/whatsapp/meta-api';
+import { withChannelSecrets } from '@/lib/whatsapp/channel-secrets';
 import { encrypt, decrypt } from '@/lib/whatsapp/encryption';
-import { promoteOldestToPrimary } from '@/lib/whatsapp/personal-numbers';
+import { webhookSecretsChanged } from '@/lib/whatsapp/webhook-secret-lookup';
+import {
+  personalNumbersAdmin,
+  promoteOldestToPrimary,
+} from '@/lib/whatsapp/personal-numbers';
+import {
+  messagesWaitingResponse,
+  waitingMessages,
+  wantsForce,
+} from '@/lib/whatsapp/waiting-messages';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   authUnavailableResponse,
@@ -124,14 +134,17 @@ export async function GET() {
       );
     }
 
-    const { data: config } = await supabase
+    const { data: visible } = await supabase
       .from('whatsapp_config')
       .select(
-        'phone_number_id, waba_id, access_token, status, subscribed_apps_at, label, is_primary'
+        'id, phone_number_id, waba_id, status, subscribed_apps_at, label, is_primary'
       )
       .eq('account_id', accountId)
       .eq('provider', 'meta')
       .maybeSingle();
+    const [config] = visible
+      ? await withChannelSecrets([visible], ['access_token'])
+      : [null];
 
     if (!config) {
       return NextResponse.json({
@@ -146,7 +159,7 @@ export async function GET() {
     try {
       live = await verifyPhoneNumber({
         phoneNumberId: config.phone_number_id,
-        accessToken: decrypt(config.access_token),
+        accessToken: decrypt(config.access_token as string),
       });
     } catch {
       // Token revoked, expired, or Graph unreachable. Fall back to the
@@ -224,12 +237,24 @@ export async function POST(request: Request) {
     // Look the existing row up first: the settings panel shows a masked
     // placeholder rather than the real token, so a re-save sends no
     // token at all and must reuse the stored one instead of erroring.
-    const { data: existing } = await supabase
+    const { data: existingRow, error: existingError } = await supabase
       .from('whatsapp_config')
-      .select('id, access_token, phone_number_id, waba_id')
+      .select('id, phone_number_id, waba_id, subscribed_apps_at')
       .eq('account_id', accountId)
       .eq('provider', 'meta')
       .maybeSingle();
+    if (existingError) {
+      // Read as "no number yet", this save became an INSERT that the
+      // one-Meta index refuses, after Meta had already been called.
+      console.error('[whatsapp/config/meta] row read failed:', existingError);
+      return NextResponse.json(
+        { error: 'Failed to validate configuration' },
+        { status: 500 }
+      );
+    }
+    const [existing] = existingRow
+      ? await withChannelSecrets([existingRow], ['access_token'])
+      : [null];
 
     // One Meta number per account (migration 060's partial unique
     // index). A save naming a DIFFERENT number used to UPDATE the
@@ -407,7 +432,14 @@ export async function POST(request: Request) {
         : {}),
       status: 'connected',
       connected_at: new Date().toISOString(),
-      subscribed_apps_at: subscribedAt,
+      // A listing or subscribe that failed takes nothing away: nothing
+      // here unsubscribes, so the same WABA keeps its earlier stamp. The
+      // answer still reports this attempt (`subscribed`, `subscribe_error`).
+      subscribed_apps_at:
+        subscribedAt ??
+        (existing && existing.waba_id === wabaId
+          ? (existing.subscribed_apps_at ?? null)
+          : null),
       updated_at: new Date().toISOString(),
     };
 
@@ -426,11 +458,23 @@ export async function POST(request: Request) {
       }
     } else {
       // At most one primary per account (partial unique index, migration
-      // 046), so only claim it when nothing else is connected.
-      const { count: siblingCount } = await supabase
+      // 046), so only claim it when nothing else is connected. Shared
+      // numbers only: a personal one can never be the default (190).
+      const { count: siblingCount, error: siblingError } = await supabase
         .from('whatsapp_config')
         .select('id', { count: 'exact', head: true })
-        .eq('account_id', accountId);
+        .eq('account_id', accountId)
+        .eq('is_personal', false);
+      if (siblingError) {
+        console.error(
+          '[whatsapp/config/meta] sibling count failed:',
+          siblingError
+        );
+        return NextResponse.json(
+          { error: 'Failed to validate configuration' },
+          { status: 500 }
+        );
+      }
 
       const { error } = await supabase.from('whatsapp_config').insert({
         account_id: accountId,
@@ -449,6 +493,9 @@ export async function POST(request: Request) {
         );
       }
     }
+
+    // Meta's handshake may follow at once, with the token just saved.
+    webhookSecretsChanged('meta');
 
     return NextResponse.json({
       success: true,
@@ -472,7 +519,7 @@ export async function POST(request: Request) {
 }
 
 /** Disconnect the Meta number. Leaves the Whapi channel untouched. */
-export async function DELETE() {
+export async function DELETE(request: Request) {
   try {
     try {
       await requireRole('admin');
@@ -496,6 +543,21 @@ export async function DELETE() {
         { error: 'Your profile is not linked to an account.' },
         { status: 403 }
       );
+    }
+
+    // Customer messages the gateway was told we got, not processed yet,
+    // go with the number (webhook_inbox cascades): ask once more. The
+    // ids are read with the session client, the count needs the service
+    // role.
+    if (!wantsForce(request)) {
+      const { data: metaRows } = await supabase
+        .from('whatsapp_config')
+        .select('id')
+        .eq('account_id', accountId)
+        .eq('provider', 'meta');
+      const ids = ((metaRows ?? []) as Array<{ id: string }>).map((r) => r.id);
+      const waiting = await waitingMessages(personalNumbersAdmin, ids);
+      if (waiting > 0) return messagesWaitingResponse(waiting);
     }
 
     // Routes pointing at this channel go with it (ON DELETE CASCADE),

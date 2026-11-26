@@ -402,16 +402,18 @@ export function ChatSidebar({
                           ? t('assignedToMe')
                           : r.label}
                     </span>
-                    <span
-                      className={cn(
-                        'text-xs',
-                        r.kind === 'unassigned' && r.count > 0
-                          ? 'min-w-5 rounded-full bg-amber-400 px-1.5 text-center font-bold text-amber-950'
-                          : 'text-muted-foreground tabular-nums'
-                      )}
-                    >
-                      {r.count}
-                    </span>
+                    {r.count !== null && (
+                      <span
+                        className={cn(
+                          'text-xs',
+                          r.kind === 'unassigned' && r.count > 0
+                            ? 'min-w-5 rounded-full bg-amber-400 px-1.5 text-center font-bold text-amber-950'
+                            : 'text-muted-foreground tabular-nums'
+                        )}
+                      >
+                        {r.count}
+                      </span>
+                    )}
                   </Link>
                 </li>
               ))}

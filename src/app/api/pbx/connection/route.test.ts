@@ -8,6 +8,9 @@ const mocks = vi.hoisted(() => ({
   requireRole: vi.fn(),
   db: null as unknown,
   pbxApiFor: vi.fn(),
+  // The address guard (base-url-guard.test.ts) resolves DNS; here it is
+  // a switch, so the example hosts below need no network.
+  pbxHostAllowed: true,
 }));
 
 vi.mock('@/lib/auth/account', () => ({
@@ -19,6 +22,10 @@ vi.mock('@/lib/auth/account', () => ({
 vi.mock('@/lib/pbx/admin', async (orig) => ({
   ...(await orig<typeof import('@/lib/pbx/admin')>()),
   pbxServiceDb: () => mocks.db,
+}));
+vi.mock('@/lib/pbx/base-url-guard', async (orig) => ({
+  ...(await orig<typeof import('@/lib/pbx/base-url-guard')>()),
+  isAllowedPbxBaseUrl: async () => mocks.pbxHostAllowed,
 }));
 vi.mock('@/lib/pbx/connection', async (orig) => ({
   ...(await orig<typeof import('@/lib/pbx/connection')>()),
@@ -303,6 +310,20 @@ describe('PUT /api/pbx/connection', () => {
 describe('POST /api/pbx/connection/test', () => {
   const api = (impl: () => Promise<unknown>) =>
     mocks.pbxApiFor.mockResolvedValue({ api: { testConnection: vi.fn(impl) } });
+
+  it('refuses an internal PBX address on save and on test (SSRF)', async () => {
+    mocks.pbxHostAllowed = false;
+    try {
+      const saved = await put({ ...VALID, baseUrl: 'https://169.254.169.254' });
+      expect(saved.status).toBe(400);
+      expect((await saved.json()).error).toMatch(/PBX_ALLOWED_HOSTS/);
+      const tested = await TEST();
+      expect(tested.status).toBe(400);
+      expect(mocks.pbxApiFor).not.toHaveBeenCalled();
+    } finally {
+      mocks.pbxHostAllowed = true;
+    }
+  });
 
   it('records connected', async () => {
     api(async () => ({ ok: true, extensionCount: 12 }));

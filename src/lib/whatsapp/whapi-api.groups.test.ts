@@ -8,6 +8,7 @@ import {
   getGroup,
   getGroupIcon,
   listAllGroups,
+  walkAllGroups,
   listGroupJoinRequests,
   parseWhapiGroup,
   parseWhapiIdentity,
@@ -188,6 +189,25 @@ describe('listAllGroups', () => {
     const all = await listAllGroups({ token: 't', pageSize: 2 });
     expect(all.map((g) => g.name)).toEqual(['a', 'c']);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('says a list with an unparseable row, no list or a short count is incomplete', async () => {
+    const ok = { id: '120363025555500001@g.us', name: 'a' };
+    const walk = (body: unknown) => {
+      fetchMock.mockResolvedValueOnce(json(body));
+      return walkAllGroups({ token: 't' });
+    };
+    expect(await walk({ groups: [ok], total: 1 })).toMatchObject({
+      complete: true,
+    });
+    expect(await walk({ groups: [ok, { nope: true }] })).toMatchObject({
+      groups: [{ name: 'a' }],
+      complete: false,
+    });
+    expect(await walk({ groups: [ok], total: 2 })).toMatchObject({
+      complete: false,
+    });
+    expect(await walk({ ok: true })).toMatchObject({ complete: false });
   });
 
   it('stops at maxGroups', async () => {

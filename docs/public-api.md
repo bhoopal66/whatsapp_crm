@@ -86,7 +86,9 @@ may be reworded.
 | 429    | `number_daily_limit` | `POST /api/v1/messages` would start a new chat on a phone (Whapi or OpenWA) number that has reached its daily new-chat limit, with the workspace's hard restrictions on. Replies to existing chats still go out; new chats can start again tomorrow |
 | 400    | `bad_request`  | Malformed input                                                                     |
 | 404    | `not_found`    | No such resource                                                                    |
+| 409    | `idempotency_key_reused`, `in_progress`, `delivery_unconfirmed` | `POST /api/v1/messages` or `/api/v1/broadcasts` with an idempotency key, below |
 | 500    | `internal`     | Server error                                                                        |
+| 503    | `unavailable`  | The key could not be checked (the database did not answer). Says nothing about the key and is not counted as a bad one; nothing was done. Retry after `Retry-After` seconds |
 
 ## Rate limits
 
@@ -181,6 +183,11 @@ needs a `template` object:
 }
 ```
 
+Every value in `params` must be a string or a number (a number is sent as
+its text), as must `body`, `headerText` and `buttonParams` in the structured
+object. Anything else (`null`, a boolean, an object) is `400 bad_request`
+naming the value, and nothing is sent.
+
 Response (201):
 
 ```json
@@ -197,7 +204,35 @@ Response (201):
 
 Domain error codes beyond the table above: `whatsapp_not_configured`
 (400), `whatsapp_error` (502 — the request reached the WhatsApp gateway and it rejected the
-send), `template_malformed` (500).
+send), `template_malformed` (500), `customer_opted_out` (422 — the
+customer opted out of messages or is marked do-not-contact, on this
+contact or another one with the same number; nothing was sent. Don't
+retry).
+
+**Sent but not saved.** When WhatsApp took the message and the CRM could
+not save it, the answer is still `201`: `message_id` is `null`,
+`whatsapp_message_id` is the sent message's and `data.warning` is
+`"not_recorded"`. Don't send it again.
+
+**Sending once.** Pass an `Idempotency-Key` header (or an
+`idempotency_key` field in the body; 1 to 200 printable ASCII characters,
+one per message) and a request that is repeated, because its answer was
+lost, never sends the message twice. Keys belong to the API key and are
+remembered for 30 days, or until the message or its contact is deleted.
+Without a key every request sends.
+
+| Repeat of                             | Answer                                                                                         |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| a message that was sent               | `200`, the first answer again with `"replayed": true`. Nothing is sent                         |
+| a request that certainly did not send | the message is sent now (a refusal such as `customer_opted_out` is asked again)                |
+| a request still running               | `409 in_progress` with `Retry-After`                                                           |
+| a request whose outcome is unknown    | `409 delivery_unconfirmed`. It may have reached the customer, so this key never sends it again |
+| another message with the same key     | `409 idempotency_key_reused`. Nothing is sent                                                  |
+
+With a key, a first request whose outcome is unknown (the gateway timed
+out, say) is answered `409 delivery_unconfirmed` too. `503 unavailable`
+means the key could not be recorded and nothing was sent: repeat it with
+the same key.
 
 ### `GET /api/v1/contacts`
 
@@ -374,6 +409,10 @@ call is `400 bad_request` and the message names the first problem. A
 contact this call creates gets `lead_source` `broadcast`; an existing
 contact's is left as it is.
 
+Every value in a recipient's `params` must be a string or a number, as on
+`POST /api/v1/messages`. Anything else is `400 bad_request` naming the
+value; nothing is persisted or sent.
+
 A recipient whose contact opted out of messages (`opted_out_at` set) is
 skipped: it is not sent to and is counted in neither `accepted` nor
 `rejected`. If every recipient with a valid number has opted out, the
@@ -408,6 +447,25 @@ Response (202):
 }
 ```
 
+**Creating once.** Every recipient is looked up before the answer, so a
+large request can outlast a client's timeout and still send. Pass an
+`Idempotency-Key` header (or an `idempotency_key` field), as on `POST
+/api/v1/messages`, and repeat the same request with the same key: it never
+creates a second campaign. Keys belong to the API key, are separate from
+those of messages, and are remembered for 30 days. Without a key every
+request creates a campaign.
+
+| Repeat of                                | Answer                                                                                                 |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| a request that created its campaign      | `200`, the first answer again with `"replayed": true`. Nothing is created; poll the broadcast          |
+| a request that certainly did not         | the campaign is created now                                                                            |
+| a request still running                  | `409 in_progress` with `Retry-After`                                                                   |
+| a request whose outcome is unknown       | `409 delivery_unconfirmed`. The campaign may exist (see the dashboard); this key never creates it again. A creation the database refused is a `500`, and can be repeated |
+| another broadcast with the same key      | `409 idempotency_key_reused`. Nothing is created                                                       |
+
+`503 unavailable` means the key could not be recorded and nothing was
+created: repeat it with the same key.
+
 ### `GET /api/v1/broadcasts/{id}`
 
 Broadcast status + counts. Scope: `broadcasts:send`. `status` moves
@@ -416,8 +474,14 @@ Broadcast status + counts. Scope: `broadcasts:send`. `status` moves
 arrive. `status` can stay `sending` after a failure of the sending
 number itself (a revoked or expired access token, a logged-out number,
 a lapsed subscription): delivery stops at the first recipient that hit
-it, the rest stay pending, and the campaign is finished by resuming it
-from the dashboard once the number is fixed — the API has no resume.
+it and the rest stay pending. A campaign interrupted that way, or by a
+restart, is continued automatically by the broadcast cron, at the
+earliest half an hour later and for 7 days after it was created, once
+the number can send again and only between 08:00 and 21:00 in the
+workspace's time zone (Team activity's; Asia/Dubai when none is saved).
+Sending right after your request is not held to those hours. No recipient is sent to twice, so don't
+create it again. Someone can also resume it from the dashboard at any
+time, which is the only way after the 7 days; the API has no resume.
 `failed` can follow `sent`: WhatsApp can accept a send and report it
 failed later, and a campaign in which every recipient failed that way
 moves to `failed`. `sent` and `failed` are final unless someone resumes
@@ -633,6 +697,9 @@ active and ended groups alike, and the answer adds
   `presub_reentry`, `case_closed`, `final_stage`, `stage_not_in_bank`,
   `bank_invalid`, `product_invalid`, `amount_invalid`,
   `external_url_invalid`, `changed_at_invalid`) and writes nothing.
+  A `changed_at` in the future counts as the moment it arrived (it would
+  otherwise make every later update stale). Two such updates are ordered by
+  arrival, retries included: send the real time.
   Refusals of one item (an outcome reason, a document) are listed in
   `sync.rejected` as `{ key, error }` and the rest still applies.
 - A move to `Approved`, `Declined`, `Withdrawn` or `Closed` ends the group
@@ -786,11 +853,19 @@ produce a webhook event.
 
 All under scope `webhooks:manage`.
 
-- `POST /api/v1/webhooks` — register `{ "url": "https://…", "events": ["message.received"] }`. `url` must be `https://` and must resolve to a public internet address. A URL that resolves to a private, loopback or link-local address is rejected with `400 bad_request` when you save it, not only skipped at delivery time. **The response includes `secret` exactly once** — store it to verify signatures; Taamul Connect keeps only an encrypted copy.
+- `POST /api/v1/webhooks` — register `{ "url": "https://…", "events": ["message.received"] }`. `url` must be `https://` and must resolve to a public internet address. A URL that resolves to a private, loopback or link-local address is rejected with `400 bad_request` when you save it, not only skipped at delivery time. **The response includes `secret` exactly once** — store it to verify signatures; Taamul Connect keeps only an encrypted copy. To subscribe to `message.received` or `message.status_updated` the key also needs `messages:read` (`403 forbidden` otherwise).
 - `GET /api/v1/webhooks` — list your endpoints (never returns the secret).
 - `GET /api/v1/webhooks/{id}` — read one.
-- `PATCH /api/v1/webhooks/{id}` — update `url`, `events`, or `is_active` (re-enabling clears the failure counter).
+- `PATCH /api/v1/webhooks/{id}` — update `url`, `events`, or `is_active` (re-enabling clears the failure counter). Changing `url` or `events`, or switching it on, makes it the endpoint of the key you call with; on an endpoint with message events that key needs `messages:read`.
 - `DELETE /api/v1/webhooks/{id}` — remove one.
+
+**An endpoint belongs to an API key.** When that key is revoked or deleted, its
+endpoints are switched off (`is_active: false`) and the workspace's owners and
+admins are told. To use one again, switch it on with a live key. Endpoints made
+before keys were recorded belong to none until a key changes them.
+
+Owners and admins see every endpoint under Settings → API keys, and can switch
+one off or delete it there.
 
 ```bash
 curl -X POST https://your-crm.example.com/api/v1/webhooks \
@@ -871,9 +946,10 @@ covers messages Taamul Connect stores (inbox + API sends), not broadcast-only
 sends, and — because providers re-send and re-order status callbacks —
 the same status may arrive more than once or out of order; **dedupe on
 `id` and don't assume ordering**. Each consecutive failure increments
-`failure_count`; after enough consecutive failures the endpoint is
-auto-disabled (`is_active: false`) — re-enable it with `PATCH` (which
-resets the counter). Durable retry-with-backoff (a delivery queue) is a
+`failure_count`; after enough consecutive failures spanning at least 30
+minutes the endpoint is auto-disabled (`is_active: false`) and the
+workspace's owners and admins are notified — re-enable it with `PATCH`
+(which resets the counter). Durable retry-with-backoff (a delivery queue) is a
 future enhancement; today, treat missed deliveries as possible and
 reconcile with the read endpoints when it matters.
 

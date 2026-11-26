@@ -27,6 +27,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { ErrorState } from '@/components/dashboard/error-state';
 import { invalidateCached } from '@/lib/client-cache';
 import {
   OPENWA_PERSONAL_BASE,
@@ -47,6 +48,7 @@ import { OpenWAConnectDialog } from './openwa-connect-dialog';
 export function MyWhatsAppCard() {
   const t = useTranslations('Settings.myWhatsApp');
   const [info, setInfo] = useState<PersonalNumberInfo | null>(null);
+  const [failed, setFailed] = useState(false);
   const [connectOpen, setConnectOpen] = useState(false);
   const [rescanOpen, setRescanOpen] = useState(false);
   // OpenWA's live word for the number (`ready`, `qr_ready`, …); null
@@ -54,6 +56,8 @@ export function MyWhatsAppCard() {
   const [liveStatus, setLiveStatus] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [removing, setRemoving] = useState(false);
+  // Set after a 409 messages_waiting: the dialog asks once more.
+  const [waitingCount, setWaitingCount] = useState<number | null>(null);
 
   // Loads overlap (the import poll, a connect); only the newest may set
   // state, or an older `qr_ready` could land over a fresh `ready`.
@@ -67,6 +71,10 @@ export function MyWhatsAppCard() {
       const body = await res.json().catch(() => null);
       if (seq !== loadSeq.current) return;
       const next = res.ok ? parsePersonalNumberInfo(body) : null;
+      // Only the refusal (a bank guest) is an answer; any other failure
+      // keeps what is shown, and with it the import poll.
+      if (!next && res.status !== 403) return setFailed(true);
+      setFailed(false);
       setInfo(next);
       setLiveStatus((prev) =>
         next?.number && next.number.id === liveFor.current ? prev : null
@@ -84,7 +92,7 @@ export function MyWhatsAppCard() {
       if (seq !== loadSeq.current) return;
       setLiveStatus(typeof live?.status === 'string' ? live.status : null);
     } catch {
-      if (seq === loadSeq.current) setInfo(null);
+      if (seq === loadSeq.current) setFailed(true);
     }
   }, []);
 
@@ -105,14 +113,22 @@ export function MyWhatsAppCard() {
     void load();
   }, [load]);
 
-  async function disconnect(id: string) {
+  async function disconnect(id: string, force = false) {
     setRemoving(true);
     try {
-      const res = await fetch(
-        openwaSessionUrls(OPENWA_PERSONAL_BASE).session(id),
-        { method: 'DELETE' }
-      );
+      const url = openwaSessionUrls(OPENWA_PERSONAL_BASE).session(id);
+      const res = await fetch(force ? `${url}?force=1` : url, {
+        method: 'DELETE',
+      });
       const body = await res.json().catch(() => ({}));
+      if (
+        res.status === 409 &&
+        body?.code === 'messages_waiting' &&
+        typeof body?.count === 'number'
+      ) {
+        setWaitingCount(body.count);
+        return;
+      }
       if (!res.ok) {
         toast.error(
           typeof body?.error === 'string' ? body.error : t('removeFailed')
@@ -125,6 +141,9 @@ export function MyWhatsAppCard() {
         toast.success(t('removed'));
       }
       setConfirmOpen(false);
+      setWaitingCount(null);
+      // Gone even if the read below fails and keeps what is shown.
+      setInfo((prev) => prev && { ...prev, number: null, import: null });
       invalidateCached('whatsapp-channels:');
       await load();
     } catch {
@@ -132,6 +151,25 @@ export function MyWhatsAppCard() {
     } finally {
       setRemoving(false);
     }
+  }
+
+  if (failed && !info) {
+    return (
+      <Card>
+        <CardContent className="space-y-4">
+          <h3 className="text-foreground text-sm font-semibold">
+            {t('title')}
+          </h3>
+          <ErrorState
+            message={t('loadFailed')}
+            onRetry={() => {
+              setFailed(false);
+              void load();
+            }}
+          />
+        </CardContent>
+      </Card>
+    );
   }
 
   const view = myWhatsAppView(info);
@@ -246,7 +284,11 @@ export function MyWhatsAppCard() {
 
       <Dialog
         open={confirmOpen}
-        onOpenChange={(o) => !o && !removing && setConfirmOpen(false)}
+        onOpenChange={(o) => {
+          if (o || removing) return;
+          setConfirmOpen(false);
+          setWaitingCount(null);
+        }}
       >
         <DialogContent className="border-border bg-popover text-popover-foreground sm:max-w-sm">
           <DialogHeader>
@@ -254,26 +296,33 @@ export function MyWhatsAppCard() {
               {t('removeTitle')}
             </DialogTitle>
             <DialogDescription className="text-muted-foreground">
-              {t('removeBody')}
+              {waitingCount !== null
+                ? t('waitingBody', { count: waitingCount })
+                : t('removeBody')}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button
               variant="ghost"
-              onClick={() => setConfirmOpen(false)}
+              autoFocus
+              onClick={() => {
+                setConfirmOpen(false);
+                setWaitingCount(null);
+              }}
               disabled={removing}
             >
               {t('cancel')}
             </Button>
             <Button
               onClick={() =>
-                view.kind === 'connected' && void disconnect(view.number.id)
+                view.kind === 'connected' &&
+                void disconnect(view.number.id, waitingCount !== null)
               }
               disabled={removing}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {removing ? <Loader2 className="size-4 animate-spin" /> : null}
-              {t('disconnect')}
+              {waitingCount !== null ? t('removeAnyway') : t('disconnect')}
             </Button>
           </DialogFooter>
         </DialogContent>

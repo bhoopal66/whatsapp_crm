@@ -104,7 +104,8 @@ export async function loadBanks(
 }
 
 /**
- * The caller's unread count per ACTIVE group (migration 173). Unlike the
+ * The caller's unread count per group: ACTIVE (migration 173), and ENDED
+ * with a customer's message they may read (267, 308). Unlike the
  * lookups here it takes the caller's RLS client: `sg_unread_by_group`
  * answers for `auth.uid()`, which the service role does not have. A count
  * is a decoration on the row, so any failure (the migration not applied
@@ -176,7 +177,19 @@ export async function loadNames(
   );
 }
 
-/** Ids of this account's contacts whose name contains the (sanitised) term. */
+/**
+ * The embed that keeps only contacts holding a submission group (115's
+ * composite contact FK, named so it is never ambiguous). Without it the
+ * cap below filled with the workspace's other contacts and a matching
+ * group could be missed.
+ */
+export const GROUP_CONTACT_EMBED =
+  'submission_groups!submission_groups_contact_fkey!inner(id)';
+
+/**
+ * Ids of this account's contacts that have a submission group and whose
+ * name contains the (sanitised) term.
+ */
 export async function matchingContactIds(
   admin: SupabaseClient,
   accountId: string,
@@ -184,9 +197,11 @@ export async function matchingContactIds(
 ): Promise<string[]> {
   const { data, error } = await admin
     .from('contacts')
-    .select('id')
+    .select(`id, ${GROUP_CONTACT_EMBED}`)
     .eq('account_id', accountId)
     .ilike('name', `%${term}%`)
+    .order('name')
+    .order('id')
     .limit(SEARCH_CONTACT_MAX);
   if (error) throw new Error(`contacts: ${error.message}`);
   return ((data ?? []) as Record<string, unknown>[]).map((r) => String(r.id));

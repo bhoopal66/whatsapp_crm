@@ -1,6 +1,15 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
-import { AUTH_COOKIE_NAME, serverSupabaseUrl } from '@/lib/supabase/urls'
+import {
+  createServerRefresh,
+  REFRESH_UNANSWERED_COOKIE,
+} from '@/lib/supabase/session-fetch'
+import {
+  AUTH_COOKIE_NAME,
+  authCookieOptions,
+  serverSupabaseUrl,
+  sessionCookiesToWrite,
+} from '@/lib/supabase/urls'
 import {
   authUnavailableResponse,
   isAuthUnavailable,
@@ -8,6 +17,7 @@ import {
 import { safeNextPath } from '@/lib/auth/login-client'
 import { supabaseAdmin } from '@/lib/automations/admin-client'
 import { contentSecurityPolicy } from '@/lib/csp'
+import { isCrossSiteApiWrite } from '@/lib/edge/same-origin'
 import { createFrameOriginsLookup } from '@/lib/web-form/frame-lookup'
 import {
   frameHeadersFor,
@@ -44,8 +54,25 @@ async function webFormFrameHeaders(pathname: string) {
 }
 
 export async function middleware(request: NextRequest) {
+  // A state-changing /api call a browser made from another site or
+  // subdomain (CSRF): refused before any session work. Webhooks, crons
+  // and API-key callers send no browser headers and are not affected.
+  if (
+    isCrossSiteApiWrite({
+      method: request.method,
+      pathname: request.nextUrl.pathname,
+      headers: request.headers,
+    })
+  ) {
+    return NextResponse.json(
+      { error: 'Cross-site request refused' },
+      { status: 403 }
+    )
+  }
+
   let supabaseResponse = NextResponse.next({ request })
 
+  const refresh = createServerRefresh()
   const supabase = createServerClient(
     serverSupabaseUrl(),
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -53,15 +80,20 @@ export async function middleware(request: NextRequest) {
       // Must match the browser's cookie name — see urls.ts. Without
       // this the middleware cannot see the session and redirects every
       // signed-in request straight back to /login.
-      cookieOptions: { name: AUTH_COOKIE_NAME },
+      cookieOptions: authCookieOptions(),
+      global: { fetch: refresh.fetch },
       cookies: {
         getAll() {
           return request.cookies.getAll()
         },
         setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) => request.cookies.set(name, value))
+          const writes = sessionCookiesToWrite(
+            cookiesToSet,
+            request.cookies.getAll()
+          )
+          writes.forEach(({ name, value }) => request.cookies.set(name, value))
           supabaseResponse = NextResponse.next({ request })
-          cookiesToSet.forEach(({ name, value, options }) =>
+          writes.forEach(({ name, value, options }) =>
             supabaseResponse.cookies.set(name, value, options)
           )
         },
@@ -69,7 +101,18 @@ export async function middleware(request: NextRequest) {
     }
   )
 
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  const { data: { user }, error: authError } =
+    await refresh.bound(supabase).auth.getUser()
+
+  // This request has waited once: what it reaches does not ask again.
+  if (refresh.gaveUp()) {
+    request.cookies.set(REFRESH_UNANSWERED_COOKIE, '1')
+    // What getUser() wrote stays: a token still valid may have been used
+    // to learn that the session has ended.
+    const written = supabaseResponse.cookies.getAll()
+    supabaseResponse = NextResponse.next({ request })
+    written.forEach((cookie) => supabaseResponse.cookies.set(cookie))
+  }
 
   // The auth service did not answer, for someone who holds a session
   // cookie: that is not a sign-out, so neither the redirect to /login nor
@@ -237,6 +280,7 @@ export const config = {
   matcher: [
     // sw.js and the web app manifest are fetched by the browser itself
     // (service-worker update checks, install prompts): no session work.
-    '/((?!_next/static|_next/image|favicon.ico|sw\\.js$|manifest\\.webmanifest$|meeting-effects/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    // Nor for the reports a browser sends about the CSP.
+    '/((?!_next/static|_next/image|favicon.ico|sw\\.js$|manifest\\.webmanifest$|api/csp-report$|meeting-effects/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }

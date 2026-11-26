@@ -52,6 +52,8 @@ export interface Profile {
    * `@/lib/auth/roles` rather than comparing this string directly.
    */
   account_role?: AccountRole;
+  /** The part of the company they work in (migration 192). */
+  department?: string;
   created_at: string;
 }
 
@@ -450,8 +452,13 @@ export type NotificationType =
   // Video meetings (106): you were invited to a meeting (the invitees
   // trigger). meta = {meeting_id}.
   | 'meeting_invite'
+  // ... a scheduled one was moved, or cancelled (278's meetings trigger,
+  // to its invitees). meta = {meeting_id}.
+  | 'meeting_update'
+  | 'meeting_cancelled'
   // Calendar (108): invited to / changed / cancelled event (to the
-  // attendees), an attendee answered (to the creator, meta adds
+  // attendees; a person taken off one is rung cancelled, 278), an
+  // attendee answered (to the creator, meta adds
   // {user_id, response}), and the reminder sweep's event reminder
   // (meta adds {occurrence_start, offset}). meta = {event_id}.
   | 'calendar_invite'
@@ -494,6 +501,12 @@ export type NotificationType =
   // got worse (ringMetaNumberAlert). Sent to live owners and admins.
   // meta = {config_id, previous, next, reasons}.
   | 'meta_number_alert'
+  // The daily retention sweep failed (282): the owners, once a day.
+  | 'retention_failed'
+  // An outbound webhook endpoint failed for 30 minutes and was switched
+  // off (293, record_webhook_failure): the live owners and admins.
+  // meta = {endpoint_id}.
+  | 'webhook_disabled'
   // In-chat notes (241): someone mentioned you in a team note inside a
   // customer chat you can see. The row carries conversation_id and
   // contact_id; meta = {note_id, author}.
@@ -551,6 +564,8 @@ export interface Message {
   template_name?: string;
   message_id?: string;
   status: MessageStatus;
+  /** Why WhatsApp failed it, when the gateway said (migration 292). */
+  failure_reason?: string | null;
   created_at: string;
   reply_to_message_id?: string;
   /**
@@ -611,8 +626,6 @@ export interface WhatsAppConfig {
   user_id: string;
   phone_number_id: string;
   waba_id?: string;
-  access_token: string;
-  verify_token?: string;
   status: 'connected' | 'disconnected';
   connected_at?: string;
   /**
@@ -728,7 +741,7 @@ export interface Deal {
 }
 
 export type BroadcastStatus =
-  'draft' | 'scheduled' | 'sending' | 'sent' | 'failed';
+  'draft' | 'scheduled' | 'sending' | 'sent' | 'failed' | 'stopped';
 export type RecipientStatus =
   'pending' | 'sent' | 'delivered' | 'read' | 'replied' | 'failed';
 
@@ -747,6 +760,8 @@ export interface Broadcast {
    * the broadcast cron both honour it. Null when none was set.
    */
   quiet_hours?: { start: string; end: string; tz: string } | null;
+  /** The frequency cap in days (migration 301). Null when it is off. */
+  skip_recent_days?: number | null;
   /** Media header URL chosen in the wizard (migration 053). */
   header_media_url?: string | null;
   /**
@@ -909,7 +924,10 @@ export type SendListStepConfig = InteractiveMessagePayload;
 export interface SendTemplateStepConfig {
   template_name: string;
   language?: string;
+  /** Body values by placeholder: `{ "1": "…" }` or `{ "name": "…" }`. */
   variables?: Record<string, string>;
+  /** The value of a text header's own placeholder. */
+  header_text?: string;
 }
 
 /**

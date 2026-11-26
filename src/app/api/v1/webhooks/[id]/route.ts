@@ -9,7 +9,8 @@
 
 import { requireApiKey } from '@/lib/auth/api-context';
 import { ok, fail, toApiErrorResponse } from '@/lib/api/v1/respond';
-import { normalizeEvents } from '@/lib/webhooks/events';
+import { hasScope } from '@/lib/api-keys/scopes';
+import { hasMessageEvent, normalizeEvents } from '@/lib/webhooks/events';
 import {
   WEBHOOK_PUBLIC_COLUMNS,
   serializeWebhookEndpoint,
@@ -32,7 +33,8 @@ export async function GET(
       .eq('account_id', ctx.accountId)
       .maybeSingle();
 
-    if (error) {
+    // 22P02: not a uuid, so nothing has that id.
+    if (error && error.code !== '22P02') {
       console.error('[api/v1/webhooks] read error:', error);
       return fail('internal', 'Failed to read webhook', 500);
     }
@@ -106,6 +108,38 @@ export async function PATCH(
       return fail('bad_request', 'No updatable fields provided', 400);
     }
 
+    // A change to where or what is sent, or switching it on, makes the
+    // endpoint this key's: revoking the key switches it off (315). And a
+    // key that may not read messages may not point a message endpoint
+    // somewhere else, or switch one on.
+    if ('url' in body || 'events' in body || body.is_active === true) {
+      updates.api_key_id = ctx.keyId;
+      if (!hasScope(ctx.scopes, 'messages:read')) {
+        let events = updates.events as string[] | undefined;
+        if (!events) {
+          const { data: current, error: readErr } = await ctx.supabase
+            .from('webhook_endpoints')
+            .select('events')
+            .eq('id', id)
+            .eq('account_id', ctx.accountId)
+            .maybeSingle();
+          if (readErr && readErr.code !== '22P02') {
+            console.error('[api/v1/webhooks] read error:', readErr);
+            return fail('internal', 'Failed to update webhook', 500);
+          }
+          if (!current) return fail('not_found', 'Webhook not found', 404);
+          events = (current.events as string[] | null) ?? [];
+        }
+        if (hasMessageEvent(events)) {
+          return fail(
+            'forbidden',
+            "Message events need the 'messages:read' scope",
+            403
+          );
+        }
+      }
+    }
+
     // Scope the update by account_id so a foreign id touches nothing;
     // the returned row (null when unmatched) drives the 404.
     const { data, error } = await ctx.supabase
@@ -116,7 +150,8 @@ export async function PATCH(
       .select(WEBHOOK_PUBLIC_COLUMNS)
       .maybeSingle();
 
-    if (error) {
+    // 22P02: not a uuid, so nothing has that id.
+    if (error && error.code !== '22P02') {
       console.error('[api/v1/webhooks] update error:', error);
       return fail('internal', 'Failed to update webhook', 500);
     }
@@ -144,7 +179,8 @@ export async function DELETE(
       .select('id')
       .maybeSingle();
 
-    if (error) {
+    // 22P02: not a uuid, so nothing has that id.
+    if (error && error.code !== '22P02') {
       console.error('[api/v1/webhooks] delete error:', error);
       return fail('internal', 'Failed to delete webhook', 500);
     }

@@ -142,6 +142,24 @@ describe('POST /api/pbx/calls/link', () => {
     expect(rls.tables.calls[0].contact_id).toBeNull();
   });
 
+  it('a call still ringing, nobody’s yet, is no refusal: its end matches it', async () => {
+    Object.assign(rls.tables.calls[0], { status: 'ringing', user_id: null });
+    const res = await post(asked);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      linked: false,
+      atEnd: true,
+    });
+    // Answered by a colleague, or ended with nobody on it: refused.
+    Object.assign(rls.tables.calls[0], {
+      status: 'in_progress',
+      user_id: 'someone else',
+    });
+    expect((await post(asked)).status).toBe(403);
+    Object.assign(rls.tables.calls[0], { status: 'no_answer', user_id: null });
+    expect((await post(asked)).status).toBe(403);
+  });
+
   it('validates the ids', async () => {
     expect((await post({ ...asked, connectionId: 'x' })).status).toBe(404);
     expect((await post({ ...asked, pbxCallId: ' ' })).status).toBe(404);

@@ -37,6 +37,7 @@ import { isDefiniteSendRefusal } from '@/lib/whatsapp/provider';
 import { safeStoredMime } from '@/lib/storage/safe-mime';
 import { toPublicSupabaseUrl } from '@/lib/supabase/urls';
 
+import { JOIN_BLOCKS, joinBlockOf, type JoinBlock } from './join-blocks';
 import {
   ROOM_MEDIA_CAPTION_MAX,
   checkRoomMedia,
@@ -589,7 +590,8 @@ export async function sendRoomMessage(
 export interface JoinDecisionSummary {
   approved: string[];
   rejected: string[];
-  failed: { joinRequestId: string; error: string }[];
+  /** `code`: the CRM refused the approval (`JOIN_BLOCKS`), WhatsApp was not asked. */
+  failed: { joinRequestId: string; error: string; code?: string }[];
   /** Not a pending request of this room (unknown, or decided already). */
   skipped: string[];
 }
@@ -630,6 +632,67 @@ export function parseJoinDecisionBody(
   return { ok: true, approve, reject };
 }
 
+interface JoinRequestRow {
+  join_request_id: string;
+  decision: string;
+  wa_id: string;
+}
+
+/**
+ * Why each request may not be approved, by request id: a code from
+ * `join-blocks.ts`, absent when nothing blocks it. The listed person it comes
+ * from (as `deal_room_find_participant` finds them) must pass
+ * `deal_room_admit_block`, and must not be waiting for, or refused by, a
+ * team leader: that is not a manager's to decide here. A number nobody
+ * listed stays a person's decision (`deal_room_record_join_request` keeps
+ * it pending). Whatever could not be read is blocked.
+ */
+async function joinBlocks(
+  db: SupabaseClient,
+  roomId: string,
+  requests: JoinRequestRow[]
+): Promise<Map<string, JoinBlock>> {
+  const blocks = new Map<string, JoinBlock>();
+  if (requests.length === 0) return blocks;
+  const { data, error } = await db
+    .from('deal_room_participants')
+    .select('id, status, wa_id, phone')
+    .eq('room_id', roomId);
+  if (error) {
+    console.error('[deal-rooms] admit check failed:', error.message);
+    for (const r of requests) blocks.set(r.join_request_id, 'check_failed');
+    return blocks;
+  }
+  const people = (data ?? []) as {
+    id: string;
+    status: string;
+    wa_id: string | null;
+    phone: string | null;
+  }[];
+  for (const r of requests) {
+    const digits = r.wa_id.replace(/\D/g, '');
+    const person =
+      people.find((p) => p.wa_id === r.wa_id) ??
+      people.find((p) => p.phone === digits);
+    if (!person) continue;
+    if (person.status === 'pending_approval' || person.status === 'rejected') {
+      blocks.set(r.join_request_id, person.status);
+      continue;
+    }
+    const { data: block, error: blockErr } = await db.rpc(
+      'deal_room_admit_block',
+      { p_participant: person.id, p_wa_id: r.wa_id }
+    );
+    if (blockErr) {
+      console.error('[deal-rooms] admit check failed:', blockErr.message);
+      blocks.set(r.join_request_id, 'check_failed');
+    } else if (block) {
+      blocks.set(r.join_request_id, joinBlockOf(block));
+    }
+  }
+  return blocks;
+}
+
 export async function decideJoinRequests(
   db: SupabaseClient,
   args: { roomId: string; userId: string; approve: string[]; reject: string[] }
@@ -642,14 +705,18 @@ export async function decideJoinRequests(
   const ids = [...args.approve, ...args.reject];
   const { data, error } = await db
     .from('deal_room_join_requests')
-    .select('join_request_id, decision')
+    .select('join_request_id, decision, wa_id')
     .eq('room_id', room.id)
     .in('join_request_id', ids);
   if (error) throw new Error(`join request lookup failed: ${error.message}`);
-  const pending = new Set(
-    ((data ?? []) as { join_request_id: string; decision: string }[])
-      .filter((r) => r.decision === 'pending')
-      .map((r) => r.join_request_id)
+  const undecided = ((data ?? []) as JoinRequestRow[]).filter(
+    (r) => r.decision === 'pending'
+  );
+  const pending = new Set(undecided.map((r) => r.join_request_id));
+  const blocks = await joinBlocks(
+    db,
+    room.id,
+    undecided.filter((r) => args.approve.includes(r.join_request_id))
   );
   const out: JoinDecisionSummary = {
     approved: [],
@@ -658,12 +725,16 @@ export async function decideJoinRequests(
     skipped: ids.filter((id) => !pending.has(id)),
   };
 
+  for (const [joinRequestId, code] of blocks) {
+    out.failed.push({ joinRequestId, code, error: JOIN_BLOCKS[code] });
+  }
+
   const batches = [
     ['approved', args.approve, approveJoinRequests],
     ['rejected', args.reject, rejectJoinRequests],
   ] as const;
   for (const [decision, wanted, call] of batches) {
-    const list = wanted.filter((id) => pending.has(id));
+    const list = wanted.filter((id) => pending.has(id) && !blocks.has(id));
     if (list.length === 0) continue;
     try {
       const result = await call({
@@ -683,7 +754,7 @@ export async function decideJoinRequests(
         });
       }
       if (done.length === 0) continue;
-      const { error: updErr } = await db
+      const { data: written, error: updErr } = await db
         .from('deal_room_join_requests')
         .update({
           decision,
@@ -692,10 +763,26 @@ export async function decideJoinRequests(
         })
         .eq('room_id', room.id)
         .eq('decision', 'pending')
-        .in('join_request_id', done);
+        .in('join_request_id', done)
+        .select('join_request_id');
       if (updErr)
         console.error('[deal-rooms] decision not recorded:', updErr.message);
-      out[decision].push(...done);
+      // WhatsApp acted either way; what is reported done is what the CRM
+      // recorded. A lost race or a database error is not "done".
+      const recorded = new Set(
+        ((written ?? []) as { join_request_id: string }[]).map(
+          (r) => r.join_request_id
+        )
+      );
+      for (const id of done) {
+        if (recorded.has(id)) out[decision].push(id);
+        else
+          out.failed.push({
+            joinRequestId: id,
+            code: 'not_recorded',
+            error: 'WhatsApp was told, but the decision was not recorded here',
+          });
+      }
     } catch (err) {
       const f = metaFailure(err);
       for (const id of list)

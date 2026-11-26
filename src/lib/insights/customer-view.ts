@@ -1,7 +1,5 @@
-import {
-  inCampaignInbox,
-  type CampaignInboxFields,
-} from '@/lib/inbox/campaign-inbox';
+import type { InboxDepartment } from '@/lib/inbox/departments';
+import { isListedInInbox, type ListedChatRow } from '@/lib/inbox/listed';
 
 import {
   ATTENTION_REASONS,
@@ -202,31 +200,37 @@ export const INSIGHT_TILE_COLUMNS = 'insight_lead_temp, insight_upset';
 /**
  * The tiles' read: unread chats that are hot or upset, as an `or`
  * group. The tiles then count these rows through
- * {@link countInsightTiles}, with the same Campaign inbox exclusion as
- * the unread tile.
+ * {@link countInsightTiles}, with the unread tile's own listing rule
+ * ({@link isListedInInbox}).
  */
 export const INSIGHT_TILE_OR = `insight_lead_temp.gte.${LEAD_HOT_MIN},insight_upset.gte.${UPSET_MIN}`;
 
 /**
  * "Hot leads waiting" and "Upset customers waiting": hot (the Inbox's Hot
  * leads filter) or upset (its Upset filter) AND unread, among the chats
- * the Inbox lists (`inCampaignInbox` ones excluded, as the unread tile
- * does). Conversations record no "who wrote last", so unread stands for
+ * the Inbox lists ({@link isListedInInbox}, as the unread tile does). Conversations record no "who wrote last", so unread stands for
  * "the customer wrote last and nobody has opened it since". Each count
  * is exactly what its tile's link shows.
  */
 export function countInsightTiles(
-  rows: readonly (CampaignInboxFields & {
+  rows: readonly (ListedChatRow & {
     unread_count?: number | null;
     insight_lead_temp?: number | null;
     insight_upset?: number | null;
   })[],
-  aiLive: boolean
+  aiLive: boolean,
+  userId: string | null,
+  wideView = false,
+  ownDepartment: InboxDepartment | null = null
 ): { hotWaiting: number; upsetWaiting: number } {
   let hotWaiting = 0;
   let upsetWaiting = 0;
   for (const row of rows) {
-    if ((row.unread_count ?? 0) <= 0 || inCampaignInbox(row, aiLive)) continue;
+    if (
+      (row.unread_count ?? 0) <= 0 ||
+      !isListedInInbox(row, aiLive, userId, wideView, ownDepartment)
+    )
+      continue;
     const { insight_lead_temp: lead, insight_upset: upset } = row;
     if (typeof lead === 'number' && lead >= LEAD_HOT_MIN) hotWaiting += 1;
     if (typeof upset === 'number' && upset >= UPSET_MIN) upsetWaiting += 1;

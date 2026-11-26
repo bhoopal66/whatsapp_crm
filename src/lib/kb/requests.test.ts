@@ -163,7 +163,7 @@ describe('kbEntryMatches', () => {
     expect(kbEntryMatches(entry, { ...all, query: 'mortgage' })).toBe(false);
   });
 
-  it('filters learned drafts (278) by origin', () => {
+  it('filters learned drafts (290) by origin', () => {
     const learned = { ...entry, status: 'draft' as const, source: 'learned' };
     expect(kbEntryMatches(learned, { ...all, origin: 'learned' })).toBe(true);
     expect(kbEntryMatches(entry, { ...all, origin: 'learned' })).toBe(false);

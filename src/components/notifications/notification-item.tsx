@@ -38,6 +38,7 @@ import {
   UserPlus,
   Video,
   Wifi,
+  Webhook,
   WifiOff,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
@@ -51,6 +52,7 @@ import {
 import { notificationRow } from '@/lib/notifications/target';
 import { cn } from '@/lib/utils';
 import { useNotifications } from './notifications-provider';
+import { dateFnsLocale } from '@/i18n/ui-locale';
 
 // Icon per notification type — a one-line add per new type.
 const TYPE_ICON: Record<Notification['type'], typeof Bell> = {
@@ -65,6 +67,8 @@ const TYPE_ICON: Record<Notification['type'], typeof Bell> = {
   channel_reconnected: Wifi,
   inbound_message_failed: MailWarning,
   meta_number_alert: ShieldAlert,
+  retention_failed: ShieldAlert,
+  webhook_disabled: Webhook,
   team_activity_alert: ShieldAlert,
   team_activity_unlock_request: ShieldAlert,
   team_activity_unlock_decided: ShieldAlert,
@@ -87,6 +91,8 @@ const TYPE_ICON: Record<Notification['type'], typeof Bell> = {
   group_join_request: UsersRound,
   submission_group_message: MessagesSquare,
   meeting_invite: Video,
+  meeting_update: CalendarClock,
+  meeting_cancelled: CalendarX,
   calendar_invite: CalendarDays,
   calendar_update: CalendarClock,
   calendar_cancelled: CalendarX,
@@ -111,6 +117,8 @@ const FULL_BODY: ReadonlySet<Notification['type']> = new Set([
   'inbound_message_failed',
   'work_handed_over',
   'meta_number_alert',
+  'retention_failed',
+  'webhook_disabled',
   'team_activity_alert',
   'pbx_connection_silent',
   'pbx_connection_restored',
@@ -267,6 +275,7 @@ export function NotificationItem({
           <p className="text-muted-foreground mt-1 text-xs">
             {formatDistanceToNow(new Date(n.created_at), {
               addSuffix: true,
+              locale: dateFnsLocale(),
             })}
           </p>
         </div>

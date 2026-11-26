@@ -44,10 +44,12 @@ import {
   attendeeCandidates,
   choiceDescription,
   formChanged,
+  mergeConflict,
   meetingStartOf,
   repeatChoiceOf,
   repeatChoices,
   repeatPreview,
+  skipsShortMonths,
   timeZoneChoices,
   withRepeatChoice,
   type RepeatChoice,
@@ -68,8 +70,8 @@ import {
 import { repeatValues } from '@/lib/calendar/ui/popover-format';
 import {
   parseCustomReminder,
-  REMINDER_PRESETS,
   reminderLabel,
+  reminderPresets,
   toggleReminder,
 } from '@/lib/calendar/ui/reminder-chips';
 import {
@@ -148,9 +150,10 @@ export function EventDialog({
   const [customReminder, setCustomReminder] = useState('');
   const [customInvalid, setCustomInvalid] = useState(false);
 
-  const load = useCallback(async () => {
-    if (!item) return;
-    try {
+  // `merge`: after a refused save, keep what the person typed.
+  const load = useCallback(
+    async (merge?: { mine: EventFormValues; initial: EventFormValues }) => {
+      if (!item) return null;
       const detail = await calendarFetch<EventDetail>(
         `/api/calendar/events/${item.id}`
       );
@@ -167,17 +170,38 @@ export function EventDialog({
       );
       setOrganizerId(ev.created_by);
       setLoadedAt(ev.updated_at);
-      setValues(form);
+      const merged = merge
+        ? mergeConflict(merge.mine, merge.initial, form)
+        : null;
+      setValues(merged?.values ?? form);
       setInitial(form);
       setLoadError(null);
-    } catch (err) {
-      setLoadError(errorText(err));
-    }
-  }, [item, scope]);
+      return merged?.theirs ?? null;
+    },
+    [item, scope]
+  );
 
   useEffect(() => {
-    void load();
+    load().catch((err: unknown) => setLoadError(errorText(err)));
   }, [load]);
+
+  const resolveConflict = async (mine: EventFormValues) => {
+    if (!initial) return;
+    try {
+      const theirs = (await load({ mine, initial })) ?? [];
+      toast.error(t('form.conflict'), {
+        description: theirs.length
+          ? t('form.conflictFields', {
+              fields: new Intl.ListFormat(locale).format(
+                theirs.map((f) => t(`form.${f}`))
+              ),
+            })
+          : undefined,
+      });
+    } catch (err) {
+      toast.error(t('form.saveFailed', { reason: errorText(err) }));
+    }
+  };
 
   const build = (v: EventFormValues): BodyResult =>
     item && initial
@@ -220,8 +244,7 @@ export function EventDialog({
       onClose();
     } catch (err) {
       if (errorStatus(err) === 409) {
-        toast.error(t('form.conflict'));
-        await load();
+        await resolveConflict(values);
       } else {
         toast.error(t('form.saveFailed', { reason: errorText(err) }));
       }
@@ -302,7 +325,7 @@ export function EventDialog({
           id="event-all-day"
           checked={values.allDay}
           onCheckedChange={(on) =>
-            setValues((v) => (v ? withAllDay(v, on) : v))
+            setValues((v) => (v ? withAllDay(v, on, editing) : v))
           }
         />
       </div>
@@ -413,7 +436,7 @@ export function EventDialog({
               return (
                 <li
                   key={id}
-                  className="bg-muted flex items-center gap-1.5 rounded-full py-0.5 pe-1 ps-0.5 text-xs"
+                  className="bg-muted flex items-center gap-1.5 rounded-full py-0.5 ps-0.5 pe-1 text-xs"
                 >
                   <PersonAvatar
                     size="sm"
@@ -439,6 +462,14 @@ export function EventDialog({
             })}
           </ul>
         )}
+        {item?.kind === 'event' &&
+          item.recurring &&
+          !occurrenceOnly &&
+          initial?.attendees.some((id) => !values.attendees.includes(id)) && (
+            <p className="text-muted-foreground text-xs">
+              {t('form.editedDatesKeepGuests')}
+            </p>
+          )}
         <AttendeeSearch
           search={search}
           setSearch={setSearch}
@@ -521,11 +552,16 @@ export function EventDialog({
 
       <Field id="event-reminder-custom" label={t('form.reminders')}>
         <div className="flex flex-wrap gap-1.5">
-          {[...new Set([...REMINDER_PRESETS, ...values.reminders])]
+          {[
+            ...new Set([
+              ...reminderPresets(values.allDay),
+              ...values.reminders,
+            ]),
+          ]
             .sort((a, b) => a - b)
             .map((m) => {
               const on = values.reminders.includes(m);
-              const { key, count } = reminderLabel(m);
+              const label = reminderLabel(m, values.allDay);
               return (
                 <Button
                   key={m}
@@ -538,7 +574,10 @@ export function EventDialog({
                     set('reminders', toggleReminder(values.reminders, m))
                   }
                 >
-                  {t(`reminders.${key}`, { count })}
+                  {t(`reminders.${label.key}`, {
+                    count: label.count,
+                    time: 'time' in label ? label.time : '',
+                  })}
                 </Button>
               );
             })}
@@ -807,6 +846,11 @@ function RepeatPicker({
           ))}
         </SelectContent>
       </Select>
+      {skipsShortMonths(values) && (
+        <p className="text-muted-foreground text-xs">
+          {t('form.repeatSkipsShort')}
+        </p>
+      )}
 
       {showDetails && (
         <div className="bg-muted/40 space-y-3 rounded-md border p-3">

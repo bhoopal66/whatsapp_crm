@@ -111,6 +111,8 @@ export class SendMessageError extends Error {
    * gateway had already accepted the send.
    */
   readonly definite: boolean;
+  /** On `db_error`: WhatsApp's id of the message that did go out. */
+  whatsappMessageId?: string;
   constructor(
     code: string,
     message: string,
@@ -190,6 +192,8 @@ export interface SendMessageParams {
   filename?: string | null;
   templateName?: string | null;
   templateLanguage?: string | null;
+  /** The row a person picked; without it the name and language decide. */
+  templateId?: string | null;
   /** Legacy positional body params (only used if messageParams.body unset). */
   templateParams?: string[];
   /** Structured template params (header/body/buttons). */
@@ -572,6 +576,7 @@ export async function sendMessageToConversation(
     filename,
     templateName,
     templateLanguage,
+    templateId,
     templateParams,
     templateMessageParams,
     interactivePayload,
@@ -766,7 +771,8 @@ export async function sendMessageToConversation(
       db,
       accountId,
       templateName,
-      templateLanguage
+      templateLanguage,
+      templateId
     );
     if (resolved.malformed) {
       throw new SendMessageError(
@@ -1160,7 +1166,7 @@ export async function sendMessageToConversation(
 
   if (msgError) {
     console.error('[send-message] error inserting sent message:', msgError);
-    throw new SendMessageError(
+    const notRecorded = new SendMessageError(
       'db_error',
       // The raw database text stays in the log above: this message reaches
       // the public API and Compass's stored error, which must not carry
@@ -1171,6 +1177,8 @@ export async function sendMessageToConversation(
       // must be kept.
       false
     );
+    notRecorded.whatsappMessageId = waMessageId;
+    throw notRecorded;
   }
 
   const lastMessageText =

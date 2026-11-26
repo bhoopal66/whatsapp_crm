@@ -38,7 +38,9 @@ import {
   groupTitle,
   initialsOf,
   listUrl,
+  mergeFirstPage,
   onlyMine,
+  pageAfterReads,
   parseSgList,
   shortRef,
   trackerStatusChip,
@@ -60,6 +62,8 @@ const FOCUS_REFRESH_MS = 1000;
 
 interface Loaded {
   groups: SgListItem[];
+  /** 308: ENDED groups with new messages, above the Active list. */
+  endedUnread?: SgListItem[];
   next: string | null;
   failed: boolean;
 }
@@ -111,7 +115,7 @@ export function SubmissionGroupsList({
         const page = parseSgList(await res.json());
         if (mine === seq.current)
           setLoaded({
-            groups: clearUnread(page.groups, reads.current),
+            ...pageAfterReads(page, reads.current),
             next: page.next_cursor,
             failed: false,
           });
@@ -140,14 +144,25 @@ export function SubmissionGroupsList({
       });
       if (!res.ok) throw new Error(String(res.status));
       const page = parseSgList(await res.json());
-      if (mine === seq.current)
-        setLoaded({
-          groups: clearUnread(page.groups, reads.current),
-          next: page.next_cursor,
-          failed: false,
+      if (mine === seq.current) {
+        const fresh = pageAfterReads(page, reads.current);
+        setLoaded((prev) => {
+          const merged =
+            prev && !prev.failed
+              ? mergeFirstPage(
+                  prev,
+                  { groups: fresh.groups, next: page.next_cursor },
+                  status
+                )
+              : { groups: fresh.groups, next: page.next_cursor };
+          return { ...fresh, ...merged, failed: false };
         });
+      }
     } catch {
-      // Keep the current rows.
+      // Keep the current rows; before the first load, show the retry
+      // instead of a skeleton that never ends.
+      if (mine === seq.current)
+        setLoaded((p) => p ?? { groups: [], next: null, failed: true });
     }
   }, []);
 
@@ -164,7 +179,13 @@ export function SubmissionGroupsList({
         reads.current.add(id);
         const read = new Set([id]);
         setLoaded((prev) =>
-          prev ? { ...prev, groups: clearUnread(prev.groups, read) } : prev
+          prev
+            ? {
+                ...prev,
+                groups: clearUnread(prev.groups, read),
+                endedUnread: clearUnread(prev.endedUnread ?? [], read),
+              }
+            : prev
         );
       }),
     []
@@ -197,6 +218,7 @@ export function SubmissionGroupsList({
         setLoaded((prev) =>
           prev
             ? {
+                ...prev,
                 groups: appendPage(prev.groups, more),
                 next: page.next_cursor,
                 failed: false,
@@ -213,6 +235,8 @@ export function SubmissionGroupsList({
   const searching = debounced.trim() !== '';
   const shown = loaded && !loaded.failed ? loaded.groups : null;
   const rows = shown ? (mineOnly ? onlyMine(shown) : shown) : null;
+  const ended = loaded?.endedUnread ?? [];
+  const endedUnread = mineOnly ? onlyMine(ended) : ended;
   const now = new Date();
 
   return (
@@ -221,7 +245,7 @@ export function SubmissionGroupsList({
         <div className="flex items-baseline justify-end gap-2">
           {rows && (
             <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
-              {loaded?.next && !mineOnly
+              {loaded?.next
                 ? tl('countMore', { count: rows.length })
                 : tl('count', { count: rows.length })}
             </span>
@@ -230,7 +254,7 @@ export function SubmissionGroupsList({
         <div className="flex items-center gap-2">
           <div className="relative min-w-0 flex-1">
             <Search
-              className="text-muted-foreground pointer-events-none absolute top-1/2 start-2.5 size-4 -translate-y-1/2"
+              className="text-muted-foreground pointer-events-none absolute start-2.5 top-1/2 size-4 -translate-y-1/2"
               aria-hidden
             />
             <Input
@@ -280,6 +304,23 @@ export function SubmissionGroupsList({
           is the page, so rows far down the list made the document
           taller than the screen and scrolling moved the whole page. */}
       <div className="relative min-h-0 flex-1 overflow-y-auto">
+        {endedUnread.length > 0 && (
+          <nav aria-label={tl('endedUnread')}>
+            <h3 className="text-muted-foreground bg-card-2 px-3 py-1.5 text-xs font-medium">
+              {tl('endedUnread')}
+            </h3>
+            <ul>
+              {endedUnread.map((g) => (
+                <Row
+                  key={g.id}
+                  group={g}
+                  now={now}
+                  selected={g.id === selectedId}
+                />
+              ))}
+            </ul>
+          </nav>
+        )}
         {!loaded ? (
           <LoadingState />
         ) : loaded.failed ? (
@@ -289,7 +330,7 @@ export function SubmissionGroupsList({
             className="m-3"
           />
         ) : rows && rows.length === 0 ? (
-          loaded.next && !mineOnly ? (
+          loaded.next ? (
             // A filtered page can come back empty with more to read: never
             // claim there is nothing while Load more (below) can find more.
             <p className="text-muted-foreground px-4 py-10 text-center text-sm">

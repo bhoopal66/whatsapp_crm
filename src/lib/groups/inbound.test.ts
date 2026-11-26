@@ -211,15 +211,164 @@ describe('persistGroupMessages', () => {
   });
 });
 
+describe('a submission group our number created (299)', () => {
+  const ACCT = 'acct-1';
+  const OUR = '971500000000';
+  const MIRROR = '120363000000000299@g.us';
+  const channel = { id: 'ch-1', accountId: ACCT, wabaId: OUR } as never;
+  const fresh = (mirrored: boolean): FakeDb => ({
+    writes: [],
+    tables: {
+      whatsapp_groups: [
+        ['g-1', GROUP],
+        ...(mirrored ? [['g-mirror', MIRROR]] : []),
+      ].map(([id, wa_group_id]) => ({
+        id,
+        account_id: ACCT,
+        channel_id: 'ch-1',
+        wa_group_id,
+        name: 'Deal team',
+        our_role: 'admin',
+      })),
+      whatsapp_group_participants: [],
+      whatsapp_group_managers: [],
+      whatsapp_group_messages: [],
+      whatsapp_group_tombstones: [],
+      contacts: [],
+      profiles: [{ user_id: 'own', account_id: ACCT, account_role: 'owner' }],
+      notifications: [],
+      submission_groups: [
+        {
+          account_id: ACCT,
+          channel_id: 'ch-1',
+          wa_group_id: MIRROR,
+          status: 'ENDED',
+        },
+        // Another workspace's submission group does not count here.
+        { account_id: 'acct-2', wa_group_id: GROUP, status: 'ACTIVE' },
+      ],
+    },
+  });
+  const upsert = (id: string) =>
+    ({
+      kind: 'group_upsert',
+      group: {
+        id,
+        name: 'ACME x Taamul Credit',
+        description: null,
+        participantsCount: 1,
+        participants: [{ id: '971501111111', rank: 'member' }],
+        createdAt: null,
+        createdBy: { waId: OUR },
+        settings: {},
+      },
+    }) as unknown as WhapiGroupEvent;
+  const participants = (action: string, groupId: string) =>
+    ({
+      kind: 'participants',
+      groupId,
+      action,
+      waIds: ['971501111111'],
+      unresolved: 0,
+    }) as unknown as WhapiGroupEvent;
+  const message = (id: string, waGroupId: string) => ({
+    id,
+    waGroupId,
+    fromMe: false,
+    senderWaId: '971501234567',
+    senderName: null,
+    type: 'text',
+    body: 'x',
+    media: null,
+    sentAt: new Date().toISOString(),
+  });
+
+  it('makes no row from an upsert', async () => {
+    const db = fresh(false);
+    const admin = fakeSupabase(db) as never;
+    expect(await applyGroupEvents(admin, channel, [upsert(MIRROR)])).toBe(0);
+    expect(db.tables.whatsapp_groups.map((g) => g.id)).toEqual(['g-1']);
+    expect(db.writes).toEqual([]);
+  });
+
+  it('writes nothing to a mirror, and still applies the rest', async () => {
+    const db = fresh(true);
+    const admin = fakeSupabase(db) as never;
+    const events = [
+      upsert(MIRROR),
+      participants('add', MIRROR),
+      participants('request', MIRROR),
+    ];
+    expect(await applyGroupEvents(admin, channel, events)).toBe(0);
+    expect(db.writes).toEqual([]);
+    await applyGroupEvents(admin, channel, [
+      participants('add', MIRROR),
+      participants('request', GROUP),
+    ]);
+    expect(db.tables.notifications).toMatchObject([
+      { user_id: 'own', meta: { group_id: 'g-1' } },
+    ]);
+    expect(db.tables.whatsapp_group_participants).toEqual([]);
+  });
+
+  it('stores no message into a mirror, but does into the ordinary group', async () => {
+    const db = fresh(true);
+    await persistGroupMessages(fakeSupabase(db) as never, channel, [
+      message('m-1', MIRROR),
+      message('m-2', GROUP),
+    ] as never);
+    expect(db.tables.whatsapp_group_messages).toMatchObject([
+      { group_id: 'g-1', wa_message_id: 'm-2' },
+    ]);
+  });
+
+  it('keeps the message of a submission group left on a removed number', async () => {
+    // Its own module asks for its number, which is gone: nobody else would.
+    const db = fresh(true);
+    db.tables.submission_groups[0].channel_id = null;
+    await persistGroupMessages(fakeSupabase(db) as never, channel, [
+      message('m-1', MIRROR),
+    ] as never);
+    expect(db.tables.whatsapp_group_messages).toMatchObject([
+      { group_id: 'g-mirror', wa_message_id: 'm-1' },
+    ]);
+    expect(
+      await applyGroupEvents(fakeSupabase(db) as never, channel, [
+        participants('request', MIRROR),
+      ])
+    ).toBe(0);
+    expect(db.tables.notifications).toEqual([]);
+  });
+
+  it('throws and writes nothing when it cannot tell', async () => {
+    const down = { code: '57014', message: 'down' };
+    const db = fresh(true);
+    db.errors = { 'submission_groups:select': down };
+    const admin = fakeSupabase(db) as never;
+    await expect(
+      applyGroupEvents(admin, channel, [participants('request', GROUP)])
+    ).rejects.toMatchObject(down);
+    await expect(
+      persistGroupMessages(admin, channel, [message('m-2', GROUP)] as never)
+    ).rejects.toMatchObject(down);
+    expect(db.writes).toEqual([]);
+  });
+});
+
 describe('GROUP_STATUS_PREDECESSORS', () => {
   it('is forward-only, and failed only from pending/sent', () => {
     expect(GROUP_STATUS_PREDECESSORS.pending).toEqual([]);
     expect(GROUP_STATUS_PREDECESSORS.sent).toEqual(['pending']);
-    expect(GROUP_STATUS_PREDECESSORS.delivered).toEqual(['pending', 'sent']);
+    expect(GROUP_STATUS_PREDECESSORS.delivered).toEqual([
+      'pending',
+      'sent',
+      'failed',
+    ]);
     expect(GROUP_STATUS_PREDECESSORS.read).toEqual([
       'pending',
       'sent',
       'delivered',
+      'failed',
     ]);
     expect(GROUP_STATUS_PREDECESSORS.failed).toEqual(['pending', 'sent']);
   });
@@ -253,6 +402,15 @@ describe('applyGroupEvents: a join request', () => {
         profiles: [
           { user_id: 'owner', account_id: ACCT, account_role: 'owner' },
           { user_id: 'agent', account_id: ACCT, account_role: 'agent' },
+          // The managers are staff of the workspace too; one has left it.
+          { user_id: 'm1', account_id: ACCT, account_role: 'agent' },
+          { user_id: 'm2', account_id: ACCT, account_role: 'agent' },
+          {
+            user_id: 'gone',
+            account_id: ACCT,
+            account_role: 'agent',
+            deactivated_at: '2026-11-01T00:00:00Z',
+          },
         ],
         notifications: [],
         ...extra,
@@ -276,6 +434,18 @@ describe('applyGroupEvents: a join request', () => {
       title: 'Join request: Deal team',
       meta: { group_id: 'g-1', wa_ids: ['971501111111'] },
     });
+  });
+
+  it('falls back when every manager is deactivated, and never rings one', async () => {
+    const gone = { group_id: 'g-1', account_id: ACCT, user_id: 'gone' };
+    const only = setup({ whatsapp_group_managers: [gone] });
+    await applyGroupEvents(only.admin, channel, [event]);
+    expect(bells(only.db).map((n) => n.user_id)).toEqual(['owner']);
+    const both = setup({
+      whatsapp_group_managers: [gone, { ...gone, user_id: 'm1' }],
+    });
+    await applyGroupEvents(both.admin, channel, [event]);
+    expect(bells(both.db).map((n) => n.user_id)).toEqual(['m1']);
   });
 
   it('falls back to owners and admins when nobody manages it', async () => {

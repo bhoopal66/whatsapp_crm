@@ -150,11 +150,39 @@ describe('runSubmissionGroupsCron', () => {
     // A younger group is left to its own POST.
     expect(f.store.listWithoutCase).toHaveBeenCalledWith(
       new Date(1_000_000 - 120_000),
-      { limit: 20 }
+      { limit: 200 }
     );
     expect(order).toEqual(['open A n1', 'open B n2', 'service A']);
     expect(r.casesOpened).toBe(1);
     expect(r.errors).toEqual(['n1: case: cases: case_open failed (57014)']);
+  });
+
+  it('groups whose case cannot be opened do not starve the others', async () => {
+    const f = fakes({});
+    const ids = Array.from({ length: 25 }, (_, i) => `s${i}`);
+    f.store.listWithoutCase.mockResolvedValue(
+      ids.map((id) => ({ id, accountId: 'A' }))
+    );
+    let tried: string[] = [];
+    const openCase = vi.fn(async (_accountId: string, id: string) => {
+      tried.push(id);
+      throw new Error('no');
+    });
+    const run = (at: number) => {
+      tried = [];
+      return runSubmissionGroupsCron(admin, { ...f, openCase, now: () => at });
+    };
+    await run(0);
+    expect(tried).toEqual(ids.slice(0, 20));
+    // The ones not tried yet go first, and the rest of the run is still used.
+    await run(120_000);
+    expect(tried.slice(0, 5)).toEqual(ids.slice(20));
+    expect(tried).toHaveLength(20);
+    // All have failed: another of them leads each run.
+    await run(240_000);
+    expect(tried[0]).toBe('s2');
+    await run(360_000);
+    expect(tried[0]).toBe('s3');
   });
 
   it('an unreadable list of groups without a case delays no create', async () => {

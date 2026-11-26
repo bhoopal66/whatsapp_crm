@@ -18,7 +18,7 @@ export function numberState(status: string | null | undefined): NumberState {
 export type NumberFields = Pick<
   AccountNumber,
   'id' | 'provider' | 'label' | 'waba_id' | 'is_primary' | 'status'
->;
+> & { is_personal?: boolean | null };
 
 export interface NumberHealthRow<T extends NumberFields = NumberFields> {
   number: T;
@@ -48,7 +48,11 @@ const STATE_RANK: Record<NumberState, number> = {
 export function numberHealth<T extends NumberFields>(
   numbers: readonly T[]
 ): NumberHealth<T> {
+  // A staff member's personal number is theirs alone: it is not one of the
+  // workspace's numbers this card reports on (the Outreach card leaves it
+  // out too).
   const rows = numbers
+    .filter((n) => !n.is_personal)
     .map((number, i) => ({ number, state: numberState(number.status), i }))
     .sort(
       (a, b) =>

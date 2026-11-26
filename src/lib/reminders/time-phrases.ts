@@ -53,6 +53,7 @@ export function findTimePhrases(
     if (g.day?.t === 'past') continue;
     if (g.needsTime && !g.clock && !g.part) continue;
     if (g.needsAnchor && !g.day && !g.clock) continue;
+    if (negated(norm, g.start)) continue;
     const r = resolveGroup(g, nowMs, today, opts.timeZone);
     if (!r || !(r.ms > nowMs)) continue;
     const at = new Date(r.ms).toISOString();
@@ -69,6 +70,19 @@ export function findTimePhrases(
     if (out.length >= max) break;
   }
   return out;
+}
+
+/** "don't call tomorrow": a negator at most two words before the phrase,
+ *  in the same clause. "don't you call tomorrow" is a request, not a no. */
+const NEGATED =
+  /(?<![\p{L}\p{N}'])(don't|do\s+not|dont|not|never|لا|ما|مو|مش)(?![\p{L}\p{N}])((?:\s+[^\s,.;!?،؟]+){0,2})\s*$/u;
+const QUESTION_WORD = /^\s+(?:you|u|we|they|i)(?![\p{L}\p{N}'])/u;
+
+function negated(norm: string, start: number): boolean {
+  const m = NEGATED.exec(norm.slice(Math.max(0, start - 60), start));
+  if (!m) return false;
+  const doNot = /^(?:do|dont|don't)/.test(m[1]);
+  return !(doNot && QUESTION_WORD.test(m[2]));
 }
 
 // ---- constants ----------------------------------------------------------
@@ -285,6 +299,19 @@ const PART_AFTER = new RegExp(
 );
 /** What may not follow a clock time: more digits, a decimal, a percent. */
 const NUMBER_AFTER = /^(?:\p{N}|[.,:/-]\p{N}|\s*%)/u;
+/** A duration, an age of a loan, a rate: "12 months", "5 years", "3 %". */
+const UNIT_AFTER =
+  /^\s*(?:%|(?:months?|years?|yrs?|شهر|اشهر|شهور|سنه|سنين|سنوات)(?![\p{L}\p{N}]))/u;
+/** "sunday 11": a bare hour is meant only when it ends the thought. */
+const WEEKDAY_BEFORE = new RegExp(
+  S`(?<![\p{L}\p{N}])(?:${alt(EN_WEEKDAYS)})\s+$`,
+  'u'
+);
+const BARE_HOUR_END =
+  /^\s*(?:$|[,.!?;)؟،]|(?:please|pls|plz|sharp|ok|okay|latest|then|thanks|thx|and|or|so)(?![\p{L}\p{N}]))/u;
+/** "the rate is 3.5": a decimal after one of these words is no date. */
+const RATE_BEFORE =
+  /(?:rate|profit|interest|فايده|ربح|معدل|نسبه)(?![\p{L}\p{N}])[^\d]{0,12}$/u;
 
 const offset = (days: number): Found => ({ day: { t: 'offset', days } });
 const past: Found = { day: { t: 'past' } };
@@ -439,10 +466,15 @@ const MATCHERS: { re: RegExp; make: Make }[] = [
     re: rx(
       S`${N0}(?:(on)\s+)?(\d{1,2})([/.\-])(\d{1,2})(?:\3(\d{4}|\d{2}))?(?!\p{N}|[/.\-]\p{N})`
     ),
-    make: (m) => {
+    make: (m, norm) => {
       const d = Number(m[2]);
       const mo = Number(m[4]) - 1;
       if (d < 1 || d > 31 || mo < 0 || mo > 11) return null;
+      if (m[3] === '.') {
+        const after = norm.slice(m.index + m[0].length);
+        const before = norm.slice(Math.max(0, m.index - 24), m.index);
+        if (UNIT_AFTER.test(after) || RATE_BEFORE.test(before)) return null;
+      }
       const y = m[5] ? Number(m[5]) + (m[5].length === 2 ? 2000 : 0) : null;
       return { day: { t: 'date', d, m: mo, y }, needsTime: !m[1] && !y };
     },
@@ -466,17 +498,44 @@ const MATCHERS: { re: RegExp; make: Make }[] = [
       return d >= 1 && d <= 31 ? { day: { t: 'dom', d } } : null;
     },
   },
+  // ---- times (English and Arabic): "between 2 and 4" is one phrase
+  {
+    re: rx(
+      S`(?:${L0}between|${A0}بين)\s*(\d{1,2})(?:[:.](\d{2}))?(?:\s*([ap])\.?\s?m\.?(?![\p{L}\p{N}]))?\s*(?:and|to|-|و)\s*(\d{1,2})(?:[:.]\d{2})?(?:\s*([ap])\.?\s?m\.?(?![\p{L}\p{N}]))?`
+    ),
+    make: (m, norm) => {
+      const after = norm.slice(m.index + m[0].length);
+      if (NUMBER_AFTER.test(after) || UNIT_AFTER.test(after)) return null;
+      const [, hs, ms, ap1, h2, ap2] = m;
+      // "between 9 and 11 pm" is both pm; "11 and 1 pm" is not.
+      const ap = ap1 ?? (ap2 && Number(hs) <= Number(h2) ? ap2 : undefined);
+      return clockFound(
+        hs,
+        ms ? Number(ms) : 0,
+        ap ? (ap === 'a' ? 'am' : 'pm') : null
+      );
+    },
+  },
   // ---- English times
   {
     re: rx(
-      S`${N0}(?:(at|@|around|by)\s*)?(\d{1,2})(?:([:.])(\d{2}))?(?:\s*(o'?clock))?(?:\s*([ap])\.?\s?m\.?${R0})?`
+      S`${N0}(?:(at|@|around|by|between|بين)\s*)?(\d{1,2})(?:([:.])(\d{2}))?(?:\s*(o'?clock))?(?:\s*([ap])\.?\s?m\.?${R0})?`
     ),
     make: (m, norm) => {
       const [whole, prefix, hs, sep, ms, oclock, ap] = m;
       const after = norm.slice(m.index + whole.length);
-      if (NUMBER_AFTER.test(after)) return null;
+      if (NUMBER_AFTER.test(after) || UNIT_AFTER.test(after)) return null;
       const bare = !prefix && !sep && !oclock && !ap;
-      if (bare && !PART_AFTER.test(after)) return null;
+      if (
+        bare &&
+        !PART_AFTER.test(after) &&
+        !(
+          WEEKDAY_BEFORE.test(norm.slice(0, m.index)) &&
+          BARE_HOUR_END.test(after) &&
+          Number(hs) >= 1
+        )
+      )
+        return null;
       if (sep === '.' && !prefix && !ap) return null;
       return clockFound(
         hs,
@@ -555,7 +614,8 @@ const MATCHERS: { re: RegExp; make: Make }[] = [
       S`${A0}الساعه\s*(\d{1,2})(?:([:.])(\d{2}))?(?:\s*(?:(و\s*(?:نصف|نص|ربع))|(الا\s*ربع))${R0})?(?!\p{N})`
     ),
     make: (m, norm) => {
-      if (NUMBER_AFTER.test(norm.slice(m.index + m[0].length))) return null;
+      const after = norm.slice(m.index + m[0].length);
+      if (NUMBER_AFTER.test(after) || UNIT_AFTER.test(after)) return null;
       return arabicClock(m[1], m[3], m[4], m[5]);
     },
   },

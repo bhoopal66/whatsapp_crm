@@ -37,13 +37,17 @@ import {
   groupHref,
   groupInitials,
   groupNumbers,
+  isPartialList,
+  keepSubmissionRows,
   parseGroupList,
+  parseSyncProblems,
   relativeActivity,
   type GroupListChip,
   type GroupListItem,
 } from '@/lib/groups/ui';
 import { onSubmissionGroupRead } from '@/lib/submission-groups/mark-read';
 import { clearUnread, unreadBadgeText } from '@/lib/submission-groups/ui';
+import { startCatchUp } from '@/lib/realtime/catch-up';
 import { createClient } from '@/lib/supabase/client';
 import { usableNumbers } from '@/lib/whatsapp/channel-management';
 import { cn } from '@/lib/utils';
@@ -77,6 +81,8 @@ export const AVATAR_TONES = [
 interface Loaded {
   groups: GroupListItem[];
   failed: boolean;
+  /** The submission groups could not be read; the rows shown are older. */
+  partial?: boolean;
 }
 
 /**
@@ -124,11 +130,15 @@ export function GroupsList({ selectedId }: { selectedId: string | null }) {
     try {
       const res = await fetch('/api/whatsapp/groups', { cache: 'no-store' });
       if (!res.ok) throw new Error(String(res.status));
-      const groups = clearUnread(
-        parseGroupList(await res.json()),
-        reads.current
-      );
-      if (mounted.current) setLoaded({ groups, failed: false });
+      const json: unknown = await res.json();
+      const groups = clearUnread(parseGroupList(json), reads.current);
+      const partial = isPartialList(json);
+      if (mounted.current)
+        setLoaded((prev) => ({
+          groups: keepSubmissionRows(prev?.groups ?? [], groups, partial),
+          failed: false,
+          partial,
+        }));
     } catch {
       // Keep what is on screen on a failed refresh; fail only a first load.
       if (mounted.current)
@@ -173,7 +183,7 @@ export function GroupsList({ selectedId }: { selectedId: string | null }) {
   // Live: any change to the account's groups (an inbound message bumps
   // last_message_at, a sync or a colleague's edit) re-reads the list,
   // which applies the visibility rules server-side. Focus re-reads too,
-  // for a tab that slept through a dropped socket.
+  // and so does a gap in realtime; the debounce makes them one read.
   useEffect(() => {
     if (!accountId) return;
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -181,6 +191,7 @@ export function GroupsList({ selectedId }: { selectedId: string | null }) {
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => void load(), REFETCH_DEBOUNCE_MS);
     };
+    const live = startCatchUp(soon);
     const supabase = createClient();
     const channel = supabase
       .channel(`whatsapp-groups:${accountId}:${++topicSeq}`)
@@ -204,10 +215,11 @@ export function GroupsList({ selectedId }: { selectedId: string | null }) {
         },
         soon
       )
-      .subscribe();
+      .subscribe(live.onStatus);
     const onFocus = () => soon();
     window.addEventListener('focus', onFocus);
     return () => {
+      live.stop();
       if (timer) clearTimeout(timer);
       window.removeEventListener('focus', onFocus);
       void supabase.removeChannel(channel);
@@ -231,6 +243,18 @@ export function GroupsList({ selectedId }: { selectedId: string | null }) {
           left: n(json.left),
         })
       );
+      const missed = parseSyncProblems(json);
+      const warn = (text: string) => toast.warning(text, { duration: 10_000 });
+      if (missed.failedNumbers.length > 0) {
+        warn(
+          t('syncFailedNumbers', { names: missed.failedNumbers.join(', ') })
+        );
+      }
+      if (missed.failedGroups > 0) {
+        warn(t('syncFailedGroups', { count: missed.failedGroups }));
+      }
+      if (missed.incomplete) warn(t('syncIncomplete'));
+      if (missed.truncated) warn(t('syncTruncated'));
       void load();
     } catch {
       toast.error(t('syncFailed', { reason: 'network' }));
@@ -365,7 +389,7 @@ export function GroupsList({ selectedId }: { selectedId: string | null }) {
         <div className="shrink-0 space-y-2 px-3 pt-3 pb-2">
           <div className="relative">
             <Search
-              className="text-wa-icon pointer-events-none absolute top-1/2 start-3.5 size-4 -translate-y-1/2"
+              className="text-wa-icon pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2"
               aria-hidden
             />
             <Input
@@ -448,6 +472,17 @@ export function GroupsList({ selectedId }: { selectedId: string | null }) {
           is the page, so rows far down the list made the document
           taller than the screen and scrolling moved the whole page. */}
       <div className="relative min-h-0 flex-1 overflow-y-auto">
+        {loaded?.partial && (
+          <div
+            role="alert"
+            className="border-warning/30 bg-warning-soft text-foreground m-3 flex items-center gap-2 rounded-lg border px-3 py-2 text-sm"
+          >
+            <span className="min-w-0 flex-1">{t('listPartial')}</span>
+            <Button variant="outline" size="sm" onClick={() => void load()}>
+              {t('page.retry')}
+            </Button>
+          </div>
+        )}
         {!loaded || hasWhapi === null ? (
           <LoadingState />
         ) : loaded.failed ? (
@@ -457,7 +492,8 @@ export function GroupsList({ selectedId }: { selectedId: string | null }) {
             className="m-3"
           />
         ) : loaded.groups.length === 0 ? (
-          !hasWhapi ? (
+          // With the read failed, nobody can say there are none.
+          loaded.partial ? null : !hasWhapi ? (
             <EmptyState
               icon={UsersRound}
               title={t('noWhapiTitle')}

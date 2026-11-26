@@ -5,6 +5,7 @@ import {
   WRAPUP_MS,
   WRAPUP_OWED_MS,
   pickWrapUps,
+  reopenWrapUp,
   wrapUpCutoff,
   wrapUpLeftMs,
   wrapUpPanel,
@@ -174,5 +175,48 @@ describe('wrapUpPanel', () => {
     );
     expect(p.inbound).toBe(true);
     expect(wrapUpLeftMs(p.endedAt!, NOW)).toBe(WRAPUP_MS);
+  });
+});
+
+describe('reopenWrapUp', () => {
+  const ended = (key: string, endedAt: number | null = NOW - WRAPUP_MS) => ({
+    ...wrapUpPanel(
+      {
+        connectionId: 'c1',
+        pbxCallId: key,
+        direction: 'inbound',
+        contactId: null,
+        remoteNumber: null,
+        leftMs: 0,
+      },
+      NOW
+    ),
+    key,
+    endedAt,
+  });
+
+  it('opens a closed wrap-up with its two minutes from now', () => {
+    const s = reopenWrapUp({ panel: null, waiting: [] }, ended('a'), NOW);
+    expect(s.panel).toMatchObject({ key: 'a', endedAt: NOW });
+    expect(wrapUpPhase('counting', s.panel!.endedAt!, NOW, false, null)).toBe(
+      'counting'
+    );
+  });
+
+  it('takes the panel from another wrap-up, which waits', () => {
+    const s = reopenWrapUp(
+      { panel: ended('b'), waiting: [ended('a'), ended('c')] },
+      ended('a'),
+      NOW
+    );
+    expect(s.panel?.key).toBe('a');
+    expect(s.waiting.map((w) => w.key)).toEqual(['b', 'c']);
+  });
+
+  it('never takes it from a live call, nor restarts the open one', () => {
+    for (const panel of [ended('live', null), ended('a')]) {
+      const s = { panel, waiting: [] };
+      expect(reopenWrapUp(s, ended('a'), NOW)).toBe(s);
+    }
   });
 });

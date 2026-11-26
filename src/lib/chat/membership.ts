@@ -64,8 +64,9 @@ export function addRules(c: ChannelCtx): AddRules {
   if (c.kind === 'team') return { staff: true, guests: false, block: null };
   if (!c.myRole) return nobody('notMember');
   const staff = c.myRole === 'admin';
-  const guests = GUEST_ADDERS.has(c.accountRole);
-  return staff || guests ? { staff, guests, block: null } : nobody('notAdmin');
+  // 289: guests too are added by channel admins only.
+  const guests = staff && GUEST_ADDERS.has(c.accountRole);
+  return staff ? { staff, guests, block: null } : nobody('notAdmin');
 }
 
 /** The people the viewer may add: active, not yet members, and of a kind the rules allow. */

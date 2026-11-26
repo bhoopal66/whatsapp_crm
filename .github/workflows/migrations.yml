@@ -837,6 +837,13 @@ jobs:
       - name: Verify submission group membership
         run: supabase db query --local --file supabase/ci/verify-submission-group-membership.sql
 
+      # Migration 308: a hidden number leaving makes a joined customer unknown.
+      - name: Verify submission groups ended and joined
+        # Several statements: `supabase db query` takes one.
+        run: psql "$CI_DB_URL" -v ON_ERROR_STOP=1 -q -f supabase/ci/verify-sg-ended-and-joined.sql
+        env:
+          CI_DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+
       # Migration 211: adding a number to a submission group.
       - name: Verify submission group add number
         run: supabase db query --local --file supabase/ci/verify-submission-group-add-number.sql
@@ -1001,6 +1008,12 @@ jobs:
       - name: Verify contact search
         run: supabase db query --local --file supabase/ci/verify-contact-search.sql
 
+      # Migration 298: the Contacts page's filters (owner, lead source,
+      # chat tags) narrow the search before its limit, under the caller's
+      # RLS; the 193 signatures still answer.
+      - name: Verify contact search filters
+        run: supabase db query --local --file supabase/ci/verify-contact-search-filters.sql
+
       # Migration 194: second brain store. The switch is off by default
       # and only an owner/admin turns it on; the upsert is idempotent and
       # refuses unredacted numbers, blank or long text, unknown kinds and
@@ -1060,12 +1073,18 @@ jobs:
       - name: Verify HR workflows
         run: supabase db query --local --file supabase/ci/verify-hr-workflows.sql
 
+      # Migration 288: a login's email changes only with a fresh permit for
+      # that address, asked for by the app's server.
+      - name: Verify login email guard
+        run: supabase db query --local --file supabase/ci/verify-login-email-guard.sql
+
       # Migration 213: HR lines. Off by default (no settings row); the
       # list and switch are read with an HR role and set by owners/admins
       # only (a number of another workspace is INVALID, nothing written);
       # hr_auto_open_recruiter (service role only) opens a chat on a line
       # as a recruiter row at cv_review by nobody, once, never over an
       # existing row (closed included); deleting a number drops its line.
+      # 279: hr_is_line only looks, for the service role.
       - name: Verify HR lines
         run: supabase db query --local --file supabase/ci/verify-hr-lines.sql
 
@@ -1137,6 +1156,13 @@ jobs:
       # typed company confirmation, one escalation; privacy registry.
       - name: Verify desk WhatsApp routing and tray
         run: supabase db query --local --file supabase/ci/verify-desk-whatsapp-routing.sql
+
+      # Migration 303: the case desk and case cron fixes.
+      - name: Verify desk fixes
+        # Several statements: `supabase db query` takes one.
+        run: psql "$CI_DB_URL" -v ON_ERROR_STOP=1 -q -f supabase/ci/verify-desk-fixes.sql
+        env:
+          CI_DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
 
       # Migration 231: one document across a company's bank cases (design
       # 035 slice B). A trigger refuses a cross-customer case file on
@@ -1442,9 +1468,191 @@ jobs:
       - name: Verify chat people and mentions
         run: supabase db query --local --file supabase/ci/verify-chat-people-mentions.sql
 
-      # Migration 278: learn from team answers. Off by default and, while
+      # Migration 278: a moved or cancelled meeting rings its invitees, a
+      # person taken off an event is told, an event that is over rings
+      # nobody, and an owner or admin deletes (never edits) a leaver's event.
+      - name: Verify calendar and meeting bells
+        run: supabase db query --local --file supabase/ci/verify-calendar-meeting-bells.sql
+
+      # Migration 280: an opt-out outlives its contact and comes back with
+      # the number until it is lifted; open work refuses a delete.
+      - name: Verify deleting a contact
+        run: supabase db query --local --file supabase/ci/verify-contact-delete.sql
+
+      # Migration 281: a rating request whose case moved back is not sent, an
+      # ordinary digit is not a rating, and a lost send is unconfirmed only
+      # when it was handed to the gateway.
+      - name: Verify case CSAT fixes
+        run: supabase db query --local --file supabase/ci/verify-csat-fixes.sql
+
+      # Migration 282: retention lists the files nothing else points at,
+      # works in slices, and a failure leaves a row and rings the owners.
+      - name: Verify retention fixes
+        run: supabase db query --local --file supabase/ci/verify-retention-fixes.sql
+
+      # Migration 283: in chat-media and flow-media a person reaches only
+      # what they uploaded, and uploads only into the browser's folders.
+      - name: Verify chat media owner
+        run: supabase db query --local --file supabase/ci/verify-chat-media-owner.sql
+
+      # Migration 285: automation runs, steps and flow nodes are admins'; no
+      # session reads a WhatsApp number's secrets; a note is the writer's own.
+      - name: Verify read rules
+        run: supabase db query --local --file supabase/ci/verify-read-rules.sql
+
+      # Migration 284: a session writes chats and messages only as the app
+      # does (each caller by role, and every other write refused).
+      - name: Verify chat integrity
+        run: supabase db query --local --file supabase/ci/verify-chat-integrity.sql
+
+      # Migration 287: only the owner removes an admin, a removed or lowered
+      # admin's login is out of reach in every workspace, and invitations and
+      # API keys are made only in one's own name.
+      - name: Verify the admin rules
+        run: supabase db query --local --file supabase/ci/verify-admin-rules.sql
+      - name: Verify team and row rules
+        run: supabase db query --local --file supabase/ci/verify-team-and-row-rules.sql
+
+      # Migration 289: desk uploads, chat guests and attachments, webhooks,
+      # quick replies and the definer functions answer only for what the
+      # caller may see, by role.
+      - name: Verify the access points
+        run: supabase db query --local --file supabase/ci/verify-access-points.sql
+
+      # Migration 291: a delivery corrects a failed campaign recipient.
+      - name: Verify a delivery corrects a failure
+        run: supabase db query --local --file supabase/ci/verify-delivery-corrects-failed.sql
+
+      # Migration 292: why a message failed is kept on it, filled in from the
+      # cost ledger, and never written by a session.
+      - name: Verify message failure reasons
+        run: supabase db query --local --file supabase/ci/verify-message-failure-reason.sql
+
+      # Migration 293: a webhook endpoint goes off only after 30 minutes of
+      # failures and rings; a claimed event can be given back.
+      - name: Verify webhook off bell
+        run: supabase db query --local --file supabase/ci/verify-webhook-off-bell.sql
+
+      # Migration 315: a revoked or deleted API key's webhooks go off and
+      # ring; an erasure empties the webhook queue of the customer; the
+      # web form loses no text and makes no twin of a local number.
+      - name: Verify webhook keys
+        run: supabase db query --local --file supabase/ci/verify-webhook-keys.sql
+
+      # Migration 294: after a transfer everyone who answered a leg may
+      # see the call and write its note; nobody else gains anything.
+      - name: Verify call notes
+        run: supabase db query --local --file supabase/ci/verify-call-notes.sql
+
+      # Migration 295: pushes open the screen their bell opens.
+      - name: Verify push link inbound
+        run: supabase db query --local --file supabase/ci/verify-push-link-inbound.sql
+
+      # Migration 290: learn from team answers. Off by default and, while
       # off, nothing is drafted; only an admin sets it; one run a week; a
       # learned entry is always a draft; a topic is drafted once (again
       # only after remove or delete); a non-admin cannot read the ledger.
       - name: Verify kb learn
         run: supabase db query --local --file supabase/ci/verify-kb-learn.sql
+
+      # Migration 318: the learner's skill library. Refuses identifiers, at
+      # most three a cycle, admin reads and retires, service role writes;
+      # an erase takes the stored drafted answer. Rolled back.
+      - name: Verify kb learn skills (318)
+        run: supabase db query --local --file supabase/ci/verify-kb-learn-skills.sql
+
+      # Migration 296: the home screen's figures. A failed send is no
+      # outgoing message and no answer; open deals are totalled per
+      # currency; a deal created without one takes its account's.
+      - name: Verify home figures
+        run: supabase db query --local --file supabase/ci/verify-home-figures.sql
+
+      # Migration 299: the WhatsApp mirror of a submission group, ACTIVE
+      # or ENDED, is visible to and managed by nobody through the Groups
+      # module, whichever came first, webhook or attach; staff numbers
+      # grant nothing in it; staff_removal_phone has no live filter.
+      - name: Verify submission groups are not groups
+        run: supabase db query --local --file supabase/ci/verify-submission-groups-not-groups.sql
+
+      # Migration 297: a case's document request goes out once. A second
+      # claim within 10 minutes is refused with who and when, unless
+      # forced; a released claim refuses nothing; a call without p_claim
+      # never claims and is never refused; only the service role calls.
+      - name: Verify case document request once
+        run: supabase db query --local --file supabase/ci/verify-case-doc-request-once.sql
+
+      # Migration 300: a flow is saved at once or not at all, in place by
+      # node_key (a run keeps its node), by an admin of the account only,
+      # and never over somebody else's save; a counted run is no edit.
+      - name: Verify flow save
+        run: supabase db query --local --file supabase/ci/verify-flow-save.sql
+
+      - name: Verify campaign stop (301)
+        run: supabase db query --local --file supabase/ci/verify-campaign-stop.sql
+
+      # Migration 302: only a chat's newest stage message goes out; a
+      # no-activity rule above 168 hours nudges; due messages page by
+      # page; one chat's error is its own in hr_sweep; a new HR line is
+      # connected by somebody in HR.
+      - name: Verify HR fixes
+        run: supabase db query --local --file supabase/ci/verify-hr-fixes.sql
+      - name: Verify v1 message keys (305)
+        run: supabase db query --local --file supabase/ci/verify-v1-message-keys.sql
+
+      # Migration 317: an erasure reaches the tasks that name a customer
+      # without pointing at them; an HR template has a version.
+      - name: Verify HR rest
+        run: supabase db query --local --file supabase/ci/verify-hr-rest.sql
+
+      # Migration 306: leaving a workspace takes the extension; a removed
+      # person is added back only by the workspace that removed them.
+      - name: Verify leaving and coming back
+        run: supabase db query --local --file supabase/ci/verify-member-leaving.sql
+
+      # Migration 307: a forward and a shared call are made once and whole,
+      # bells end with the read access, file names are guarded.
+      - name: Verify chat forward once
+        run: supabase db query --local --file supabase/ci/verify-chat-forward-once.sql
+
+      # Migration 310: a coordinator's banks are replaced only when the ones
+      # stored are the ones the page showed.
+      - name: Verify coordinator banks expected
+        run: supabase db query --local --file supabase/ci/verify-coordinator-banks-expected.sql
+
+      # Migration 311: an erase takes only the customer's own calls and
+      # calls linked to nobody, with their references on deals.
+      - name: Verify erase own calls
+        run: supabase db query --local --file supabase/ci/verify-erase-own-calls.sql
+
+      # Migration 312: a bank guest's access to a deal room, its chat channel
+      # and the people in it ends with the bank's last person in the group.
+      - name: Verify guest access ends
+        run: supabase db query --local --file supabase/ci/verify-guest-access-ends.sql
+
+      # Migration 309: a case setting is saved, and a wording approved,
+      # only over what the page had loaded.
+      - name: Verify case config versions
+        run: supabase db query --local --file supabase/ci/verify-case-config-versions.sql
+
+      # Migration 313: the bells of who loses a submission group follow its
+      # end.
+      - name: Verify bells at the end of a submission group
+        run: supabase db query --local --file supabase/ci/verify-sg-end-bells.sql
+
+      # Migration 319: reminder bells are read when their task, meeting or
+      # event is finished, moved, cancelled or deleted. Rolled back.
+      - name: Verify stale reminder bells
+        run: supabase db query --local --file supabase/ci/verify-stale-bells.sql
+
+      # Migration 320: the document attached last is the type's newest
+      # version. Rolled back.
+      - name: Verify case file versions
+        run: supabase db query --local --file supabase/ci/verify-case-file-versions.sql
+
+      # Migration 316: the rest of the case desk findings.
+      - name: Verify the rest of the case desk
+        run: supabase db query --local --file supabase/ci/verify-desk-rest.sql
+      # 314: a restricted number stays restricted when its last person leaves,
+      # and two admins cannot overwrite each other. Rolled back.
+      - name: Assert number access and expected lists (314)
+        run: supabase db query --local --file supabase/ci/verify-number-access.sql

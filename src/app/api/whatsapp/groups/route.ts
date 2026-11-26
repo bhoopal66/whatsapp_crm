@@ -8,10 +8,12 @@
 // POST: create a group on a Whapi number the caller may use
 // (`whatsapp_group_can_create`). WhatsApp first; the service role then
 // persists what WhatsApp made, and description, settings and managers
-// follow best-effort, reported as `warnings`.
+// follow best-effort, reported as `warnings`. A create whose answer was
+// lost is `create_unconfirmed`, and the same name again within minutes
+// is `create_repeat` unless `createAnother` (`create-outcome.ts`).
 // ============================================================
 
-import { NextResponse } from 'next/server';
+import { after, NextResponse } from 'next/server';
 
 import {
   getCurrentAccount,
@@ -20,10 +22,25 @@ import {
 } from '@/lib/auth/account';
 import { canSendMessages } from '@/lib/auth/roles';
 import {
+  addBudget,
+  refundGroupCreate,
+  spendGroupCreate,
+} from '@/lib/groups/add-budget';
+import {
+  claimUnconfirmedGroup,
+  CREATE_REPEAT_RULE,
+  createRepeat,
+  createRepeatKey,
+  createUnconfirmed,
+  isDefiniteCreateRefusal,
+  saveGroupManagers,
+} from '@/lib/groups/create-outcome';
+import {
   mergeGroupList,
   SUBMISSION_ROW_COLUMNS,
   type SubmissionListRow,
 } from '@/lib/groups/merge-list';
+import { syncManagerNumbers } from '@/lib/groups/manager-sync';
 import { screenRecipients } from '@/lib/groups/recipients';
 import { nameSearchPattern, parseCreate } from '@/lib/groups/requests';
 import {
@@ -40,6 +57,11 @@ import type {
   GroupSettings,
   WhatsappGroupRow,
 } from '@/lib/groups/types';
+import {
+  checkRateLimit,
+  rateLimitRemaining,
+  refundRateLimit,
+} from '@/lib/rate-limit';
 import { loadUnread } from '@/lib/submission-groups/view-refs';
 import { searchTerm, sortColumn } from '@/lib/submission-groups/views';
 import type { WhatsAppChannel } from '@/lib/whatsapp/channels';
@@ -47,6 +69,7 @@ import {
   createGroup,
   type CreateGroupOutcome,
   getGroup,
+  GROUP_ADD_POLICY,
   groupDeadline,
   updateGroupInfo,
   updateGroupSetting,
@@ -115,13 +138,13 @@ async function createdSnapshot(
  * role. The account pin matters: the read rule is not limited to the
  * active workspace. Only a group that exists on WhatsApp and is ACTIVE
  * (an ENDED group's reads are audited, on the Submission groups page).
- * Agents and up, as the page behind the row. A failed read is an empty
- * list: the rest of the page must still answer.
+ * Agents and up, as the page behind the row. A failed read is `null`: the
+ * rest of the page still answers, marked `partial`.
  */
 async function listedSubmissionRows(
   ctx: AccountContext,
   q: string | null
-): Promise<SubmissionListRow[]> {
+): Promise<SubmissionListRow[] | null> {
   const searching = nameSearchPattern(q) !== null;
   // `searchTerm`, not the name pattern: this one goes inside `or()`.
   const term = searching ? searchTerm(q) : null;
@@ -142,7 +165,7 @@ async function listedSubmissionRows(
     .limit(LIST_LIMIT);
   if (error) {
     console.error('[groups] submission groups failed', error);
-    return [];
+    return null;
   }
   return (data ?? []) as unknown as SubmissionListRow[];
 }
@@ -157,7 +180,7 @@ export async function GET(request: Request) {
       .select(GROUP_COLUMNS)
       .eq('account_id', ctx.accountId);
     if (pattern) query = query.ilike('name', pattern);
-    const [list, manageable, submissionRows, unread, mirrorWaIds] =
+    const [list, manageable, submissions, unread, mirrorWaIds] =
       await Promise.all([
         query
           .order('last_message_at', { ascending: false, nullsFirst: false })
@@ -176,6 +199,7 @@ export async function GET(request: Request) {
       throw unavailable('load the groups');
     }
     const groups = (list.data ?? []) as unknown as WhatsappGroupRow[];
+    const submissionRows = submissions ?? [];
     const canManage = idSet(manageable.data);
 
     // Display columns only: the caller may not read whatsapp_config,
@@ -221,6 +245,8 @@ export async function GET(request: Request) {
         canManage,
         channelOf,
       }),
+      // The client keeps the submission rows it has.
+      ...(submissions ? {} : { partial: true }),
     });
   } catch (err) {
     return groupErrorResponse(err);
@@ -301,12 +327,58 @@ export async function POST(request: Request) {
     }
 
     const channel = await loadGroupChannel(ctx.accountId, body.channelId);
-    const outcome = await createGroup({
-      channel,
-      name: body.name,
-      participants: waIds,
-      deadline,
-    });
+    // Creating adds people just as surely (add-budget.ts). With room for
+    // only some, the rest are reported as not attempted.
+    const budget = addBudget(ctx.userId, channel.id);
+    if (budget.remaining() === 0) throw budget.refusal();
+    // Peeked before the caps are spent and taken right after (no await in
+    // between), so a repeat costs nothing and a refused cap takes no name.
+    const sameName = createRepeatKey(ctx.userId, channel.id, body.name);
+    if (
+      !body.createAnother &&
+      rateLimitRemaining(sameName, CREATE_REPEAT_RULE) === 0
+    ) {
+      throw createRepeat();
+    }
+    spendGroupCreate(channel.id);
+    const tookName = checkRateLimit(sameName, CREATE_REPEAT_RULE).success;
+    const most = Math.min(waIds.length, GROUP_ADD_POLICY.maxPerOperation);
+    const room = budget.spend(most);
+    const asked = room < most ? waIds.slice(0, room) : waIds;
+    const overLimit = waIds.slice(asked.length);
+    const startedAt = Date.now();
+    let outcome: CreateGroupOutcome;
+    try {
+      outcome = await createGroup({
+        channel,
+        name: body.name,
+        participants: asked,
+        deadline,
+      });
+    } catch (err) {
+      if (isDefiniteCreateRefusal(err)) {
+        // Nobody was reached, so nothing is spent: a number that is logged
+        // out must not use up its own day. A gateway that says 429 is
+        // counted: trying again at once is what it asks us not to do.
+        if ((err as { status?: unknown }).status !== 429) {
+          budget.refund(room);
+          refundGroupCreate(channel.id);
+        }
+        if (tookName) refundRateLimit(sameName, 1);
+        throw err;
+      }
+      console.error('[groups] create outcome unknown', err);
+      after(() =>
+        claimUnconfirmedGroup(supabaseAdmin(), {
+          channel,
+          name: body.name,
+          startedAt,
+          createdBy: ctx.userId,
+          managerIds,
+        })
+      );
+      throw createUnconfirmed();
+    }
 
     const admin = supabaseAdmin();
     let group: WhatsappGroupRow;
@@ -334,16 +406,14 @@ export async function POST(request: Request) {
     const warnings: string[] = [];
     if (outcome.error) warnings.push('adds_stopped');
 
-    const mgr = await admin.from('whatsapp_group_managers').upsert(
-      managerIds.map((user_id) => ({
-        group_id: group.id,
-        account_id: ctx.accountId,
-        user_id,
-      })),
-      { onConflict: 'group_id,user_id', ignoreDuplicates: true }
+    const mgrError = await saveGroupManagers(
+      admin,
+      ctx.accountId,
+      group.id,
+      managerIds
     );
-    if (mgr.error) {
-      console.error('[groups] managers not saved', mgr.error);
+    if (mgrError) {
+      console.error('[groups] managers not saved', mgrError);
       warnings.push('managers_not_saved');
     }
 
@@ -392,12 +462,26 @@ export async function POST(request: Request) {
       else group = data as unknown as WhatsappGroupRow;
     }
 
+    // The chosen managers' saved numbers, as the managers PUT does it. Last:
+    // on little time left this is what may be cut short, and it says so.
+    const numbers = mgrError
+      ? null
+      : await syncManagerNumbers(
+          admin,
+          group,
+          managerIds.filter((id) => id !== ctx.userId),
+          [],
+          deadline,
+          ctx.userId
+        );
+
     return NextResponse.json(
       {
         group,
+        numbers,
         added: outcome.added,
         refused: outcome.refused,
-        notAttempted: outcome.notAttempted,
+        notAttempted: [...outcome.notAttempted, ...overLimit],
         invalid: [...invalid, ...outcome.invalid],
         skipped: screened.skipped,
         warnings,

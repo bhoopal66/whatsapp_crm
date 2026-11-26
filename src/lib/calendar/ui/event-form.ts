@@ -11,12 +11,15 @@
 
 import { zonedParts, zonedWallTimeToInstant } from '@/lib/meetings/schedule';
 
+import { ruleIncludesStart } from '../recurrence';
 import {
+  anchorFacts,
   defaultRepeatForm,
   formToRrule,
   rruleToForm,
   type RepeatAnchor,
   type RepeatForm,
+  type Weekday,
 } from '../rrule-form';
 import {
   DESCRIPTION_MAX,
@@ -86,11 +89,18 @@ export type FormErrorKey =
   | 'descriptionTooLong'
   | 'locationTooLong'
   | 'repeatInvalid'
+  | 'repeatMissesStart'
   | 'tooManyReminders';
 
 export type FormErrors = Partial<Record<FormField, FormErrorKey>>;
 
 export const DEFAULT_REMINDERS = [10];
+/** All-day: 09:00 the day before (offsets count back from local midnight). */
+export const ALL_DAY_DEFAULT_REMINDERS = [900];
+
+function sameReminders(a: readonly number[], b: readonly number[]) {
+  return a.length === b.length && a.every((m, i) => m === b[i]);
+}
 const HOUR_MS = 3_600_000;
 
 /** The wall-clock date of an instant in a zone. */
@@ -130,7 +140,7 @@ function base(
     attendees: [],
     color: 'blue',
     visibility: 'attendees',
-    reminders: [...DEFAULT_REMINDERS],
+    reminders: [...(allDay ? ALL_DAY_DEFAULT_REMINDERS : DEFAULT_REMINDERS)],
   };
 }
 
@@ -202,14 +212,26 @@ export function formFromEvent(
 /** Switch all-day on or off, keeping the dates. */
 export function withAllDay(
   v: EventFormValues,
-  allDay: boolean
+  allDay: boolean,
+  /** A saved event keeps the reminders it was saved with. */
+  saved = false
 ): EventFormValues {
   if (v.allDay === allDay) return v;
-  if (allDay) return { ...v, allDay };
+  // The default reminder follows the switch only while it is untouched.
+  const reminders =
+    !saved &&
+    sameReminders(
+      v.reminders,
+      allDay ? DEFAULT_REMINDERS : ALL_DAY_DEFAULT_REMINDERS
+    )
+      ? [...(allDay ? ALL_DAY_DEFAULT_REMINDERS : DEFAULT_REMINDERS)]
+      : v.reminders;
+  if (allDay) return { ...v, allDay, reminders };
   // A timed event on the last day: same day, an hour long.
   return {
     ...v,
     allDay,
+    reminders,
     endDate: v.startDate,
     startTime: v.startTime || '09:00',
     endTime: v.endTime > v.startTime ? v.endTime : v.startTime,
@@ -226,7 +248,12 @@ export function withStart(
   startTime: string
 ): EventFormValues {
   const span = spanOf(v);
-  const next = { ...v, startDate, startTime };
+  const next = {
+    ...v,
+    startDate,
+    startTime,
+    repeat: followStart(v, startDate),
+  };
   if (span === null) return next;
   if (v.allDay) {
     return { ...next, endDate: addDaysToKey(startDate, span.days) };
@@ -235,6 +262,28 @@ export function withStart(
   if (!s) return next;
   const e = wallParts(s.getTime() + span.ms, v.timeZone);
   return { ...next, endDate: e.date, endTime: e.time };
+}
+
+function weekdayOf(date: string): Weekday | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  return anchorFacts({ date, timeZone: 'UTC' }).weekday;
+}
+
+/**
+ * The repeat after the start moves to `startDate`. Weekly days nobody
+ * chose (exactly the old date's weekday, or none) follow it; the monthly
+ * and yearly day always come from the start. While the date box holds no
+ * date (half typed) they are left empty, which means "the start's
+ * weekday", so the next whole date fills them.
+ */
+function followStart(v: EventFormValues, startDate: string): RepeatForm {
+  const days = v.repeat.weekdays;
+  const before = weekdayOf(v.startDate);
+  const untouched =
+    days.length === 0 || (days.length === 1 && days[0] === before);
+  if (!untouched) return v.repeat;
+  const after = weekdayOf(startDate);
+  return { ...v.repeat, weekdays: after ? [after] : [] };
 }
 
 function spanOf(v: EventFormValues): { days: number; ms: number } | null {
@@ -340,9 +389,34 @@ function fullBody(v: EventFormValues, withRepeat: boolean): BodyResult {
   };
 }
 
+/**
+ * The form's rule does not name its first date: the API refuses such a
+ * save ("The first date is not one of the repeat days").
+ */
+function missesStart(v: EventFormValues, rrule: unknown): boolean {
+  if (typeof rrule !== 'string') return false;
+  const start = zonedWallTimeToInstant(
+    v.startDate,
+    v.allDay ? '00:00' : v.startTime,
+    v.timeZone
+  );
+  if (!start) return false;
+  const at = start.toISOString();
+  return !ruleIncludesStart(rrule, {
+    start_at: at,
+    end_at: at,
+    all_day: v.allDay,
+    time_zone: v.timeZone,
+  });
+}
+
 /** POST /api/calendar/events. */
 export function createBody(v: EventFormValues): BodyResult {
-  return fullBody(v, true);
+  const result = fullBody(v, true);
+  if (result.ok && missesStart(v, result.body.rrule)) {
+    return { ok: false, errors: { repeat: 'repeatMissesStart' } };
+  }
+  return result;
 }
 
 export interface EditTarget {
@@ -377,6 +451,14 @@ export function editBody(v: EventFormValues, target: EditTarget): BodyResult {
     if (!same(value, before[k])) body[k] = value;
   }
   if (Object.keys(body).length === 0) return { ok: true, body };
+  // Judged only when the first date or the rule changes, as the API does.
+  if (
+    series &&
+    (body.rrule !== undefined || v.startDate !== target.original.startDate) &&
+    missesStart(v, next.body.rrule)
+  ) {
+    return { ok: false, errors: { repeat: 'repeatMissesStart' } };
+  }
   if (target.scope === 'this' && target.occurrenceStart) {
     body.scope = 'this';
     body.occurrenceStart = target.occurrenceStart;

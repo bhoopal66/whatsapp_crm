@@ -36,7 +36,7 @@
  *     INSERT raises 23505 and the runner catches & exits.
  */
 
-import { STAFF_ROLES, type AccountRole } from '@/lib/auth/roles';
+import { isActiveStaff } from '@/lib/auth/active-staff';
 import { supabaseAdmin } from './admin-client';
 import {
   engineSendInteractiveButtons,
@@ -52,6 +52,7 @@ import {
   notifyHandoff,
   type AiFlowContext,
 } from '@/lib/ai/auto-reply';
+import { salesAnswersOff } from '@/lib/ai/not-sales-chat';
 import { dispatchChatTagSet } from '@/lib/automations/chat-tag-dispatch';
 import { writeConversationChatTags } from '@/lib/chat-tags/server';
 import type { ChatTagsPatch } from '@/types';
@@ -669,20 +670,12 @@ async function handOverChat(
   if (error) await failed('status', error.message);
   if (!assignTo) return null;
 
-  const { data: people, error: personErr } = await db
-    .from('profiles')
-    .select('account_role')
-    .eq('user_id', assignTo)
-    .eq('account_id', run.account_id)
-    .is('deactivated_at', null)
-    .limit(1);
-  if (personErr) {
-    await failed('assignee check', personErr.message);
+  const person = await isActiveStaff(db, run.account_id, assignTo);
+  if (person.error) {
+    await failed('assignee check', person.error);
     return null;
   }
-  const role = (people as { account_role: AccountRole }[] | null)?.[0]
-    ?.account_role;
-  if (!role || !(STAFF_ROLES as readonly AccountRole[]).includes(role)) {
+  if (!person.ok) {
     console.warn('[flows] hand-off assignee is not active staff:', run.id);
     return null;
   }
@@ -1214,6 +1207,15 @@ export async function dispatchInboundToFlows(
       // A flow that could not be read is not a flow switched off.
       const runFlow = await loadFlow(db, activeRun.flow_id);
       if (!runFlow || runFlow.status === 'active') {
+        // An HR candidate's message is not an answer to a sales menu. The
+        // run is left as it is: it may be waiting in a sales chat.
+        if (await salesAnswersOff(input.salesChat)) {
+          return {
+            consumed: false,
+            flow_run_id: activeRun.id,
+            outcome: 'no_match',
+          };
+        }
         // One SELECT for the whole flow's nodes — advance loop is now
         // in-memory. See loadAllNodes.
         const consent = await flowConsent(db, input.accountId, input.contactId);
@@ -1247,6 +1249,9 @@ export async function dispatchInboundToFlows(
         campaignFlow.status === 'active' &&
         campaignFlow.entry_node_id
       ) {
+        if (await salesAnswersOff(input.salesChat)) {
+          return { consumed: false, outcome: 'no_match' };
+        }
         const nodes = await loadAllNodes(db, campaignFlow.id);
         return startNewRun(db, campaignFlow, input, nodes, {
           broadcastId: input.campaign.broadcastId,
@@ -1269,6 +1274,9 @@ export async function dispatchInboundToFlows(
       input.conversationId
     );
     if (!flow || !flow.entry_node_id) {
+      return { consumed: false, outcome: 'no_match' };
+    }
+    if (await salesAnswersOff(input.salesChat)) {
       return { consumed: false, outcome: 'no_match' };
     }
     const nodes = await loadAllNodes(db, flow.id);
@@ -1496,6 +1504,9 @@ async function handleReplyForActiveRun(
         configOwnerUserId: input.userId,
         inboundProvider: input.inboundProvider,
         inboundChannelId: input.inboundChannelId ?? null,
+        // The decision is about the chat the message came in on.
+        salesChat:
+          run.conversation_id === input.conversationId ? input.salesChat : null,
         flowContext,
         // Traces the TypeSafe decisions for this off-script reply (063),
         // and names the message the gates judge.
@@ -1522,6 +1533,7 @@ async function handleReplyForActiveRun(
           consumed: true,
           flow_run_id: run.id,
           outcome: 'fallback_fired',
+          ai_outcome: aiOutcome,
         };
       }
       if (aiOutcome === 'handed_off') {
@@ -1530,7 +1542,12 @@ async function handleReplyForActiveRun(
           reason: 'ai_handoff',
         });
         await endRun(db, run.id, 'handed_off', 'ai_handoff');
-        return { consumed: true, flow_run_id: run.id, outcome: 'handed_off' };
+        return {
+          consumed: true,
+          flow_run_id: run.id,
+          outcome: 'handed_off',
+          ai_outcome: aiOutcome,
+        };
       }
     }
     aiAvailable = false;

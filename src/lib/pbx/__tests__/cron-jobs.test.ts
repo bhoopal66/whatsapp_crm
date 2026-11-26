@@ -1,9 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  CALLBACK_WAIT_MS,
   dialDueCallbacks,
   inCallbackHours,
   releaseStaleCallbacks,
+  retryNotBefore,
+  settleCallbackCall,
   STALE_DIALING_MS,
 } from '../callbacks';
 import type { PbxHandle } from '../connection';
@@ -22,6 +25,7 @@ const A = 'acc';
 // 14:00 in Dubai (UTC+4); 21:00 Dubai is 17:00Z.
 const DAY = Date.parse('2026-10-12T10:00:00.000Z');
 const NIGHT = Date.parse('2026-10-12T17:00:00.000Z');
+const HOUR = 3_600_000;
 // A `dialing` request last touched a minute past the stale limit at DAY.
 const STALE_AT = new Date(DAY - STALE_DIALING_MS - 60_000).toISOString();
 let fake: FakeDb;
@@ -399,8 +403,24 @@ describe('dialDueCallbacks', () => {
       ],
     });
   };
-  const run = (now = DAY) =>
-    dialDueCallbacks({ db: fake.db, now: () => now, apiFor: handle({ dial }) });
+  const run = (now = DAY, limit?: number) =>
+    dialDueCallbacks({
+      db: fake.db,
+      now: () => now,
+      limit,
+      apiFor: handle({ dial }),
+    });
+  const req = (id = 'r1') =>
+    fake.tables.callback_requests.find((r) => r.id === id)!;
+  const iso = (ms: number) => new Date(ms).toISOString();
+  const refused = () =>
+    new YeastarError({
+      endpoint: 'call/dial',
+      errcode: 60003,
+      errmsg: 'CALLER UNAVAILABLE',
+    });
+  const timeout = (endpoint: string) =>
+    new YeastarError({ endpoint, errcode: null, errmsg: 'TIMEOUT' });
   beforeEach(() => {
     dial.mockReset().mockResolvedValue({ callId: 'pbx-9' });
   });
@@ -447,14 +467,18 @@ describe('dialDueCallbacks', () => {
   });
 
   it('a failed dial goes back to pending, the third marks it failed', async () => {
-    dial.mockRejectedValue(new Error('unavailable'));
+    dial.mockRejectedValue(refused());
     setup({ attempts: 1 });
-    await run();
+    expect(await run()).toMatchObject({ waiting: 1, uncertain: 0 });
     expect(fake.tables.callback_requests[0]).toMatchObject({
       status: 'pending',
       attempts: 2,
+      not_before: iso(DAY + 2 * HOUR),
     });
-    await run();
+    // Not before its back-off.
+    await run(DAY + 2 * HOUR - 1);
+    expect(dial).toHaveBeenCalledTimes(1);
+    expect(await run(DAY + 2 * HOUR)).toMatchObject({ failed: 1 });
     expect(fake.tables.callback_requests[0]).toMatchObject({
       status: 'failed',
       attempts: 3,
@@ -507,14 +531,15 @@ describe('dialDueCallbacks', () => {
       expect(fake.tables.callback_requests[0].status).toBe('pending');
     });
 
-    it('still releases a request stuck dialing, then skips it', async () => {
+    it('still releases a request stuck dialing, then skips it once it is due', async () => {
       vi.stubEnv('NEXT_PUBLIC_PBX_OUTBOUND_CALLS', '');
       setup({ status: 'dialing', attempts: 1, updated_at: STALE_AT });
       expect(await run()).toMatchObject({
         released: 1,
-        skipped: 1,
+        skipped: 0,
         dialled: 0,
       });
+      expect(await run(DAY + HOUR / 2)).toMatchObject({ skipped: 1 });
       expect(dial).not.toHaveBeenCalled();
       expect(fake.tables.callback_requests[0]).toMatchObject({
         status: 'skipped',
@@ -523,15 +548,346 @@ describe('dialDueCallbacks', () => {
     });
   });
 
-  it('dials a released request again in the same pass', async () => {
-    setup({ status: 'dialing', attempts: 1, updated_at: STALE_AT });
-    expect(await run()).toMatchObject({ released: 1, dialled: 1 });
+  it('dials a released request again half an hour later, not in the same pass', async () => {
+    setup({
+      status: 'dialing',
+      attempts: 1,
+      updated_at: STALE_AT,
+      pbx_call_id: 'pbx-5',
+    });
+    expect(await run()).toMatchObject({ released: 1, dialled: 0 });
+    expect(req()).toMatchObject({
+      status: 'pending',
+      not_before: iso(DAY + HOUR / 2),
+    });
+    expect(await run(DAY + HOUR / 2)).toMatchObject({ dialled: 1 });
     expect(fake.tables.callback_requests[0]).toMatchObject({
       status: 'dialing',
       attempts: 2,
       pbx_call_id: 'pbx-9',
       last_error: null,
     });
+  });
+
+  describe('one customer is not rung twice', () => {
+    const other = (r: Row = {}) => ({
+      id: 'r2',
+      account_id: A,
+      contact_id: 'ct1',
+      status: 'pending',
+      not_before: null,
+      assigned_to: 'u2',
+      attempts: 0,
+      created_at: '2',
+      ...r,
+    });
+    /** A second person, free to dial, so only the customer is in the way. */
+    const secondOwner = () => {
+      fake.tables.pbx_extensions.push({
+        connection_id: 'c1',
+        extension: '1002',
+        account_id: A,
+        user_id: 'u2',
+        registration_state: 'registered',
+      });
+      fake.tables.pbx_presence.push({
+        connection_id: 'c1',
+        extension: '1002',
+        presence: 'available',
+        call_state: 'idle',
+      });
+    };
+    const called = (r: Row = {}) => ({
+      id: 'k1',
+      account_id: A,
+      direction: 'outbound',
+      remote_number: '971501234567',
+      started_at: iso(DAY - 10 * 60_000),
+      ...r,
+    });
+
+    it('dials one of two requests of a contact; the other waits', async () => {
+      setup();
+      secondOwner();
+      fake.tables.callback_requests.push(other());
+      expect(await run()).toMatchObject({ dialled: 1, waiting: 1 });
+      expect(dial).toHaveBeenCalledTimes(1);
+      expect(req('r1').status).toBe('dialing');
+      expect(req('r2')).toMatchObject({
+        status: 'pending',
+        attempts: 0,
+        not_before: iso(DAY + CALLBACK_WAIT_MS),
+      });
+    });
+
+    it('does not let two waiting requests, or another customer’s, block each other', async () => {
+      setup({ not_before: iso(DAY - 1) });
+      fake.tables.callback_requests.push(
+        other({ not_before: iso(DAY + 60_000), updated_at: iso(DAY) }),
+        other({ id: 'r3', contact_id: 'ct9', status: 'dialing' }),
+        other({ id: 'r4', account_id: 'other', status: 'dialing' })
+      );
+      expect(await run()).toMatchObject({ dialled: 1 });
+    });
+
+    it('waits half an hour from any outbound call to the number', async () => {
+      setup();
+      fake.tables.calls = [called({ remote_number: '9710501234567' })];
+      expect(await run()).toMatchObject({ dialled: 0, waiting: 1 });
+      expect(req()).toMatchObject({
+        status: 'pending',
+        attempts: 0,
+        not_before: iso(DAY + 20 * 60_000),
+      });
+      // Seen before the claim: a wait never shows as a dial.
+      expect(fake.log).not.toContainEqual(
+        expect.objectContaining({
+          payload: expect.objectContaining({ status: 'dialing' }),
+        })
+      );
+      expect(await run(DAY + 20 * 60_000)).toMatchObject({ dialled: 1 });
+    });
+
+    it.each([
+      ['inbound', { direction: 'inbound' }],
+      ['to another number', { remote_number: '971509999999' }],
+      ['in another workspace', { account_id: 'other' }],
+      ['half an hour old', { started_at: iso(DAY - HOUR / 2) }],
+    ])('is not held by a call %s', async (_what, over) => {
+      setup();
+      fake.tables.calls = [called(over)];
+      expect(await run()).toMatchObject({ dialled: 1 });
+    });
+
+    it('two overlapping passes never ring both requests of a contact', async () => {
+      setup();
+      secondOwner();
+      fake.tables.callback_requests.push(other());
+      // Both passes look before either claims: the fake answers each query
+      // in turn, so running them together interleaves them step by step.
+      const second = createView(fake, ['r2']);
+      const first = createView(fake, ['r1']);
+      const pass = (db: FakeDb['db']) =>
+        dialDueCallbacks({ db, now: () => DAY, apiFor: handle({ dial }) });
+      await Promise.all([pass(first), pass(second)]);
+      expect(dial.mock.calls.length).toBeLessThanOrEqual(1);
+      const waiting = fake.tables.callback_requests.filter(
+        (r) => r.status === 'pending'
+      );
+      expect(waiting.length).toBeGreaterThan(0);
+      for (const r of waiting)
+        expect(r).toMatchObject({
+          attempts: 0,
+          not_before: iso(DAY + CALLBACK_WAIT_MS),
+        });
+    });
+
+    /** The database, whose due list shows only these requests. */
+    function createView(f: FakeDb, ids: string[]): FakeDb['db'] {
+      type Q = {
+        or: (e: string) => Q;
+        in: (c: string, v: unknown[]) => Q;
+      };
+      const raw = f.db as unknown as { from: (t: string) => Q };
+      return {
+        ...(raw as object),
+        from: (t: string) => {
+          const q = raw.from(t);
+          const or = q.or.bind(q);
+          q.or = (e) => or(e).in('id', ids);
+          return q;
+        },
+      } as unknown as FakeDb['db'];
+    }
+  });
+
+  describe('a dial with no clear answer', () => {
+    it.each([
+      ['a timeout', timeout('call/dial')],
+      ['an unknown error', new Error('socket hang up')],
+    ])('%s leaves the request dialing', async (_what, err) => {
+      dial.mockRejectedValue(err);
+      setup({ attempts: 2, pbx_call_id: 'pbx-old' });
+      expect(await run()).toMatchObject({
+        dialled: 0,
+        failed: 0,
+        waiting: 0,
+        uncertain: 1,
+      });
+      expect(req()).toMatchObject({
+        status: 'dialing',
+        attempts: 3,
+        // The earlier attempt's call can no longer settle this one.
+        pbx_call_id: null,
+      });
+      expect(req().last_error).toContain(err.message);
+      await run(DAY + 60_000);
+      expect(dial).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      ['an error code', refused()],
+      ['the token fetch', timeout('get_token')],
+      ['our own connection', new PbxConnectionError('auth_backoff', 'wait')],
+    ])('%s is a definite refusal', async (_what, err) => {
+      dial.mockRejectedValue(err);
+      setup();
+      expect(await run()).toMatchObject({ waiting: 1, uncertain: 0 });
+      expect(req()).toMatchObject({
+        status: 'pending',
+        not_before: iso(DAY + HOUR / 2),
+      });
+    });
+
+    it('a database error after the dial does not undo the claim', async () => {
+      setup();
+      dial.mockImplementation(async () => {
+        fake.fail('callback_requests', 'update', { message: 'down' });
+        return { callId: 'pbx-9' };
+      });
+      expect(await run()).toMatchObject({ dialled: 1, waiting: 0 });
+      expect(req()).toMatchObject({ status: 'dialing', pbx_call_id: null });
+    });
+  });
+
+  describe('a request that cannot be dialled now', () => {
+    const behind = () =>
+      fake.tables.callback_requests.push({
+        id: 'r2',
+        account_id: A,
+        contact_id: 'ct2',
+        status: 'pending',
+        not_before: null,
+        assigned_to: 'u2',
+        attempts: 0,
+        created_at: '2',
+      });
+    const other = () => {
+      behind();
+      fake.tables.contacts.push({
+        id: 'ct2',
+        account_id: A,
+        phone: '971507654321',
+        do_not_contact_at: null,
+        user_id: 'u2',
+      });
+      fake.tables.pbx_extensions.push({
+        connection_id: 'c1',
+        extension: '1002',
+        account_id: A,
+        user_id: 'u2',
+        registration_state: 'registered',
+      });
+      fake.tables.pbx_presence.push({
+        connection_id: 'c1',
+        extension: '1002',
+        presence: 'available',
+        call_state: 'idle',
+      });
+    };
+
+    it('lets the ones behind it past, then comes round again', async () => {
+      setup({}, {}, { call_state: 'busy' });
+      other();
+      await run(DAY, 1);
+      expect(req('r1')).toMatchObject({
+        status: 'pending',
+        not_before: iso(DAY + CALLBACK_WAIT_MS),
+      });
+      expect(await run(DAY + 60_000, 1)).toMatchObject({ dialled: 1 });
+      expect(req('r2').status).toBe('dialing');
+      fake.tables.pbx_presence[0].call_state = 'idle';
+      expect(await run(DAY + CALLBACK_WAIT_MS, 1)).toMatchObject({
+        dialled: 1,
+      });
+      expect(req('r1').status).toBe('dialing');
+    });
+
+    it('goes behind one that has waited longer', async () => {
+      setup({ not_before: iso(DAY - 1000) });
+      other();
+      req('r2').not_before = iso(DAY - 2000);
+      await run(DAY, 1);
+      expect(req('r1').status).toBe('pending');
+      expect(req('r2').status).toBe('dialing');
+    });
+
+    it('waits while the PBX is backing off', async () => {
+      setup();
+      await dialDueCallbacks({
+        db: fake.db,
+        now: () => DAY,
+        apiFor: async () => {
+          throw new PbxConnectionError('auth_backoff', 'wait');
+        },
+      });
+      expect(req()).toMatchObject({
+        status: 'pending',
+        attempts: 0,
+        not_before: iso(DAY + CALLBACK_WAIT_MS),
+      });
+    });
+
+    it('is skipped with no owner, or an owner with no extension', async () => {
+      setup({}, { user_id: null });
+      expect(await run()).toMatchObject({ skipped: 1, waiting: 0 });
+      expect(req()).toMatchObject({
+        status: 'skipped',
+        last_error: 'no owner to call from',
+      });
+      setup({ assigned_to: 'u9' });
+      expect(await run()).toMatchObject({ skipped: 1, waiting: 0 });
+      expect(req()).toMatchObject({
+        status: 'skipped',
+        last_error: 'the owner has no extension in this workspace',
+      });
+    });
+  });
+
+  describe('the number', () => {
+    it.each(['050 123 4567', '00971501234567', '+971 (0)50 123 4567'])(
+      'dials %s in its full form',
+      async (phone) => {
+        setup({}, { phone });
+        await run();
+        expect(dial).toHaveBeenCalledWith({
+          caller: '1001',
+          callee: '971501234567',
+        });
+      }
+    );
+
+    it.each([null, 'unknown', '205'])('never dials %s', async (phone) => {
+      setup({}, { phone });
+      expect(await run()).toMatchObject({ failed: 1 });
+      expect(dial).not.toHaveBeenCalled();
+      expect(req().status).toBe('failed');
+    });
+
+    it('skips a number another do-not-contact customer holds, however saved', async () => {
+      setup();
+      fake.tables.contacts.push({
+        id: 'ct2',
+        account_id: A,
+        phone_normalized: '0501234567',
+        do_not_contact_at: '2026-10-01T00:00:00Z',
+      });
+      expect(await run()).toMatchObject({ skipped: 1 });
+      expect(dial).not.toHaveBeenCalled();
+      expect(req()).toMatchObject({
+        status: 'skipped',
+        last_error: 'do_not_contact',
+      });
+    });
+  });
+});
+
+describe('retryNotBefore', () => {
+  it('waits half an hour after the first attempt and two hours after the second', () => {
+    const after = (attempts: number) =>
+      Date.parse(retryNotBefore(attempts, DAY)) - DAY;
+    expect(after(1)).toBe(HOUR / 2);
+    expect(after(2)).toBe(2 * HOUR);
   });
 });
 
@@ -603,6 +959,21 @@ describe('the call-back call ends (30012)', () => {
     setup(1);
     await ingest('NO ANSWER');
     expect(fake.tables.callback_requests[0].status).toBe('pending');
+    expect(
+      Date.parse(String(fake.tables.callback_requests[0].not_before))
+    ).toBeGreaterThan(Date.now() + HOUR / 2 - 60_000);
+    setup(2);
+    await settleCallbackCall(fake.db, {
+      accountId: A,
+      pbxCallId: 'pbx-9',
+      answered: false,
+      status: 'NO ANSWER',
+      now: () => DAY,
+    });
+    expect(fake.tables.callback_requests[0]).toMatchObject({
+      status: 'pending',
+      not_before: new Date(DAY + 2 * HOUR).toISOString(),
+    });
     setup(3);
     await ingest('BUSY');
     expect(fake.tables.callback_requests[0].status).toBe('failed');
@@ -681,6 +1052,7 @@ describe('releaseStaleCallbacks', () => {
       status: 'pending',
       attempts: 1,
       last_error: LOST,
+      not_before: retryNotBefore(1, DAY),
     });
     setup({ attempts: 3 });
     expect(await release()).toBe(1);
@@ -737,6 +1109,7 @@ describe('releaseStaleCallbacks', () => {
     expect(row()).toMatchObject({
       status: 'pending',
       last_error: 'call ended no answer',
+      not_before: retryNotBefore(1, DAY),
     });
     setup({ pbx_call_id: 'pbx-5', attempts: 3 }, ended('busy'));
     expect(await release()).toBe(1);

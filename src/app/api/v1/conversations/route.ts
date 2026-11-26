@@ -18,6 +18,7 @@ import {
   loadChatTagLookup,
   serializeConversation,
 } from '@/lib/api/v1/conversations';
+import { isUuid } from '@/lib/chat/mentions';
 import type { Conversation } from '@/types';
 
 export async function GET(request: Request) {
@@ -27,6 +28,8 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const status = url.searchParams.get('status');
     const contactId = url.searchParams.get('contact_id');
+    if (contactId && !isUuid(contactId))
+      return fail('bad_request', "'contact_id' must be a uuid", 400);
 
     let query = ctx.supabase
       .from('conversations')

@@ -259,26 +259,26 @@ BEGIN
     AND (SELECT t.state FROM desk_tray t WHERE t.id = t_many) = 'filed',
     'the filed tray item is not on the case in the sorter''s name');
   n := n + 1; failed := failed || pg_temp.dw_check('a sorted item was filed again', NULL,
-    format('SELECT x.outcome FROM desk_tray_file(%L, %L, %L, %L, NULL) x', u_lead, a_acct, t_many, k_r),
+    format('SELECT x.outcome FROM desk_tray_file(%L, %L, %L, %L, NULL) x', u_owner, a_acct, t_many, k_r),
     'ERROR % TRAY_NOT_OPEN:%');
   n := n + 1; failed := failed || pg_temp.dw_check('a stranger''s document was filed without typing the company', NULL,
-    format('SELECT x.outcome FROM desk_tray_file(%L, %L, %L, %L, ''Kite'') x', u_lead, a_acct, t_unk, k_r),
+    format('SELECT x.outcome FROM desk_tray_file(%L, %L, %L, %L, ''Kite'') x', u_owner, a_acct, t_unk, k_r),
     'ERROR % CONFIRM_COMPANY:%');
   n := n + 1; failed := failed || pg_temp.dw_check('the typed company name was not accepted', NULL,
-    format('SELECT x.outcome FROM desk_tray_file(%L, %L, %L, %L, ''  kite general  trading '') x', u_lead, a_acct, t_unk, k_r),
+    format('SELECT x.outcome FROM desk_tray_file(%L, %L, %L, %L, ''  kite general  trading '') x', u_owner, a_acct, t_unk, k_r),
     'needs_copy');
   n := n + 1; failed := failed || pg_temp.dw_check('a PRO''s document did not need the intake copy', NULL,
-    format('SELECT x.outcome FROM desk_tray_file(%L, %L, %L, %L, NULL) x', u_lead, a_acct, t_pro, k_r), 'needs_copy');
+    format('SELECT x.outcome FROM desk_tray_file(%L, %L, %L, %L, NULL) x', u_owner, a_acct, t_pro, k_r), 'needs_copy');
   n := n + 1; failed := failed || pg_temp.dw_check('a tray item resolved without a filed upload', NULL,
-    format('SELECT desk_tray_resolve(%L, %L, %L, %L, %L)::text', u_lead, a_acct, t_pro, k_r, gen_random_uuid()),
+    format('SELECT desk_tray_resolve(%L, %L, %L, %L, %L)::text', u_owner, a_acct, t_pro, k_r, gen_random_uuid()),
     'ERROR % ITEM_NOT_FOUND:%');
-  SELECT x.* INTO r FROM desk_whatsapp_intake(u_lead, a_acct, item, 'dw-0000001', 'pending_doc', NULL,
+  SELECT x.* INTO r FROM desk_whatsapp_intake(u_owner, a_acct, item, 'dw-0000001', 'pending_doc', NULL,
     (SELECT k.case_number FROM cases k WHERE k.id = k_r), NULL, NULL, NULL, NULL, NULL,
     'intake/' || item || '/' || repeat('c', 64) || '.pdf', 'doc.pdf', 'application/pdf', 1000, repeat('c', 64), now()) x;
   n := n + 1; failed := failed || pg_temp.dw_ok(r.state = 'filed' AND r.case_id = k_r
     AND (SELECT i.channel FROM intake_items i WHERE i.id = item) = 'whatsapp',
     format('the WhatsApp intake did not file to the case as channel whatsapp (%s)', r.state));
-  PERFORM desk_tray_resolve(u_lead, a_acct, t_pro, k_r, item);
+  PERFORM desk_tray_resolve(u_owner, a_acct, t_pro, k_r, item);
   n := n + 1; failed := failed || pg_temp.dw_ok((SELECT t.state = 'filed' AND t.resolved_item_id = item
     FROM desk_tray t WHERE t.id = t_pro), 'the PRO''s tray item was not resolved by its intake upload');
   n := n + 1; failed := failed || pg_temp.dw_check('a dismissal without a reason was accepted', NULL,

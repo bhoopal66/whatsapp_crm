@@ -32,6 +32,8 @@ beforeEach(() => {
       held: [],
       oldest_queued_age_seconds: null,
       terminal_failed: 0,
+      failed: 3,
+      oldest_pending_age_seconds: 90,
     },
     error: null,
   });
@@ -65,6 +67,9 @@ describe('GET /api/metrics', () => {
       'process_uptime_seconds',
       'nodejs_eventloop_lag_p99_seconds',
       'wacrm_outbox_stats_up 1',
+      'wacrm_customer_documents_stats_up 1',
+      'wacrm_customer_documents_failed 3',
+      'wacrm_customer_documents_oldest_pending_age_seconds 90',
       'wacrm_integration_configured',
       '# TYPE wacrm_edge_refusals_total counter',
     ]) {
@@ -77,7 +82,10 @@ describe('GET /api/metrics', () => {
     h.rpc.mockResolvedValue({ data: null, error: { code: '42883' } });
     const res = await metrics(get(`Bearer ${TOKEN}`));
     expect(res.status).toBe(200);
-    expect(await res.text()).toContain('wacrm_outbox_stats_up 0');
+    const body = await res.text();
+    expect(body).toContain('wacrm_outbox_stats_up 0');
+    expect(body).toContain('wacrm_customer_documents_stats_up 0');
+    expect(body).not.toMatch(/^wacrm_customer_documents_failed /m);
   });
 });
 

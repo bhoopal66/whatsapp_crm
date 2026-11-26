@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import {
   SubmissionGroupSendBlockedError,
   SubmissionGroupSendRefusedError,
+  SubmissionGroupSendUnconfirmedError,
   SubmissionGroupSentNotRecordedError,
 } from '@/lib/submission-groups/service';
 
@@ -26,7 +27,7 @@ import { CaseToolsStore } from './tools';
 type Args = Record<string, unknown>;
 type Answer = {
   data?: unknown;
-  error?: { message: string; code?: string; hint?: string };
+  error?: { message: string; code?: string; hint?: string; details?: string };
 };
 
 class FakeDb {
@@ -605,6 +606,7 @@ describe('requestMissingDocuments', () => {
     bank_name: 'Bank One',
     doc_keys: ['eid', 'stmt'],
     doc_labels: ['Emirates ID', 'Bank statements (6 months)'],
+    request_id: 'req-1',
   };
   const setup = (
     send: (i: {
@@ -617,6 +619,7 @@ describe('requestMissingDocuments', () => {
     const db = new FakeDb({
       case_doc_request_begin: { data: [begin] },
       case_doc_mark_requested: { data: 2 },
+      case_doc_request_release: { data: true },
     });
     const texts: string[] = [];
     const sender = {
@@ -677,12 +680,105 @@ describe('requestMissingDocuments', () => {
     ['BLOCKED', new SubmissionGroupSendBlockedError('opted_out')],
     ['REFUSED', new SubmissionGroupSendRefusedError('SEND_NOT_ALLOWED')],
     ['SEND_FAILED', new Error('gateway down')],
+    [
+      'UNCONFIRMED',
+      new SubmissionGroupSendUnconfirmedError('m1', new Error('timed out')),
+    ],
   ])('%s: marks nothing', async (reason, err) => {
     const s = setup(async () => {
       throw err;
     });
     expect(await s.run()).toMatchObject({ sent: false, reason });
     expect(s.db.log).not.toContain('case_doc_mark_requested');
+    // 297: only a send that certainly did not go out gives its claim back.
+    expect(s.db.args('case_doc_request_release')).toEqual(
+      reason === 'UNCONFIRMED'
+        ? undefined
+        : { p_case: CASE, p_actor: ACTOR, p_request: 'req-1' }
+    );
+  });
+
+  it('claims the request; `force` is passed on, and a sent one keeps its claim', async () => {
+    for (const force of [undefined, true]) {
+      const db = new FakeDb({
+        case_doc_request_begin: { data: [BEGIN] },
+        case_doc_mark_requested: { data: 2 },
+      });
+      const r = await requestMissingDocuments(
+        { tools: new CaseToolsStore(db.client), sender: { sendFromCrm: ok } },
+        { caseId: CASE, actor: ACTOR, force }
+      );
+      expect(r.sent).toBe(true);
+      expect(db.args('case_doc_request_begin')).toEqual({
+        p_case: CASE,
+        p_actor: ACTOR,
+        p_force: force === true,
+        p_claim: true,
+      });
+      expect(db.log).not.toContain('case_doc_request_release');
+    }
+  });
+
+  it('REQUESTED_RECENTLY carries who and when, and sends nothing', async () => {
+    const db = new FakeDb({
+      case_doc_request_begin: {
+        error: {
+          message: 'x',
+          code: '23514',
+          hint: 'REQUESTED_RECENTLY',
+          details: JSON.stringify({ by: OWNER, at: T0.toISOString() }),
+        },
+      },
+    });
+    const sendFromCrm = async () => {
+      throw new Error('sent');
+    };
+    const err = await requestMissingDocuments(
+      { tools: new CaseToolsStore(db.client), sender: { sendFromCrm } },
+      { caseId: CASE, actor: ACTOR }
+    ).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(CaseRefusedError);
+    expect(err).toMatchObject({
+      reason: 'REQUESTED_RECENTLY',
+      detail: { by: OWNER, at: T0.toISOString() },
+    });
+    expect(db.log).toEqual(['case_doc_request_begin']);
+  });
+
+  it('a preview passes two arguments: it never claims', async () => {
+    const db = new FakeDb({ case_doc_request_begin: { data: [BEGIN] } });
+    await new CaseToolsStore(db.client).docRequestBegin(CASE, ACTOR);
+    expect(db.args('case_doc_request_begin')).toEqual({
+      p_case: CASE,
+      p_actor: ACTOR,
+    });
+  });
+
+  it.each([
+    ['PGRST202', 2],
+    ['42883', 2],
+    ['57014', 1],
+  ])('before 297 (%s): asks again without a claim', async (code, calls) => {
+    const seen: Args[] = [];
+    const client = {
+      rpc: async (_fn: string, args: Args) => {
+        seen.push(args);
+        if ('p_claim' in args) return { data: null, error: { code } };
+        const old: Args = { ...BEGIN };
+        delete old.request_id;
+        return { data: [old], error: null };
+      },
+    } as unknown as SupabaseClient;
+    const p = new CaseToolsStore(client).docRequestBegin(CASE, ACTOR, {
+      force: false,
+    });
+    if (calls === 2)
+      expect(await p).toMatchObject({
+        docKeys: ['eid', 'stmt'],
+        requestId: null,
+      });
+    else await expect(p).rejects.toBeInstanceOf(CaseStoreError);
+    expect(seen).toHaveLength(calls);
   });
 
   it('sent but not recorded counts as sent: the documents are marked', async () => {

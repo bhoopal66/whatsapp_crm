@@ -73,8 +73,24 @@ describe('what the thread remembers about a draft', () => {
 
   it('keeps an edit until it is done with', () => {
     const typed = run({ type: 'edit', key: 'c1:t', text: 'Hello' });
-    expect(typed.editing).toEqual({ key: 'c1:t', text: 'Hello' });
-    expect(draftMemoryReducer(typed, { type: 'editDone' }).editing).toBeNull();
+    expect(typed.editing).toEqual({ 'c1:t': 'Hello' });
+    expect(
+      draftMemoryReducer(typed, { type: 'editDone', key: 'c1:t' }).editing
+    ).toEqual({});
+  });
+
+  it('keeps an edit through an edit, or an answer, in another chat', () => {
+    const both = run(
+      { type: 'edit', key: 'c1:t', text: 'Hello' },
+      { type: 'edit', key: 'c2:t', text: 'Other' }
+    );
+    expect(both.editing).toEqual({ 'c1:t': 'Hello', 'c2:t': 'Other' });
+    expect(
+      draftMemoryReducer(both, { type: 'editDone', key: 'c2:t' }).editing
+    ).toEqual({ 'c1:t': 'Hello' });
+    expect(draftMemoryReducer(both, { type: 'editDone', key: 'c3:t' })).toBe(
+      both
+    );
   });
 
   it('keeps the text of a send nobody can vouch for, by chat', () => {

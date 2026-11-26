@@ -115,6 +115,8 @@ export const HR_ERROR_CODES = [
   'ALREADY_DECIDED',
   /** 213: the HR lines changed since they were loaded. */
   'STALE',
+  /** 302: a new HR line's number is connected by somebody outside HR. */
+  'LINE_OWNER_NOT_HR',
   'UNKNOWN',
 ] as const;
 export type HrErrorCode = (typeof HR_ERROR_CODES)[number];

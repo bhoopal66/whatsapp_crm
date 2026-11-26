@@ -1,54 +1,224 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { describe, expect, it } from 'vitest';
-import { assignableMembers, assignConversation } from './assign';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  assignableMembers,
+  assignConversation,
+  assignFromScreen,
+  type AssignScreen,
+} from './assign';
 
-/** Records the builder chain and resolves with `error`. */
-function fakeClient(error: unknown = null) {
-  const calls: {
-    table?: string;
-    patch?: Record<string, unknown>;
-    eq?: [string, unknown];
-  } = {};
+type Row = { id: string; assigned_agent_id: string | null };
+
+/**
+ * One conversation behind PostgREST: filters decide whether an update
+ * matches it, and an update that matches nothing is a success with no
+ * row, as RLS makes it. `readable` / `writable` are the two policies.
+ */
+function fakeClient({
+  row,
+  readable = true,
+  writable = true,
+  error = null,
+  readError = null,
+}: {
+  row: Row;
+  readable?: boolean;
+  writable?: boolean;
+  error?: unknown;
+  readError?: unknown;
+}) {
+  const patches: Record<string, unknown>[] = [];
   const client = {
     from(table: string) {
-      calls.table = table;
-      return {
-        update(patch: Record<string, unknown>) {
-          calls.patch = patch;
-          return {
-            eq(column: string, value: unknown) {
-              calls.eq = [column, value];
-              return Promise.resolve({ error });
-            },
-          };
-        },
+      expect(table).toBe('conversations');
+      let patch: Record<string, unknown> | null = null;
+      let returning = false;
+      const filters: [string, unknown][] = [];
+      const settle = () => {
+        if (patch && error) return { data: null, error };
+        if (!patch && readError) return { data: null, error: readError };
+        const visible = readable && (!patch || writable);
+        const hit =
+          visible &&
+          filters.every(([c, v]) => (row as Record<string, unknown>)[c] === v);
+        if (hit && patch) {
+          patches.push(patch);
+          Object.assign(row, patch);
+        }
+        return { data: hit && returning ? { ...row } : null, error: null };
       };
+      const q: Record<string, unknown> = {
+        update: (v: Record<string, unknown>) => ((patch = v), q),
+        select: () => ((returning = true), q),
+        eq: (c: string, v: unknown) => (filters.push([c, v]), q),
+        is: (c: string, v: unknown) => (filters.push([c, v]), q),
+        maybeSingle: async () => settle(),
+        then: (ok: (v: unknown) => unknown) =>
+          Promise.resolve(settle()).then(ok),
+      };
+      return q;
     },
   };
-  return { client: client as unknown as SupabaseClient, calls };
+  return { client: client as unknown as SupabaseClient, patches };
 }
 
 describe('assignConversation', () => {
-  it('writes assigned_agent_id on that one conversation', async () => {
-    const { client, calls } = fakeClient();
-    const result = await assignConversation(client, 'conv-1', 'user-2');
-    expect(result).toEqual({ ok: true });
-    expect(calls.table).toBe('conversations');
-    expect(calls.patch).toEqual({ assigned_agent_id: 'user-2' });
-    expect(calls.eq).toEqual(['id', 'conv-1']);
+  it('assigns an unassigned chat and returns the row it wrote', async () => {
+    const row: Row = { id: 'conv-1', assigned_agent_id: null };
+    const { client, patches } = fakeClient({ row });
+    expect(await assignConversation(client, 'conv-1', null, 'omar')).toEqual({
+      ok: true,
+      assignedAgentId: 'omar',
+    });
+    expect(patches).toEqual([{ assigned_agent_id: 'omar' }]);
   });
 
   it('releases the chat with null', async () => {
-    const { client, calls } = fakeClient();
-    await assignConversation(client, 'conv-1', null);
-    expect(calls.patch).toEqual({ assigned_agent_id: null });
+    const row: Row = { id: 'conv-1', assigned_agent_id: 'sara' };
+    const { client } = fakeClient({ row });
+    expect(await assignConversation(client, 'conv-1', 'sara', null)).toEqual({
+      ok: true,
+      assignedAgentId: null,
+    });
+    expect(row.assigned_agent_id).toBeNull();
   });
 
-  it('passes the database error through', async () => {
+  it('never overwrites an assignee the screen did not show', async () => {
+    const row: Row = { id: 'conv-1', assigned_agent_id: 'sara' };
+    const { client, patches } = fakeClient({ row });
+    // The dialog was opened on an unassigned chat.
+    expect(await assignConversation(client, 'conv-1', null, 'omar')).toEqual({
+      ok: false,
+      reason: 'changed',
+      assignedAgentId: 'sara',
+    });
+    // And one opened while somebody else held it.
+    expect(await assignConversation(client, 'conv-1', 'ali', 'omar')).toEqual({
+      ok: false,
+      reason: 'changed',
+      assignedAgentId: 'sara',
+    });
+    expect(patches).toEqual([]);
+    expect(row.assigned_agent_id).toBe('sara');
+  });
+
+  it('says the chat has moved when RLS hides it (0 rows, no error)', async () => {
+    const row: Row = { id: 'conv-1', assigned_agent_id: 'me' };
+    const { client } = fakeClient({ row, readable: false });
+    expect(await assignConversation(client, 'conv-1', 'me', 'omar')).toEqual({
+      ok: false,
+      reason: 'moved',
+    });
+  });
+
+  it('says refused when the chat can be read but not changed', async () => {
+    const row: Row = { id: 'conv-1', assigned_agent_id: 'sara' };
+    const { client } = fakeClient({ row, writable: false });
+    expect(await assignConversation(client, 'conv-1', 'sara', 'omar')).toEqual({
+      ok: false,
+      reason: 'refused',
+    });
+  });
+
+  it('counts as done when somebody already assigned that person', async () => {
+    const row: Row = { id: 'conv-1', assigned_agent_id: 'omar' };
+    const { client, patches } = fakeClient({ row });
+    expect(await assignConversation(client, 'conv-1', 'sara', 'omar')).toEqual({
+      ok: true,
+      assignedAgentId: 'omar',
+    });
+    expect(patches).toEqual([]);
+  });
+
+  it('passes the database error through, from the write or the read', async () => {
+    const row: Row = { id: 'conv-1', assigned_agent_id: 'sara' };
     const error = { message: 'denied', code: '42501' };
-    const { client } = fakeClient(error);
-    const result = await assignConversation(client, 'conv-1', 'user-2');
-    expect(result).toEqual({ ok: false, error });
+    expect(
+      await assignConversation(
+        fakeClient({ row, error }).client,
+        'conv-1',
+        'sara',
+        'omar'
+      )
+    ).toEqual({ ok: false, reason: 'error', error });
+    expect(
+      await assignConversation(
+        fakeClient({ row, readError: error }).client,
+        'conv-1',
+        null,
+        'omar'
+      )
+    ).toEqual({ ok: false, reason: 'error', error });
+  });
+});
+
+describe('assignFromScreen', () => {
+  afterEach(() => vi.restoreAllMocks());
+  const run = async (
+    opts: Parameters<typeof fakeClient>[0],
+    expected: string | null,
+    userId: string | null,
+    canAsk = true
+  ) => {
+    const screen = {
+      patch: vi.fn(),
+      askAgain: vi.fn(() => canAsk),
+      fail: vi.fn(),
+    } satisfies AssignScreen;
+    await assignFromScreen(
+      fakeClient(opts).client,
+      { conversationId: 'conv-1', expected, userId },
+      screen
+    );
+    return screen;
+  };
+
+  it('patches the screen from the row that was written', async () => {
+    const screen = await run(
+      { row: { id: 'conv-1', assigned_agent_id: null } },
+      null,
+      'omar'
+    );
+    expect(screen.patch).toHaveBeenCalledWith('conv-1', 'omar');
+    expect(screen.askAgain).not.toHaveBeenCalled();
+    expect(screen.fail).not.toHaveBeenCalled();
+  });
+
+  it('shows the colleague’s assignee and asks again', async () => {
+    const screen = await run(
+      { row: { id: 'conv-1', assigned_agent_id: 'sara' } },
+      null,
+      'omar'
+    );
+    expect(screen.patch.mock.calls).toEqual([['conv-1', 'sara']]);
+    expect(screen.askAgain).toHaveBeenCalledWith('sara');
+    expect(screen.fail).not.toHaveBeenCalled();
+  });
+
+  it('says so instead while another question is open', async () => {
+    const screen = await run(
+      { row: { id: 'conv-1', assigned_agent_id: 'sara' } },
+      null,
+      'omar',
+      false
+    );
+    expect(screen.patch.mock.calls).toEqual([['conv-1', 'sara']]);
+    expect(screen.fail).toHaveBeenCalledWith('assignChanged');
+  });
+
+  it('patches nothing when the chat moved, was refused or failed', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const row = { id: 'conv-1', assigned_agent_id: 'sara' };
+    const moved = await run({ row, readable: false }, 'sara', 'omar');
+    expect(moved.fail).toHaveBeenCalledWith('assignMoved');
+    const refused = await run({ row, writable: false }, 'sara', 'omar');
+    expect(refused.fail).toHaveBeenCalledWith('assignFailed');
+    const failed = await run({ row, error: { code: 'x' } }, 'sara', 'omar');
+    expect(failed.fail).toHaveBeenCalledWith('assignFailed');
+    for (const screen of [moved, refused, failed]) {
+      expect(screen.patch).not.toHaveBeenCalled();
+      expect(screen.askAgain).not.toHaveBeenCalled();
+    }
   });
 });
 

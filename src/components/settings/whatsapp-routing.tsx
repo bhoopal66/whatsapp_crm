@@ -73,6 +73,7 @@ export function WhatsAppRouting({ onOpenAi }: { onOpenAi?: () => void }) {
   const t = useTranslations('Settings.whatsappRouting');
 
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [saving, setSaving] = useState(false);
   const [channels, setChannels] = useState<RoutingChannel[]>([]);
   const [rows, setRows] = useState<RoutingRow[]>([]);
@@ -82,6 +83,7 @@ export function WhatsAppRouting({ onOpenAi }: { onOpenAi?: () => void }) {
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadFailed(false);
     try {
       const res = await fetch('/api/whatsapp/routes');
       const data = await res.json();
@@ -94,11 +96,13 @@ export function WhatsAppRouting({ onOpenAi }: { onOpenAi?: () => void }) {
       );
       setPending({});
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('loadFailed'));
+      // Shown as a failed state with Retry, not as "no numbers".
+      console.error('Failed to load routing:', err);
+      setLoadFailed(true);
     } finally {
       setLoading(false);
     }
-  }, [t]);
+  }, []);
 
   useEffect(() => {
     void load();
@@ -150,6 +154,19 @@ export function WhatsAppRouting({ onOpenAi }: { onOpenAi?: () => void }) {
         <CardContent className="text-muted-foreground flex items-center gap-2 py-8">
           <Loader2 className="h-4 w-4 animate-spin" />
           {t('loading')}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (loadFailed) {
+    return (
+      <Card className="bg-card border-border">
+        <CardContent className="flex flex-wrap items-center gap-3 py-8">
+          <p className="text-destructive text-sm">{t('loadFailed')}</p>
+          <Button variant="outline" size="sm" onClick={() => void load()}>
+            {t('retry')}
+          </Button>
         </CardContent>
       </Card>
     );

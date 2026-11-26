@@ -4,6 +4,11 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 const disconnect = vi.hoisted(() => vi.fn());
 vi.mock('./openwa-number', () => ({ disconnectOpenWANumber: disconnect }));
 
+const waiting = vi.hoisted(() => ({ count: 0 }));
+vi.mock('./waiting-messages', () => ({
+  waitingMessages: async () => waiting.count,
+}));
+
 import { disconnectPersonalNumbersOf } from './personal-offboarding';
 
 function fakeDb(rows: Array<{ id: string; phone_number_id: string }>) {
@@ -36,7 +41,9 @@ describe('disconnectPersonalNumbersOf', () => {
     const f = fakeDb([ROW]);
     disconnect.mockResolvedValue(answer('complete'));
     expect(await disconnectPersonalNumbersOf(f.db, 'acc', 'user')).toBe(true);
-    expect(disconnect).toHaveBeenCalledWith(f.db, 'acc', ROW);
+    expect(disconnect).toHaveBeenCalledWith(f.db, 'acc', ROW, {
+      force: true,
+    });
     expect(f.filters).toEqual([
       ['account_id', 'acc'],
       ['user_id', 'user'],
@@ -75,4 +82,17 @@ describe('disconnectPersonalNumbersOf', () => {
       );
     }
   );
+});
+
+describe('disconnectPersonalNumbersOf — waiting customer messages', () => {
+  it('still disconnects at once, only logging the count', async () => {
+    waiting.count = 5;
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const f = fakeDb([ROW]);
+    disconnect.mockResolvedValue(answer('complete'));
+    expect(await disconnectPersonalNumbersOf(f.db, 'acc', 'user')).toBe(true);
+    waiting.count = 0;
+    expect(disconnect).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('5 customer'));
+  });
 });

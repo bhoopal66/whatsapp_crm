@@ -15,15 +15,15 @@ import {
   RATE_LIMITS,
 } from '@/lib/rate-limit';
 
-/** Postgres or PostgREST naming a table or function 278 adds. */
+/** Postgres or PostgREST naming a table or function 290 adds. */
 const notApplied = (error: { code?: string } | null) =>
   ['42P01', 'PGRST205', '42883', 'PGRST202'].includes(error?.code ?? '');
 
 /**
  * GET /api/ai/kb/learn  (admin+)
  *
- * Whether "learn from team answers" (migration 278) is on for the active
- * workspace, and when it last ran. Read through RLS (admin+ only).
+ * Whether "learn from team answers" (migration 290) is on for the active
+ * workspace, when it last ran, and why it failed if it did. Read through RLS (admin+ only).
  */
 export async function GET() {
   try {
@@ -32,7 +32,9 @@ export async function GET() {
     );
     const { data, error } = await supabase
       .from('kb_learn_settings')
-      .select('enabled, last_run_at')
+      .select(
+        'enabled, last_run_at, last_run_drafted, last_run_error, next_run_at'
+      )
       .eq('account_id', accountId)
       .maybeSingle();
     if (error) {
@@ -78,7 +80,7 @@ export async function PUT(request: Request) {
     if (error) {
       if (notApplied(error))
         return NextResponse.json(
-          { error: 'Apply migration 278 first' },
+          { error: 'Apply migration 290 first' },
           { status: 409 }
         );
       if (error.code === '42501')
@@ -90,7 +92,7 @@ export async function PUT(request: Request) {
       );
     }
     return NextResponse.json(
-      kbLearnSettingsFrom(data as { enabled?: unknown; last_run_at?: unknown })
+      kbLearnSettingsFrom(data as Parameters<typeof kbLearnSettingsFrom>[0])
     );
   } catch (err) {
     return toErrorResponse(err);

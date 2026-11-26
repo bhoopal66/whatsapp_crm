@@ -49,6 +49,8 @@ interface DbOpts {
   conv?: Row | null;
   contact?: Row | null;
   messageInsert?: { data: Row | null; error: { message: string } | null };
+  /** A table the database cannot read right now. */
+  refuse?: string;
 }
 
 /**
@@ -84,6 +86,8 @@ function fakeDb(opts: DbOpts) {
           return b;
         },
         maybeSingle: async () => {
+          if (opts.refuse === table)
+            return { data: null, error: { code: '57014' } };
           const row = tables[table] ?? null;
           const hit = row && filters.every(([c, v]) => row[c] === v);
           return { data: hit ? row : null, error: null };
@@ -374,6 +378,17 @@ describe('createHrSendPort: typed refusals (029a)', () => {
       reason,
     });
   });
+
+  it.each(['conversations', 'contacts'])(
+    'a failed read of %s is tried again, not terminal',
+    async (table) => {
+      const { db } = fakeDb({ refuse: table });
+      expect(await refusal(createHrSendPort(db).send(req()))).toEqual({
+        retryable: true,
+        reason: 'database_error',
+      });
+    }
+  );
 
   it('a personal number is terminal', async () => {
     vi.mocked(loadChannels).mockResolvedValue([channel({ isPersonal: true })]);

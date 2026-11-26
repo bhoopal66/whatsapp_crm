@@ -11,6 +11,11 @@ const mocks = vi.hoisted(() => ({
   rls: null as unknown as FakeDb,
 }));
 
+// `loadGroupForCaller` asks whether the row mirrors a submission group
+// (299); server.load-group.test.ts pins its answers.
+vi.mock('@/lib/groups/submission-ids', () => ({
+  submissionGroupIds: async () => new Set<string>(),
+}));
 vi.mock('@/lib/auth/account', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/auth/account')>()),
   getCurrentAccount: mocks.getCurrentAccount,
@@ -26,6 +31,7 @@ vi.mock('@/lib/whatsapp/groups', async (importOriginal) => ({
   deleteIcon: mocks.deleteIcon,
 }));
 
+import { WhapiError } from '@/lib/whatsapp/whapi-api';
 import { DELETE, GET, PUT } from './route';
 
 const G = '22222222-2222-4222-8222-222222222222';
@@ -85,6 +91,7 @@ describe('GET', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toBe('image/jpeg');
     expect(res.headers.get('cache-control')).toBe('private, max-age=300');
+    expect(res.headers.get('vary')).toBe('Cookie');
     expect(new Uint8Array(await res.arrayBuffer())).toEqual(
       new Uint8Array([1, 2, 3])
     );
@@ -103,6 +110,39 @@ describe('GET', () => {
       contentType: 'text/html',
     });
     expect((await GET(new Request('http://x'), params)).status).toBe(404);
+  });
+
+  it('refuses an SVG (script on our origin) and sandboxes what it serves', async () => {
+    mocks.getIcon.mockResolvedValue({
+      bytes: new TextEncoder().encode('<svg onload="alert(1)"/>').buffer,
+      contentType: 'image/svg+xml',
+    });
+    expect((await GET(new Request('http://x'), params)).status).toBe(404);
+    mocks.getIcon.mockResolvedValue({
+      bytes: new Uint8Array([1]).buffer,
+      contentType: 'image/png',
+    });
+    const ok = await GET(new Request('http://x'), params);
+    expect(ok.headers.get('content-security-policy')).toContain('sandbox');
+  });
+
+  it('lets a browser keep "no picture" for an hour, but no other 404', async () => {
+    mocks.getIcon.mockResolvedValue(null);
+    const none = await GET(new Request('http://x/icon?v=0'), params);
+    expect(none.status).toBe(404);
+    expect(none.headers.get('cache-control')).toBe('private, max-age=600');
+    // A gateway's own 404 is the same answer.
+    mocks.getIcon.mockRejectedValue(new WhapiError('not found', 404));
+    const gone = await GET(new Request('http://x/icon?v=0'), params);
+    expect(gone.headers.get('cache-control')).toBe('private, max-age=600');
+    // After a change on the screen: never an answer kept from before.
+    const changed = await GET(new Request('http://x/icon?v=1'), params);
+    expect(changed.headers.get('cache-control')).toBe('no-store');
+
+    mocks.rls.tables.whatsapp_groups = [];
+    const hidden = await GET(new Request('http://x/icon?v=0'), params);
+    expect(hidden.status).toBe(404);
+    expect(hidden.headers.get('cache-control')).toBe('no-store');
   });
 
   it('answers 404 when there is no picture', async () => {

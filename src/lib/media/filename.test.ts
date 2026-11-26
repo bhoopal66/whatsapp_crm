@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   basenameFromUrl,
+  documentCaption,
   extensionForMime,
   mediaFilename,
   sanitizeFilename,
@@ -249,5 +250,20 @@ describe("mediaFilename", () => {
         "application/pdf",
       ),
     ).toBe("invoice.pdf");
+  });
+});
+
+describe("documentCaption", () => {
+  it("is empty when content_text is just the file name", () => {
+    expect(documentCaption({ content_text: "invoice.pdf" })).toBe("");
+    expect(documentCaption({ content_text: undefined })).toBe("");
+  });
+  it("returns prose and multi-line text as the caption", () => {
+    expect(documentCaption({ content_text: "Please review" })).toBe(
+      "Please review"
+    );
+    expect(documentCaption({ content_text: "Line one\nsee a.pdf" })).toBe(
+      "Line one\nsee a.pdf"
+    );
   });
 });

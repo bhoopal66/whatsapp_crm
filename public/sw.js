@@ -136,6 +136,100 @@ self.addEventListener('push', function (event) {
   );
 });
 
+// Where no dashboard shell is mounted, so nothing follows a message:
+// the pages of src/app outside (dashboard). Nothing is being written in
+// them that a load could lose. sw-click.test.ts keeps the list complete.
+var OUTSIDE_PATHS = ['/login', '/forgot-password', '/join', '/f'];
+
+function isAppPage(pathname) {
+  return (
+    pathname !== '/' &&
+    !OUTSIDE_PATHS.some(function (p) {
+      return pathname === p || pathname.indexOf(p + '/') === 0;
+    })
+  );
+}
+
+// The tab a click opens in: an app tab over a sign-in page, then the one
+// in front, then one that can be seen.
+function bestClient(list) {
+  var best = null;
+  var bestScore = -1;
+  list.forEach(function (c) {
+    var u;
+    try {
+      u = new URL(c.url);
+    } catch (_e) {
+      return;
+    }
+    if (u.origin !== self.location.origin) return;
+    var app = isAppPage(u.pathname);
+    var score =
+      (app ? 4 : 0) + (c.focused ? 2 : 0) + (c.visibilityState === 'visible' ? 1 : 0);
+    if (score > bestScore) {
+      best = { client: c, app: app };
+      bestScore = score;
+    }
+  });
+  return best;
+}
+
+var ACK_WAIT_MS = 700;
+// A page still starting up has no listener yet: it is told again.
+var RETRY_WAITS_MS = [1300, 2000];
+var clickSeq = 0;
+
+// Ask the page to go there; whether it answered in time.
+function askPage(client, message, waitMs) {
+  return new Promise(function (resolve) {
+    var channel = new MessageChannel();
+    var timer = setTimeout(function () {
+      done(false);
+    }, waitMs);
+    function done(answered) {
+      clearTimeout(timer);
+      channel.port1.close();
+      resolve(answered);
+    }
+    channel.port1.onmessage = function () {
+      done(true);
+    };
+    client.postMessage(message, [channel.port2]);
+  });
+}
+
+// The page goes there itself (lib/push/navigate.ts): a load loses every
+// unsent draft, staged file and recording of the tab.
+//
+// 'push:navigate' is followed by every version of the app page, but the
+// ones before 2026-11-25 never answer. So an app page is never loaded
+// for want of an answer: an older one has gone there already, and a slow
+// one still will. It is only asked again with 'push:open', which the
+// older ones ignore. A page outside the app follows neither; it is asked
+// with 'push:open' alone (its url may be out of date, and an older page
+// must not be both sent there and loaded), and loaded on no answer.
+function openInClient(client, app, url) {
+  clickSeq += 1;
+  var id = Date.now() + '-' + clickSeq;
+  var retry = { type: 'push:open', url: url, id: id };
+  var first = app ? { type: 'push:navigate', url: url, id: id } : retry;
+  return askPage(client, first, ACK_WAIT_MS).then(function (answered) {
+    if (answered) return undefined;
+    if (!app) {
+      return typeof client.navigate === 'function'
+        ? client.navigate(url).catch(function () {
+            return undefined;
+          })
+        : undefined;
+    }
+    return RETRY_WAITS_MS.reduce(function (before, waitMs) {
+      return before.then(function (done) {
+        return done || askPage(client, retry, waitMs);
+      });
+    }, Promise.resolve(false));
+  });
+}
+
 self.addEventListener('notificationclick', function (event) {
   event.notification.close();
   var url = safeUrl(event.notification.data && event.notification.data.url);
@@ -144,25 +238,17 @@ self.addEventListener('notificationclick', function (event) {
     self.clients
       .matchAll({ type: 'window', includeUncontrolled: true })
       .then(function (list) {
-        var client = list.find(function (c) {
-          try {
-            return new URL(c.url).origin === self.location.origin;
-          } catch (_e) {
-            return false;
-          }
-        });
-        if (!client) return self.clients.openWindow(url);
+        var best = bestClient(list);
+        if (!best) return self.clients.openWindow(url);
 
-        return client.focus().then(function (focused) {
-          var target = focused || client;
-          if (typeof target.navigate === 'function') {
-            return target.navigate(url).catch(function () {
-              target.postMessage({ type: 'push:navigate', url: url });
-            });
-          }
-          target.postMessage({ type: 'push:navigate', url: url });
-          return undefined;
-        });
+        return best.client
+          .focus()
+          .catch(function () {
+            return null;
+          })
+          .then(function (focused) {
+            return openInClient(focused || best.client, best.app, url);
+          });
       })
   );
 });

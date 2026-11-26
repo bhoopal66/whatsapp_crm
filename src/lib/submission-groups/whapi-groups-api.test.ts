@@ -34,7 +34,10 @@ import {
   createWhapiGroupsApi,
   SubmissionGroupChannelError,
 } from './whapi-groups-api';
-import { SubmissionGroupNumberDisconnectedError } from './service';
+import {
+  SubmissionGroupNotAttemptedError,
+  SubmissionGroupNumberDisconnectedError,
+} from './service';
 import {
   closeRemainingText,
   SubmissionGroupCloseIncompleteError,
@@ -276,6 +279,18 @@ describe('sendGroupText', () => {
       text: 'hi',
     });
   });
+
+  it('a number that cannot be read is NotAttempted; a removed one is ChannelError', async () => {
+    h.sendGroupText.mockClear();
+    h.loadChannels.mockRejectedValueOnce(new Error('read failed'));
+    await expect(
+      api().sendGroupText('cfg-1', WA_GROUP, 'hi')
+    ).rejects.toBeInstanceOf(SubmissionGroupNotAttemptedError);
+    await expect(
+      api().sendGroupText('cfg-gone', WA_GROUP, 'hi')
+    ).rejects.toBeInstanceOf(SubmissionGroupChannelError);
+    expect(h.sendGroupText).not.toHaveBeenCalled();
+  });
 });
 
 describe('closeGroup', () => {
@@ -455,6 +470,33 @@ describe('addParticipant (211)', () => {
     await expect(
       api().addParticipant('cfg-1', WA_GROUP, '971501234567')
     ).rejects.toThrow('unavailable');
+  });
+
+  it('tells an add that may have happened from one that did not', async () => {
+    const thrownFor = async (error: string | null) => {
+      h.addParticipants.mockResolvedValue(
+        outcome({ notAttempted: ['971501234567'], error })
+      );
+      return api()
+        .addParticipant('cfg-1', WA_GROUP, '971501234567')
+        .catch((err: unknown) => err);
+    };
+    for (const error of ['not_admin', 'rate_limited', 'time_budget', null]) {
+      expect(await thrownFor(error)).toBeInstanceOf(
+        SubmissionGroupNotAttemptedError
+      );
+    }
+    for (const error of ['gateway_unavailable', 'unknown']) {
+      expect(await thrownFor(error)).not.toBeInstanceOf(
+        SubmissionGroupNotAttemptedError
+      );
+    }
+    h.loadChannels.mockRejectedValueOnce(new Error('db down'));
+    expect(
+      await api()
+        .addParticipant('cfg-1', WA_GROUP, '971501234567')
+        .catch((err: unknown) => err)
+    ).toBeInstanceOf(SubmissionGroupNotAttemptedError);
   });
 
   it('throws when the number was never tried, with no error named', async () => {

@@ -55,7 +55,7 @@ vi.mock('./typesafe-gates', async (importOriginal) => ({
   enforcedPartnerBanks: async () => null,
 }));
 vi.mock('./opt-out', () => ({ markOptedOut: h.markOptedOut }));
-vi.mock('./usage', () => ({ logAiUsage: vi.fn() }));
+vi.mock('./usage', () => ({ logAiUsage: vi.fn(), logFailedAiUsage: vi.fn() }));
 vi.mock('@/lib/typesafe', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/typesafe')>()),
   getDecisionLayer: () => h.decisionLayer,
@@ -113,6 +113,9 @@ vi.mock('./admin-client', () => ({
       return chain;
     },
     rpc: (name: string) => {
+      if (name === 'hr_is_line') {
+        return Promise.resolve({ data: false, error: null });
+      }
       h.state.rpcCalls.push(name);
       return Promise.resolve({ data: h.state.claim, error: null });
     },

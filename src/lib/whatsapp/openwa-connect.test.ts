@@ -477,3 +477,26 @@ describe('openwaPollDelayMs', () => {
     expect(openwaPollDelayMs(7, true)).toBeNull();
   });
 });
+
+describe('connectReducer — a refused phone', () => {
+  it('fails with the server text and leaves nothing to clean up', () => {
+    let state = connectReducer(initialConnectState, { type: 'start' });
+    state = connectReducer(state, { type: 'created', configId: 'c1', at: 0 });
+    state = connectReducer(state, { type: 'refused', error: 'in use' });
+    expect(state).toMatchObject({
+      phase: 'failed',
+      failure: 'refused',
+      error: 'in use',
+      configId: null,
+    });
+    expect(cleanupPlan(state)).toBe('none');
+  });
+
+  it('is ignored once the dialog is no longer polling', () => {
+    const state = connectReducer(initialConnectState, {
+      type: 'refused',
+      error: 'in use',
+    });
+    expect(state).toBe(initialConnectState);
+  });
+});

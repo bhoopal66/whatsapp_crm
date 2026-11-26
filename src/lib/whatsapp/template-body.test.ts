@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import {
+  onePerTemplate,
+  pickTemplateRow,
+  renderedForLinkedDevice,
   renderTemplateBody,
   resolveTemplateRow,
   templateBodyParams,
@@ -18,6 +21,7 @@ function row(over: Partial<MessageTemplate>): MessageTemplate {
     language: 'en_US',
     body_text: 'Your order {{1}} ships on {{2}}',
     created_at: '2026-01-01T00:00:00Z',
+    status: 'APPROVED',
     ...over,
   } as MessageTemplate;
 }
@@ -202,6 +206,127 @@ describe('resolveTemplateRow', () => {
   });
 });
 
+describe('resolveTemplateRow: two teammates hold the same one', () => {
+  const at = (day: number) => `2026-11-0${day}T00:00:00Z`;
+  const pick = async (rows: unknown[], id?: string | null, name = 'en_US') =>
+    resolveTemplateRow(
+      dbReturning(rows as never),
+      'acct-1',
+      'order_update',
+      name,
+      id
+    );
+  const metas = row({ id: 'meta', meta_template_id: 'M1', created_at: at(1) });
+  const local = row({ id: 'local', created_at: at(5) });
+
+  it('prefers the one Meta approved, in either order', async () => {
+    for (const rows of [
+      [local, metas],
+      [metas, local],
+    ]) {
+      expect((await pick(rows)).row?.id).toBe('meta');
+    }
+  });
+
+  it('then an approved one, refused ones last', async () => {
+    const paused = row({
+      id: 'paused',
+      meta_template_id: 'M1',
+      status: 'PAUSED',
+      created_at: at(9),
+    });
+    const refused = row({
+      id: 'refused',
+      submission_error: 'Bad header',
+      created_at: at(8),
+    });
+    expect((await pick([paused, refused, local])).row?.id).toBe('local');
+    expect((await pick([paused, refused])).row?.id).toBe('refused');
+  });
+
+  it('then the newest', async () => {
+    const older = row({ id: 'older', created_at: at(2) });
+    expect((await pick([older, local])).row?.id).toBe('local');
+    expect((await pick([local, older])).row?.id).toBe('local');
+  });
+
+  it('sends exactly the row that was chosen, in its own language', async () => {
+    const other = row({ id: 'other', language: 'en', created_at: at(1) });
+    const chosen = await pick([metas, local, other], 'local');
+    expect(chosen.row?.id).toBe('local');
+    expect(await pick([metas, other], 'other', 'en_US')).toMatchObject({
+      row: { id: 'other' },
+      language: 'en',
+    });
+  });
+
+  it('falls back when the id is not among them', async () => {
+    expect((await pick([local, metas], 'elsewhere')).row?.id).toBe('meta');
+    expect((await pick([local, metas], null)).row?.id).toBe('meta');
+  });
+});
+
+describe('pickTemplateRow', () => {
+  const at = (day: number) => `2026-11-0${day}T00:00:00Z`;
+  const rows = [
+    row({ id: 'paused', meta_template_id: 'M', status: 'PAUSED' }),
+    row({ id: 'refused', submission_error: 'Bad', created_at: at(9) }),
+    row({ id: 'old', created_at: at(2) }),
+    row({ id: 'new', created_at: at(3) }),
+    row({ id: 'meta', meta_template_id: 'M2', created_at: at(1) }),
+  ];
+  const order = (list: MessageTemplate[]) => {
+    const left = list.slice();
+    const out: string[] = [];
+    while (left.length) {
+      const hit = pickTemplateRow(left, 'en_US')!;
+      out.push(hit.id);
+      left.splice(left.indexOf(hit), 1);
+    }
+    return out;
+  };
+
+  it("Meta's approved, then approved, then refused, then the rest; newest first", () => {
+    const expected = ['meta', 'new', 'old', 'refused', 'paused'];
+    expect(order(rows)).toEqual(expected);
+    expect(order(rows.slice().reverse())).toEqual(expected);
+  });
+
+  it('a language before a preference, its base when it has no exact row', () => {
+    const ar = row({ id: 'ar', language: 'ar' });
+    const en = row({ id: 'en', language: 'en', status: 'PAUSED' });
+    expect(pickTemplateRow([ar, en], 'EN')?.id).toBe('en');
+    expect(pickTemplateRow([ar, en], 'en_US')?.id).toBe('en');
+    expect(pickTemplateRow([ar, en])?.id).toBe('en');
+    expect(pickTemplateRow([ar], 'en')).toBeUndefined();
+    expect(pickTemplateRow([], 'en')).toBeUndefined();
+  });
+
+  it('the chosen row, when it is among them', () => {
+    expect(pickTemplateRow(rows, 'ar', 'old')?.id).toBe('old');
+    expect(pickTemplateRow(rows, 'en_US', 'gone')?.id).toBe('meta');
+  });
+
+  it('leaves the rows as they were', () => {
+    const before = rows.map((r) => r.id);
+    pickTemplateRow(rows);
+    expect(rows.map((r) => r.id)).toEqual(before);
+  });
+});
+
+describe('onePerTemplate', () => {
+  it('keeps the row a send of each name and language uses, in order', () => {
+    const out = onePerTemplate([
+      row({ id: 'b-refused', name: 'b', submission_error: 'Bad' }),
+      row({ id: 'a-en', name: 'a', language: 'en' }),
+      row({ id: 'a-ar', name: 'a', language: 'ar' }),
+      row({ id: 'b-meta', name: 'b', meta_template_id: 'M' }),
+      row({ id: 'c-none', name: 'c', language: undefined }),
+    ]);
+    expect(out.map((r) => r.id)).toEqual(['b-meta', 'a-en', 'a-ar', 'c-none']);
+  });
+});
+
 describe('templateContentText', () => {
   it('renders the substituted body from the local row', () => {
     expect(templateContentText(row({}), ['A123', 'Friday'])).toBe(
@@ -217,5 +342,54 @@ describe('templateContentText', () => {
 
   it('is null when there is no local row to render from', () => {
     expect(templateContentText(null, ['A123'])).toBeNull();
+  });
+});
+
+describe('renderedForLinkedDevice', () => {
+  const row = (over: Partial<MessageTemplate>) =>
+    ({
+      id: 't',
+      name: 't',
+      language: 'en',
+      body_text: 'Hi',
+      ...over,
+    }) as MessageTemplate;
+
+  it('fills the header text with its own value', () => {
+    const t = row({ header_type: 'text', header_content: 'Case {{1}}' });
+    expect(
+      renderedForLinkedDevice(t, { body: ['x'], headerText: ' TC-1 ' })
+        .header_content
+    ).toBe('Case TC-1');
+  });
+
+  it('leaves the header as it is when no value was given', () => {
+    const t = row({ header_type: 'text', header_content: 'Case {{1}}' });
+    expect(renderedForLinkedDevice(t)).toBe(t);
+    expect(renderedForLinkedDevice(t, { headerText: '  ' })).toBe(t);
+    expect(renderedForLinkedDevice(t, { headerText: 7 })).toBe(t);
+  });
+
+  it('takes the picture from where the editor stores it', () => {
+    const t = row({
+      header_type: 'image',
+      header_media_url: 'https://h/a.png',
+    });
+    expect(renderedForLinkedDevice(t).header_content).toBe('https://h/a.png');
+    expect(
+      renderedForLinkedDevice(t, { headerMediaUrl: 'https://h/b.png' })
+        .header_content
+    ).toBe('https://h/b.png');
+  });
+
+  it('keeps a link already in the old place, and a template without one', () => {
+    const old = row({
+      header_type: 'document',
+      header_content: 'https://h/old.pdf',
+      header_media_url: 'https://h/new.pdf',
+    });
+    expect(renderedForLinkedDevice(old)).toBe(old);
+    const none = row({ header_type: 'video' });
+    expect(renderedForLinkedDevice(none)).toBe(none);
   });
 });

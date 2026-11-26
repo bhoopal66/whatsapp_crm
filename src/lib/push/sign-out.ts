@@ -15,6 +15,8 @@
  * `repair.ts` turns it back on when they sign in again.
  */
 
+import { markExplicitSignOut } from '@/lib/auth/explicit-sign-out';
+
 import {
   readPushEnabledBy,
   releaseOnSessionChange,
@@ -81,6 +83,7 @@ export async function signOutReleasingPush<R>(
   deps?: PushSignOutDeps
 ): Promise<R> {
   await releasePushOnSignOut(opts, deps);
+  markExplicitSignOut();
   return signOut();
 }
 

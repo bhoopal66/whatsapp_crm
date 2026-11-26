@@ -109,6 +109,9 @@ describe('releaseBroadcastDelivery', () => {
 // ============================================================
 
 interface PlanFixture {
+  /** Contacts saved under another form of a recipient's number. */
+  contacts?: Record<string, unknown>[];
+  contactsError?: boolean;
   broadcast?: Record<string, unknown> | null;
   recipients?: Record<string, unknown>[];
   config?: Record<string, unknown> | null;
@@ -186,6 +189,13 @@ function planDb(fx: PlanFixture, writes: PlanWrites = {}): SupabaseClient {
               count: all.length,
               error: null,
             });
+          }
+          if (table === 'contacts') {
+            return resolve(
+              fx.contactsError
+                ? ({ data: null, error: { message: 'down' } } as never)
+                : { data: fx.contacts ?? [], error: null }
+            );
           }
           if (table === 'message_templates') {
             // Whapi renders templates locally, so a plan is impossible
@@ -393,6 +403,107 @@ describe('planBroadcastResume', () => {
     expect(plan.planned).toHaveLength(1);
   });
 
+  it.each([
+    ['0501234567', '971501234567'],
+    ['50 123 4567', '971501234567'],
+    ['00971501234567', '971501234567'],
+    ['9710501234567', '971501234567'],
+    // Breaks the entry rules, but not local: as WhatsApp gave it.
+    ['97150123456789', '97150123456789'],
+  ])('sends to %s as %s', async (saved, phone) => {
+    const { plan } = await planBroadcastResume(
+      planDb({
+        broadcast: BROADCAST,
+        config: CONFIG,
+        recipients: [recipient('r1', saved)],
+      }),
+      'acct-1',
+      'bc-1',
+      'pending'
+    );
+    expect(plan.planned.map((p) => p.phone)).toEqual([phone]);
+  });
+
+  it('fails a local number it cannot complete, never sending it as it is', async () => {
+    const writes: PlanWrites = {};
+    const { plan, unsendable } = await planBroadcastResume(
+      planDb(
+        {
+          broadcast: BROADCAST,
+          config: CONFIG,
+          recipients: [
+            recipient('r1', '+971 50 123 4567'),
+            recipient('r2', '98765 43210'),
+            recipient('r3', '04 123 4567'),
+          ],
+        },
+        writes
+      ),
+      'acct-1',
+      'bc-1',
+      'pending'
+    );
+    expect(plan.planned.map((p) => p.recipientRowId)).toEqual(['r1']);
+    expect(unsendable).toBe(2);
+    expect(writes.updates).toEqual([
+      {
+        row: {
+          status: 'failed',
+          error_message: 'No valid phone number on contact',
+        },
+        ids: ['r2', 'r3'],
+      },
+    ]);
+  });
+
+  it('never reaches an opted-out customer through another spelling of their number', async () => {
+    const writes: PlanWrites = {};
+    const fx: PlanFixture = {
+      broadcast: BROADCAST,
+      config: CONFIG,
+      recipients: [
+        recipient('r1', '+971 50 123 4567'),
+        recipient('r2', '0501234568'),
+        recipient('r3', '0501234569'),
+      ],
+      contacts: [
+        {
+          phone_normalized: '971501234568',
+          opted_out_at: '2026-10-08T09:00:00Z',
+          do_not_contact_at: null,
+        },
+        {
+          phone_normalized: '971501234569',
+          opted_out_at: null,
+          do_not_contact_at: null,
+        },
+      ],
+    };
+    const { plan, optedOut } = await planBroadcastResume(
+      planDb(fx, writes),
+      'acct-1',
+      'bc-1',
+      'pending'
+    );
+    expect(plan.planned.map((p) => p.recipientRowId)).toEqual(['r1', 'r3']);
+    expect(optedOut).toBe(1);
+    expect(writes.updates).toEqual([
+      {
+        row: { status: 'failed', error_message: OPTED_OUT_REASON },
+        ids: ['r2'],
+      },
+    ]);
+
+    await expect(
+      planBroadcastResume(
+        planDb({ ...fx, contactsError: true }),
+        'acct-1',
+        'bc-1',
+        'pending'
+      )
+    ).rejects.toMatchObject({ status: 500 });
+  });
+
   it('drops a recipient who opted out after planning and fails the row with the reason', async () => {
     const writes: PlanWrites = {};
     const { plan, optedOut, unsendable } = await planBroadcastResume(
@@ -484,6 +595,37 @@ describe('planBroadcastResume', () => {
       'pending'
     );
     expect(plan.templateRow.language).toBe('en');
+  });
+});
+
+describe('planBroadcastResume — a template Meta refused', () => {
+  const plan = (provider: string, over: Record<string, unknown>) =>
+    planBroadcastResume(
+      planDb({
+        broadcast: BROADCAST,
+        config: { ...CONFIG, provider, waba_id: 'waba-1' },
+        recipients: [recipient('r1', '+15551234567')],
+        templates: [{ ...TEMPLATE_ROW, ...over }],
+      }),
+      'acct-1',
+      'bc-1',
+      'pending'
+    ).catch((e: unknown) => e);
+  const REFUSED = { meta_template_id: null, submission_error: 'Bad footer' };
+
+  it('is refused on the Meta number, and never as a 409', async () => {
+    expect(await plan('meta', REFUSED)).toMatchObject({
+      code: 'template_refused',
+      status: 400,
+      message: expect.stringContaining('Bad footer'),
+    });
+  });
+
+  it.each([
+    ['a linked number', 'whapi', REFUSED],
+    ['one Meta took since', 'meta', { ...REFUSED, meta_template_id: 'M' }],
+  ])('goes out: %s', async (_, provider, over) => {
+    expect(await plan(provider, over)).toHaveProperty('plan');
   });
 });
 

@@ -68,6 +68,7 @@ describe('arguments', () => {
       metaTemplateName: 'cv_ack_ar',
       approvalStatus: 'approved',
       category: 'utility',
+      expectedUpdatedAt: '2026-11-24T10:00:00.123456+00:00',
     });
     expect(rpc).toHaveBeenCalledWith('hr_automsg_template_set', {
       p_kind: 'cv_ack',
@@ -77,6 +78,7 @@ describe('arguments', () => {
       p_approval_status: 'approved',
       p_category: 'utility',
       p_channel: 'whatsapp',
+      p_expected: '2026-11-24T10:00:00.123456+00:00',
     });
   });
 
@@ -90,12 +92,14 @@ describe('arguments', () => {
       approvalStatus: 'approved',
       category: 'utility',
       channel: 'rcs',
+      expectedUpdatedAt: null,
     });
     expect(rpc).toHaveBeenCalledWith(
       'hr_automsg_template_set',
       expect.objectContaining({
         p_meta_template_name: 'prov:cv.ack-1',
         p_channel: 'rcs',
+        p_expected: null,
       })
     );
   });

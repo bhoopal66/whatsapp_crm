@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createFakeDb, type FakeDb } from '@/lib/pbx/__tests__/fake-db';
-import type { CallInfo, CallMember } from '@/lib/pbx/yeastar';
+import {
+  YeastarError,
+  type CallInfo,
+  type CallMember,
+} from '@/lib/pbx/yeastar';
 
 const mocks = vi.hoisted(() => ({
   requireRole: vi.fn(),
@@ -79,7 +83,9 @@ let service: FakeDb;
 function as(
   role: string,
   extension = '201',
-  visible = [{ id: C1, phone: '971501234567' }]
+  visible = [
+    { id: C1, phone: '971501234567', phone_normalized: '971501234567' },
+  ]
 ) {
   rls = createFakeDb(
     {
@@ -122,6 +128,7 @@ beforeEach(() => {
         account_id: A,
         user_id: 'owner-9',
         phone: '971501234567',
+        phone_normalized: '971501234567',
         do_not_contact_at: null,
       },
       {
@@ -129,6 +136,7 @@ beforeEach(() => {
         account_id: A,
         user_id: 'owner-8',
         phone: '971502222222',
+        phone_normalized: '971502222222',
         do_not_contact_at: null,
       },
       {
@@ -136,6 +144,7 @@ beforeEach(() => {
         account_id: A,
         user_id: null,
         phone: '971503333333',
+        phone_normalized: '971503333333',
         do_not_contact_at: '2026-10-01T00:00:00Z',
         do_not_contact_reason: 'Asked',
       },
@@ -316,6 +325,15 @@ describe('POST /api/pbx/calls/[pbxCallId]/[action]', () => {
     });
   });
 
+  it.each([
+    ['+971 50 123 4567', '971501234567'],
+    ['050 123 4567', '0501234567'],
+  ])('transfers to a visible customer saved as %s', async (phone, digits) => {
+    as('agent', '201', [{ id: C1, phone, phone_normalized: digits }]);
+    const res = await post('pbx-1', 'transfer', { number: '0501234567' });
+    expect(res.status).toBe(200);
+  });
+
   it('validates the transfer body', async () => {
     for (const body of [
       {},
@@ -329,5 +347,38 @@ describe('POST /api/pbx/calls/[pbxCallId]/[action]', () => {
       409
     );
     expect(api.transfer).not.toHaveBeenCalled();
+  });
+});
+
+describe('a leg that ended between the query and the action', () => {
+  const refuse = (errcode: number) =>
+    new YeastarError({ endpoint: 'call/hangup', errcode, errmsg: 'X' });
+
+  it('is a 404 call_gone, not a fault of the phone system', async () => {
+    as('agent');
+    for (const a of ACTS) {
+      api[a].mockRejectedValueOnce(refuse(70130));
+      const res = await POST(
+        new Request('http://x', {
+          method: 'POST',
+          body: JSON.stringify({ number: '202' }),
+        }),
+        { params: Promise.resolve({ id: 'pbx-1', action: a }) }
+      );
+      expect(res.status, a).toBe(404);
+      expect(await res.json()).toEqual({
+        error: 'This call has already ended',
+        code: 'call_gone',
+      });
+    }
+  });
+
+  it('any other refusal stays a 502', async () => {
+    as('agent');
+    api.hangup.mockRejectedValueOnce(refuse(10009));
+    const res = await POST(new Request('http://x', { method: 'POST' }), {
+      params: Promise.resolve({ id: 'pbx-1', action: 'hangup' }),
+    });
+    expect(res.status).toBe(502);
   });
 });

@@ -17,6 +17,7 @@ function num(id: string, extra: Partial<AccountNumber> = {}): AccountNumber {
     status: 'connected',
     is_personal: false,
     user_id: null,
+    access_restricted: false,
     ...extra,
   };
 }

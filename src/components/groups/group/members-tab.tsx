@@ -1,5 +1,6 @@
 'use client';
 
+import { latinDigits } from '@/lib/contacts/digits';
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
@@ -31,6 +32,7 @@ import { useAccountNumbers } from '@/hooks/use-whatsapp-numbers';
 import {
   reasonKey,
   removalFailed,
+  roleChangeToast,
   summarizeAddMembers,
   type AddMembersSummary,
 } from '@/lib/groups/group-page';
@@ -80,7 +82,7 @@ export function MembersTab({
 
   const shown = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const digits = q.replace(/\D/g, '');
+    const digits = latinDigits(q).replace(/\D/g, '');
     return detail.participants.filter(
       (p) =>
         !q ||
@@ -104,11 +106,12 @@ export function MembersTab({
         body: JSON.stringify({ waIds: [p.wa_id], role }),
       });
       if (!res.ok) return await failed(res);
-      toast.success(
-        m(role === 'admin' ? 'toastMadeAdmin' : 'toastRemovedAdmin', {
-          name: nameOf(p),
-        })
-      );
+      // 200 even when WhatsApp refused: `failed` names who did not change.
+      const json = (await res.json().catch(() => null)) as unknown;
+      const key = roleChangeToast(json, role);
+      const text = m(key, { name: nameOf(p) });
+      if (removalFailed(json)) toast.error(text);
+      else toast.success(text);
       await reload();
     } catch {
       toast.error(t('reasons.unknown'));
@@ -187,7 +190,7 @@ export function MembersTab({
                       </Link>
                     ) : (
                       <span className="min-w-0 truncate font-medium">
-                        {formatWaId(p.wa_id)}
+                        <bdi dir="ltr">{formatWaId(p.wa_id)}</bdi>
                       </span>
                     )}
                     {own && <Badge variant="outline">{m('thisNumber')}</Badge>}
@@ -201,7 +204,7 @@ export function MembersTab({
                   </div>
                   {p.contact_name && (
                     <p className="text-muted-foreground truncate text-xs">
-                      {formatWaId(p.wa_id)}
+                      <bdi dir="ltr">{formatWaId(p.wa_id)}</bdi>
                     </p>
                   )}
                 </div>
@@ -338,14 +341,14 @@ function AddMembersDialog({
     <ul className="space-y-0.5">
       {items.map((w) => (
         <li key={w} className="truncate">
-          {formatWaId(w)}
+          <bdi dir="ltr">{formatWaId(w)}</bdi>
         </li>
       ))}
     </ul>
   );
 
   return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
+    <Dialog open onOpenChange={(o) => !o && !busy && onClose()}>
       <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{m('addTitle')}</DialogTitle>
@@ -448,7 +451,12 @@ function AddMembersDialog({
               })}
             </p>
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={onClose}>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={busy}
+                onClick={onClose}
+              >
                 {m('cancel')}
               </Button>
               <Button type="submit" disabled={!canSubmit}>

@@ -31,7 +31,9 @@ import {
   teamRosterCacheKey,
 } from '@/lib/client-cache';
 import { isBankGuest } from '@/lib/auth/roles';
-import { assignableMembers, assignConversation } from '@/lib/inbox/assign';
+import { AssignConfirmDialog } from '@/components/inbox/assign-confirm-dialog';
+import { assignableMembers, assignFromScreen } from '@/lib/inbox/assign';
+import { startCatchUp, type LiveRead } from '@/lib/realtime/catch-up';
 import type { Profile } from '@/types';
 import {
   hrClose,
@@ -45,6 +47,7 @@ import {
 import { hasHrAccess } from '@/lib/hr/access';
 import { loadHrRoles } from '@/lib/hr/roles-cache';
 import { isHrTask } from '@/lib/hr/tasks-view';
+import { startFirstLoad, type FirstLoad } from '@/lib/hr/panel-load';
 import { mayActOnDrafts } from '@/lib/hr/agents/panel';
 import { HrAgentDrafts } from './hr-agent-drafts';
 import { HrAutomsgConsent } from './hr-automsg-consent';
@@ -88,6 +91,25 @@ interface HrPanelProps {
   onAssignChange?: (conversationId: string, userId: string | null) => void;
 }
 
+type HrRead = Awaited<ReturnType<typeof readHr>>;
+
+/** The chat's HR row and every stage it reached. */
+async function readHr(conversationId: string) {
+  const sb = createClient();
+  const [rowRes, historyRes] = await Promise.all([
+    sb
+      .from('hr_conversations')
+      .select('*')
+      .eq('conversation_id', conversationId)
+      .maybeSingle(),
+    sb
+      .from('hr_stage_history')
+      .select('to_stage')
+      .eq('conversation_id', conversationId),
+  ]);
+  return { rowRes, historyRes };
+}
+
 export function HrPanel({
   conversationId,
   inboxDepartment,
@@ -96,10 +118,12 @@ export function HrPanel({
   onAssignChange,
 }: HrPanelProps) {
   const t = useTranslations('Hr');
+  const tRows = useTranslations('InboxRows');
   const { accountId, user, accountRole, profileLoading } = useAuth();
   const userId = user?.id ?? null;
 
-  // The owner as last written here, until the page's row catches up.
+  // The owner as the database last answered here, until the page's row
+  // catches up.
   const [owner, setOwner] = useState<string | null>(assignedAgentId);
   useEffect(() => {
     setOwner(assignedAgentId);
@@ -115,10 +139,19 @@ export function HrPanel({
   const [loaded, setLoaded] = useState(false);
   const [furthest, setFurthest] = useState<HrStage | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
+  // The list's last read failed; an old list is kept, flagged.
+  const [tasksFailed, setTasksFailed] = useState(false);
+  // The first read of the row failed for good: not "not tracked".
+  const [loadFailed, setLoadFailed] = useState(false);
+  const firstLoadRef = useRef<FirstLoad | null>(null);
   const [busy, setBusy] = useState(false);
   const [doneBusy, setDoneBusy] = useState<Set<string>>(new Set());
   const [pendingClose, setPendingClose] = useState<CloseChoice | null>(null);
   const [ask, setAsk] = useState<ReasonAsk | null>(null);
+  // An owner pick that found another owner than this panel showed.
+  const [ownerAgain, setOwnerAgain] = useState<{ next: string | null } | null>(
+    null
+  );
   const [reason, setReason] = useState('');
 
   // The id this panel answers for; any late response for another chat
@@ -220,33 +253,22 @@ export function HrPanel({
           hr: '1',
         });
         const res = await fetch(`/api/tasks?${params}`);
-        if (!res.ok) return;
+        if (!res.ok) throw new Error(String(res.status));
         const body = (await res.json()) as { tasks?: Task[] };
-        if (isCurrent(id)) setTasks((body.tasks ?? []).filter(isHrTask));
+        if (isCurrent(id)) {
+          setTasks((body.tasks ?? []).filter(isHrTask));
+          setTasksFailed(false);
+        }
       } catch {
-        // The list is a convenience; the tasks screens hold the truth.
+        if (isCurrent(id)) setTasksFailed(true);
       }
     },
     [isCurrent]
   );
 
   // The row and the furthest stage ever reached.
-  useEffect(() => {
-    if (!hasAccess) return;
-    const id = conversationId;
-    const sb = createClient();
-    void (async () => {
-      const [rowRes, historyRes] = await Promise.all([
-        sb
-          .from('hr_conversations')
-          .select('*')
-          .eq('conversation_id', id)
-          .maybeSingle(),
-        sb
-          .from('hr_stage_history')
-          .select('to_stage')
-          .eq('conversation_id', id),
-      ]);
+  const show = useCallback(
+    (id: string, { rowRes, historyRes }: HrRead) => {
       if (!isCurrent(id)) return;
       const next = (rowRes.data as HrConversation | null) ?? null;
       setRow(next);
@@ -260,8 +282,40 @@ export function HrPanel({
       );
       setLoaded(true);
       if (next) void loadTasks(id);
-    })();
-  }, [conversationId, hasAccess, isCurrent, loadTasks]);
+    },
+    [isCurrent, loadTasks]
+  );
+  useEffect(() => {
+    if (!hasAccess) return;
+    const id = conversationId;
+    setLoadFailed(false);
+    const first = startFirstLoad(
+      async () => {
+        const read = await readHr(id);
+        const error = read.rowRes.error ?? read.historyRes.error;
+        if (error) throw error;
+        return read;
+      },
+      {
+        onData: (read) => show(id, read),
+        onState: (state) => {
+          if (isCurrent(id)) setLoadFailed(state === 'failed');
+        },
+      }
+    );
+    firstLoadRef.current = first;
+    return () => {
+      first.stop();
+      if (firstLoadRef.current === first) firstLoadRef.current = null;
+    };
+  }, [conversationId, hasAccess, show, isCurrent]);
+
+  // A write or the catch-up read is newer than the first read: drop it
+  // (and its retries) rather than paint over them.
+  const dropFirstLoad = useCallback(() => {
+    firstLoadRef.current?.stop();
+    setLoadFailed(false);
+  }, []);
 
   // The inbox's HR team, which narrows a lead's Owner choices. Only a
   // lead or an admin picks others, so nobody else pays for the read. The
@@ -307,16 +361,25 @@ export function HrPanel({
 
   const changeOwner = async (next: string | null) => {
     const id = conversationId;
-    const prev = owner;
-    setOwner(next);
-    const result = await assignConversation(createClient(), id, next);
-    if (!result.ok) {
-      console.error('Failed to update assignment:', result.error);
-      toast.error('Failed to update assignment');
-      if (isCurrent(id)) setOwner(prev);
-      return;
-    }
-    onAssignChange?.(id, next);
+    setOwnerAgain(null);
+    setBusy(true);
+    await assignFromScreen(
+      createClient(),
+      { conversationId: id, expected: owner, userId: next },
+      {
+        patch: (_, assignedTo) => {
+          if (isCurrent(id)) setOwner(assignedTo);
+          onAssignChange?.(id, assignedTo);
+        },
+        askAgain: () => {
+          if (!isCurrent(id)) return false;
+          setOwnerAgain({ next });
+          return true;
+        },
+        fail: (key) => toast.error(tRows(key, { customer: contactName })),
+      }
+    );
+    if (isCurrent(id)) setBusy(false);
   };
 
   const rowRef = useRef<HrConversation | null>(null);
@@ -332,11 +395,17 @@ export function HrPanel({
     setPendingClose(null);
   }, [rowInbox, rowClosed]);
 
-  // Live: another person's write (or a rule's flag) lands here too.
+  // Live: another person's write (or a rule's flag) lands here too. A
+  // catch-up read in flight may be older than it, so it is dropped.
+  const liveRef = useRef<LiveRead | null>(null);
   const onChangeRef = useRef<(next: HrConversation | null) => void>(() => {});
   useEffect(() => {
     onChangeRef.current = (next) => {
       if (!isCurrent(conversationId)) return;
+      liveRef.current?.changed();
+      // A first read still on its way is older than this: asked again,
+      // for the row alone does not open the panel.
+      firstLoadRef.current?.retry();
       const prev = rowRef.current;
       setRow(next);
       if (next) {
@@ -355,6 +424,21 @@ export function HrPanel({
   });
   useEffect(() => {
     if (!hasAccess) return;
+    // After a gap in realtime: what the first load read. A failed read
+    // leaves the panel as it is.
+    const live = startCatchUp(
+      async () => {
+        const read = await readHr(conversationId);
+        const error = read.rowRes.error ?? read.historyRes.error;
+        if (error) throw error;
+        return read;
+      },
+      (read) => {
+        dropFirstLoad();
+        show(conversationId, read);
+      }
+    );
+    liveRef.current = live;
     const sb = createClient();
     const channel = sb
       .channel(`hr-panel:${conversationId}`)
@@ -374,11 +458,13 @@ export function HrPanel({
           );
         }
       )
-      .subscribe();
+      .subscribe(live.onStatus);
     return () => {
+      live.stop();
+      liveRef.current = null;
       void sb.removeChannel(channel);
     };
-  }, [conversationId, hasAccess]);
+  }, [conversationId, hasAccess, show, dropFirstLoad]);
 
   const run = useCallback(
     async (write: () => Promise<HrResult<HrConversation>>) => {
@@ -398,13 +484,15 @@ export function HrPanel({
         toast.error(t(`error.${res.error}`));
         return false;
       }
+      liveRef.current?.changed();
+      dropFirstLoad();
       setRow(res.data);
       setFurthest((f) => laterStage(f, res.data.stage_key));
       // Rules open tasks on stage and topic changes.
       void loadTasks(id);
       return true;
     },
-    [conversationId, isCurrent, loadTasks, t]
+    [conversationId, isCurrent, loadTasks, dropFirstLoad, t]
   );
 
   const sb = () => createClient();
@@ -459,6 +547,27 @@ export function HrPanel({
     }
   };
 
+  if (
+    !loaded &&
+    loadFailed &&
+    roles &&
+    showHrPanel(roles, inboxDepartment, false)
+  )
+    return (
+      <div className="flex items-center gap-2 text-xs">
+        <span className="text-muted-foreground">{t('panel.loadFailed')}</span>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            setLoadFailed(false);
+            firstLoadRef.current?.retry();
+          }}
+        >
+          {t('panel.retry')}
+        </Button>
+      </div>
+    );
   if (!roles || !showHrPanel(roles, inboxDepartment, row !== null) || !loaded)
     return null;
 
@@ -503,6 +612,8 @@ export function HrPanel({
       actions={actions}
       steps={steps}
       tasks={tasks}
+      tasksFailed={tasksFailed}
+      onRetryTasks={() => void loadTasks(conversationId)}
       doneBusy={doneBusy}
       pendingClose={pendingClose}
       onOpen={(kind) => void open(kind)}
@@ -541,6 +652,18 @@ export function HrPanel({
           />
         </>
       )}
+
+      <AssignConfirmDialog
+        open={ownerAgain !== null}
+        customer={contactName}
+        currentId={owner}
+        currentName={owner ? nameOf(owner) : ''}
+        nextId={ownerAgain?.next ?? null}
+        nextName={ownerAgain?.next ? nameOf(ownerAgain.next) : ''}
+        meanwhile
+        onCancel={() => setOwnerAgain(null)}
+        onConfirm={() => void changeOwner(ownerAgain?.next ?? null)}
+      />
 
       <Dialog open={ask !== null} onOpenChange={(o) => !o && setAsk(null)}>
         <DialogContent className="sm:max-w-sm">

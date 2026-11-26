@@ -71,9 +71,50 @@ describe('runHrAutomsgDrain', () => {
 
   it('defaults the limit to 100 and passes limit and accountId through', async () => {
     await runHrAutomsgDrain();
-    expect(h.due).toHaveBeenLastCalledWith(100, undefined);
+    expect(h.due).toHaveBeenLastCalledWith(100, undefined, []);
     await runHrAutomsgDrain({ limit: 5, accountId: 'acc-1' });
-    expect(h.due).toHaveBeenLastCalledWith(5, 'acc-1');
+    expect(h.due).toHaveBeenLastCalledWith(5, 'acc-1', []);
+  });
+
+  it('reads past a full page of held rows, each row once', async () => {
+    const all = ['a', 'b', 'c', 'd', 'e'].map((id) => ({ id }));
+    h.due.mockImplementation(
+      async (limit: number, _a: unknown, seen: string[]) =>
+        all.filter((r) => !seen.includes(r.id)).slice(0, limit)
+    );
+    const out = await runHrAutomsgDrain({ now: NOW, limit: 2 });
+    expect(h.due.mock.calls.map((c) => c[2])).toEqual([
+      [],
+      ['a', 'b'],
+      ['a', 'b', 'c', 'd'],
+    ]);
+    expect(
+      h.processDue.mock.calls.flatMap(([rows]) =>
+        (rows as { id: string }[]).map((r) => r.id)
+      )
+    ).toEqual(['a', 'b', 'c', 'd', 'e']);
+    expect(out?.outcomes).toEqual({ sent: 3, held: 6 });
+  });
+
+  it('stops when a full page has no new row', async () => {
+    h.due.mockResolvedValue([{ id: 'a' }, { id: 'b' }]);
+    await runHrAutomsgDrain({ now: NOW, limit: 2 });
+    expect(h.due).toHaveBeenCalledTimes(2);
+    expect(h.processDue.mock.calls[1][0]).toEqual([]);
+  });
+
+  it('starts no further page after its time budget', async () => {
+    let t = 0;
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => t);
+    let n = 0;
+    h.due.mockImplementation(async () => (n < 9 ? [{ id: `r${n++}` }] : []));
+    h.processDue.mockImplementation(async () => {
+      t += 11_000;
+      return { held: 1 };
+    });
+    await runHrAutomsgDrain({ now: NOW, limit: 1 });
+    clock.mockRestore();
+    expect(h.due).toHaveBeenCalledTimes(2);
   });
 
   it.each(['reviewStuck', 'expire', 'due', 'processDue'] as const)(

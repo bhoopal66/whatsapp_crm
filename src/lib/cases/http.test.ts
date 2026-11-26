@@ -124,6 +124,26 @@ describe('caseErrorResponse', () => {
     expect(r.body.error).toMatch(/managed in Compass/);
   });
 
+  it('maps 297 to 409 REQUESTED_RECENTLY with who and when, and nothing else', async () => {
+    expect(
+      await answer(
+        new CaseRefusedError('REQUESTED_RECENTLY', {
+          by: 'u-2',
+          at: '2026-11-24T08:00:00+00:00',
+          other: 'x',
+        })
+      )
+    ).toEqual({
+      status: 409,
+      body: {
+        error: 'The documents were requested a few minutes ago',
+        code: 'REQUESTED_RECENTLY',
+        by: 'u-2',
+        at: '2026-11-24T08:00:00+00:00',
+      },
+    });
+  });
+
   it('maps refusals: NOT_ALLOWED 403, CASE_NOT_FOUND 404, others 422 + code', async () => {
     expect(await answer(new CaseRefusedError('NOT_ALLOWED'))).toMatchObject({
       status: 403,

@@ -31,6 +31,18 @@ export interface OutreachNumber {
   label: string | null;
   /** Whapi and OpenWA: the connected phone. */
   waba_id: string | null;
+  is_personal: boolean;
+}
+
+/**
+ * Whether the card has a bar for this number: a linked company phone. A
+ * personal number has no new-chat limit (268: personal chats start
+ * nothing), and is shown to nobody else.
+ */
+export function isOutreachNumber(
+  n: Pick<OutreachNumber, 'provider' | 'is_personal'>
+): boolean {
+  return isLinkedDeviceNumber(n.provider) && !n.is_personal;
 }
 
 /** Success under 80%, warning from 80%, destructive at the limit. */
@@ -70,8 +82,9 @@ function bar(
 }
 
 /**
- * The person's bar first, then one per phone number (Whapi or OpenWA;
- * the Cloud API has no new-chat limit) in the account's number order.
+ * The person's bar first, then one per company phone number (Whapi or
+ * OpenWA; the Cloud API has no new-chat limit) in the account's number
+ * order.
  * A number's limit is the one the SQL computed for today when it sent
  * one, else the account's per-number limit, held to the warm-up limit
  * when the SQL says the number is warming up. A phone number that
@@ -82,22 +95,20 @@ export function outreachBars(
   numbers: readonly OutreachNumber[]
 ): { me: OutreachBar; numbers: OutreachBar[] } {
   const byChannel = new Map(day.numbers.map((n) => [n.channelId, n]));
-  const perNumber = numbers
-    .filter((n) => isLinkedDeviceNumber(n.provider))
-    .map((n) => {
-      const row = byChannel.get(n.id);
-      const warmingUp = row?.warmingUp === true;
-      const limit =
-        row?.effectiveLimit ??
-        effectiveNumberLimit(day.limits.dailyNewChatsPerNumber, warmingUp);
-      return bar(
-        n.id,
-        n.label?.trim() || n.waba_id || null,
-        row?.started ?? 0,
-        limit,
-        warmingUp
-      );
-    });
+  const perNumber = numbers.filter(isOutreachNumber).map((n) => {
+    const row = byChannel.get(n.id);
+    const warmingUp = row?.warmingUp === true;
+    const limit =
+      row?.effectiveLimit ??
+      effectiveNumberLimit(day.limits.dailyNewChatsPerNumber, warmingUp);
+    return bar(
+      n.id,
+      n.label?.trim() || n.waba_id || null,
+      row?.started ?? 0,
+      limit,
+      warmingUp
+    );
+  });
   return {
     me: bar('me', null, day.started, day.limits.dailyNewChatsPerUser, false),
     numbers: perNumber,

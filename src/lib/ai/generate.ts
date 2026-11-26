@@ -1,17 +1,7 @@
-import {
-  AiError,
-  type AiConfig,
-  type AiUsage,
-  type ChatMessage,
-  type GenerateResult,
-  type ProviderResult,
-} from './types';
-import { HANDOFF_SENTINEL, aiRequestTimeoutMs } from './defaults';
-import { generateOpenAi } from './providers/openai';
-import { generateAnthropic } from './providers/anthropic';
+import type { AiConfig, AiUsage, ChatMessage, GenerateResult } from './types';
+import { HANDOFF_SENTINEL } from './defaults';
+import { callProvider } from './provider-call';
 import { assertComplete } from './providers/shared';
-import { redactMessages } from './redact-input';
-import { assertAiTransfer, promptSize } from '@/lib/privacy/ai-transfer';
 
 export interface GenerateArgs {
   config: AiConfig;
@@ -32,47 +22,22 @@ export interface GenerateArgs {
 
 /**
  * Generate the next reply from the account's configured provider.
- * Dispatches to the right adapter, then parses the handoff sentinel out
- * of the raw text. Throws `AiError` on any provider/network failure, and
+ * `callProvider` masks, checks the transfer and picks the adapter; the
+ * handoff sentinel is then parsed out of the raw text. Throws `AiError` on any provider/network failure, and
  * `truncated` when the provider cut the answer off.
  */
 export async function generateReply(
   args: GenerateArgs
 ): Promise<GenerateResult> {
-  const { config, systemPrompt } = args;
-  // Here, not in the callers: every reply, draft and playground turn
-  // passes through, so none of them can forget it.
-  const messages = redactMessages(args.messages);
-  const timeoutMs = args.timeoutMs ?? aiRequestTimeoutMs();
-  const providerArgs = {
-    apiKey: config.apiKey,
-    model: args.model ?? config.model,
-    systemPrompt,
-    messages,
-    timeoutMs,
-  };
-  await assertAiTransfer(
+  const { config } = args;
+  const result = await callProvider({
     config,
-    args.purpose ?? 'reply',
-    providerArgs.model,
-    promptSize(systemPrompt, messages)
-  );
-
-  let result: ProviderResult;
-  switch (config.provider) {
-    case 'openai':
-      result = await generateOpenAi(providerArgs);
-      break;
-    case 'anthropic':
-      result = await generateAnthropic(providerArgs);
-      break;
-    default:
-      throw new AiError(`Unsupported AI provider: ${config.provider}`, {
-        code: 'unsupported_provider',
-        status: 400,
-      });
-  }
-
+    purpose: args.purpose ?? 'reply',
+    model: args.model ?? config.model,
+    systemPrompt: args.systemPrompt,
+    messages: args.messages,
+    timeoutMs: args.timeoutMs,
+  });
   assertComplete(result);
   return parseGeneration(result.text, result.usage);
 }

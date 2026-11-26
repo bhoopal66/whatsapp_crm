@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ requireRole: vi.fn(), rpc: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  requireRole: vi.fn(),
+  rpc: vi.fn(),
+  stored: vi.fn(),
+}));
 
 vi.mock('@/lib/auth/account', () => ({
   requireRole: mocks.requireRole,
@@ -27,7 +31,17 @@ function put(body: unknown, userId = USER) {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.requireRole.mockResolvedValue({
-    supabase: { rpc: mocks.rpc },
+    supabase: {
+      rpc: mocks.rpc,
+      from: () => {
+        const chain = {
+          select: () => chain,
+          eq: () => chain,
+          order: () => mocks.stored(),
+        };
+        return chain;
+      },
+    },
     accountId: 'a',
     userId: 'u',
     role: 'admin',
@@ -52,6 +66,55 @@ describe('PUT coordinator-banks', () => {
       p_user_id: USER,
       p_bank_codes: ['ADCB'],
     });
+  });
+
+  it('sends what the page showed, and answers the stored set when it differs', async () => {
+    mocks.rpc.mockResolvedValue({
+      data: null,
+      error: { code: '22023', hint: 'banks_changed', message: 'raw' },
+    });
+    mocks.stored.mockResolvedValue({
+      data: [{ bank_code: 'ADCB' }, { bank_code: 'ENBD' }],
+      error: null,
+    });
+    const res = await put({ bank_codes: [], expected_bank_codes: ['ADCB'] });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({
+      code: 'BANKS_CHANGED',
+      bank_codes: ['ADCB', 'ENBD'],
+    });
+    expect(mocks.rpc.mock.calls).toEqual([
+      [
+        'set_coordinator_banks',
+        { p_user_id: USER, p_bank_codes: [], p_expected: ['ADCB'] },
+      ],
+    ]);
+  });
+
+  it('names no stored set it could not read', async () => {
+    mocks.rpc.mockResolvedValue({
+      data: null,
+      error: { code: '22023', hint: 'banks_changed' },
+    });
+    mocks.stored.mockResolvedValue({ data: null, error: { message: 'down' } });
+    const res = await put({ bank_codes: [], expected_bank_codes: ['ADCB'] });
+    expect(res.status).toBe(409);
+    expect(await res.json()).not.toHaveProperty('bank_codes');
+  });
+
+  it('works on a database before 310', async () => {
+    mocks.rpc
+      .mockResolvedValueOnce({ data: null, error: { code: 'PGRST202' } })
+      .mockResolvedValueOnce({ data: ['ADCB'], error: null });
+    const res = await put({ bank_codes: ['ADCB'], expected_bank_codes: [] });
+    expect(res.status).toBe(200);
+    expect(mocks.rpc.mock.calls[1][1]).toEqual({
+      p_user_id: USER,
+      p_bank_codes: ['ADCB'],
+    });
+    expect(
+      (await put({ bank_codes: ['ADCB'], expected_bank_codes: ['x'] })).status
+    ).toBe(400);
   });
 
   it('maps RPC errors', async () => {

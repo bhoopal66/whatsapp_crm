@@ -32,7 +32,8 @@
  *   (`lib/whatsapp/channel-health.ts`), `meta_number_alert` (188,
  *   `lib/whatsapp/meta-health/alert.ts`) and `inbound_message_failed`
  *   (264's `webhook_inbox_notify_dead`): the WhatsApp settings tab, for
- *   those who can edit settings.
+ *   those who can edit settings. A personal number's alert
+ *   (`meta.personal`) is its holder's: the profile tab, any role.
  * - `pbx_connection_silent` / `pbx_connection_restored` (104's
  *   `pbx_connection_silence`): the Phone system settings tab, the same
  *   way.
@@ -40,7 +41,8 @@
  *   leaders and up (`TeamLeaderOnlyLayout`); the person over the limit
  *   has the whole message in the row already.
  * - Team chat (087): `chatNotificationHref`.
- * - `meeting_invite` (106's invitees trigger) and `meeting_reminder`
+ * - `meeting_invite` (106's invitees trigger), `meeting_update` /
+ *   `meeting_cancelled` (278's meetings trigger) and `meeting_reminder`
  *   (108's reminder sweep): `meta.meeting_id` → the meeting's page.
  * - `group_join_request` (the Whapi groups webhook): `meta.group_id` →
  *   the group's requests tab.
@@ -121,9 +123,19 @@ function hrefFor(
     }
     case 'channel_disconnected':
     case 'channel_reconnected':
+      // A personal number's alert (meta.personal, channel-health.ts) is its
+      // holder's, of any role: the QR is in Settings → Profile → My WhatsApp.
+      if (metaField(n.meta, 'personal') === true) {
+        return '/settings?tab=profile';
+      }
+      return role && canEditSettings(role) ? '/settings?tab=whatsapp' : null;
     case 'inbound_message_failed':
     case 'meta_number_alert':
       return role && canEditSettings(role) ? '/settings?tab=whatsapp' : null;
+    case 'retention_failed':
+      return role && canEditSettings(role) ? '/settings?tab=privacy' : null;
+    case 'webhook_disabled':
+      return role && canEditSettings(role) ? '/settings?tab=api' : null;
     case 'pbx_connection_silent':
     case 'pbx_connection_restored':
       return role && canEditSettings(role)
@@ -155,10 +167,14 @@ function hrefFor(
       return isUuid(group) ? `/groups/${group}?tab=requests` : null;
     }
     case 'submission_group_message': {
+      // The group ended and the reader lost it with the end (308).
+      if (metaField(n.meta, 'ended') === true) return customer(n.contact_id);
       const group = metaField(n.meta, 'group_id');
       return isUuid(group) ? `/submission-groups/${group}` : null;
     }
     case 'meeting_invite':
+    case 'meeting_update':
+    case 'meeting_cancelled':
     case 'meeting_reminder': {
       const meeting = metaField(n.meta, 'meeting_id');
       return isUuid(meeting) ? `/meetings/${meeting}` : null;

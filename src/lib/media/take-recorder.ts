@@ -15,6 +15,8 @@
  *   person pressed: listen first, or send.
  */
 
+import { isChunkLoadError } from '@/lib/app-update/stale-build';
+
 /** `finishing`: the mic is closed, the file is being encoded. */
 export type RecordingPhase = 'idle' | 'starting' | 'recording' | 'finishing';
 
@@ -29,7 +31,9 @@ export type MicProblem =
   | 'inUse'
   | 'failed'
   /** Recorded, but the encoder gave no file. */
-  | 'lost';
+  | 'lost'
+  /** The recorder's code did not load: this tab is older than the build. */
+  | 'outdated';
 
 /** The part of opus-recorder used here. */
 export interface RecorderLike {
@@ -58,6 +62,7 @@ export const STOP_TIMEOUT_MS = 10_000;
 
 /** A refused getUserMedia (or encoder load) in terms a person can act on. */
 export function micProblem(err: unknown): MicProblem {
+  if (isChunkLoadError(err)) return 'outdated';
   const name =
     typeof err === 'object' && err !== null && 'name' in err
       ? String((err as { name: unknown }).name)

@@ -56,6 +56,8 @@ export const QUEUE_REASON_KEYS = [
   'CASE_NOT_FOUND',
   'BANK_MISMATCH',
   'CASE_EXISTS_NAME_MISMATCH',
+  // 289: a company or customer the uploader may not see
+  'COMPANY_RESTRICTED',
 ] as const;
 export type KnownQueueReason = (typeof QUEUE_REASON_KEYS)[number];
 

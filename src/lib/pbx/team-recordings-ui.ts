@@ -10,6 +10,7 @@ import {
   isCallStatsPeriod,
   type CallStatsPeriod,
 } from './call-report';
+import { latinDigits } from './phone';
 import {
   NUMBER_SEARCH_MAX,
   NUMBER_SEARCH_MIN,
@@ -126,13 +127,13 @@ export function recordingsQuery(
 
 /**
  * What the number box sends, as the route counts it (digits only): ''
- * for a box with no digits (no search), the digits when there are
+ * for a box with no digits, or only 0 or 00 (no search), the digits when there are
  * NUMBER_SEARCH_MIN to NUMBER_SEARCH_MAX of them, null while the box
  * holds a search the route would refuse (keep the previous one).
  */
 export function numberSearch(raw: string): string | null {
-  const digits = raw.replace(/\D/g, '');
-  if (digits.length === 0) return '';
+  const digits = latinDigits(raw).replace(/\D/g, '');
+  if (/^0{0,2}$/.test(digits)) return '';
   if (digits.length < NUMBER_SEARCH_MIN || digits.length > NUMBER_SEARCH_MAX)
     return null;
   return digits;

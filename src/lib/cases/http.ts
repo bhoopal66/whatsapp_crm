@@ -151,6 +151,10 @@ const CONFLICT_TEXT: Record<string, string> = {
     'This case is managed in Compass: its stage, details and documents are updated from Compass',
   LEAD_EXISTS: 'An open lead already exists for this customer and bank',
   CASE_EXISTS: 'An open case already exists for this customer and bank',
+  // 297; answered with `by` and `at`.
+  REQUESTED_RECENTLY: 'The documents were requested a few minutes ago',
+  // 309: compared with the list the screen had loaded.
+  STAGES_CHANGED: 'Another admin changed this list meanwhile',
 };
 
 /** 185: a snooze on a closed case is a conflict (SPEC_020c §9). */
@@ -166,7 +170,8 @@ export function refusalText(code: string): string {
 
 function refusal(
   code: string,
-  conflicts: Record<string, string> = CONFLICT_TEXT
+  conflicts: Record<string, string> = CONFLICT_TEXT,
+  extra: Record<string, unknown> = {}
 ): NextResponse {
   if (code === 'TASK_NOT_FOUND' || code === 'MACRO_NOT_FOUND')
     return NextResponse.json(
@@ -183,7 +188,10 @@ function refusal(
       { status: 404 }
     );
   if (conflicts[code])
-    return NextResponse.json({ error: conflicts[code], code }, { status: 409 });
+    return NextResponse.json(
+      { error: conflicts[code], code, ...extra },
+      { status: 409 }
+    );
   return NextResponse.json(
     { error: REFUSAL_TEXT[code] ?? 'Request refused', code },
     { status: 422 }
@@ -200,6 +208,11 @@ export function caseErrorResponse(err: unknown, route?: string): NextResponse {
   const tag = route ? `[cases] ${route}` : '[cases]';
   if (err instanceof CaseHttpError)
     return NextResponse.json(err.body, { status: err.status });
+  if (err instanceof CaseRefusedError && err.reason === 'REQUESTED_RECENTLY')
+    return refusal(err.reason, CONFLICT_TEXT, {
+      by: err.detail?.by ?? null,
+      at: err.detail?.at ?? null,
+    });
   if (
     err instanceof CaseRefusedError ||
     err instanceof CaseInboxRefusedError ||

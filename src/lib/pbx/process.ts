@@ -1,23 +1,26 @@
 import crypto from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import { createSystemTask } from '@/lib/tasks/system';
+import { closeSystemTasks, createSystemTask } from '@/lib/tasks/system';
 import { phonesMatch } from '@/lib/contacts/phone-match';
 
 import {
   ANSWERED_STATUSES,
+  answeredExtensions,
   internalPeerExtension,
   legOf,
   legsOf,
   longestAnsweredRecording,
   mergeCallLegs,
   withLeg,
+  type CallLeg,
   type MergedCall,
 } from './call-legs';
 import { settleCallbackCall } from './callbacks';
-import { isAllBye } from './event-retry';
+import { DEFAULT_TIME_ZONE } from './calls';
+import { LATE_AFTER_MS, isAllBye, precedesBye, withBye } from './event-retry';
 import { foldedCallIds, missedCallNote, missedCallOwner } from './missed-call';
-import { missedDraftOffer } from './timeline';
+import { clock, missedDraftOffer } from './timeline';
 import { digitsOnly } from './extensions';
 import {
   contactPhoneCandidates,
@@ -94,9 +97,10 @@ export interface IngestInput {
   /**
    * A past call imported from the CDR (scripts/pbx-import-cdr.ts), not a
    * live event: only a call end is applied, and it writes the calls row
-   * as a live end would but opens, folds or closes no task, rings no
-   * bell, settles no call-back and leaves the screen pop and the
-   * connection's event clock alone. See `onCallEnd`.
+   * as a live end would but opens or folds no task, rings no bell,
+   * settles no call-back and leaves the screen pop and the connection's
+   * event clock alone. An answered one that ended under an hour ago
+   * still closes the customer's missed-call tasks. See `onCallEnd`.
    */
   historical?: boolean;
   /**
@@ -636,12 +640,18 @@ async function readCall(ctx: Ctx, callId: string): Promise<Row | null> {
   return (data as Row | null) ?? null;
 }
 
-async function deleteLive(ctx: Ctx, callId: string): Promise<void> {
-  const { error } = await ctx.db
+/** `frameAt`: only the row of that frame, not one written since. */
+async function deleteLive(
+  ctx: Ctx,
+  callId: string,
+  frameAt?: string
+): Promise<void> {
+  const del = ctx.db
     .from('call_live')
     .delete()
     .eq('connection_id', ctx.connectionId)
     .eq('pbx_call_id', callId);
+  const { error } = await (frameAt ? del.eq('updated_at', frameAt) : del);
   if (error) fail('call_live delete', error);
 }
 
@@ -679,10 +689,66 @@ function rangOf(meta: unknown): string[] {
 const withRang = (meta: Row, rang: string[]): Row =>
   rang.length ? { ...meta, rang_user_ids: rang } : meta;
 
+/**
+ * Everyone who spoke to the customer, first first
+ * (calls.meta.answered_user_ids, 294): after a transfer calls.user_id
+ * names one of them, and each may write the call's note. A row an older
+ * build wrote has no list: its user_id is an answerer once answered_at
+ * is set. Never beside a list: a frame's user_id may be a colleague who
+ * was only consulted.
+ */
+function answeredOf(existing: Row | null): string[] {
+  const listed = answeredIn(existing?.meta);
+  if (listed.length) return listed;
+  return unique([
+    existing?.answered_at && LIVE.includes(existing.status as CallStatus)
+      ? str(existing.user_id)
+      : null,
+  ]);
+}
+function answeredIn(meta: unknown): string[] {
+  return isRecord(meta) && Array.isArray(meta.answered_user_ids)
+    ? meta.answered_user_ids.filter((u): u is string => typeof u === 'string')
+    : [];
+}
+const withAnswered = (meta: Row, answered: string[]): Row =>
+  answered.length ? { ...meta, answered_user_ids: answered } : meta;
+
+/**
+ * Every party hung up: remembered on the calls row until its 30012, so a
+ * slower earlier frame does not put the screen pop back (precedesBye).
+ * Before the delete, for a frame being handled meanwhile to see it. Best
+ * effort: the delete is the point, and runs whatever happens here.
+ */
+async function stampBye(ctx: Ctx, ev: CallStateEvent): Promise<void> {
+  try {
+    for (let attempt = 0; attempt < FOLD_ATTEMPTS; attempt++) {
+      const row = await readCall(ctx, ev.callId);
+      if (!row || !LIVE.includes(row.status as CallStatus)) return;
+      const { data, error } = await ctx.db
+        .from('calls')
+        .update({ meta: withBye(row.meta, ev, ctx.receivedAt) })
+        .eq('id', String(row.id))
+        .eq('updated_at', row.updated_at)
+        .in('status', LIVE)
+        .select('id');
+      if (error) fail('calls update', error);
+      if (((data ?? []) as unknown[]).length) return;
+    }
+  } catch (err) {
+    console.error(
+      `[pbx] call ${ev.callId}: hang-up not remembered: ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
+}
+
 /** 30011: the screen pop (call_live) and a non-final calls row. */
 async function onCallState(ctx: Ctx, ev: CallStateEvent): Promise<void> {
   if (ev.members.length === 0) return;
-  if (isAllBye(ev)) return deleteLive(ctx, ev.callId);
+  if (isAllBye(ev)) {
+    await stampBye(ctx, ev);
+    return deleteLive(ctx, ev.callId);
+  }
   const existing = await readCall(ctx, ev.callId);
   // Ended already (a late or re-sent frame): never reopen it.
   if (existing && !LIVE.includes(existing.status as CallStatus)) return;
@@ -732,7 +798,9 @@ async function onCallState(ctx: Ctx, ev: CallStateEvent): Promise<void> {
             ...NO_MATCH,
             contactId: str(existing.contact_id),
             conversationId: str(existing.conversation_id),
+            // Linked since the first frame: the choice is made.
             candidates:
+              !existing.contact_id &&
               isRecord(existing.meta) &&
               Array.isArray(existing.meta.contact_candidates)
                 ? (existing.meta.contact_candidates as string[])
@@ -740,9 +808,38 @@ async function onCallState(ctx: Ctx, ev: CallStateEvent): Promise<void> {
           }
         : await matchContact(ctx, ws.accountId, remote);
 
+  // The person holding the customer is still on the call, whichever side
+  // the PBX marks HOLD (theirs, or the trunk's with theirs ANSWERED).
+  const held = answered.length
+    ? []
+    : ev.members
+        .filter(
+          (m) =>
+            m.kind === 'extension' &&
+            m.number &&
+            m.status.toUpperCase() === 'HOLD'
+        )
+        .map((m) => m.number as string);
   const answeredBy =
-    unique(answered.map((n) => exts.get(n)?.user_id))[0] ?? null;
+    unique([...answered, ...held].map((n) => exts.get(n)?.user_id))[0] ?? null;
   const ringingUsers = unique(ringing.map((n) => exts.get(n)?.user_id));
+  // One of our people alone with the customer. Two on the call (one on
+  // hold counts) is a consultation or a transfer, which a frame cannot
+  // tell apart: the next frame, or the legs at the end, says who stayed.
+  const onCall = unique(
+    ev.members.map((m) =>
+      m.kind === 'extension' &&
+      m.number &&
+      (ANSWERED_STATUSES.has(m.status.toUpperCase()) ||
+        m.status.toUpperCase() === 'HOLD')
+        ? exts.get(m.number)?.user_id
+        : null
+    )
+  );
+  const answeredUsers =
+    direction === 'internal' || onCall.length > 1
+      ? []
+      : unique(answered.map((n) => exts.get(n)?.user_id));
   const live = {
     connection_id: ctx.connectionId,
     pbx_call_id: ev.callId,
@@ -762,21 +859,38 @@ async function onCallState(ctx: Ctx, ev: CallStateEvent): Promise<void> {
     ),
     state: answered.length
       ? 'answered'
-      : ringing.length
+      : // A colleague rung while the customer is held still gets the card
+        // (myRingingCall) and 094's ring clock.
+        ringing.length
         ? 'ringing'
-        : 'in_progress',
+        : held.length
+          ? 'answered'
+          : 'in_progress',
     updated_at: ctx.receivedAt,
   };
-  const liveWrite = await ctx.db
-    .from('call_live')
-    .upsert(live, { onConflict: 'connection_id,pbx_call_id' });
-  if (liveWrite.error) fail('call_live upsert', liveWrite.error);
+  // A late frame from before the hang-up: the people it rang and reached
+  // are still written below, but no screen pop.
+  if (!precedesBye(existing?.meta, ev, ctx.receivedAt)) {
+    const liveWrite = await ctx.db
+      .from('call_live')
+      .upsert(live, { onConflict: 'connection_id,pbx_call_id' });
+    if (liveWrite.error) fail('call_live upsert', liveWrite.error);
+  }
   // The end may have landed since the read above, its own delete before
   // this upsert: the row just written would be a ghost nothing removes.
   // An end landing after this read deletes the row itself.
   const now = await readCall(ctx, ev.callId);
   if (now && !LIVE.includes(now.status as CallStatus)) {
     return deleteLive(ctx, ev.callId);
+  }
+  // Likewise an all-BYE frame since that read, but only this frame's own
+  // row: a new leg's may be there by now. Nothing else is written: the
+  // row read above has no bye_at, and its meta would drop it again.
+  if (
+    precedesBye(now?.meta, ev, ctx.receivedAt) &&
+    !precedesBye(existing?.meta, ev, ctx.receivedAt)
+  ) {
+    return deleteLive(ctx, ev.callId, ctx.receivedAt);
   }
 
   const status: CallStatus =
@@ -808,9 +922,12 @@ async function onCallState(ctx: Ctx, ev: CallStateEvent): Promise<void> {
           did_number: ws.didNumber,
           status,
           started_at: ctx.receivedAt,
-          meta: withRang(
-            callMeta(null, ws, match),
-            direction === 'inbound' ? ringingUsers : []
+          meta: withAnswered(
+            withRang(
+              callMeta(null, ws, match),
+              direction === 'inbound' ? ringingUsers : []
+            ),
+            answeredUsers
           ),
           ...party,
           ...peer,
@@ -822,24 +939,42 @@ async function onCallState(ctx: Ctx, ev: CallStateEvent): Promise<void> {
     if (ins.error) fail('calls insert', ins.error);
     if ((ins.data as unknown[] | null)?.length) return;
   }
-  // Someone new rang: add them to the row's list. Only over a row read
+  // Someone new rang or answered: add them to the row's lists. Only over a row read
   // here, so a lost insert race never overwrites that row's meta.
   const rangBefore = rangOf(existing?.meta);
   const rang =
     direction === 'inbound'
       ? unique([...rangBefore, ...ringingUsers])
       : rangBefore;
-  const rangMeta =
-    existing && rang.length > rangBefore.length
-      ? { meta: withRang(isRecord(existing.meta) ? existing.meta : {}, rang) }
+  const meta = isRecord(existing?.meta) ? { ...existing.meta } : {};
+  if (existing?.contact_id) delete meta.contact_candidates;
+  const answeredBefore = answeredIn(meta);
+  const people =
+    direction === 'internal'
+      ? answeredBefore
+      : unique([...answeredOf(existing), ...answeredUsers]);
+  const peopleMeta =
+    existing &&
+    (rang.length > rangBefore.length || people.length > answeredBefore.length)
+      ? { meta: withAnswered(withRang(meta, rang), people) }
       : {};
   // Compare-and-set on a live status: a 30012 that landed first wins.
-  const upd = await ctx.db
-    .from('calls')
-    .update({ status, ...party, ...peer, ...answeredAt, ...rangMeta })
-    .eq('connection_id', ctx.connectionId)
-    .eq('pbx_call_id', ev.callId)
-    .in('status', LIVE);
+  const write = (patch: Row) =>
+    ctx.db
+      .from('calls')
+      .update({ status, ...party, ...peer, ...answeredAt, ...patch })
+      .eq('connection_id', ctx.connectionId)
+      .eq('pbx_call_id', ev.callId)
+      .in('status', LIVE);
+  // Candidates go only onto a call still linked to nobody: staff may have
+  // linked it since the read above, and the link dropped them.
+  if (peopleMeta.meta && 'contact_candidates' in peopleMeta.meta) {
+    const upd = await write(peopleMeta).is('contact_id', null).select('id');
+    if (upd.error) fail('calls update', upd.error);
+    if (((upd.data ?? []) as unknown[]).length) return;
+    delete peopleMeta.meta.contact_candidates;
+  }
+  const upd = await write(peopleMeta);
   if (upd.error) fail('calls update', upd.error);
 }
 
@@ -896,6 +1031,43 @@ interface CallEndWrite {
   merged: MergedCall;
   rang: string[];
   settings: Settings;
+  /** The call's start, as the row keeps it. */
+  startedAt: string;
+  spoke: Spoke | null;
+}
+
+/** A customer call a person was on: which extension, whose, from when. */
+interface Spoke {
+  extension: string;
+  userId: string | null;
+  at: string;
+}
+
+/**
+ * Somebody spoke to the customer: an answered leg of the call's own
+ * direction (not only a transfer's), with talk, at a real extension.
+ * An IVR, a queue or a voicemail box answering is nobody.
+ */
+function spokeOf(call: {
+  direction: CallDirection;
+  legs: CallLeg[];
+  merged: MergedCall;
+  exts: ReadonlyMap<string, unknown>;
+  startedAt: string;
+}): Spoke | null {
+  const { direction, legs, merged, exts, startedAt } = call;
+  const { extension } = merged;
+  return direction !== 'internal' &&
+    merged.talkSeconds > 0 &&
+    extension &&
+    exts.has(extension) &&
+    legs.some(
+      (l) =>
+        ANSWERED_STATUSES.has(l.status) &&
+        (l.direction ?? direction) === direction
+    )
+    ? { extension, userId: merged.userId, at: merged.answeredAt ?? startedAt }
+    : null;
 }
 
 /**
@@ -1004,6 +1176,16 @@ async function writeCallEnd(
         ])
       : [];
 
+  const people =
+    direction === 'internal'
+      ? []
+      : unique([
+          ...answeredOf(existing),
+          ...answeredExtensions(legs).map((e) => exts.get(e)?.user_id),
+        ]);
+
+  const spoke = spokeOf({ direction, legs, merged, exts, startedAt });
+
   // A redelivered leg (an identical record on the row) writes nothing; the
   // rest of the end still runs, for a retry after a later step failed.
   if (existing && !added) {
@@ -1015,6 +1197,8 @@ async function writeCallEnd(
       merged,
       rang,
       settings,
+      startedAt,
+      spoke,
     };
   }
 
@@ -1063,7 +1247,9 @@ async function writeCallEnd(
   }
   const meta: Row = {
     // A real end supersedes the stale step's guess and retry state.
-    ...withoutStaleMarkers(withRang(callMeta(existing, ws, match), rang)),
+    ...withoutStaleMarkers(
+      withAnswered(withRang(callMeta(existing, ws, match), rang), people)
+    ),
     cdr_legs: legs,
   };
   if (newReference) {
@@ -1133,7 +1319,17 @@ async function writeCallEnd(
     if (!((upd.data ?? []) as unknown[]).length) return null;
     callRowId = String(existing.id);
   }
-  return { callRowId, ws, match, remote, merged, rang, settings };
+  return {
+    callRowId,
+    ws,
+    match,
+    remote,
+    merged,
+    rang,
+    settings,
+    startedAt,
+    spoke,
+  };
 }
 
 /**
@@ -1177,6 +1373,212 @@ async function closeOwnMissedTask(
 }
 
 /**
+ * Somebody spoke to the customer, so nobody need call them back: closes
+ * the open missed-call tasks of this contact, else of this number,
+ * whose calls came before this one, whoever holds them. A task holding
+ * another call missed since is left: that one is still owed. Judged on
+ * the calls' starts, not on when the task was written: that is after the
+ * missed call's end, and a customer who rings straight back starts the
+ * call that gets through before it. A call
+ * answered after all is not, so neither is this one, whose NO ANSWER leg
+ * may have folded in first (its row says answered by now). A task this call closed and a person opened again stays
+ * open when its end is redelivered. A task written meanwhile (this
+ * call's other leg, or a repeat call, folding in) is read again.
+ */
+async function closeSpokenMissedTasks(
+  ctx: Ctx,
+  call: CallEndWrite
+): Promise<void> {
+  const { callRowId, ws, match, remote, startedAt, spoke } = call;
+  if (!spoke) return;
+  let said: string | null = null;
+  for (let attempt = 0; attempt < FOLD_ATTEMPTS; attempt++) {
+    const open = () =>
+      ctx.db
+        .from('tasks')
+        .select(
+          'id, contact_id, note, meta, source_ref, created_at, updated_at'
+        )
+        .eq('account_id', ws.accountId)
+        .eq('source', 'pbx')
+        .eq('kind', 'missed_call')
+        .eq('status', 'open');
+    const tasks = new Map<string, Row>();
+    const keep = (res: {
+      data: unknown;
+      error: { message: string; code?: string } | null;
+    }) => {
+      if (res.error) fail('tasks read', res.error);
+      for (const t of (res.data ?? []) as Row[]) tasks.set(String(t.id), t);
+    };
+    if (match.contactId) keep(await open().eq('contact_id', match.contactId));
+    if (remote) {
+      // A number the CRM knew no contact for when it was missed. A task
+      // of another contact on a shared number is theirs, and when several
+      // contacts share it nobody can say which of them this was.
+      const byNumber = open().eq('meta->>remote_number', remote.number);
+      const shared = !!match.contactId || match.candidates.length > 0;
+      keep(await (shared ? byNumber.is('contact_id', null) : byNumber));
+    }
+    if (!tasks.size) return;
+    said ??= `Spoke at ${clock(spoke.at, DEFAULT_TIME_ZONE)} (${await spokeName(ctx, ws.accountId, spoke)})`;
+
+    let lost = false;
+    for (const task of tasks.values()) {
+      const taskMeta = isRecord(task.meta) ? task.meta : {};
+      if (taskMeta.spoke_call_id === callRowId) continue;
+      const ids = foldedCallIds(task.meta);
+      if (ids.length) {
+        const since = await ctx.db
+          .from('calls')
+          .select('id')
+          .eq('account_id', ws.accountId)
+          .in('id', ids)
+          .gte('started_at', startedAt)
+          .neq('status', 'answered')
+          .limit(1);
+        if (since.error) fail('calls read', since.error);
+        if (((since.data ?? []) as unknown[]).length) continue;
+      } else if (
+        // It names no call: when it was opened is all there is to go by.
+        !(Date.parse(String(task.created_at)) < Date.parse(startedAt))
+      ) {
+        continue;
+      }
+      const note = str(task.note);
+      const closed = await closeSystemTasks(
+        ctx.db,
+        {
+          accountId: ws.accountId,
+          source: 'pbx',
+          sourceRef: String(task.source_ref),
+        },
+        {
+          note: note ? `${said}\n${note}` : said,
+          meta: {
+            ...taskMeta,
+            spoke_call_id: callRowId,
+            spoke_user_id: spoke.userId,
+          },
+          updatedAt: String(task.updated_at),
+        }
+      );
+      if (!closed) lost = true;
+    }
+    if (!lost) return;
+  }
+}
+
+/** closeSpokenMissedTasks, for an end already recorded. */
+async function trySpokenClose(ctx: Ctx, call: CallEndWrite): Promise<void> {
+  try {
+    await closeSpokenMissedTasks(ctx, call);
+  } catch (err) {
+    // The call is recorded; a task left open is closed by hand.
+    console.error(
+      `[pbx] call ${call.callRowId}: missed-call tasks not closed: ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
+}
+
+/**
+ * A call with this missed call's customer, started after it, in which
+ * somebody spoke to them: nobody owes a call back. A missed call's end
+ * can be handled long after it (the retry sweep, a lost event found in
+ * the CDR). Matched as closeSpokenMissedTasks would match that call to
+ * this one's task, and answered as what it needs to close it.
+ */
+async function spokenSince(
+  ctx: Ctx,
+  call: CallEndWrite
+): Promise<CallEndWrite | null> {
+  const { match, remote } = call;
+  const read = () =>
+    ctx.db
+      .from('calls')
+      .select(`${CALL_COLUMNS}, connection_id`)
+      .eq('account_id', call.ws.accountId)
+      .eq('status', 'answered')
+      .gt('talk_seconds', 0)
+      .gt('started_at', call.startedAt)
+      .neq('id', call.callRowId);
+  const rows = new Map<string, Row>();
+  for (const q of [
+    match.contactId ? read().eq('contact_id', match.contactId) : null,
+    remote ? read().eq('remote_number', remote.number) : null,
+  ]) {
+    if (!q) continue;
+    const { data, error } = await q.limit(10);
+    if (error) fail('calls read', error);
+    for (const r of (data ?? []) as unknown as Row[]) rows.set(String(r.id), r);
+  }
+  for (const row of rows.values()) {
+    const contactId = str(row.contact_id);
+    const candidates =
+      isRecord(row.meta) && Array.isArray(row.meta.contact_candidates)
+        ? (row.meta.contact_candidates as string[])
+        : [];
+    // Found by its number alone, another contact's call (or one that may
+    // be) says nothing about this customer.
+    if (
+      match.contactId &&
+      contactId !== match.contactId &&
+      (contactId || candidates.length)
+    ) {
+      continue;
+    }
+    const legs = legsOf(row.meta);
+    if (!legs.length) continue;
+    const exts = await extensionsOf(
+      { db: ctx.db, connectionId: String(row.connection_id) },
+      [...legs.map((l) => l.extension), str(row.extension)]
+    );
+    const merged = mergeCallLegs(legs, {
+      extensions: exts,
+      existingExtension: str(row.extension),
+    });
+    const startedAt = String(row.started_at);
+    const spoke = spokeOf({
+      direction: row.direction as CallDirection,
+      legs,
+      merged,
+      exts,
+      startedAt,
+    });
+    if (!spoke) continue;
+    const number = str(row.remote_number);
+    return {
+      ...call,
+      callRowId: String(row.id),
+      match: { ...NO_MATCH, contactId, candidates },
+      remote: number ? normalizeRemoteNumber(`+${number}`) : null,
+      merged,
+      startedAt,
+      spoke,
+    };
+  }
+  return null;
+}
+
+/** Who spoke, for the task's note: their name, else their extension. */
+async function spokeName(
+  ctx: Ctx,
+  accountId: string,
+  spoke: Spoke
+): Promise<string> {
+  const ext = `ext. ${spoke.extension}`;
+  if (!spoke.userId) return ext;
+  const { data, error } = await ctx.db
+    .from('profiles')
+    .select('full_name')
+    .eq('account_id', accountId)
+    .eq('user_id', spoke.userId)
+    .maybeSingle();
+  if (error) fail('profiles read', error);
+  return str((data as Row | null)?.full_name)?.trim() || ext;
+}
+
+/**
  * Whether the call, as stored now, is still missed. An ANSWERED leg
  * written while this end opened its task ran closeOwnMissedTask before
  * the task existed; reading after the task is there means one of the
@@ -1198,6 +1600,31 @@ async function stillMissed(
   if (!legs.length) return true;
   const now = mergeCallLegs(legs);
   return isMissedCall(now.direction, now.pbxStatus);
+}
+
+/**
+ * Whether the calls of a task with no contact can be this contact's:
+ * none is linked to somebody else, nor may be one of several contacts
+ * sharing the number.
+ */
+async function callsMayBeOf(
+  ctx: Ctx,
+  accountId: string,
+  callIds: string[],
+  contactId: string
+): Promise<boolean> {
+  if (!callIds.length) return true;
+  const { data, error } = await ctx.db
+    .from('calls')
+    .select('contact_id, meta')
+    .eq('account_id', accountId)
+    .in('id', callIds);
+  if (error) fail('calls read', error);
+  return ((data ?? []) as Row[]).every((c) =>
+    c.contact_id
+      ? c.contact_id === contactId
+      : !(isRecord(c.meta) && Array.isArray(c.meta.contact_candidates))
+  );
 }
 
 /** 30012: the final calls row, the screen pop gone, a missed-call task. */
@@ -1227,9 +1654,17 @@ async function onCallEnd(ctx: Ctx, ev: CallEndEvent): Promise<void> {
   if (!written) throw new Error(`calls write lost ${FOLD_ATTEMPTS} races`);
   const { callRowId, ws, match, remote, merged, rang, settings } = written;
   // Historical: the calls row (legs, contact, routing, recording state,
-  // user) is all of it. No call-back to settle, no task to open, fold or
-  // close, no bell: the call is hours old and was handled without the CRM.
-  if (ctx.historical) return;
+  // user) is all of it. No call-back to settle, no task to open or fold,
+  // no bell: the call was handled without the CRM.
+  // Only a conversation just had counts: it may be in the CDR alone, and
+  // the task of a missed call before it is open on somebody's screen.
+  if (ctx.historical) {
+    const ended = Date.parse(merged.endedAt ?? '');
+    if (Date.parse(ctx.receivedAt) - ended <= LATE_AFTER_MS) {
+      await trySpokenClose(ctx, written);
+    }
+    return;
+  }
   await deleteLive(ctx, ev.callId);
   // Retried over an hour on: recorded, but nobody is asked to act on it.
   if (ctx.late) return;
@@ -1245,6 +1680,7 @@ async function onCallEnd(ctx: Ctx, ev: CallEndEvent): Promise<void> {
   // missed, whichever leg came last.
   if (!isMissedCall(merged.direction, merged.pbxStatus)) {
     await closeOwnMissedTask(ctx, ws.accountId, callRowId);
+    await trySpokenClose(ctx, written);
     return;
   }
   const conversationId = match.contactId ? match.conversationId : null;
@@ -1343,6 +1779,14 @@ async function onCallEnd(ctx: Ctx, ev: CallEndEvent): Promise<void> {
     .limit(1);
   if (counted.error) fail('tasks read', counted.error);
   if (((counted.data ?? []) as unknown[]).length) return;
+  if (await spokenSince(ctx, written)) return;
+  // An answered call recorded while the task was being written looked for
+  // tasks before this one was there; reading again now sees that call.
+  const closeIfSpoken = async (): Promise<boolean> => {
+    const since = await spokenSince(ctx, written);
+    if (since) await trySpokenClose(ctx, since);
+    return since !== null;
+  };
 
   if (match.contactId || remoteNumber) {
     // Compare-and-set on updated_at (tasks_guard stamps it on every
@@ -1351,23 +1795,47 @@ async function onCallEnd(ctx: Ctx, ev: CallEndEvent): Promise<void> {
     // again; after the last try the call opens a task of its own
     // rather than be dropped.
     for (let attempt = 0; attempt < FOLD_ATTEMPTS; attempt++) {
-      let q = ctx.db
-        .from('tasks')
-        .select('id, assigned_to, meta, updated_at')
-        .eq('account_id', ws.accountId)
-        .eq('source', 'pbx')
-        .eq('kind', 'missed_call')
-        .eq('status', 'open');
-      q = match.contactId
-        ? q.eq('contact_id', match.contactId)
-        : q.is('contact_id', null).eq('meta->>remote_number', remoteNumber);
-      const open = await q.order('created_at', { ascending: true }).limit(1);
-      if (open.error) fail('tasks read', open.error);
-      const held = ((open.data ?? []) as Row[])[0];
+      const firstOpen = async (contactId: string | null) => {
+        const q = ctx.db
+          .from('tasks')
+          .select('id, assigned_to, conversation_id, meta, updated_at')
+          .eq('account_id', ws.accountId)
+          .eq('source', 'pbx')
+          .eq('kind', 'missed_call')
+          .eq('status', 'open');
+        const open = await (
+          contactId
+            ? q.eq('contact_id', contactId)
+            : q.is('contact_id', null).eq('meta->>remote_number', remoteNumber)
+        )
+          .order('created_at', { ascending: true })
+          .limit(1);
+        if (open.error) fail('tasks read', open.error);
+        return ((open.data ?? []) as Row[])[0];
+      };
+      let held = await firstOpen(match.contactId);
+      // Missed before they were saved as a contact: that task is theirs.
+      let adopt = false;
+      if (!held && match.contactId && remoteNumber) {
+        held = await firstOpen(null);
+        adopt =
+          !!held &&
+          (await callsMayBeOf(
+            ctx,
+            ws.accountId,
+            foldedCallIds(held.meta),
+            match.contactId
+          ));
+        if (!adopt) break;
+      }
       if (!held) break;
       const ids = foldedCallIds(held.meta);
       // Folded by a concurrent delivery of the same end.
       if (ids.includes(callRowId)) return;
+      // Answered meanwhile: owes nobody a call back. Read after the task
+      // and before the write: an ANSWERED leg landing later reads the
+      // fold, or closes the task first and this write changes nothing.
+      if (!(await stillMissed(ctx, ws.accountId, callRowId))) return;
       const callIds = [...ids, callRowId];
       const folded = await ctx.db
         .from('tasks')
@@ -1382,6 +1850,14 @@ async function onCallEnd(ctx: Ctx, ev: CallEndEvent): Promise<void> {
           // tasks_notify_assigned (089) rings their bell on this UPDATE,
           // so no call_missed bell of our own. The due time stays.
           ...(!held.assigned_to && owner ? { assigned_to: owner } : {}),
+          ...(adopt
+            ? {
+                contact_id: match.contactId,
+                ...(held.conversation_id
+                  ? {}
+                  : { conversation_id: conversationId }),
+              }
+            : {}),
         })
         .eq('account_id', ws.accountId)
         .eq('id', String(held.id))
@@ -1389,7 +1865,10 @@ async function onCallEnd(ctx: Ctx, ev: CallEndEvent): Promise<void> {
         .eq('updated_at', held.updated_at)
         .select('id');
       if (folded.error) fail('tasks update', folded.error);
-      if (((folded.data ?? []) as unknown[]).length) return;
+      if (((folded.data ?? []) as unknown[]).length) {
+        await closeIfSpoken();
+        return;
+      }
       // Closed or folded into meanwhile: read again.
     }
   }
@@ -1414,12 +1893,13 @@ async function onCallEnd(ctx: Ctx, ev: CallEndEvent): Promise<void> {
     },
   });
   // Read again now the task exists, which is also right before the
-  // bell: an answered call rings nobody. A fold above skips this, as
-  // closeOwnMissedTask never closes a task other calls share.
+  // bell: an answered call rings nobody. (A fold above checks before it
+  // writes instead.)
   if (!(await stillMissed(ctx, ws.accountId, callRowId))) {
     await closeOwnMissedTask(ctx, ws.accountId, callRowId);
     return;
   }
+  if (await closeIfSpoken()) return;
   if (!task.created || !owner) return;
   const bell = await ctx.db.from('notifications').insert({
     account_id: ws.accountId,

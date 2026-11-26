@@ -1,4 +1,7 @@
 {
+  "Common": {
+    "toasts": "Notifications"
+  },
   "LoginPage": {
     "titleAccept": "Sign in to accept",
     "titleWelcome": "Welcome back",
@@ -68,6 +71,7 @@
     "retry": "Try again"
   },
   "Sidebar": {
+    "primaryNav": "Main menu",
     "navLabel": "Sidebar navigation",
     "title": "Taamul Connect",
     "dashboard": "Dashboard",
@@ -246,7 +250,14 @@
     "unlinkedBody": "Nothing you change will be saved while this is unresolved — the database rejects every write from a user with no account or role. If you were invited to a team, ask the owner to re-send the invitation. On a self-hosted install, check that the account-bootstrap migration ran for this user.",
     "errorTitle": "Could not load your permissions",
     "errorBody": "Your account role did not load, so every action is treated as read-only and changes will not save. Check your connection and try again.",
-    "retry": "Retry"
+    "retry": "Retry",
+    "signOutFailed": "Could not sign out, try again.",
+    "stillSigningOut": "Still signing out…",
+    "reconnecting": "Reconnecting…",
+    "switchedElsewhere": "You switched workspace on another device.",
+    "workspaceDeactivated": "Your access to this workspace was deactivated.",
+    "reload": "Reload",
+    "dismiss": "Dismiss"
   },
   "Dashboard": {
     "home": {
@@ -282,7 +293,8 @@
         },
         "overdueTasks": {
           "label": "Overdue tasks",
-          "hint": "{count, plural, =0 {Nothing else due today} other {# due today}}"
+          "hint": "{count, plural, =0 {Nothing else due today} other {# due today}}",
+          "hintCut": "More than shown here"
         },
         "missedCalls": {
           "label": "Missed calls",
@@ -299,6 +311,8 @@
         "title": "My tasks",
         "subtitle": "{overdue} overdue · {today} due today",
         "subtitleOpen": "{count, plural, one {# open task} other {# open tasks}}",
+        "subtitleCutOverdue": "{overdue} overdue",
+        "subtitleCutOpen": "{count} open tasks",
         "groups": {
           "overdue": "Overdue",
           "today": "Today",
@@ -461,6 +475,7 @@
       "dealCount": "{count} {count, plural, =1 {deal} other {deals}}",
       "total": "Total",
       "ariaLabel": "Pipeline value by stage",
+      "mixedCurrencies": "Ring by number of deals: the values are in more than one currency.",
       "viewPipelines": "View pipelines"
     },
     "responseTimeChart": {
@@ -478,6 +493,7 @@
   },
   "Inbox": {
     "page": {
+      "chatGone": "This chat is no longer yours.",
       "whatsappNotConnected": "WhatsApp® is not connected. Go to Settings to connect your account."
     },
     "reminderSuggestion": {
@@ -529,6 +545,7 @@
       "noConversations": "No conversations found",
       "loadFailed": "Could not load the conversations.",
       "loadMoreFailed": "Could not load more.",
+      "pinsFailed": "Pinned chats could not be loaded.",
       "retry": "Retry",
       "noMessagesYet": "No messages yet",
       "unknown": "Unknown",
@@ -544,6 +561,9 @@
       "personalOf": "Personal · {name}"
     },
     "messageThread": {
+      "reactionWait": "Wait for the message to finish sending",
+      "reactionFailed": "Reaction failed: {reason}",
+      "reactionNetworkError": "Could not reach the server",
       "personalMine": "My WhatsApp",
       "personalOf": "Personal · {name}",
       "loadingMessages": "Loading messages",
@@ -626,7 +646,9 @@
       "copyFailed": "Could not copy. Select the text and copy it yourself.",
       "discardMaybeTitle": "Remove this message from the list",
       "offline": "You are offline.",
-      "noAnswer": "The connection was lost before an answer came back."
+      "noAnswer": "The connection was lost before an answer came back.",
+      "toast": "Failed to send: {reason}",
+      "toastTemplate": "Failed to send template: {reason}"
     },
     "composer": {
       "templates": "Templates",
@@ -650,6 +672,7 @@
       "undoTranslate": "Undo",
       "translateFailed": "Couldn't translate the message.",
       "translateNotConfigured": "AI isn't set up yet — enable it in AI Agents → Assistant.",
+      "translateUnsafe": "This text could not be translated safely. Remove the number and add it yourself.",
       "translateChanged": "The message changed while translating, so it was kept.",
       "addCaption": "Add a caption…",
       "removeAttachment": "Remove attachment",
@@ -667,6 +690,8 @@
       "attachmentExpired": "This attachment was added too long ago to send and has been removed. Attach the file again."
     },
     "bubble": {
+      "notDelivered": "Not delivered.",
+      "notDeliveredBecause": "Not delivered:",
       "photo": "Photo",
       "video": "Video",
       "audio": "Audio",
@@ -685,6 +710,7 @@
       "viewImage": "View image",
       "expandVideo": "Expand video",
       "imageAlt": "Shared image",
+      "mediaRetry": "Try again",
       "contactShared": "Contact shared",
       "forwarded": "Forwarded",
       "translate": "Translate",
@@ -729,7 +755,8 @@
         "missing": "No microphone was found on this device.",
         "inUse": "Another program is using the microphone. Close it, then try again.",
         "failed": "The microphone could not be started. Reload the page and try again.",
-        "lost": "The recording could not be saved. Record it again."
+        "lost": "The recording could not be saved. Record it again.",
+        "outdated": "Voice recording could not be loaded, usually because the app was updated. Reload the page, then record again."
       },
       "keptFirst": "Send or discard the voice note that is waiting first.",
       "draftFirst": "Send or remove the attachment that is waiting first."
@@ -784,6 +811,8 @@
       "searchPlaceholder": "Search by name or phone",
       "noChats": "No chats found",
       "loadFailed": "Could not load your chats",
+      "searchFailed": "The search failed. Change the text to try again.",
+      "searching": "Searching all your chats…",
       "unknownContact": "Unknown contact",
       "selectedCount": "{count} of {max} selected",
       "cancel": "Cancel",
@@ -792,9 +821,14 @@
       "failed": "Forward failed: {reason}",
       "failedFor": "Could not forward to {name}: {reason}",
       "maybeSentFor": "No answer from WhatsApp for {name}: it may have been forwarded. Check that chat before forwarding again.",
-      "maybeSent": "No answer: it may have been forwarded. Check the chats before forwarding again."
+      "maybeSent": "No answer: it may have been forwarded. Check the chats before forwarding again.",
+      "networkError": "Could not reach the server"
     },
     "templatePicker": {
+      "loadFailed": "The templates could not be loaded.",
+      "retry": "Try again",
+      "urlValueLabel": "Button \"{text}\": value for {val}",
+      "fillAll": "Fill in every blank to send.",
       "sendTemplate": "Send template",
       "fillPlaceholders": "Fill in the placeholders to render this template. Meta requires every variable to be set.",
       "pickTemplate": "Pick an approved WhatsApp template to send to this contact.",
@@ -807,7 +841,15 @@
       "finalUrl": "Final URL: {url}",
       "back": "Back",
       "cancel": "Cancel",
-      "send": "Send template"
+      "send": "Send template",
+      "pickTemplateLinked": "Pick a saved template to send to this contact.",
+      "noTemplates": "No templates",
+      "noTemplatesHint": "An admin can add one in Settings → Templates.",
+      "blocked": {
+        "not_approved": "Not approved by Meta",
+        "waiting": "Waiting for Meta",
+        "paused": "Paused by Meta"
+      }
     },
     "sidebar": {
       "contactInfo": "Contact info",
@@ -872,6 +914,9 @@
       "saved": "{name} saved to contacts.",
       "alreadySaved": "This number is already in your contacts.",
       "saveFailed": "Could not save the contact.",
+      "colleagueHasIt": "This number already belongs to another colleague's customer.",
+      "lookupFailed": "Couldn't check your contacts.",
+      "retry": "Retry",
       "viewContact": "Saved — view contact",
       "openContact": "Open contact"
     },
@@ -929,6 +974,7 @@
       "undoFailed": "Couldn't cancel the reminder",
       "upcomingTitle": "Open reminders for this customer",
       "upcomingEmpty": "No upcoming reminders",
+      "upcomingFailed": "Could not load the existing reminders",
       "unassigned": "Unassigned",
       "done": "Done",
       "markDone": "Mark \"{title}\" done",
@@ -938,8 +984,11 @@
   },
   "Contacts": {
     "page": {
+      "selectAllOnPage": "Select all contacts on this page",
+      "selectOne": "Select {name}",
       "title": "Contacts",
       "subtitle": "Manage your contact list. {count} total contacts.",
+      "subtitleFirst": "Manage your contact list. First {count} matches; type more to narrow them.",
       "subtitleZero": "Manage your contact list.",
       "customFieldsBtn": "Custom fields",
       "importBtn": "Import",
@@ -972,6 +1021,7 @@
       "optedOutHint": "Opted out {date}. Asked not to be messaged. Broadcasts skip this customer.",
       "editAction": "Edit",
       "deleteAction": "Delete",
+      "showingFirst": "Showing {start}-{end} of the first {total} matches",
       "showingPagination": "Showing {start}-{end} of {total}",
       "pageCount": "Page {page} of {total}",
       "deleteContactTitle": "Delete Contact",
@@ -990,11 +1040,40 @@
       "toastBulkNotDeleted": "No contacts deleted. You may no longer have access, or they were already removed.",
       "toastBulkDeleted": "{count} contacts deleted"
     },
+    "deleteDialog": {
+      "checking": "Checking what goes with it…",
+      "deletedTitle": "{count, plural, one {Deleted with the customer:} other {Deleted with the customers:}}",
+      "keptTitle": "{count, plural, one {Kept, without the customer:} other {Kept, without their customer:}}",
+      "chats": "{count, plural, one {# chat with its messages} other {# chats with their messages}}",
+      "tasks": "{count, plural, one {# open task} other {# open tasks}}",
+      "dealRooms": "{count, plural, one {# deal room} other {# deal rooms}}",
+      "deals": "{count, plural, one {# deal} other {# deals}}",
+      "documents": "{count, plural, one {# document} other {# documents}}",
+      "cases": "{count, plural, one {# case} other {# cases}}",
+      "optOutNote": "An opt-out or do-not-contact is remembered: it applies again if the number is added back.",
+      "blockedOne": "This customer cannot be deleted yet:",
+      "blockedSome": "{count, plural, one {# contact cannot be deleted yet and is left out:} other {# contacts cannot be deleted yet and are left out:}}",
+      "blockedAll": "None of these contacts can be deleted yet:",
+      "blockedRow": "{name}: {reason}",
+      "blockedHint": "Close the open work first. A legal hold is released in Settings, Privacy.",
+      "more": "and {count} more",
+      "moreNames": "{count} more",
+      "close": "Close",
+      "reasonLegalHold": "a legal hold",
+      "reasonCases": "{count, plural, one {# open case} other {# open cases}}",
+      "reasonDealRooms": "{count, plural, one {# open deal room} other {# open deal rooms}}",
+      "reasonSubmissionGroups": "{count, plural, one {# active submission group} other {# active submission groups}}",
+      "reasonOpenWork": "open work",
+      "reasonFailed": "failed, try again",
+      "stayedRow": "{name} ({reason})",
+      "toastRefused": "{name} was not deleted: {reason}.",
+      "toastBulkStayed": "{count} of {total} contacts deleted. Not deleted: {names}."
+    },
     "form": {
       "addTitle": "Add Contact",
-      "addDesc": "Create a new contact. Name is required.",
+      "addDesc": "Create a new contact. The phone number is required; the name is optional.",
       "editTitle": "Edit Contact",
-      "editDesc": "Update contact details and tags.",
+      "editDesc": "Update the contact's phone number, name, email and company.",
       "nameLabel": "Name",
       "namePlaceholder": "Jane Doe",
       "phoneLabel": "Phone Number",
@@ -1011,6 +1090,18 @@
       "toastSuccessAdd": "Contact created successfully",
       "toastSuccessEdit": "Contact updated successfully",
       "toastError": "Failed to save contact",
+      "close": "Close",
+      "notAuthenticated": "You are not signed in. Sign in again and retry.",
+      "profileNotLinked": "Your profile is not linked to an account.",
+      "phoneError": {
+        "scientific_notation": "The phone number is in spreadsheet scientific notation and has lost digits. Enter the full number with its country code, e.g. {example}",
+        "malformed": "The phone number has characters that do not belong in it. Enter only the digits 0-9 with the country code (spaces and + ( ) - . / are fine), e.g. {example}",
+        "missing_country_code": "The phone number has no country code. Replace the leading 0 with the country code, e.g. {example}",
+        "too_short": "The phone number is too short. Include the country code, e.g. {example}",
+        "too_long": "The phone number is too long. Enter one number with its country code, e.g. {example}",
+        "invalid_uae": "This is not a valid UAE number. Enter +971 and the 9-digit mobile number starting with 5, e.g. {example} (a landline is +971 and 8 digits)",
+        "invalid_number": "The phone number is not valid for its country code. If it is a local number, add its country code, e.g. {example}"
+      },
       "toastNotSaved": "Not saved. You may no longer have access, or the contact was removed.",
       "toastConflict": "A contact with this phone number already exists",
       "viewExisting": "View {name}",
@@ -1072,7 +1163,6 @@
       "toastCustomFieldsSaved": "Custom fields saved",
       "toastCustomFieldsNotSaved": "Not saved: {names}. Please try again.",
       "toastCustomFieldsGone": "Not saved: {names}. You may no longer have access, or the value was already removed.",
-      "toastTemplateSent": "Template \"{name}\" sent",
       "toastTemplateFailed": "Failed to send template: {reason}",
       "sendPersonalBtn": "Message from my WhatsApp",
       "noPersonalNumber": "You have no personal WhatsApp number connected.",
@@ -1091,7 +1181,9 @@
       "channelHint": {
         "message": "Messages go out from {channel}",
         "template": "Templates go out from {channel}"
-      }
+      },
+      "toastTemplateHandedOver": "Template \"{name}\" handed to WhatsApp. Open the chat to see if it was delivered.",
+      "toastOpenChat": "Open chat"
     },
     "importModal": {
       "planChecking": "Checking which numbers you already have…",
@@ -1106,18 +1198,21 @@
       "problemNoPhone": "No phone number.",
       "problemNotSaved": "Could not be saved: {reason}",
       "problemsMore": "+ {count} more",
+      "savedAs": "Already a customer (saved as {savedAs})",
+      "errorEncoding": "Some letters in this file can’t be read. In Excel, save it as “CSV UTF-8” or as .xlsx and upload that.",
+      "errorXls": "This is an old .xls workbook. Save it as .xlsx or CSV and upload that.",
+      "errorXlsxLimit": "This workbook is too large to import: {reason}",
+      "errorCsvParse": "Could not read the file.",
       "closeConfirm": "The import is still running. Stop it? Contacts already imported stay.",
       "keepImporting": "Keep importing",
       "stopAndClose": "Stop and close",
       "title": "Import Contacts",
-      "desc": "Upload a CSV with a required <phoneCode>phone</phoneCode> column. Optional: <nameCode>name</nameCode>, <emailCode>email</emailCode>, <companyCode>company</companyCode>. Other columns, including <tagsCode>tags</tagsCode>, are ignored.",
-      "uploadDropzone": "Click to choose a CSV file",
-      "uploadHint": ".csv up to your browser limit",
-      "rowsReady": "{count} row ready",
-      "rowsReady_plural": "{count} rows ready",
+      "desc": "Upload a CSV or Excel (.xlsx, first sheet) file with a required <phoneCode>phone</phoneCode> column. Optional: <nameCode>name</nameCode>, <emailCode>email</emailCode>, <companyCode>company</companyCode>. Other columns, including <tagsCode>tags</tagsCode>, are ignored.",
+      "uploadDropzone": "Click to choose a CSV or Excel file",
+      "uploadHint": ".csv or .xlsx up to your browser limit",
+      "rowsReady": "{count, plural, one {# row ready} other {# rows ready}}",
       "preview": "Preview · first {count}",
-      "moreRows": "+ {count} more row not shown",
-      "moreRows_plural": "+ {count} more rows not shown",
+      "moreRows": "{count, plural, one {+ # more row not shown} other {+ # more rows not shown}}",
       "importComplete": "Import complete",
       "resultImported": "{count} imported",
       "resultSkipped": "{count} skipped",
@@ -1130,15 +1225,11 @@
       },
       "cancel": "Cancel",
       "close": "Close",
-      "importBtn": "Import {count} contact",
-      "importBtn_plural": "Import {count} contacts",
-      "toastNoValidRows": "No valid rows found. Ensure CSV has a \"phone\" column header.",
-      "toastImported": "{count} contact imported",
-      "toastImported_plural": "{count} contacts imported",
-      "toastSkipped": "{count} duplicate skipped",
-      "toastSkipped_plural": "{count} duplicates skipped",
-      "toastFailed": "{count} contact failed to import",
-      "toastFailed_plural": "{count} contacts failed to import",
+      "importBtn": "{count, plural, one {Import # contact} other {Import # contacts}}",
+      "toastNoValidRows": "No valid rows found. Ensure the file has a \"phone\" column header.",
+      "toastImported": "{count, plural, one {# contact imported} other {# contacts imported}}",
+      "toastSkipped": "{count, plural, one {# duplicate skipped} other {# duplicates skipped}}",
+      "toastFailed": "{count, plural, one {# contact failed to import} other {# contacts failed to import}}",
       "toastError": "Import failed"
     },
     "customFields": {
@@ -1376,10 +1467,13 @@
       "delivered": "Delivered",
       "read": "Read",
       "replied": "Replied",
-      "unknown": "Unknown"
+      "unknown": "Unknown",
+      "stopped": "Stopped"
     },
     "detail": {
       "backToBroadcasts": "Back to Broadcasts",
+      "refreshFailed": "Could not refresh: {error}",
+      "retry": "Try again",
       "notFound": "Broadcast not found",
       "template": "Template: {name}",
       "createdAt": "Created {date}",
@@ -1430,7 +1524,13 @@
       "toastResumeStarted": "Sending {count} recipients in the background.",
       "toastResumeStartedCapped": "Sending {count} recipients in the background. {remaining} more will need another run.",
       "toastResumeFailed": "Could not resume: {error}",
-      "followUpFlow": "Replies start the flow <link>{name}</link>."
+      "followUpFlow": "Replies start the flow <link>{name}</link>.",
+      "stop": "Stop",
+      "stopPrompt": "Stops after the message being sent now. People who already got it keep it. You can resume later.",
+      "toastStopped": "Campaign stopped: {sent} sent, {remaining} not sent",
+      "toastFailedStop": "Could not stop the campaign: {error}",
+      "stoppedTitle": "This campaign is stopped",
+      "stoppedHint": "{count, plural, one {# person has not received it.} other {# people have not received it.}} Resume sends to them now."
     },
     "new": {
       "title": "New Broadcast",
@@ -1512,7 +1612,7 @@
         "excludeChatTags": "Exclude chat tags (optional)",
         "optedOutSkipped": "{count, plural, one {# customer who asked not to be messaged will be skipped.} other {# customers who asked not to be messaged will be skipped.}}",
         "frequencyCap": "Frequency cap",
-        "frequencyCapDesc": "Skip contacts who already received any campaign in the last N days. 0 = off.",
+        "frequencyCapDesc": "Skip contacts another campaign messaged in the last N days, or is about to message. Checked again when the campaign is sent. 0 = off.",
         "frequencyCapDays": "days",
         "field": "Field",
         "selectField": "Select a field...",
@@ -1529,6 +1629,7 @@
         "errorLoadFields": "Failed to load custom fields",
         "csvBadLines": "Lines that could not be read (a quote that is never closed): {lines}.",
         "errorCsvParse": "Could not read the file.",
+        "errorEncoding": "Some letters in this file can’t be read. In Excel, save it as “CSV UTF-8” or as .xlsx and upload that.",
         "errorXlsxLimit": "This workbook is too large to import: {reason}",
         "errorCsvMissingPhone": "The file must have a 'phone' or 'Phone Number' column.",
         "errorXls": "This is an old .xls workbook. Save it as .xlsx or CSV and upload that.",
@@ -1702,7 +1803,8 @@
         "updateError": "Failed to update",
         "duplicateError": "Failed to duplicate",
         "deleteError": "Failed to delete"
-      }
+      },
+      "neverRuns": "On, but never runs"
     },
     "edit": {
       "loading": "Loading...",
@@ -1824,7 +1926,9 @@
         "email": "Email",
         "company": "Company",
         "customFields": "Custom fields",
-        "unknown": "{id} (unknown field)"
+        "unknown": "{id} (unknown field)",
+        "phone": "Phone",
+        "choose": "Choose a field…"
       },
       "agents": {
         "select": "Select an agent…",
@@ -1848,7 +1952,10 @@
         "languageLabel": "Language",
         "select": "Select a template…",
         "unknown": "{name} ({lang}) — not in approved list",
-        "unknownLang": "unknown"
+        "unknownLang": "unknown",
+        "value": "Value for {name}",
+        "headerValue": "Header value",
+        "valuesHint": "Required. Use {{ message.text }} for the customer's message."
       },
       "branches": {
         "yes": "Yes",
@@ -1917,7 +2024,10 @@
           "placeholderText": "Triage marked this lead as ready to apply.",
           "textHint": "Posts as “wacrm · automation” and notifies nobody. **Double asterisks** make your text bold; {{ message.text }} and {{ vars.x }} are filled in, without bold or mentions. Everyone who can read the channel sees the post, even people who cannot see the conversation: in a team channel that is every staff member, viewers included. A channel with a bank guest is never posted to."
         }
-      }
+      },
+      "triggerNotAvailable": "{trigger} (not available yet)",
+      "triggerNotAvailableWhy": "Triggers marked \"not available yet\" cannot be used: nothing starts them so far.",
+      "triggerNotRunning": "This trigger does not run yet, so the automation cannot be activated."
     }
   },
   "Flows": {
@@ -2140,7 +2250,17 @@
       "fixIssues": "Fix the issues below before activating.",
       "statusActivated": "Flow activated.",
       "statusArchived": "Archived.",
-      "statusDraft": "Saved as draft."
+      "statusDraft": "Saved as draft.",
+      "saveFailed": "The flow could not be saved. Your changes are still here; try again.",
+      "fixBeforeSaving": "This flow is live. Fix the problems below, or pause it, before saving.",
+      "changedTitle": "Somebody else saved this flow",
+      "changedBy": "{name} saved this flow on {time}, after you opened it.",
+      "changedAt": "This flow was saved on {time}, after you opened it.",
+      "changedChoices": "Your changes are not saved. Reload to see the saved flow, which drops your changes, or keep yours.",
+      "reload": "Reload",
+      "keepMine": "Keep mine",
+      "keepMineWarning": "Your version will replace theirs. This cannot be undone.",
+      "keepMineConfirm": "Replace their version"
     },
     "summary": {
       "options": "{count} {count, plural, =1 {option} other {options}}",
@@ -2340,6 +2460,8 @@
       "memberFailed": "Failed to change department"
     },
     "members": {
+      "loadFailed": "Couldn't load the team members.",
+      "invitationsLoadFailed": "Couldn't load the pending invitations.",
       "title": "Team members",
       "description": "People with access to this account. Roles control what each teammate can do.",
       "inviteMember": "Invite member",
@@ -2381,6 +2503,7 @@
       "reactivate": "Reactivate",
       "deactivatedOn": "Deactivated {date}",
       "deactivatedToast": "Deactivated {name}. They can no longer sign in.",
+      "deactivatedHereToast": "Deactivated {name} in this workspace. They can still sign in to their other workspace.",
       "personal": {
         "badge": "Own WhatsApp",
         "allow": "Allow own WhatsApp",
@@ -2400,6 +2523,11 @@
         "removedToast": "{name} no longer reviews every call",
         "notEligible": "This member cannot be a call reviewer",
         "failed": "Failed to update member"
+      },
+      "activeFailed": {
+        "deactivation_undone": "Could not disable {name}’s login. They are active again, but any team, phone extension and report access they had were cleared: set them again.",
+        "deactivation_half_done": "{name} is deactivated here, but their login could not be disabled. Reactivate them, then deactivate them again.",
+        "reactivation_half_done": "{name} is active here again, but their login is still disabled. Deactivate them, then reactivate them."
       },
       "reactivatedToast": "Reactivated {name}",
       "deactivateDialogTitle": "Deactivate member",
@@ -2465,7 +2593,20 @@
         "failed": "Could not hand over the work. Try again.",
         "later": "Not now",
         "removeWarning": "{name} still holds {what}. Removing them leaves that work with nobody: hand it over first.",
-        "noPeople": "There is nobody else to hand the work to."
+        "noPeople": "There is nobody else to hand the work to.",
+        "holdsKeys": "Made {count, plural, one {# API key} other {# API keys}} still live",
+        "keysTitle": "{count, plural, one {# API key} other {# API keys}} made by this person",
+        "keysHint": "Nothing is revoked automatically: an integration may be running on a key. Revoke the ones nobody needs.",
+        "keyLastUsed": "Last used {date}",
+        "keyNeverUsed": "Never used",
+        "revoke": "Revoke",
+        "revokeConfirm": "Revoke the key \"{name}\"? Anything using it stops working at once.",
+        "revoked": "Key \"{name}\" revoked.",
+        "revokeFailed": "Could not revoke the key. Try again.",
+        "keysUnreadable": "The API keys could not be read.",
+        "removeKeysWarning": "{name} made {count, plural, one {# API key} other {# API keys}} that stay live after they are removed: revoke the ones nobody needs.",
+        "strayTitle": "{count, plural, one {# API key} other {# API keys}} with no admin behind {count, plural, one {it} other {them}}",
+        "strayHint": "Made by someone who is no longer in this workspace. They keep working until revoked."
       }
     },
     "invite": {
@@ -2565,24 +2706,32 @@
       "title": "Message templates",
       "description": "Create templates and submit them to Meta for approval. Use \"Sync from Meta\" to pull templates approved elsewhere.",
       "syncFromMeta": "Sync from Meta",
+      "notLinkedToMeta": "Not linked to Meta. Submit it, or press Sync if Meta already has it.",
+      "submitToMeta": "Submit to Meta",
+      "submitToMetaTitle": "Submit \"{name}\" to Meta?",
+      "submitToMetaDesc": "Meta reviews it; this can take up to 24 hours. The text cannot be changed while it is reviewed.",
+      "submitToMetaConfirm": "Submit",
+      "submitRefusedBefore": "Meta refused it before: {reason}",
+      "submitBlocked": {
+        "media_header": "This template has a picture, video or document in its header. Meta needs that file uploaded on its side, so it cannot be submitted from here. Create it in WhatsApp Manager, then press Sync.",
+        "authentication": "Authentication templates cannot be submitted from here. Create it in WhatsApp Manager, then press Sync."
+      },
+      "toastMetaHasIt": "Meta already has a template with this name and language. Press Sync to bring it in.",
+      "toastMetaNoAnswer": "Meta did not answer. The template may have been submitted: press Sync in a minute.",
+      "toastTemplateGone": "This template was deleted or renamed. The list has been refreshed.",
       "syncing": "Syncing…",
       "syncTitle": "Pull approved templates from your Meta WhatsApp Business Account",
       "newTemplate": "New Template",
       "noTemplates": "No templates yet.",
       "createFirst": "Create your first message template to get started.",
-      "editTitle": "Editing triggers Meta re-review — status flips to PENDING.",
+      "editTitle": "Change this template here. The change is not sent to Meta.",
       "editLabel": "Edit template",
       "edit": "Edit",
-      "resubmitTitle": "Edit the template and resubmit to Meta for review.",
-      "resubmitLabel": "Edit and resubmit template",
-      "resubmit": "Resubmit",
-      "deleteMetaLocallyAria": "Delete template from Meta and locally",
-      "deleteLocallyAria": "Delete template locally",
-      "deleteMetaLocallyTitle": "Delete from Meta and locally",
-      "deleteLocallyTitle": "Delete locally",
+      "deleteLocallyAria": "Delete template from this CRM",
+      "deleteLocallyTitle": "Delete from this CRM",
       "dialogEditTitle": "Edit Message Template",
       "dialogNewTitle": "New Message Template",
-      "dialogEditDesc": "Save your changes to re-submit to Meta. Status will flip back to PENDING during review.",
+      "dialogEditDesc": "Your changes are saved here and used by linked numbers. They are not sent to Meta.",
       "dialogNewDesc": "Build a template and submit it to Meta for approval. Once approved, you can use it in broadcasts and the inbox.",
       "authWarning": "AUTHENTICATION templates have a fixed body + OTP button shape that needs a different builder. Create them in Meta WhatsApp Manager for now and use <bold>Sync from Meta</bold> to bring them in.",
       "templateName": "Template Name",
@@ -2603,8 +2752,8 @@
       "headerSampleAria": "Sample value for header variable",
       "headerSamplePlaceholder": "Sample value for {{1}} (required for Meta review)",
       "mediaUrlPlaceholder": "https://… (or paste a public {format} link)",
-      "imageHint": "Upload a JPEG/PNG (≤5 MB, ≥800×418 px recommended) or paste a public HTTPS link — we upload it to Meta for review automatically.",
-      "mediaHint": "Must be a publicly accessible HTTPS link. Meta fetches it once during review, so it needs to stay live for ~24 hrs.",
+      "imageHint": "Upload a JPEG/PNG (≤5 MB, ≥800×418 px recommended) or paste a public HTTPS link. We do not upload it to Meta: to use this template on the Meta number, create it in WhatsApp Manager, then press Sync.",
+      "mediaHint": "Must be a public HTTPS link that stays online. We do not upload it to Meta: to use this template on the Meta number, create it in WhatsApp Manager, then press Sync.",
       "videoHint": " Recommended: MP4 / 3GPP, ≤16 MB, ≤60 seconds.",
       "documentHint": " Recommended: PDF, ≤100 MB.",
       "bodyText": "Body Text",
@@ -2630,17 +2779,17 @@
       "cancel": "Cancel",
       "saving": "Saving…",
       "submitting": "Submitting…",
-      "saveResubmit": "Save & Resubmit",
       "submitApproval": "Submit for Approval",
       "deleteDialogTitle": "Delete template?",
-      "deleteMetaDesc": "\"{name}\" will be deleted from Meta and from Taamul Connect. Active broadcasts using this template will start failing on their next send. This can't be undone.",
-      "deleteLocalDesc": "\"{name}\" will be deleted from Taamul Connect. It was never submitted to Meta, so no remote cleanup is needed.",
+      "deleteMetaDesc": "\"{name}\" is removed from this CRM. It stays at Meta, and Sync brings it back unless it is deleted in WhatsApp Manager. Campaigns and automations that use it can stop sending.",
+      "deleteLocalDesc": "\"{name}\" is removed from this CRM. Campaigns and automations that use it can stop sending. This can't be undone.",
       "deleting": "Deleting…",
       "delete": "Delete",
       "toastLoadFailed": "Failed to load templates",
       "toastSubmitFailed": "Failed to submit",
-      "toastSubmitEditSuccess": "Edit submitted — Meta typically reviews within 24 hours.",
       "toastSubmitNewSuccess": "Submitted to Meta — typical review time is 24 hours. Status updates automatically.",
+      "toastTemplateExists": "A template with this name and language already exists. Edit it, or choose another name.",
+      "toastMetaAcceptedNotSaved": "Meta accepted this template, but it could not be saved completely here. Press Sync to bring it in.",
       "toastSaveEditDry": "Template updated (dry-run — no Meta call)",
       "toastSaveNewDry": "Template saved (dry-run — no Meta call)",
       "toastSyncCount": "Synced {total} {total, plural, =1 {template} other {templates}} from Meta",
@@ -2665,7 +2814,13 @@
       },
       "toastInvalidMedia": "Header {format} must be one of: {types}.",
       "toastMediaTooLarge": "File is {size} MB — the limit for this header is {max} MB.",
-      "editInMeta": "This template belongs to Meta. Edit it in Meta Business Manager, then Sync."
+      "editInMeta": "This template belongs to Meta. Edit it in Meta Business Manager, then Sync.",
+      "toastEditSaved": "Saved here. An edit is not sent to Meta.",
+      "toastSavedLinkedOnly": "Saved. No Meta number is connected, so only linked numbers can send it.",
+      "toastSavedMetaUnavailable": "Saved here, but not sent to Meta: the Meta number could not be used. Check it in Settings, then submit the template again.",
+      "toastMetaRefused": "Saved for linked numbers only. Meta refused it: {reason}",
+      "metaRefusedIt": "Meta refused it: {reason}",
+      "saveEdit": "Save"
     },
     "roles": {
       "admin": "Admin",
@@ -2732,6 +2887,7 @@
       "mirrorInboundDesc": "Whapi deletes inbound files after about 30 days. With this on, each attachment is copied into your own storage as it arrives, so old conversations keep their attachments.",
       "mirrorInboundOffWarning": "With this off, attachments become unavailable roughly 30 days after they arrive.",
       "mirrorInboundSaveFailed": "Failed to save the media retention setting",
+      "mirrorInboundSaveGone": "Not saved: this number was removed or you no longer have the right to change it.",
       "saving": "Saving…",
       "saveConfig": "Save & connect",
       "testing": "Testing…",
@@ -2851,6 +3007,7 @@
       "description": "Point each kind of message at one of your connected numbers.",
       "loading": "Loading routing…",
       "loadFailed": "Failed to load routing",
+      "retry": "Retry",
       "connectedNumbers": "Connected numbers",
       "noChannels": "No WhatsApp numbers are connected yet.",
       "unnamedChannel": "Unnamed number",
@@ -2911,6 +3068,8 @@
       "makeDefault": "Make default",
       "madeDefault": "{name} is now the default number",
       "chatCount": "{count} {count, plural, =1 {chat} other {chats}}",
+      "chatCountUnknown": "Chats not counted",
+      "removeChatsUnknown": "The chats on this number could not be counted.",
       "rename": "Rename",
       "renamed": "Renamed to {name}",
       "saveName": "Save name",
@@ -2921,13 +3080,24 @@
       "sharedBody": "No one is allocated — every member can start chats from this number.",
       "allocatedTitle": "Allocated to {count} {count, plural, =1 {person} other {people}}",
       "teamsLine": "Teams: {names}",
-      "teamsEmptyShared": "Its teams have nobody in them yet, so it is still shared with everyone.",
+      "adminsOnlyTitle": "Admins only: nobody is allocated",
+      "adminsOnlyBody": "Everyone allocated to it has left. Allocate people or teams, or save both lists empty to share it with everyone.",
+      "accessChanged": "Another admin changed who may use {name}, so your change was not saved. Open it again to see what is stored.",
+      "accessChangedStored": "Another admin changed who may use this number, so your change was not saved. Stored now: {stored}. Reload shows that and drops your choice.",
+      "accessChangedUnread": "Another admin changed who may use this number, so your change was not saved. What is stored now could not be read.",
+      "accessGone": "{name} is no longer connected, so your change was not saved.",
+      "storedPeople": "people: {names}",
+      "storedTeams": "teams: {names}",
+      "leftToAdmins": "Only owners and admins will be able to use: {names}",
+      "teamsEmptyShared": "Its teams have nobody in them, so only owners and admins can use it.",
       "manageAccess": "Manage access",
       "accessTitle": "Who works {name}?",
       "accessDesc": "The people you tick, and everyone in the teams you tick (leaders included), can send from this number, and their new chats start from it. They still see only their own and assigned chats (team leaders also their team's). Joining or leaving a ticked team gives or takes away the number automatically. Tick nobody to share it with everyone.",
       "teamsHeading": "Teams",
       "teamPeopleCount": "{count} {count, plural, =1 {person} other {people}}",
-      "teamsUnavailable": "The team list couldn't be loaded, so team access is left as it is. Reload the page to change it.",
+      "teamsUnavailable": "The team list couldn't be loaded, so team access is left as it is.",
+      "teamsNeeded": "The team list couldn't be loaded. Without it an empty list cannot be saved: load the teams, then save.",
+      "retry": "Retry",
       "peopleHeading": "People",
       "searchMembers": "Search members…",
       "noMembers": "No members match.",
@@ -2935,11 +3105,13 @@
       "viaTeam": "via {names}",
       "draftShared": "Nobody selected — this number will be shared with everyone.",
       "draftAllocated": "{count} {count, plural, =1 {person} other {people}} selected.",
-      "draftTeamsEmptyShared": "The selected teams have nobody in them yet — this number stays shared with everyone until they have members.",
+      "draftAdminsOnly": "Nobody selected can sign in any more, so only owners and admins can use this number.",
+      "draftTeamsEmptyShared": "The selected teams have nobody in them yet. Until they have members, only owners and admins can use this number.",
       "draftTeamsEmpty": "The selected teams have nobody in them yet, so they add nobody until they have members.",
       "clearAll": "Clear all",
       "saveAccess": "Save access",
       "accessShared": "{name} is now shared with everyone",
+      "accessAdminsOnly": "Only owners and admins can use {name} now",
       "accessSaved": "{name} is allocated to {count} {count, plural, =1 {person} other {people}}",
       "addTitle": "Add a Whapi number",
       "addDesc": "Each Whapi channel is its own WhatsApp number. Create the channel at panel.whapi.cloud, scan its QR code with the phone, then paste its token here.",
@@ -2959,6 +3131,8 @@
       "removeBody": "Messages stop sending and arriving on this number. Chat history is kept, and its access list is removed. You can reconnect it later with the same token.",
       "removed": "{name} disconnected",
       "removeFailed": "Failed to disconnect the number",
+      "waitingBody": "{count, plural, one {# customer message from this number has not been processed yet and would be lost. Remove anyway?} other {# customer messages from this number have not been processed yet and would be lost. Remove anyway?}}",
+      "removeAnyway": "Remove anyway",
       "cancel": "Cancel",
       "checking": "Checking…",
       "inboundMissing": "Incoming messages aren't set up for this number yet: it can send, but nothing customers write will arrive.",
@@ -3002,6 +3176,7 @@
       }
     },
     "myWhatsApp": {
+      "loadFailed": "Couldn't load your WhatsApp number.",
       "title": "My WhatsApp",
       "explainer": "Chats on this number are visible to you, your team leader and admins. Automations, flows, AI replies and broadcasts don't use it.",
       "notConfigured": "OpenWA isn't set up on this server",
@@ -3016,6 +3191,8 @@
       "removeBody": "This logs your phone out of the CRM. Messages stop sending and arriving here; chat history is kept. You can connect again later by scanning a new code.",
       "removed": "Your WhatsApp was disconnected",
       "removeFailed": "Couldn't disconnect your WhatsApp",
+      "waitingBody": "{count, plural, one {# customer message from this number has not been processed yet and would be lost. Remove anyway?} other {# customer messages from this number have not been processed yet and would be lost. Remove anyway?}}",
+      "removeAnyway": "Remove anyway",
       "gatewayIncomplete": "Disconnected here, but the OpenWA server could not be reached; ask an admin to remove the session there.",
       "importExplainer": "Your one-to-one chats are imported once, text only. New messages, including ones you type on your phone, appear automatically.",
       "importPreparing": "Preparing to import your chats…",
@@ -3265,7 +3442,7 @@
     },
     "apiKeys": {
       "title": "API keys",
-      "description": "Keys authenticate the public REST API (<apiCode>/api/v1</apiCode>) so you can build your own automations. Send them as <headerCode>Authorization: Bearer &lt;key&gt;</headerCode>.",
+      "description": "Keys authenticate the public REST API (<apiCode>/api/v1</apiCode>) so you can build your own automations. Send them as <headerCode>Authorization: Bearer {key}</headerCode>.",
       "newApiKey": "New API key",
       "noApiKeys": "No API keys yet.",
       "createOneHint": "Click <bold>New API key</bold> to create one.",
@@ -3298,7 +3475,33 @@
       "newKeyTitle": "New API key",
       "newKeyDesc": "Name it after the integration that will use it, and grant only the scopes it needs.",
       "done": "Done",
-      "networkError": "Could not reach the server"
+      "networkError": "Could not reach the server",
+      "revokeTitle": "Revoke this key?",
+      "revokeBody": "Whatever uses \"{name}\" stops working at once. This cannot be undone.",
+      "revokeStopsWebhooks": "{count, plural, =0 {No switched-on webhook belongs to it.} one {# switched-on webhook stops with it.} other {# switched-on webhooks stop with it.}}",
+      "webhooksTitle": "Webhooks",
+      "webhooksDescription": "Receivers that get this workspace's events, set up through the API. A webhook stops when the key it belongs to is revoked. To switch one on again, use the API with a live key.",
+      "webhooksLoading": "Loading webhooks",
+      "webhooksLoadFailed": "Failed to load the webhooks",
+      "noWebhooks": "No webhooks",
+      "webhookUnknownHost": "Unreadable address",
+      "webhookOn": "On",
+      "webhookOff": "Off",
+      "webhookKey": "Key: {name}",
+      "webhookNoKey": "No key: created before this release, or its key was deleted",
+      "webhookFailing": "Failing since {date} ({count, plural, one {# failure in a row} other {# failures in a row}})",
+      "webhookLastDelivery": "last delivery {date}",
+      "webhookNeverDelivered": "nothing delivered yet",
+      "webhookSwitchOff": "Switch off",
+      "webhookDelete": "Delete",
+      "webhookOffTitle": "Switch off this webhook?",
+      "webhookOffBody": "{host} gets no more events ({events}). To switch it on again, use the API with a live key.",
+      "webhookOffSuccess": "Switched off the webhook to {host}",
+      "webhookOffFailed": "Failed to switch off the webhook",
+      "webhookDeleteTitle": "Delete this webhook?",
+      "webhookDeleteBody": "{host} gets no more events ({events}), and its signing secret is deleted. This cannot be undone.",
+      "webhookDeleteSuccess": "Deleted the webhook to {host}",
+      "webhookDeleteFailed": "Failed to delete the webhook"
     },
     "deals": {
       "title": "Deals & currency",
@@ -3415,6 +3618,7 @@
       "uploadFile": "Upload file",
       "uploadTooltip": "PDF, .txt, .md, .csv or .json — the text is extracted and added as a document",
       "uploadSuccess": "Document added ({chars} characters extracted).",
+      "uploadEncoding": "Some letters in this file can’t be read. Save it as UTF-8 text (in Excel, “CSV UTF-8”) and upload that.",
       "uploadFailed": "Upload failed."
     },
     "aiKnowledgeGaps": {
@@ -3485,7 +3689,7 @@
       "cancel": "Cancel",
       "created": "Created {email}",
       "failed": "Could not create the user",
-      "added": "Added {email} with their existing login",
+      "added": "Added {email} with their existing login. They sign in with their earlier password; set a new one if needed.",
       "noLoginHint": "No login uses this email yet. Set a password to create one, and share it with them directly — no email is sent.",
       "bankCodeLabel": "Bank",
       "bankCodePlaceholder": "Bank (e.g. Mashreq)",
@@ -3549,8 +3753,13 @@
       "numbersHint": "Everyone in this team, and its leader, works these numbers: they can send from them and start new chats from them. They still see only their own and assigned chats (leaders also their team’s). Joining or leaving the team grants or removes this automatically.",
       "providerWhapi": "Whapi",
       "providerMeta": "Meta Cloud API",
-      "emptyTeamShared": "This team has no members or leader yet, so these numbers stay shared with everyone until someone joins.",
-      "emptyTeamSharedShort": "Shared with everyone until someone joins",
+      "emptyTeamShared": "This team has no members or leader yet, so a number allocated only to it is for owners and admins until someone joins.",
+      "membersChanged": "Another admin changed the members of {name}, so your change was not saved. Open the team again to see what is stored.",
+      "membersChangedStored": "Another admin changed this team's members, so your change was not saved. Members stored now: {names}. Reload shows that and drops your changes.",
+      "membersChangedUnread": "Another admin changed this team's members, so your change was not saved. What is stored now could not be read.",
+      "teamGone": "{name} was deleted, so your change was not saved.",
+      "formerMember": "Former member",
+      "emptyTeamSharedShort": "Admins only until someone joins",
       "unsavedChanges": "Unsaved changes",
       "noChanges": "No changes",
       "discardTitle": "Discard your changes?",
@@ -4513,6 +4722,10 @@
         "notChecked": "Not checked",
         "note": "Note",
         "remove": "Remove {bank}",
+        "removeTitle": "Remove {bank}?",
+        "removeDescription": "Bank guests of {bank} lose access to its deal rooms at once. The guest permission, the date and person who checked the DSA, and the note are deleted and cannot be restored.",
+        "removeCancel": "Cancel",
+        "removeConfirm": "Remove",
         "addPlaceholder": "Bank code, e.g. MASHREQ",
         "add": "Add bank",
         "invalidCode": "Use letters, digits, - or _ (up to 32).",
@@ -4698,6 +4911,7 @@
       "description": "A public form on your website that adds the person as a contact (source: web form) and opens a follow-up task. It never sends a WhatsApp message.",
       "loading": "Loading the web form…",
       "loadFailed": "The web form settings could not be loaded.",
+      "retry": "Retry",
       "enabledLabel": "Accept submissions",
       "enabledOn": "On: the link and the snippet accept new leads.",
       "enabledOff": "Off: the link shows a not-found page and posts are refused.",
@@ -5691,7 +5905,9 @@
       "react": "React with {emoji}",
       "replies": "{count, plural, =1 {# reply} other {# replies}} · last {time}",
       "newMessages": "New messages",
-      "removed": "Removed by an admin."
+      "removed": "Removed by an admin.",
+      "fileFailed": "Could not load the file.",
+      "fileRetry": "Retry"
     },
     "receipts": {
       "seen": "Seen",
@@ -5986,7 +6202,8 @@
         "archive": "Archive",
         "text": "Text",
         "other": "File"
-      }
+      },
+      "loadFailed": "Couldn't load the files."
     },
     "pins": {
       "title": "Pinned messages",
@@ -5995,7 +6212,8 @@
       "empty": "Nothing is pinned yet. Pin a message from its ⋯ menu to keep it here.",
       "jump": "Jump to the message from {name}",
       "inThread": "In a thread",
-      "noText": "Attachment"
+      "noText": "Attachment",
+      "loadFailed": "Couldn't load the pinned messages."
     },
     "picker": {
       "search": "Search people",
@@ -6052,7 +6270,8 @@
       "remove": "Remove",
       "inThread": "in a thread",
       "erased": "This message was erased.",
-      "noText": "Attachment or shared conversation"
+      "noText": "Attachment or shared conversation",
+      "loadFailed": "Couldn't load your saved messages."
     },
     "rooms": {
       "new": "New deal room",
@@ -6124,6 +6343,7 @@
         "templateFooter": "The reply window is closed: nobody in the group has written in the last 24 hours. Until someone does, only an approved template can be sent, charged per member who receives it. Sent messages can't be edited or deleted.",
         "templatePick": "Pick an approved template",
         "noTemplates": "No approved templates yet.",
+        "templateNotLinked": "Not linked to Meta",
         "param": "Value {n}",
         "review": "Review and send",
         "confirmTitle": "Send this template to the group?",
@@ -6185,6 +6405,7 @@
           "none": "Add at least the customer.",
           "too_many": "At most {max} people can be invited.",
           "no_customer": "Add the customer.",
+          "many_customers": "Only one customer can be in a room: the consent covers only them. Change the others to partner or remove them.",
           "name": "Each person needs a name of up to 120 characters.",
           "phone": "{name} has no valid phone number.",
           "duplicate": "{name} is listed twice (same phone number).",
@@ -6245,6 +6466,15 @@
         "pendingGuests": "Bank guests awaiting approval",
         "pendingHelp": "Only a team leader or an admin can approve a bank guest.",
         "decideFailed": "Couldn't save the decision: {error}",
+        "joinBlocks": {
+          "pending_approval": "A team leader has to let this person in first",
+          "rejected": "A team leader refused this person",
+          "opted_out": "This person opted out or is marked do-not-contact",
+          "no_consent": "This customer has no recorded consent",
+          "bank_guests_off": "Officers of this bank cannot join customer groups",
+          "room_not_open": "The room is not open",
+          "check_failed": "It could not be checked whether this person may join. Try again."
+        },
         "inviteLink": "Invite link",
         "showLink": "Show link",
         "copy": "Copy",
@@ -6261,7 +6491,19 @@
         "removeTitle": "Remove {name}?",
         "removeBody": "They leave the WhatsApp group and cannot rejoin through the invite link.",
         "removed": "{name} was removed. A removed person cannot rejoin through the invite link.",
-        "removeFailed": "Couldn't remove {name}: {error}"
+        "removeFailed": "Couldn't remove {name}: {error}",
+        "alreadyDecided": "Someone else already decided this request.",
+        "copyFailed": "Couldn't copy the link. It is shown in the box: select it and copy by hand.",
+        "resentNone": "No invites were sent. Skipped: {reasons}.",
+        "resentNothingDue": "No invites were sent: nobody is due one.",
+        "resentReasons": {
+          "already": "already invited (copy the link and send it)",
+          "waiting": "waiting for a team leader's approval",
+          "opted_out": "opted out or do-not-contact",
+          "no_consent": "no recorded consent",
+          "bank_guests_off": "bank officers cannot join customer groups",
+          "other": "not allowed to be invited now"
+        }
       },
       "actions": {
         "title": "Room actions",
@@ -6398,7 +6640,8 @@
       "cancel": "Cancel",
       "submit": "Forward",
       "done": "{count, plural, one {Forwarded to # chat} other {Forwarded to # chats}}",
-      "failed": "Could not forward to {name}: {reason}"
+      "failed": "Could not forward to {name}: {reason}",
+      "filesFailed": "Not forwarded: the files of this message could not be read. Try again."
     },
     "moderation": {
       "remove": "Remove message…",
@@ -6858,6 +7101,7 @@
         "marketing_opt_in_withdrawn": "Opt-in withdrawn",
         "opted_out": "Opted out",
         "resubscribed": "Re-subscribed",
+        "restored": "Restored from before the customer was deleted",
         "do_not_contact_set": "Do not contact set",
         "do_not_contact_cleared": "Do not contact cleared"
       },
@@ -6895,6 +7139,10 @@
     }
   },
   "Presence": {
+    "onlineNow": "Online — active now",
+    "awayIdle": "Away — idle",
+    "offlineSince": "Offline — last seen {when}",
+    "offlineUnknown": "Offline",
     "available": "Available",
     "onCall": "On a call",
     "dnd": "Do not disturb",
@@ -7009,6 +7257,7 @@
     "taskFailed": "Couldn't update the task",
     "playFailed": "Couldn't play the recording",
     "attachFailed": "Couldn't attach the recording",
+    "attachOtherCustomer": "This recording belongs to another customer, so it can't be attached to this deal",
     "download": "Download recording",
     "downloadFailed": "Couldn't download the recording",
     "noDeal": "No open deal to attach to",
@@ -7052,7 +7301,6 @@
     },
     "mineHint": "Calls you made, took or that rang your phone, newest first",
     "missedHint": "Missed in the last 7 days, newest first",
-    "tasksTruncated": "Showing the first {count, number} missed-call tasks. A call without a label may still have one.",
     "missedWho": {
       "label": "Whose missed calls",
       "mine": "Mine",
@@ -7068,8 +7316,14 @@
     "colleagueExtension": "Ext {extension}",
     "colleaguePair": "{from} → {to}",
     "taskOpen": "Task open",
+    "taskOpenBy": "Open: {name}",
     "taskDone": "Task done",
+    "taskDoneBy": "Done by {name}",
     "loadFailed": "Couldn't load calls",
+    "loadOlder": "Load older",
+    "loadingOlder": "Loading older calls…",
+    "loadOlderFailed": "Couldn’t load older calls",
+    "refreshFailed": "Couldn’t refresh. The list may be a little behind.",
     "playRecording": "Play recording",
     "hideRecording": "Hide recording",
     "unrouted": {
@@ -7187,6 +7441,7 @@
     "marketingOff": "marketing off",
     "optedOut": "Opted out",
     "consentUnknown": "Unknown",
+    "factsIncomplete": "Some details could not be loaded",
     "detailsHidden": "This customer is outside your view: only their name, owner and consent are shown.",
     "recordedNotice": "Recorded call. The caller has heard the English and Arabic notice.",
     "decline": "Decline",
@@ -7233,6 +7488,8 @@
     "transferTo": "Transfer",
     "transferToOwner": "Transfer to owner",
     "transferred": "Call transferred",
+    "callGone": "This call has already ended",
+    "notOnCall": "You are no longer on this call",
     "actionFailed": "That did not work: {message}",
     "call": "Call",
     "ringsFirst": "Your phone rings first, then the customer",
@@ -7273,7 +7530,27 @@
     "whatsAppChat": "WhatsApp chat",
     "noCustomerYet": "No customer is linked to this call yet.",
     "wrapUpShort": "Wrap-up {left}",
-    "addOutcome": "Add outcome"
+    "addOutcome": "Add outcome",
+    "retry": "Retry",
+    "noteQueued": "Saved once the call is on record",
+    "noteLoadFailed": "The call could not be loaded. What you write is kept and saved once it is.",
+    "noteConflict": "Someone changed this note while you were writing.",
+    "noteMine": "Your note",
+    "noteTheirs": "Saved on the call",
+    "noteEmpty": "(empty)",
+    "noteKeepMine": "Keep mine",
+    "noteKeepTheirs": "Keep theirs",
+    "noteCopy": "Copy",
+    "noteCopied": "Copied",
+    "noteCopyFailed": "Could not copy",
+    "unsavedLost": "Not saved. Check your connection and try again.",
+    "unsavedRefused": "Not saved: this call no longer accepts your outcome or note.",
+    "unsavedConflict": "Not saved: choose which note to keep first.",
+    "unsavedNoCall": "Not saved yet: the call is not on record.",
+    "closeUnsaved": "Close without saving",
+    "noteKept": "A call outcome or note is not saved.",
+    "noteKeptOpen": "Open",
+    "noteKeptBusy": "You can open it when your current call ends."
   },
   "Voicemail": {
     "title": "Voicemail",
@@ -7376,6 +7653,11 @@
       "title": "Something went wrong",
       "description": "An unexpected error stopped this page from loading. Try again, or go back to the home screen."
     },
+    "update": {
+      "title": "A new version is available",
+      "description": "This screen needs a part of the app that this tab could not load, usually because the app was updated. Reload to continue. Reloading drops text you have not sent: to finish it first, go to home and open its chat again.",
+      "reload": "Reload"
+    },
     "dashboard": {
       "title": "This screen couldn’t load",
       "description": "Something went wrong while showing this screen. The rest of the app still works: try again, or pick another screen from the sidebar."
@@ -7440,7 +7722,8 @@
         "invalidDateTime": "That date and time don't exist in this time zone.",
         "durationInvalid": "Pick a duration.",
         "startInPast": "That time has already passed.",
-        "saveFailed": "Couldn't save the meeting."
+        "saveFailed": "Couldn't save the meeting.",
+        "savedPartly": "The meeting was saved, but the invited people were not all updated. Check the list and try again."
       },
       "durationCustom": "Custom duration in minutes",
       "minutesUnit": "min",
@@ -7622,7 +7905,10 @@
       "noTags": "No chat tags yet.",
       "save": "Save settings",
       "saved": "Settings saved",
-      "saveFailed": "Could not save the settings"
+      "saveFailed": "Could not save the settings",
+      "loadFailed": "Could not load the recycling settings.",
+      "conflict": "Somebody else changed these settings. Nothing was saved; reload to see the latest.",
+      "reload": "Reload"
     }
   },
   "Reminders": {
@@ -7642,6 +7928,7 @@
       "back": "Back",
       "more": "+{count} more",
       "snoozedUntil": "Snoozed until {when}",
+      "changed": "This reminder was changed or finished elsewhere",
       "doneToast": "Marked done",
       "failed": "Couldn't update the reminder"
     }
@@ -7701,13 +7988,18 @@
     },
     "ended": {
       "title": "This meeting has ended",
-      "viewSummary": "View summary"
+      "viewSummary": "View summary",
+      "unsavedTitle": "Minutes that were not saved",
+      "unsavedCopy": "Copy",
+      "unsavedCopied": "Minutes copied",
+      "unsavedCopyFailed": "Couldn't copy the minutes."
     },
     "left": {
       "title": "You left the meeting",
       "elsewhere": "You joined from another tab or device",
       "rejoin": "Rejoin",
       "elsewhereBody": "This window was disconnected. You can carry on here instead.",
+      "noAccess": "You no longer have access to this meeting.",
       "rejoinHere": "Rejoin here",
       "backToMeetings": "Back to meetings"
     },
@@ -7968,6 +8260,7 @@
         "nobody": "Nobody to invite",
         "send": "{count, plural, =0 {Send invites} one {Invite # person} other {Invite # people}}",
         "sent": "{count, plural, =0 {They were already invited} one {# person invited} other {# people invited}}",
+        "needsReadmit": "{name} was removed from this meeting. Let them back in from the people list.",
         "failed": "Couldn't send the invites.",
         "copyLink": "Copy meeting link",
         "linkCopied": "Meeting link copied",
@@ -8125,6 +8418,7 @@
       "ended": "{title} has ended",
       "removed": "The host removed you from {title}",
       "elsewhere": "You joined {title} from another device or tab",
+      "noAccess": "You no longer have access to this meeting.",
       "lost": "Connection to {title} was lost",
       "rejoin": "Rejoin"
     },
@@ -8193,12 +8487,16 @@
       "channel_reconnected": "A WhatsApp number reconnects",
       "inbound_message_failed": "A WhatsApp message could not be saved",
       "meta_number_alert": "The Meta number's health gets worse",
+      "retention_failed": "Automatic data removal (retention) fails",
+      "webhook_disabled": "A webhook is switched off",
       "pbx_connection_silent": "The phone system goes quiet",
       "pbx_connection_restored": "The phone system is back",
       "team_activity_alert": "Team activity alerts",
       "team_activity_unlock_request": "Requests to unlock a blocked message",
       "team_activity_unlock_decided": "My unlock requests are decided",
       "meeting_invite": "Meeting invitations",
+      "meeting_update": "A meeting is moved",
+      "meeting_cancelled": "A meeting is cancelled",
       "meeting_reminder": "Meeting reminders",
       "event_reminder": "Calendar reminders",
       "group_join_request": "WhatsApp group join requests",
@@ -8296,6 +8594,7 @@
       },
       "this": "This event",
       "all": "All events",
+      "editedDatesStay": "Dates you changed on their own stay in the calendar.",
       "cancel": "Cancel",
       "confirmDeleteTitle": "Delete this event?",
       "confirmDeleteBody": "Guests will no longer see it. This can't be undone.",
@@ -8305,7 +8604,10 @@
       "atStart": "At start",
       "minutes": "{count, plural, =1 {1 minute} other {# minutes}}",
       "hours": "{count, plural, =1 {1 hour} other {# hours}}",
-      "days": "{count, plural, =1 {1 day} other {# days}}"
+      "days": "{count, plural, =1 {1 day} other {# days}}",
+      "atMidnight": "At midnight",
+      "dayBefore": "{time} the day before",
+      "daysBefore": "{time}, {count} days before"
     },
     "repeat": {
       "daily": "{interval, plural, =1 {Every day} other {Every # days}}",
@@ -8313,6 +8615,7 @@
       "monthlyDate": "{interval, plural, =1 {Monthly on day {day}} other {Every # months on day {day}}}",
       "monthlyNth": "{interval, plural, =1 {Monthly on the {nth, selectordinal, one {#st} two {#nd} few {#rd} other {#th}} {weekday}} other {Every # months on the {nth, selectordinal, one {#st} two {#nd} few {#rd} other {#th}} {weekday}}}",
       "monthlyLast": "{interval, plural, =1 {Monthly on the last {weekday}} other {Every # months on the last {weekday}}}",
+      "monthlyLastDay": "{interval, plural, =1 {Monthly on the last day of the month} other {Every # months on the last day of the month}}",
       "yearly": "{interval, plural, =1 {Every year on {date}} other {Every # years on {date}}}",
       "custom": "Repeats on a custom schedule",
       "endsOn": "{rule}, until {until}",
@@ -8339,10 +8642,12 @@
         "monthlyDate": "Monthly on the same day",
         "monthlyNth": "Monthly on the same weekday",
         "monthlyLast": "Monthly on the last weekday",
+        "monthlyLastDay": "Last day of the month",
         "yearly": "Yearly",
         "custom": "Custom repeat rule"
       },
       "repeatPreviewInvalid": "This repeat can't be saved as set.",
+      "repeatSkipsShort": "Skipped in shorter months",
       "every": "Every",
       "intervalUnit": {
         "days": "{count, plural, =1 {day} other {days}}",
@@ -8365,6 +8670,7 @@
       "attendeesSearch": "Search people",
       "attendeesEmpty": "No one matches.",
       "removeAttendee": "Remove {name}",
+      "editedDatesKeepGuests": "Dates you changed on their own keep their guests.",
       "unknownPerson": "Unknown person",
       "location": "Location",
       "locationPlaceholder": "Add a place or link",
@@ -8403,7 +8709,8 @@
       "saving": "Saving…",
       "created": "Event created",
       "saved": "Event saved",
-      "conflict": "Someone else changed this event. The form now shows the latest version.",
+      "conflict": "This event changed meanwhile. Your changes are kept; check them and save again.",
+      "conflictFields": "Changed meanwhile: {fields}",
       "saveFailed": "Couldn't save the event: {reason}",
       "loading": "Loading…",
       "loadFailed": "Couldn't load the event: {reason}",
@@ -8420,6 +8727,7 @@
         "descriptionTooLong": "The description is too long (5,000 characters at most).",
         "locationTooLong": "The location is too long (300 characters at most).",
         "repeatInvalid": "Check the repeat: it can't be saved as set.",
+        "repeatMissesStart": "The first date is not one of the repeat days.",
         "tooManyReminders": "Up to 5 reminders."
       }
     }
@@ -8436,6 +8744,11 @@
     "sync": "Sync from WhatsApp",
     "syncing": "Syncing…",
     "syncDone": "{synced, plural, =1 {# group} other {# groups}} synced · {created} new · {left} left",
+    "syncIncomplete": "The gateway's list looked incomplete; nothing was marked as left. Try again in a few minutes.",
+    "syncFailedNumbers": "Couldn't read these numbers: {names}. Their groups are unchanged.",
+    "syncFailedGroups": "{count, plural, =1 {# group} other {# groups}} couldn't be saved. Try again in a few minutes.",
+    "syncTruncated": "Not every group could be read this time; the ones missed are unchanged.",
+    "listPartial": "Submission groups couldn't be refreshed. What you see may be out of date.",
     "syncFailed": "Couldn't sync groups: {reason}",
     "loadFailed": "Couldn't load groups. Try again in a moment.",
     "emptyTitle": "No groups yet",
@@ -8522,6 +8835,8 @@
         "rate_limited": "too many requests, wait a moment and try again",
         "channel_disconnected": "the number is disconnected",
         "billing": "the WhatsApp number's subscription needs attention",
+        "too_many_adds": "Too many people were added in the last hour. Try again within the hour.",
+        "too_many_creates": "Too many groups were created on this number in the last 24 hours. Try again tomorrow or use another number.",
         "gateway_unavailable": "WhatsApp didn't respond, try again",
         "unknown": "something went wrong"
       },
@@ -8544,8 +8859,16 @@
       "unsavedHeadline": "Created on WhatsApp but not saved here — don't create it again.",
       "unsavedAdmin": "The group exists on WhatsApp, but this CRM could not save it. Creating it again would make a duplicate. Run a sync to bring it in.",
       "unsavedOther": "The group exists on WhatsApp, but this CRM could not save it. Creating it again would make a duplicate. Ask an admin to run a sync from the Groups screen.",
+      "unconfirmedTitle": "Group not confirmed",
+      "unconfirmedHeadline": "The group may have been created",
+      "unconfirmedBody": "WhatsApp didn't answer in time. Check Groups in a minute before trying again: a second try could make another group with the same people.",
+      "repeatHeadline": "You created a group with this name a few minutes ago",
+      "repeatBody": "Check Groups first. Create another only if you want a second group with this name.",
+      "checkGroups": "Check Groups",
+      "createAnother": "Create another",
       "syncNow": "Sync now",
       "syncNowFailed": "Couldn't sync. Try again, or run a sync from the Groups screen.",
+      "syncNowPartial": "The sync didn't read every group, so the new one may still be missing. Check the list, then sync again if needed.",
       "resultWarnings": "Created, with a few things to check",
       "warnings": {
         "adds_stopped": "Adding people stopped early. Send the rest the invite link.",
@@ -8592,7 +8915,8 @@
         "send": "Send",
         "uploadFailed": "Upload failed.",
         "fileTooLarge": "This file is {size} MB; the limit for this kind is {limit} MB.",
-        "fileTypeNotAllowed": "This kind of file cannot be sent."
+        "fileTypeNotAllowed": "This kind of file cannot be sent.",
+        "notSentIn": "Not sent in {group}. It is kept there: open it to send it again."
       },
       "reasons": {
         "not_allowed": "You don't have permission to do that.",
@@ -8623,7 +8947,9 @@
         "unknown": "Something went wrong. Try again.",
         "no_participants": "None of those people could be added to a group. Check the numbers and try again.",
         "saved_failed_run_sync": "The group was created on WhatsApp but couldn't be saved here. An admin can run Sync to bring it in — don't create it again.",
-        "send_unconfirmed": "This message may have been sent: check the chat before sending it again."
+        "send_unconfirmed": "This message may have been sent: check the chat before sending it again.",
+        "number_unconfirmed": "The number could not be confirmed as removed: WhatsApp hides some members' numbers. Check the group.",
+        "no_saved_number": "No number of their own is saved. If their phone is in the group, remove it on the Members tab."
       },
       "membersTab": {
         "search": "Search members",
@@ -8660,6 +8986,8 @@
         "remove": "Remove from group",
         "toastMadeAdmin": "{name} is now an admin",
         "toastRemovedAdmin": "{name} is no longer an admin",
+        "toastMakeAdminFailed": "WhatsApp refused: {name} is not an admin.",
+        "toastRemoveAdminFailed": "WhatsApp refused: {name} is still an admin.",
         "toastRemoved": "{name} was removed from the group",
         "removeTitle": "Remove {name}?",
         "removeBody": "They will leave {group} and stop seeing new messages. You can add them again later.",
@@ -8841,7 +9169,7 @@
       "status": {
         "pending": "Sending",
         "sent": "Sent",
-        "failed": "Failed",
+        "failed": "May not have been delivered; check the group",
         "blocked": "Blocked"
       }
     },
@@ -8849,6 +9177,8 @@
       "numberAdded": "Their WhatsApp number was added to the group.",
       "numberRefused": "WhatsApp would not add their number. Share the group's invite link with them.",
       "numberFailed": "Access saved, but their WhatsApp number could not be updated in the group.",
+      "numberUnconfirmed": "Access removed, but it could not be confirmed that their number left: WhatsApp hides some members' numbers. Check the group.",
+      "numberUnknown": "Access removed, but no WhatsApp number of their own is saved, so nothing was taken out of the group. If their phone is in it, remove it in WhatsApp.",
       "numberRemoved": "Their WhatsApp number was removed from the group.",
       "title": "People",
       "hint": "Staff on this list read and write the group.",
@@ -8900,6 +9230,7 @@
         "noWhatsapp": "This submission was recorded without a WhatsApp group (WhatsApp groups are off in Settings → Cases).",
         "pending": "The WhatsApp group is being created. You can send once it is ready.",
         "createError": "The WhatsApp group could not be created.",
+        "stillOpen": "Ended here; the WhatsApp group is still open.",
         "closeError": "The group ended, but closing it on WhatsApp failed.",
         "closeRemaining": "{count, plural, one {# person} other {# people}} could not be removed from it, so it is still open. The system keeps trying; you can also remove them on the phone.",
         "numberRemoved": "The WhatsApp number hosting this group was removed. Nobody can send.",
@@ -8934,6 +9265,7 @@
         "notFound": "This group no longer exists.",
         "rateLimited": "You are sending too fast. Wait a minute.",
         "gateway": "WhatsApp did not take the message.",
+        "notStored": "Not sent: the CRM had a problem. Try again.",
         "tooLong": "The message is empty or too long.",
         "unknown": "The message could not be sent.",
         "maybeSent": "No answer: it may have been sent. Check the chat before sending it again.",
@@ -8942,10 +9274,13 @@
       "endTitle": "End this group?",
       "endBody": "Group {ref} ends now: nobody can send, and its messages open only through the logged archive.",
       "endDone": "Group ended.",
+      "endCloseDeferred": "Group ended here. The WhatsApp group is still open and will be closed shortly.",
+      "endCloseFailed": "Group ended here, but the WhatsApp group could not be closed yet.",
       "endFailed": "Could not end the group.",
       "retryTitle": "Retry creating the WhatsApp group?",
       "retryBody": "We will ask WhatsApp to create the group again.",
       "retryDone": "Asked WhatsApp to create the group again.",
+      "retryPending": "Still waiting: the WhatsApp group is not created yet.",
       "retryFailed": "Could not retry.",
       "inviteResendDone": "Invite link sent to the customer again.",
       "inviteResendFailed": "Could not resend the invite.",
@@ -8973,6 +9308,7 @@
       "search": "Search company, contact or reference",
       "count": "{count, plural, one {# submission} other {# submissions}}",
       "countMore": "{count, plural, one {#+ submission} other {#+ submissions}}",
+      "endedUnread": "Ended, new messages",
       "myGroups": "My groups",
       "myGroupsHint": "Show only the submissions you are on",
       "contactLine": "Contact: {name}",
@@ -9033,7 +9369,26 @@
       "copyLink": "Copy link",
       "copied": "Group link copied.",
       "copyFailed": "Could not copy the link.",
-      "failed": "Could not add the number. Try again."
+      "failed": "Could not add the number. Try again.",
+      "maybeAdded": "No answer: the number may have been added. Check the group before trying again."
+    },
+    "refusals": {
+      "not_found": "Group not found.",
+      "not_active": "This group has ended.",
+      "not_allowed": "You are not on this group.",
+      "no_whatsapp": "This case has no WhatsApp group.",
+      "no_group_yet": "The WhatsApp group has not been created yet.",
+      "detached": "The WhatsApp number or the contact was removed.",
+      "bad_phone": "Enter one number with its country code, e.g. +971 50 123 4567.",
+      "own_number": "That is the group's own WhatsApp number.",
+      "opted_out": "This customer has opted out, so nothing was sent.",
+      "do_not_contact": "This customer is marked do not contact, so nothing was sent.",
+      "no_phone": "The customer has no phone number.",
+      "already_joined": "The customer is already in the group.",
+      "in_progress": "This number is being added already. Wait a moment.",
+      "too_many": "10 numbers were added to this group in the last 24 hours.",
+      "too_soon": "An invite was sent, or tried, in the last 10 minutes. Try again later.",
+      "unknown": "Could not complete this. Try again."
     }
   },
   "CallStatsPage": {
@@ -9484,6 +9839,7 @@
       "compass": "Managed in Compass."
     },
     "actions": {
+      "addReason": "Add reason",
       "move": "Move stage",
       "edit": "Edit details",
       "reassign": "Reassign",
@@ -9737,6 +10093,7 @@
       "title": "Edit details",
       "body": "Changes are recorded in the case history.",
       "pickBank": "Choose a bank",
+      "banksFailed": "The banks could not be loaded.",
       "amountAed": "Amount (AED)",
       "clearDue": "Clear",
       "saved": "Details saved"
@@ -9752,6 +10109,10 @@
       "done": "Reassigned to {name}"
     },
     "docs": {
+      "recentTitle": "Already requested",
+      "recentBody": "Requested by {name} at {time}. Send again?",
+      "sendAgain": "Send again",
+      "unconfirmed": "It may have been sent. Check the Conversation tab before sending again.",
       "title": "Request missing documents",
       "body": "The customer gets one message in the case's WhatsApp group listing every required document not yet received.",
       "confirm": "Send request",
@@ -9780,6 +10141,7 @@
       "priorityInvalid": "That priority is not valid.",
       "dueInvalid": "That due date is not valid.",
       "amountInvalid": "Enter the amount as a number, with at most two decimals.",
+      "cannotEmpty": "{field} cannot be emptied here.",
       "reasonInvalid": "Choose a reason.",
       "reasonTooLong": "The details are too long (500 characters at most).",
       "reasonNotDeclined": "A reason can only be recorded for a declined or withdrawn case.",
@@ -9791,7 +10153,8 @@
       "unknown": "Something went wrong. Try again.",
       "presubReentry": "A submitted case cannot go back to a pre-submission stage.",
       "submissionRequired": "That stage needs the bank submission first. A lead can only be withdrawn.",
-      "managedExternally": "This case is managed in Compass. Change it there."
+      "managedExternally": "This case is managed in Compass. Change it there.",
+      "stageChanged": "The stage changed meanwhile (now: {stage})"
     },
     "timeline": {
       "includeMessages": "Include WhatsApp messages",
@@ -9810,6 +10173,7 @@
         "group_open": "WhatsApp group opened",
         "group_end": "WhatsApp group ended",
         "conversation_archived": "Conversation archived",
+        "messages_cut": "Older group messages are not shown here",
         "group_message": "WhatsApp message",
         "message": "WhatsApp message",
         "call": "Call"
@@ -9833,6 +10197,7 @@
       }
     },
     "conversation": {
+      "olderNotShown": "Older messages are not shown here; <link>open the group</link>.",
       "gateBody": "The customer's WhatsApp conversation for this case.",
       "auditNote": "Opening the conversation is recorded for supervisors.",
       "show": "Show conversation",
@@ -10474,7 +10839,12 @@
         "firstFinal": "The first stage can’t be a final stage (“{stage}”). Move a working stage to the top.",
         "finalSpelling": "Spell the final stage exactly “{stage}”.",
         "missingFinal": "“{stage}” is missing. Approved, Declined, Withdrawn and Closed must all be in the list."
-      }
+      },
+      "dropTitle": "Stages still in use",
+      "dropMappings": "Compass statuses that move a case to a removed stage: {list}.",
+      "dropSla": "Deadline rules on a removed stage: {list}.",
+      "dropBody": "They will stop working if you save. Save anyway?",
+      "dropConfirm": "Save anyway"
     },
     "templates": {
       "help": "Tasks that staff can add to a case at this bank with one click.",
@@ -10552,8 +10922,10 @@
       "stageNotConfigured": "That stage is no longer in this bank’s list. Reload and try again.",
       "invalid": "That value is not allowed.",
       "notAllowed": "Only owners and admins can change these settings.",
-      "generic": "Could not save: {error}"
-    }
+      "generic": "Could not save: {error}",
+      "stagesChanged": "Another admin changed this list. Reload to see it, then make your change again."
+    },
+    "reload": "Reload"
   },
   "CaseRules": {
     "settings": {
@@ -10780,6 +11152,7 @@
       "approved": "Approved",
       "waiting": "Waiting for an owner's approval",
       "noWording": "No wording yet",
+      "storedNow": "Stored now: {body}",
       "placeholders": "You can use: {list}",
       "save": "Save wording",
       "approve": "Approve",
@@ -10809,7 +11182,9 @@
       "notAllowed": "Only owners and admins can change this.",
       "selfApproval": "Another owner must approve wording you edited.",
       "templateInvalid": "That wording is not valid. Write 1 to 1,000 characters.",
-      "generic": "Couldn't save ({error})."
+      "generic": "Couldn't save ({error}).",
+      "specChanged": "Another admin changed this spec. Reload to see it, then make your change again.",
+      "templateChanged": "The wording was changed meanwhile. Read the new text before you approve it."
     },
     "spec": {
       "title": "Document files",
@@ -11009,6 +11384,7 @@
       "shareError": "Could not share this chat.",
       "revokeError": "Could not revoke the share.",
       "loadError": "Could not load coordinators.",
+      "retry": "Retry",
       "sharedLabel": "Shared · {bank}",
       "fromSubTag": "Chosen from the chat's sub-tag."
     },
@@ -11024,6 +11400,7 @@
       "cancel": "Cancel",
       "saved": "Coordinator banks saved.",
       "saveError": "Could not save coordinator banks.",
+      "changedMeanwhile": "Another admin changed these banks. Their change is shown now; make yours again.",
       "phoneLabel": "WhatsApp number",
       "phoneHelp": "Added to the WhatsApp group of every submission for this person's banks.",
       "phoneInvalid": "Enter a valid phone number with country code, e.g. +971 50 123 4567.",
@@ -11127,6 +11504,7 @@
     "tasks": {
       "title": "Open tasks",
       "empty": "No open tasks",
+      "more": "More on the customer page",
       "failed": "Couldn't load tasks",
       "due": "Due {when}",
       "overdue": "Overdue · {when}",
@@ -11772,6 +12150,7 @@
     "searching": "Searching contacts…",
     "empty": "Start typing to search.",
     "noResults": "Nothing matches “{query}”.",
+    "contactsFailed": "Contacts could not be searched. Change the text to try again.",
     "hintMove": "Up and down arrows to move",
     "hintOpen": "Enter to open",
     "hintClose": "Esc to close",
@@ -12110,7 +12489,9 @@
     "showFewer": "Show fewer",
     "sidebarLabel": "Documents",
     "sidebarCount": "{count, plural, one {# file} other {# files}}",
-    "sidebarLink": "Open this customer's documents"
+    "sidebarLink": "Open this customer's documents",
+    "showNewest": "Show the newest {count}",
+    "newestOnly": "Only the newest {count} documents are listed here."
   },
   "CaseFiles": {
     "useAgain": "Use this one again",
@@ -12173,6 +12554,7 @@
     "uploaded": "Uploaded for {label}.",
     "checkedPassed": "Checked as {label}.",
     "checkedFailed": "Checked as {label}, but it failed its checks.",
+    "checkedSuperseded": "Checked as {label}, but a newer document was accepted meanwhile. This one was kept as an earlier version.",
     "download": "Download",
     "buildTitle": "Assembled case file",
     "assemble": "Assemble case file",
@@ -12191,7 +12573,8 @@
       "BUILD_TOO_LARGE": "The case file would be too large to store (over 50 MB). Replace the largest documents with smaller copies, or assemble an index only.",
       "FILE_NOT_FOUND": "This file could not be found.",
       "NOT_CONFIGURED": "Downloads are not set up on this server.",
-      "generic": "Something went wrong. Try again."
+      "generic": "Something went wrong. Try again.",
+      "FORM_NOT_FLATTENED": "The form in “{document}” could not be read in full, so the case file was not assembled. Print that form to a new PDF, upload it, and try again."
     },
     "checks": {
       "detail": {
@@ -12231,7 +12614,9 @@
       "REUSE_WOULD_FAIL": "This is an earlier version that would fail its checks now, so nothing was changed.",
       "STORAGE_UNAVAILABLE": "The file store did not answer. Try again in a moment.",
       "generic": "Something went wrong. Try again."
-    }
+    },
+    "downloadBlocked": "Your browser blocked the new tab. Allow pop-ups for this site and try again.",
+    "buildLoadFailed": "The assembled case file could not be loaded."
   },
   "CaseSnooze": {
     "snooze": "Snooze",
@@ -12274,12 +12659,15 @@
     "slashNoMatch": "No quick replies match \"{query}\"",
     "slashNone": "No quick replies yet. Add some in Settings → Quick replies.",
     "searchQuickReplies": "Search quick replies",
-    "searchNoMatch": "No quick replies match your search."
+    "searchNoMatch": "No quick replies match your search.",
+    "quickRepliesFailed": "Quick replies could not be loaded.",
+    "quickRepliesRetry": "Try again"
   },
   "ContactSearch": {
     "similar": "Similar",
     "closeMatches": "Close matches",
-    "similarHint": "Close match: not an exact match for your search"
+    "similarHint": "Close match: not an exact match for your search",
+    "contactsFailed": "Contacts could not be searched, so some chats may be missing here."
   },
   "Hr": {
     "inbox": {
@@ -12378,7 +12766,10 @@
       "taskDone": "Done",
       "markDone": "Mark “{title}” done",
       "taskFailed": "Couldn't update the task.",
-      "staffConversation": "Staff conversation"
+      "staffConversation": "Staff conversation",
+      "loadFailed": "Couldn't load this chat's HR details.",
+      "tasksLoadFailed": "Couldn't load the HR tasks.",
+      "retry": "Retry"
     },
     "pane": {
       "conversation": "Conversation",
@@ -12411,6 +12802,7 @@
       "anyStage": "Any stage",
       "mine": "Mine",
       "refresh": "Refresh",
+      "capped": "First {n} shown",
       "loadFailed": "Couldn't load the candidates. Try again.",
       "empty": "Nobody needs action right now",
       "rank": "#",
@@ -12521,7 +12913,10 @@
         "saved": "HR lines saved.",
         "loadFailed": "Could not load the HR lines.",
         "stale": "Someone else changed the HR lines. The list has been reloaded; check it and save again.",
-        "numberRemoved": "A number was removed. The list has been reloaded; check it and save again."
+        "numberRemoved": "A number was removed. The list has been reloaded; check it and save again.",
+        "ownerNotHr": "{owner}, who connected this number, is not in the HR department, so HR may not see the people who write to it. Move {owner} to HR in Settings → Members, or untick the number.",
+        "ownerUnknown": "Someone unknown",
+        "ownerNotHrRefused": "Not saved: a number you ticked was connected by somebody outside the HR department, so HR would not see the people who write to it. Move that person to HR in Settings → Members, or untick the number."
       }
     },
     "list": {
@@ -12740,6 +13135,7 @@
         "NOT_ALLOWED": "You don't have permission to change this.",
         "INVALID": "That value isn't allowed here.",
         "LIMIT": "The daily cap must be between 1 and 20.",
+        "STALE": "Somebody else saved this template meanwhile, so nothing was saved. Your text is kept.",
         "UNKNOWN": "Something went wrong. Try again."
       },
       "templates": {
@@ -12762,6 +13158,8 @@
         },
         "save": "Save template",
         "saved": "Template saved",
+        "changed": "Somebody else saved this template meanwhile. Reload shows theirs and drops your text.",
+        "reload": "Reload",
         "channelTabs": "Template channel",
         "rcsReadOnly": "RCS templates are read only for your role.",
         "rcsNotConnected": "No RCS provider is connected yet. RCS templates can be prepared now; nothing is sent over RCS until a provider is connected.",
@@ -12795,6 +13193,7 @@
       },
       "history": {
         "title": "History",
+        "capped": "The newest {n} are shown.",
         "filter": {
           "all": "All",
           "queued": "Queued",
@@ -13080,7 +13479,9 @@
     "result": {
       "case": "Case",
       "code": "caption code",
-      "replayed": "(already uploaded; this is the first result)"
+      "replayed": "(already uploaded; this is the first result)",
+      "replayedDifferent": "It was already uploaded earlier with {what}. Your changes were not applied; change it in My uploads. Uploading again adds a second one.",
+      "noDetails": "the details you sent first"
     },
     "reason": {
       "NO_KIND": "No type was chosen.",
@@ -13090,6 +13491,7 @@
       "CASE_NOT_FOUND": "No open case matches that number or code.",
       "BANK_MISMATCH": "The case is at a different bank.",
       "CASE_EXISTS_NAME_MISMATCH": "That licence is on file under another company name.",
+      "COMPANY_RESTRICTED": "This company or customer is with a colleague. A sorter will file it.",
       "OTHER": "It could not be filed automatically."
     },
     "actions": {
@@ -13170,7 +13572,8 @@
         "pro": "PRO",
         "accountant": "Accountant",
         "other": "Other"
-      }
+      },
+      "capped": "Only the first {count} are shown. Type more of the name or licence to find others."
     },
     "tray": {
       "intro": "Customer documents from WhatsApp that could not be filed with certainty. Nothing is pre-selected: choose the case yourself.",
@@ -13196,6 +13599,12 @@
       "dismissReason": "Why does it belong to no case?",
       "dismiss": "Dismiss",
       "dismissed": "Dismissed",
+      "openChat": "Open the chat",
+      "shown": "{shown} of {total}, oldest first",
+      "loadMore": "Load more",
+      "waiting": "This document is already waiting in the sorting queue.",
+      "filedElsewhere": "This document was already filed on {caseNumber}.",
+      "filedAlready": "This document was already filed on another case.",
       "reasons": {
         "unknown_sender": "Sender is not linked to any company",
         "no_open_case": "The sender's companies have no open case",
@@ -13203,7 +13612,8 @@
         "many_cases": "Several open cases, no case number given",
         "evidence_conflict": "The quoted message and the caption name different cases",
         "other_person": "Sent by someone other than the case's customer",
-        "file_refused": "The case would not accept the file"
+        "file_refused": "The case would not accept the file",
+        "copy_failed": "The document could not be copied automatically: open the original in the chat"
       },
       "why": {
         "quoted": "quoted",
@@ -13228,7 +13638,8 @@
       "noNumbers": "No company WhatsApp numbers are connected.",
       "escalate": "Escalate a waiting document after (minutes)",
       "save": "Save",
-      "saved": "Routing saved"
+      "saved": "Routing saved",
+      "storedNow": "Stored now: {enabled, select, yes {routing on} other {routing off}}; desk numbers: {numbers}; escalate after {minutes} minutes."
     },
     "banks": {
       "title": "Banks and documents",
@@ -13297,7 +13708,8 @@
       "sendHour": "Send from (hour, Dubai)",
       "gapDays": "Days between reminders",
       "save": "Save",
-      "saved": "Reminders saved"
+      "saved": "Reminders saved",
+      "storedNow": "Stored now: {enabled, select, yes {reminders on} other {reminders off}}; template {template} ({language}); from {hour}:00; days between reminders: {days}."
     },
     "worklist": {
       "title": "Case desk",
@@ -13307,7 +13719,8 @@
       "tasks": "{count, plural, one {# desk follow-up} other {# desk follow-ups}} for you",
       "oldest": "oldest {age}",
       "open": "Open the case desk"
-    }
+    },
+    "settingsChanged": "Someone else changed these settings since you opened them. Yours were not saved."
   },
   "DeskPreview": {
     "title": "File: {name}",
@@ -13454,7 +13867,17 @@
       },
       "apply": "Apply: the daily sweep deletes and blanks",
       "dryRun": "Preview only: the daily sweep counts and changes nothing",
-      "saved": "Retention saved"
+      "saved": "Retention saved",
+      "lastDryRun": "Last run {at}: a preview. It would remove or blank {rows, plural, one {# row} other {# rows}} and {files, plural, one {# file} other {# files}}.",
+      "lastApply": "Last run {at}: {rows, plural, one {# row} other {# rows}} removed or blanked, {files, plural, one {# file} other {# files}} queued for deletion.",
+      "lastMore": "More is left; it continues automatically.",
+      "lastFailed": "Last run {at} failed ({code}). It is tried again automatically; the owners were told.",
+      "confirmTitle": "Turn on deleting?",
+      "confirmBody": "From the next daily sweep this data is removed for good and cannot be brought back:",
+      "confirmNone": "No kind of data is chosen yet, so nothing is removed now. Every kind you choose later is removed without a preview.",
+      "confirmDelete": "{kind}: deleted after {days} days",
+      "confirmBlank": "{kind}: blanked after {days} days",
+      "confirm": "Delete from now on"
     },
     "ai": {
       "title": "Sending customer text to AI providers",
@@ -13475,11 +13898,26 @@
       "requireIncomplete": "While this is on and the basis is incomplete, every AI feature of this workspace stops.",
       "stats": "Last 30 days: {calls} AI calls logged, {refused} refused.",
       "saved": "Saved"
+    },
+    "cancel": "Cancel",
+    "reload": "Reload",
+    "errors": {
+      "generic": "Something went wrong. Try again.",
+      "network": "Could not reach the server. Check your connection and try again.",
+      "NOT_ALLOWED": "Only owners and admins can do this.",
+      "NOT_FOUND": "Customer not found.",
+      "INVALID": "That request is not valid.",
+      "CONFIRM_REQUIRED": "Type the confirmation exactly to erase.",
+      "REASON_REQUIRED": "A reason is required.",
+      "LEGAL_HOLD": "This customer is under a legal hold; nothing was erased.",
+      "STALE": "Somebody else changed these settings. Nothing was saved and what you typed is kept; reload to see the latest."
     }
   },
   "CaseReview": {
     "title": "Reviewer's note",
     "none": "No note yet.",
+    "decideFailed": "Your decision could not be saved. Try again.",
+    "loadFailed": "The reviewer's note could not be loaded.",
     "aiWritten": "AI-written, not verified",
     "checklist": "The checklist it was given",
     "approve": "Agree",
@@ -13510,6 +13948,7 @@
     "saveFailed": "Couldn't save the note",
     "tooLong": "Notes can be up to {max} characters",
     "mentionListLabel": "People who can see this chat",
+    "namesFailed": "Names could not be loaded, so nobody will be notified. Type @ again to retry.",
     "you": "You",
     "someone": "A teammate",
     "edited": "edited",
@@ -13519,6 +13958,7 @@
     "cancel": "Cancel",
     "saveEdit": "Save",
     "editFailed": "Couldn't save your change",
+    "changedMeanwhile": "This note was changed meanwhile. Saving replaces: {body}",
     "deleteFailed": "Couldn't delete the note",
     "deleteTitle": "Delete this note?",
     "deleteBody": "Your team will no longer see it. This can't be undone.",
@@ -13531,17 +13971,72 @@
     "assignTo": "Assign to",
     "me": " (me)",
     "unknownAgent": "Unknown agent",
-    "assignFailed": "Couldn't assign this chat. Try again."
+    "assignFailed": "Couldn't assign this chat. Try again.",
+    "assignMoved": "This chat has moved. Reload the page.",
+    "assignChanged": "Not changed: someone else changed who the chat with {customer} is assigned to.",
+    "meanwhileReassign": "{current} was assigned to {customer} meanwhile. Assign {name} instead?",
+    "meanwhileAssign": "The chat with {customer} was unassigned meanwhile. Assign it to {name}?",
+    "meanwhileUnassign": "{current} was assigned to {customer} meanwhile. Unassign the chat anyway?"
   },
   "KbLearn": {
     "title": "Learn from team answers",
-    "description": "Once a week, draft an answer for open topics from how your team replied in chat. Drafts only: nothing is sent until an admin approves it.",
-    "notApplied": "Not available yet: apply database migration 278.",
+    "description": "Once a week, draft an answer for open topics from how your team replied in chat. Drafts only: nothing is sent until an admin approves it. Runs only while the AI assistant is on.",
+    "notApplied": "Not available yet: apply database migration 290.",
     "lastRun": "Last run {when}.",
+    "lastRunDrafts": "Last run {when}. New drafts: {count}.",
     "notRunYet": "The first run starts within the hour.",
-    "loadFailed": "Could not load the learning setting",
+    "loadFailed": "Could not load the learning setting.",
     "saveFailed": "Could not save the learning setting",
     "switchedOn": "Learning from team answers is on",
-    "switchedOff": "Learning from team answers is off"
+    "switchedOff": "Learning from team answers is off",
+    "runningNow": "A run is in progress.",
+    "failedNoAi": "Last run failed: the AI assistant is off or its key is missing.",
+    "failedRead": "Last run failed: some chats or settings could not be read.",
+    "failedTime": "Last run ran out of time before it was finished.",
+    "failedModel": "Last run failed: the AI service did not answer.",
+    "failedOther": "Last run failed: something went wrong.",
+    "failedStopped": "Last run stopped before it was finished.",
+    "triesAgain": "It tries again after {when}.",
+    "triesSoon": "It tries again within the hour.",
+    "usageLabel": "Learned answers",
+    "skills": {
+      "title": "What it has learned ({count} active)",
+      "description": "Rules distilled from how admins approved, edited or rejected earlier drafts. They only shape new drafts. Retire a rule that is wrong: it stops being used and is not learned again.",
+      "loading": "Loading…",
+      "empty": "Nothing yet. Rules appear after admins have reviewed a few learned drafts.",
+      "loadFailed": "Could not load what it has learned",
+      "saveFailed": "Could not save the rule",
+      "retire": "Retire",
+      "restore": "Restore",
+      "when": "When: {when}",
+      "kind": {
+        "general": "Every answer",
+        "category": "Category",
+        "categoryNamed": "{category}",
+        "mistake": "Mistake to avoid"
+      },
+      "titlePlain": "What it has learned",
+      "capReached": "Too many rules are active. Retire another rule first (24 at most).",
+      "gone": "This rule no longer exists. The list has been refreshed."
+    }
+  },
+  "AiUsage": {
+    "title": "Token usage",
+    "description": "Tokens spent on your provider key by drafts and the auto-reply bot. Counts only — no message content is stored here.",
+    "lastDays": "Last {days} days",
+    "empty": "No AI usage in the last {days} days yet.",
+    "emptyHint": "This fills in as the assistant drafts and auto-replies.",
+    "totalTokens": "Total tokens",
+    "llmCalls": "LLM calls",
+    "autoReply": "Auto-reply",
+    "drafts": "Drafts",
+    "translations": "Translations",
+    "hrDrafts": "HR agent drafts",
+    "tokensPerDay": "Tokens per day",
+    "tokensSeries": "Tokens",
+    "byModel": "By model",
+    "modelRow": "{tokens} tok · {calls, plural, one {# call} other {# calls}}",
+    "truncated": "Showing a partial window — usage is high enough that only the most recent records are summarized here.",
+    "loadFailed": "Failed to load usage"
   }
 }

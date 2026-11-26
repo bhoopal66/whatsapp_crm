@@ -51,6 +51,8 @@ export function parseCompassId(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
   if (!trimmed || trimmed.length > MAX_ID_LENGTH) return null;
+  // Postgres cannot store either. Not repaired: another id could result.
+  if (trimmed.includes('\0') || !trimmed.isWellFormed()) return null;
   return trimmed;
 }
 
@@ -77,6 +79,21 @@ export function normalizeCompassPhone(
   return { ok: true, phone: checked.normalized };
 }
 
+/**
+ * JSON without what Postgres refuses (a NUL, half a surrogate pair), in
+ * keys and values at any depth: one such character fails the upsert of the
+ * whole batch. Works on `JSON.stringify` output, where both are always
+ * escaped; an escaped backslash is matched first, so the text `\\u0000`
+ * stays text.
+ */
+function storableJson(json: string): string {
+  return json.replace(
+    /\\(u0000|ud[89a-f][0-9a-f]{2}|[^])/g,
+    (match, escape: string) =>
+      escape === 'u0000' ? '' : escape.startsWith('ud') ? '\uFFFD' : match
+  );
+}
+
 function optionalText(
   record: Record<string, unknown>,
   field: string
@@ -86,7 +103,7 @@ function optionalText(
   if (typeof value !== 'string') {
     return { ok: false, error: `'${field}' must be a string` };
   }
-  const trimmed = value.trim();
+  const trimmed = value.replaceAll('\0', '').toWellFormed().trim();
   if (trimmed.length > MAX_TEXT_LENGTH) {
     return {
       ok: false,
@@ -108,7 +125,7 @@ export function parseCompassContact(input: unknown): ParseResult {
     return {
       ok: false,
       compassId: null,
-      error: `'compass_id' is required (string or number, at most ${MAX_ID_LENGTH} characters)`,
+      error: `'compass_id' is required (string or number, at most ${MAX_ID_LENGTH} valid characters)`,
     };
   }
   const fail = (error: string): ParseResult => ({
@@ -139,10 +156,11 @@ export function parseCompassContact(input: unknown): ParseResult {
     ) {
       return fail("'attributes' must be a JSON object");
     }
-    attributes = record.attributes as Record<string, unknown>;
-    if (JSON.stringify(attributes).length > MAX_ATTRIBUTES_BYTES) {
+    const json = JSON.stringify(record.attributes);
+    if (json.length > MAX_ATTRIBUTES_BYTES) {
       return fail(`'attributes' exceeds ${MAX_ATTRIBUTES_BYTES} bytes`);
     }
+    attributes = JSON.parse(storableJson(json)) as Record<string, unknown>;
   }
 
   return {

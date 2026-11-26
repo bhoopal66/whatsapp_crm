@@ -20,6 +20,10 @@
 // Admin+. Secrets are written with the service role and never returned.
 // ============================================================
 
+import {
+  isAllowedPbxBaseUrl,
+  PBX_HOST_REFUSED,
+} from '@/lib/pbx/base-url-guard';
 import { randomBytes } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -187,6 +191,10 @@ export async function PUT(request: Request) {
       return bad('Invalid JSON body');
     const input = parse(body as Record<string, unknown>);
     if (typeof input === 'string') return bad(input);
+    // The server will call this address: never an internal one unless
+    // the operator allowed it (base-url-guard.ts).
+    if (!(await isAllowedPbxBaseUrl(input.baseUrl)))
+      return bad(PBX_HOST_REFUSED);
 
     const db = pbxServiceDb();
     const existing = await ownConnection(db, ctx.accountId);

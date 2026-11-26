@@ -125,6 +125,7 @@ export function CommandBar() {
   const [active, setActive] = useState(0);
   const [contacts, setContacts] = useState<ContactResult[]>([]);
   const [searching, setSearching] = useState(false);
+  const [searchFailed, setSearchFailed] = useState(false);
   const listId = useId();
   const seq = useRef(0);
 
@@ -196,9 +197,11 @@ export function CommandBar() {
     if (!open || !canSearchContacts || !isSearchable(query)) {
       setContacts([]);
       setSearching(false);
+      setSearchFailed(false);
       return;
     }
     setSearching(true);
+    setSearchFailed(false);
     const timer = setTimeout(async () => {
       try {
         const found = await searchContactsForBar(
@@ -209,7 +212,10 @@ export function CommandBar() {
         );
         if (found && mine === seq.current) setContacts(found);
       } catch {
-        if (mine === seq.current) setContacts([]);
+        if (mine === seq.current) {
+          setContacts([]);
+          setSearchFailed(true);
+        }
       } finally {
         if (mine === seq.current) setSearching(false);
       }
@@ -410,7 +416,15 @@ export function CommandBar() {
                 })}
               </div>
             ))}
-            {rows.length === 0 && !searching ? (
+            {searchFailed ? (
+              <p
+                role="alert"
+                className="text-muted-foreground px-2 py-2 text-xs"
+              >
+                {t('contactsFailed')}
+              </p>
+            ) : null}
+            {rows.length === 0 && !searching && !searchFailed ? (
               <p className="text-muted-foreground px-2 py-6 text-center text-sm">
                 {query.trim()
                   ? t('noResults', { query: query.trim() })

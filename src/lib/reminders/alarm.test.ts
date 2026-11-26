@@ -319,17 +319,16 @@ describe('snoozeUntil', () => {
     expect(snoozeUntil('1h', now).getTime() - now.getTime()).toBe(3_600_000);
   });
 
-  it('tomorrow is the next day at 09:00 local, across a month end', () => {
-    const t = snoozeUntil('tomorrow', new Date(2026, 10, 30, 23, 50));
-    expect([
-      t.getFullYear(),
-      t.getMonth(),
-      t.getDate(),
-      t.getHours(),
-      t.getMinutes(),
-    ]).toEqual([2026, 11, 1, 9, 0]);
-    const early = snoozeUntil('tomorrow', new Date(2026, 10, 12, 0, 5));
-    expect([early.getDate(), early.getHours()]).toEqual([13, 9]);
+  it("tomorrow is the next day at 09:00 in the account's zone", () => {
+    const at = (now: string, zone?: string) =>
+      snoozeUntil('tomorrow', new Date(now), zone).toISOString();
+    // 23:50 on 30 November in Dubai, across a month end.
+    expect(at('2026-11-30T19:50:00Z')).toBe('2026-12-01T05:00:00.000Z');
+    // 00:05 on the 12th in Dubai, still the 11th in UTC.
+    expect(at('2026-11-11T20:05:00Z')).toBe('2026-11-13T05:00:00.000Z');
+    expect(at('2026-11-11T20:05:00Z', 'Asia/Seoul')).toBe(
+      '2026-11-13T00:00:00.000Z'
+    );
   });
 });
 

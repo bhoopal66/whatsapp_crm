@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
+import { useManagerNumbersToast } from '@/components/groups/manager-numbers-toast';
 import { ManagersPicker } from '@/components/groups/managers-picker';
 import { useWorkspaceMembers } from '@/components/meetings/use-workspace-members';
 import { Badge } from '@/components/ui/badge';
@@ -13,6 +14,11 @@ import { useAuth } from '@/hooks/use-auth';
 import { canEditSettings } from '@/lib/auth/roles';
 import { pickableManagers } from '@/lib/groups/ui';
 import { reasonKey } from '@/lib/groups/group-page';
+import {
+  baseManagers,
+  managerSaveBody,
+  managersEdited,
+} from '@/lib/groups/manager-set';
 import type { ManagerNumbersReport } from '@/lib/groups/manager-numbers';
 
 import type { GroupTabProps } from '../group-page';
@@ -27,6 +33,7 @@ interface Manager {
 export function ManagersTab({ groupId, detail, reload }: GroupTabProps) {
   const t = useTranslations('Groups.page');
   const m = useTranslations('Groups.page.managersTab');
+  const toastNumbers = useManagerNumbersToast();
   const { user, accountRole } = useAuth();
   const { members } = useWorkspaceMembers();
   const url = `/api/whatsapp/groups/${groupId}/managers`;
@@ -43,10 +50,20 @@ export function ManagersTab({ groupId, detail, reload }: GroupTabProps) {
 
   const apply = (list: Manager[]) => {
     setManagers(list);
-    setSelected(list.filter((x) => !x.isCreator).map((x) => x.userId));
+    setFailed(false);
+    setSelected(baseManagers(list));
   };
 
+  const dirty = managersEdited(managers ?? [], selected);
+  // Who manages the group may change behind this tab (a colleague's save, a
+  // member whose number is staff's): read again, but never under an edit.
+  const managerKey = detail.managers
+    .map((x) => x.user_id)
+    .sort()
+    .join();
+
   useEffect(() => {
+    if (dirty) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -61,7 +78,7 @@ export function ManagersTab({ groupId, detail, reload }: GroupTabProps) {
     return () => {
       cancelled = true;
     };
-  }, [url]);
+  }, [url, managerKey, dirty]);
 
   const save = async () => {
     setSaving(true);
@@ -69,7 +86,7 @@ export function ManagersTab({ groupId, detail, reload }: GroupTabProps) {
       const res = await fetch(url, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userIds: selected }),
+        body: JSON.stringify(managerSaveBody(managers ?? [], selected)),
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as {
@@ -84,24 +101,7 @@ export function ManagersTab({ groupId, detail, reload }: GroupTabProps) {
       } | null;
       if (json?.managers) apply(json.managers);
       toast.success(m('saved'));
-      const numbers = json?.numbers;
-      const who = (name: string) => name || m('unnamed');
-      for (const name of numbers?.added ?? []) {
-        toast.success(m('numberAdded', { name: who(name) }));
-      }
-      for (const name of numbers?.removed ?? []) {
-        toast.success(m('numberRemoved', { name: who(name) }));
-      }
-      for (const f of numbers?.failed ?? []) {
-        toast.error(
-          f.reason === 'refused'
-            ? m('numberRefused', { name: who(f.name) })
-            : m('numberFailed', {
-                name: who(f.name),
-                reason: t(`reasons.${reasonKey(f.reason)}`),
-              })
-        );
-      }
+      toastNumbers(json?.numbers);
       void reload();
     } catch {
       toast.error(t('reasons.unknown'));
@@ -110,7 +110,7 @@ export function ManagersTab({ groupId, detail, reload }: GroupTabProps) {
     }
   };
 
-  if (failed) {
+  if (failed && !managers) {
     return (
       <p className="text-muted-foreground p-2 text-sm">{m('loadFailed')}</p>
     );
@@ -120,9 +120,6 @@ export function ManagersTab({ groupId, detail, reload }: GroupTabProps) {
   }
 
   const staff = pickableManagers(members, creatorId);
-  const dirty =
-    selected.length !== managers.filter((x) => !x.isCreator).length ||
-    selected.some((id) => !managers.some((x) => x.userId === id));
 
   return (
     <div className="max-w-xl space-y-4">

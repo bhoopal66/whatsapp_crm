@@ -28,6 +28,20 @@ export const WEBHOOK_EVENTS = [
 
 export type WebhookEvent = (typeof WEBHOOK_EVENTS)[number];
 
+/**
+ * Events that carry a conversation's messages: a key subscribes to them
+ * only if it may read messages (`messages:read`).
+ */
+export const MESSAGE_EVENTS: readonly WebhookEvent[] = [
+  'message.received',
+  'message.status_updated',
+];
+
+/** Whether any of these events is one of `MESSAGE_EVENTS`. */
+export function hasMessageEvent(events: readonly string[]): boolean {
+  return events.some((e) => (MESSAGE_EVENTS as readonly string[]).includes(e));
+}
+
 /** Human-readable descriptions (surfaced in docs / a future UI). */
 export const WEBHOOK_EVENT_DESCRIPTIONS: Record<WebhookEvent, string> = {
   'message.received': 'An inbound message was received from a contact',

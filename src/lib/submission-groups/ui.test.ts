@@ -1,22 +1,28 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { caseStatusView } from '@/lib/cases/ui';
 
 import {
+  addNumberFailure,
   AVATAR_TONES,
   avatarTone,
   bankName,
   groupContactName,
   groupTitle,
   initialsOf,
+  mergeFirstPage,
   onlyMine,
   ownSendStored,
+  refusalCode,
+  SG_REFUSAL_CODES,
+  refusedSendOutcome,
   shortRef,
   trackerStatusChip,
   waIdPhone,
   inviteNotice,
   coordinatorPhonesOf,
   addableStaff,
+  staffNumberNote,
   appendPage,
   bubbleKind,
   canAddNumber,
@@ -24,10 +30,13 @@ import {
   canRetryCreate,
   clearUnread,
   endReasonView,
+  endToastKey,
   groupBanners,
   listUrl,
+  pageAfterReads,
   parseSgList,
   waModeOf,
+  retryToastKey,
   sendErrorKey,
   sendStatusOf,
   sentAsPreview,
@@ -77,6 +86,17 @@ describe('parseSgList', () => {
     ).toEqual({
       groups: [{ ...item(), wa_mode: 'group' }],
       next_cursor: 'abc',
+    });
+  });
+
+  it('reads the ended groups with new messages (308)', () => {
+    const ended = item({ id: 'g9', status: 'ENDED', unread: 2 });
+    expect(
+      parseSgList({ groups: [], ended_unread: [ended, 'x'], next_cursor: null })
+    ).toEqual({
+      groups: [],
+      ended_unread: [{ ...ended, wa_mode: 'group' }],
+      next_cursor: null,
     });
   });
 
@@ -228,7 +248,112 @@ describe('ownSendStored', () => {
   });
 });
 
+describe('the end and retry toasts', () => {
+  it('never says ended while the WhatsApp group is open', () => {
+    expect(endToastKey({ closed: true })).toBe('endDone');
+    expect(endToastKey({ closed: false })).toBe('endDone');
+    expect(endToastKey({ closed: false, closeDeferred: true })).toBe(
+      'endCloseDeferred'
+    );
+    expect(endToastKey({ closed: false, closeError: 'x' })).toBe(
+      'endCloseFailed'
+    );
+  });
+  it('says what a retry did', () => {
+    expect(retryToastKey(200, { pending: false })).toBe('retryDone');
+    expect(retryToastKey(200, { pending: true })).toBe('retryPending');
+    expect(retryToastKey(409, { code: 'number_removed' })).toBe(
+      'banners.numberRemoved'
+    );
+    expect(retryToastKey(409, { code: 'contact_removed' })).toBe(
+      'banners.contactRemoved'
+    );
+    expect(retryToastKey(409, null)).toBe('retryFailed');
+  });
+  it('shows an ended group whose WhatsApp group is open', () => {
+    const ended = { status: 'ENDED', wa_group_id: 'g@g.us' } as const;
+    expect(
+      groupBanners(
+        group({ ...ended, wa_closed_at: null, wa_close_error: null })
+      )
+    ).toEqual(['stillOpen']);
+    expect(
+      groupBanners(group({ ...ended, wa_closed_at: '2026-11-01T00:00:00Z' }))
+    ).not.toContain('stillOpen');
+  });
+});
+
+describe('refusedSendOutcome', () => {
+  const outcome = async (
+    status: number,
+    body: Parameters<typeof refusedSendOutcome>[0]['body'],
+    row: boolean | null,
+    media = false
+  ) => {
+    const stored = vi.fn(async () => row);
+    const out = await refusedSendOutcome({ status, body, media }, stored);
+    return { ...out, asked: stored.mock.calls.length };
+  };
+  const gateway = { error: 'The message could not be sent' };
+
+  it("gives the words back after nginx's own 502 that stored nothing", async () => {
+    expect(await outcome(502, null, false)).toEqual({
+      kept: false,
+      toast: 'unknown',
+      asked: 1,
+    });
+    expect((await outcome(502, null, false, true)).kept).toBe(false);
+  });
+  it('keeps what a proxy cut off after the row was stored', async () => {
+    for (const status of [502, 504])
+      expect(await outcome(status, null, true)).toMatchObject({
+        kept: true,
+        toast: 'maybeSent',
+      });
+  });
+  it("an unreadable log: the words come back, a file's is kept", async () => {
+    expect(await outcome(502, null, null)).toMatchObject({
+      kept: false,
+      toast: 'maybeSent',
+    });
+    expect((await outcome(502, null, null, true)).kept).toBe(true);
+    // Our own 502 is stored, whatever the log says.
+    expect((await outcome(502, gateway, null)).kept).toBe(true);
+    expect((await outcome(503, gateway, null)).kept).toBe(false);
+  });
+  it("keeps the app's stored failure, and never gives an unconfirmed one back", async () => {
+    expect(await outcome(502, gateway, true)).toMatchObject({
+      kept: true,
+      toast: 'gateway',
+    });
+    expect(
+      await outcome(502, { ...gateway, code: 'send_unconfirmed' }, false)
+    ).toEqual({ kept: true, toast: 'maybeSent', asked: 0 });
+  });
+  it('gives back what the app says was never stored, but not a stored file', async () => {
+    const body = { error: 'x', code: 'not_stored' };
+    expect(await outcome(503, body, true)).toEqual({
+      kept: false,
+      toast: 'notStored',
+      asked: 0,
+    });
+    expect((await outcome(503, body, false, true)).kept).toBe(false);
+    expect((await outcome(503, body, true, true)).kept).toBe(true);
+  });
+  it('keeps a consent block and gives every other refusal back', async () => {
+    expect(
+      await outcome(409, { error: 'x', reason: 'opted_out' }, false)
+    ).toEqual({ kept: true, toast: 'optedOut', asked: 0 });
+    for (const status of [400, 403, 404, 409, 429, 500])
+      expect((await outcome(status, gateway, true)).kept).toBe(false);
+  });
+});
+
 describe('sendErrorKey', () => {
+  it('an unconfirmed send is not a refusal', () => {
+    expect(sendErrorKey(502, null, 'send_unconfirmed')).toBe('maybeSent');
+    expect(sendErrorKey(502)).toBe('gateway');
+  });
   it('maps the API refusals', () => {
     expect(sendErrorKey(409, 'opted_out')).toBe('optedOut');
     expect(sendErrorKey(409, 'do_not_contact')).toBe('doNotContact');
@@ -519,6 +644,20 @@ describe('group display (141)', () => {
     // A pure patch: the rows handed in keep their counts.
     expect(rows[0].unread).toBe(4);
   });
+
+  it('shows a group read meanwhile as read in both lists of a page', () => {
+    const page = {
+      groups: [item({ id: 'a', unread: 4 }), item({ id: 'b', unread: 1 })],
+      ended_unread: [item({ id: 'e', unread: 2 })],
+      next_cursor: null,
+    };
+    const { groups, endedUnread } = pageAfterReads(page, new Set(['a', 'e']));
+    expect(groups.map((g) => g.unread)).toEqual([0, 1]);
+    expect(endedUnread.map((g) => g.unread)).toEqual([0]);
+    expect(
+      pageAfterReads({ groups: [], next_cursor: null }, new Set()).endedUnread
+    ).toEqual([]);
+  });
 });
 
 describe('settleRead', () => {
@@ -551,5 +690,132 @@ describe('canAddNumber (211)', () => {
     expect(canAddNumber(group({ wa_mode: 'none' }))).toBe(false);
     expect(canAddNumber(group({ wa_group_id: null }))).toBe(false);
     expect(canAddNumber(group({ channel: null }))).toBe(false);
+  });
+});
+
+describe('staffNumberNote (219, 299)', () => {
+  it('warns on a removal with no saved number, and is quiet on an addition', () => {
+    const none = { status: 'none', reason: 'no_saved_number' };
+    expect(staffNumberNote(none, 'remove')).toEqual({
+      tone: 'warning',
+      key: 'numberUnknown',
+    });
+    expect(staffNumberNote(none, 'give')).toBeNull();
+  });
+
+  it.each(['give', 'remove'] as const)('on %s says the rest', (change) => {
+    expect(staffNumberNote({ status: 'added' }, change)?.key).toBe(
+      'numberAdded'
+    );
+    expect(staffNumberNote({ status: 'removed' }, change)?.key).toBe(
+      'numberRemoved'
+    );
+    expect(staffNumberNote({ status: 'refused' }, change)?.key).toBe(
+      'numberRefused'
+    );
+    expect(staffNumberNote({ status: 'failed' }, change)?.key).toBe(
+      'numberFailed'
+    );
+    for (const quiet of [
+      { status: 'none', reason: 'not_in_group' },
+      { status: 'none', reason: 'no_access_row' },
+      { status: 'skipped', reason: 'no_whatsapp' },
+      { status: 'already' },
+      null,
+      undefined,
+    ]) {
+      expect(staffNumberNote(quiet, change)).toBeNull();
+    }
+  });
+});
+
+describe('addNumberFailure', () => {
+  it('never words an unknown outcome as a failure', () => {
+    const unconfirmed = { error: 'x', code: 'send_unconfirmed' };
+    expect(addNumberFailure(502, unconfirmed)).toEqual({ key: 'maybeAdded' });
+    expect(addNumberFailure(504, null)).toEqual({ key: 'maybeAdded' });
+    expect(addNumberFailure(413, null)).toEqual({ key: 'failed' });
+    expect(addNumberFailure(409, { error: 'Ended' })).toEqual({
+      key: 'failed',
+      why: 'Ended',
+    });
+  });
+
+  it('maps a known refusal code, never the server text', () => {
+    expect(
+      addNumberFailure(429, { error: '10 numbers', code: 'too_many' })
+    ).toEqual({ refusal: 'too_many' });
+    expect(addNumberFailure(400, { code: 'nope' })).toEqual({ key: 'failed' });
+  });
+});
+
+describe('refusalCode', () => {
+  it('has a line in every catalogue for each code', async () => {
+    for (const loc of ['en', 'ar', 'ko']) {
+      const cat = (await import(`../../../messages/${loc}.json`)).default;
+      for (const code of SG_REFUSAL_CODES)
+        expect(
+          cat.SubmissionGroups.refusals[code],
+          `${loc}.${code}`
+        ).toBeTruthy();
+    }
+  });
+
+  it('knows the codes and nothing else', () => {
+    expect(refusalCode({ code: 'too_soon' })).toBe('too_soon');
+    expect(refusalCode({ code: 'made_up' })).toBeNull();
+    expect(refusalCode(null)).toBeNull();
+  });
+});
+
+describe('mergeFirstPage', () => {
+  const at = (id: string, day: number) =>
+    item({
+      id,
+      last_activity_at: `2026-10-${String(day).padStart(2, '0')}T00:00:00Z`,
+    });
+  // Two pages loaded (5 rows), the first page being 3 rows.
+  const old = {
+    groups: [at('a', 20), at('b', 19), at('c', 18), at('d', 17), at('e', 16)],
+    next: 'OLD',
+  };
+  const ids = (r: { groups: SgListItem[] }) => r.groups.map((g) => g.id);
+
+  it('keeps the rows beyond page one and the old cursor', () => {
+    const r = mergeFirstPage(
+      old,
+      { groups: [at('a', 20), at('b', 19), at('c', 18)], next: 'NEW' },
+      'active'
+    );
+    expect(ids(r)).toEqual(['a', 'b', 'c', 'd', 'e']);
+    expect(r.next).toBe('OLD');
+  });
+
+  it('puts a new row on top and a moved row where it now sorts', () => {
+    const r = mergeFirstPage(
+      old,
+      { groups: [at('n', 22), at('c', 21), at('a', 20)], next: 'NEW' },
+      'active'
+    );
+    // c moved up; b now sorts past page one's last row and stays.
+    expect(ids(r)).toEqual(['n', 'c', 'a', 'b', 'd', 'e']);
+  });
+
+  it('drops an old row inside the fresh range that is gone', () => {
+    const r = mergeFirstPage(
+      old,
+      { groups: [at('a', 20), at('c', 18), at('d', 17)], next: 'NEW' },
+      'active'
+    );
+    expect(ids(r)).toEqual(['a', 'c', 'd', 'e']);
+  });
+
+  it('replaces when one page was loaded or the fresh page is everything', () => {
+    const fresh = { groups: [at('x', 25)], next: 'NEW' };
+    expect(
+      mergeFirstPage({ groups: [at('a', 20)], next: 'OLD' }, fresh, 'active')
+    ).toEqual(fresh);
+    const all = { groups: [at('x', 25)], next: null };
+    expect(mergeFirstPage(old, all, 'active')).toEqual(all);
   });
 });

@@ -26,6 +26,7 @@ const h = vi.hoisted(() => ({
   respond: (() => ({ data: null, error: null })) as (call: Call) => Result,
   webhook: vi.fn(),
   settle: vi.fn(),
+  correct: vi.fn(),
   context: vi.fn(),
   hrDelivery: vi.fn(),
 }));
@@ -78,6 +79,7 @@ vi.mock('@/lib/webhooks/deliver', () => ({
 }));
 vi.mock('@/lib/whatsapp/broadcast-core', () => ({
   settleBroadcastAfterLateFailure: (...args: unknown[]) => h.settle(...args),
+  settleBroadcastAfterCorrection: (...args: unknown[]) => h.correct(...args),
 }));
 vi.mock('@/lib/ai/context', () => ({
   buildConversationContext: (...args: unknown[]) => h.context(...args),
@@ -189,6 +191,7 @@ beforeEach(() => {
   h.calls = [];
   h.webhook.mockReset().mockResolvedValue(undefined);
   h.settle.mockReset().mockResolvedValue(undefined);
+  h.correct.mockReset().mockResolvedValue(undefined);
   h.context
     .mockReset()
     .mockResolvedValue([{ role: 'user', content: 'Where is my order?' }]);
@@ -198,17 +201,60 @@ beforeEach(() => {
 describe('handleStatusUpdate — messages.status is forward-only in SQL', () => {
   it.each([
     ['sent', ['sending']],
-    ['delivered', ['sending', 'sent']],
-    ['read', ['sending', 'sent', 'delivered']],
+    ['delivered', ['sending', 'sent', 'failed']],
+    ['read', ['sending', 'sent', 'delivered', 'failed']],
     ['failed', ['sending', 'sent']],
   ] as const)('%s may only overwrite %j', async (value, predecessors) => {
     world({ messages: [OUTBOUND] });
     await handleStatusUpdate(status({ status: value }), ACCOUNT);
 
     const [update] = find('messages', 'update');
-    expect(update.payload).toEqual({ status: value });
+    expect(update.payload).toEqual({ status: value, failure_reason: null });
     expect(filter(update, 'in', 'id')).toEqual(['m-1']);
     expect(filter(update, 'in', 'status')).toEqual(predecessors);
+  });
+
+  it('keeps why WhatsApp failed it, in words (292)', async () => {
+    world({ messages: [OUTBOUND] });
+    await handleStatusUpdate(
+      status({
+        status: 'failed',
+        error: { code: 131042, title: 'Business eligibility payment issue' },
+      }),
+      ACCOUNT
+    );
+    const [update] = find('messages', 'update');
+    expect(update.payload).toEqual({
+      status: 'failed',
+      failure_reason: META_FAILURE_REASONS['131042'],
+    });
+  });
+
+  it("cuts Meta's own long words to what the column holds", async () => {
+    world({ messages: [OUTBOUND] });
+    await handleStatusUpdate(
+      status({
+        status: 'failed',
+        error: { code: 131000, title: 'x'.repeat(500) },
+      }),
+      ACCOUNT
+    );
+    const [update] = find('messages', 'update');
+    expect(String(update.payload?.failure_reason)).toHaveLength(300);
+  });
+
+  it('a delivery takes the reason of an earlier failure away', async () => {
+    world({ messages: [OUTBOUND] });
+    await handleStatusUpdate(
+      // A gateway may repeat the old error beside the delivery.
+      status({ status: 'delivered', error: { code: 131026 } }),
+      ACCOUNT
+    );
+    const [update] = find('messages', 'update');
+    expect(update.payload).toEqual({
+      status: 'delivered',
+      failure_reason: null,
+    });
   });
 
   it("skips 'pending', which the messages CHECK does not allow", async () => {
@@ -240,6 +286,19 @@ describe('handleStatusUpdate — messages.status is forward-only in SQL', () => 
     );
   });
 
+  it("stays silent for a chat on somebody's own number", async () => {
+    world({
+      messages: [
+        {
+          ...OUTBOUND,
+          conversations: { account_id: ACCOUNT, personal_owner_id: 'u-1' },
+        },
+      ],
+    });
+    await handleStatusUpdate(status({ status: 'read' }), ACCOUNT);
+    expect(h.webhook).not.toHaveBeenCalled();
+  });
+
   it('stays silent for a late sent that lands after read', async () => {
     // The WHERE matched nothing: the message is already further along.
     world({ messages: [OUTBOUND], movedIds: [] });
@@ -258,8 +317,8 @@ describe('handleStatusUpdate — broadcast recipients', () => {
 
   it.each([
     ['sent', ['pending']],
-    ['delivered', ['pending', 'sent']],
-    ['read', ['pending', 'sent', 'delivered']],
+    ['delivered', ['pending', 'sent', 'failed']],
+    ['read', ['pending', 'sent', 'delivered', 'failed']],
     ['failed', ['pending', 'sent']],
   ] as const)('%s may only overwrite %j', async (value, predecessors) => {
     world({ recipient: { ...RECIPIENT, status: 'pending' } });
@@ -281,6 +340,34 @@ describe('handleStatusUpdate — broadcast recipients', () => {
     });
     // Delivered is not a failure: the campaign status is not revisited.
     expect(h.settle).not.toHaveBeenCalled();
+  });
+
+  it.each(['delivered', 'read'] as const)(
+    'lets %s correct a failed recipient, drops its reason and re-settles the campaign',
+    async (value) => {
+      world({
+        recipient: { ...RECIPIENT, status: 'failed' },
+        recipientNow: 'failed',
+      });
+      await handleStatusUpdate(status({ status: value }), ACCOUNT);
+      const [update] = find('broadcast_recipients', 'update');
+      expect(update.payload).toMatchObject({
+        status: value,
+        error_message: null,
+      });
+      expect(h.correct).toHaveBeenCalledWith(expect.anything(), 'bc-1');
+      expect(h.settle).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each([
+    ['sent', 'failed'],
+    ['failed', 'delivered'],
+  ] as const)('never lets %s overwrite %s', async (value, now) => {
+    world({ recipient: { ...RECIPIENT, status: now }, recipientNow: now });
+    await handleStatusUpdate(status({ status: value }), ACCOUNT);
+    expect(find('broadcast_recipients', 'update')).toHaveLength(0);
+    expect(h.correct).not.toHaveBeenCalled();
   });
 
   it('lands a read when a concurrent delivered committed first', async () => {

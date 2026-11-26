@@ -1,8 +1,10 @@
+import { sanitizeFilename } from '@/lib/media/filename';
+import { buildMediaPath } from '@/lib/storage/upload-media';
 import { describe, expect, it } from 'vitest';
 import {
   planForward,
   isForwardable,
-  isGatewayFetchable,
+  ownPublicMediaUrl,
   type ForwardSource,
 } from './forward';
 
@@ -95,6 +97,47 @@ describe('planForward', () => {
     });
   });
 
+  // Stored the way uploads are, so these are the names production has.
+  const uploaded = (file: string) =>
+    `https://x/storage/v1/object/public/chat-media/${buildMediaPath('acc', file, 1700000000000)}`;
+  const doc = (content_text: string, media_url: string) =>
+    planForward(msg({ content_type: 'document', content_text, media_url }));
+
+  it.each([
+    'Trade Licence.pdf',
+    'Invoice: March.pdf',
+    'كشف حساب.pdf',
+    'Report.PDF',
+    `${'a'.repeat(120)}.pdf`,
+  ])(
+    'an uploaded file named %s goes out without its name as caption',
+    (name) => {
+      expect(doc(name, uploaded(name))).toMatchObject({
+        ok: true,
+        contentText: null,
+        filename: sanitizeFilename(name),
+      });
+    }
+  );
+
+  it('an inbound file, stored by id, keeps its name and gets no caption', () => {
+    const url = `https://x/storage/v1/object/public/chat-media/${buildMediaPath('acc', 'wamid_abc.pdf', null, 'inbound')}`;
+    expect(doc('Trade Licence.pdf', url)).toMatchObject({
+      contentText: null,
+      filename: 'Trade Licence.pdf',
+    });
+  });
+
+  it('keeps a real caption that ends like a file name', () => {
+    expect(
+      doc('please sign contract.pdf', uploaded('contract.pdf'))
+    ).toMatchObject({
+      ok: true,
+      contentText: 'please sign contract.pdf',
+      filename: 'contract.pdf',
+    });
+  });
+
   it('truncates a caption to WhatsApp’s 1024-character limit', () => {
     const plan = planForward(
       msg({
@@ -127,16 +170,23 @@ describe('planForward', () => {
   );
 });
 
-describe('isGatewayFetchable', () => {
-  const BASE = 'https://db.example.com/';
+describe('ownPublicMediaUrl', () => {
+  const BASE = 'https://db.example.com';
+  const PUBLIC = `${BASE}/storage/v1/object/public`;
 
-  it('accepts an object in our public storage', () => {
+  it.each(['chat-media', 'flow-media'])("takes this account's %s", (bucket) => {
+    const url = `${PUBLIC}/${bucket}/account-1/inbound/a.jpg`;
+    expect(ownPublicMediaUrl(url, `${BASE}/`, '1')).toBe(url);
+  });
+
+  it('rebuilds an older public origin on ours and never uses its host', () => {
     expect(
-      isGatewayFetchable(
-        'https://db.example.com/storage/v1/object/public/chat-media/account-1/a.jpg',
-        BASE
+      ownPublicMediaUrl(
+        'https://old.trycloudflare.com/supabase/storage/v1/object/public/chat-media/account-1/a.jpg',
+        BASE,
+        '1'
       )
-    ).toBe(true);
+    ).toBe(`${PUBLIC}/chat-media/account-1/a.jpg`);
   });
 
   it.each([
@@ -151,19 +201,26 @@ describe('isGatewayFetchable', () => {
     ],
     [
       'a private storage object',
-      'https://db.example.com/storage/v1/object/sign/chat-media/a.jpg',
+      `${BASE}/storage/v1/object/sign/chat-media/account-1/a.jpg`,
+    ],
+    ["another account's folder", `${PUBLIC}/chat-media/account-2/a.jpg`],
+    [
+      "another account's folder through ..",
+      `${PUBLIC}/chat-media/account-1/../account-2/a.jpg`,
     ],
     [
-      'a look-alike host',
-      'https://db.example.com.evil.test/storage/v1/object/public/a.jpg',
+      "another account's folder through an encoded ..",
+      `${PUBLIC}/chat-media/account-1/..%2Faccount-2/a.jpg`,
     ],
+    ['another bucket', `${PUBLIC}/avatars/account-1/a.jpg`],
+    ['the folder itself', `${PUBLIC}/chat-media/account-1/`],
   ])('rejects %s', (_label, url) => {
-    expect(isGatewayFetchable(url, BASE)).toBe(false);
+    expect(ownPublicMediaUrl(url, BASE, '1')).toBeNull();
   });
 
   it('rejects everything when no public origin is configured', () => {
     expect(
-      isGatewayFetchable('https://x/storage/v1/object/public/a.jpg', '')
-    ).toBe(false);
+      ownPublicMediaUrl(`${PUBLIC}/chat-media/account-1/a.jpg`, '', '1')
+    ).toBeNull();
   });
 });

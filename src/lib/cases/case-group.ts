@@ -11,6 +11,10 @@ import {
   type GroupMessage,
   type WaMode,
 } from '@/lib/submission-groups/store';
+import {
+  DETAIL_MESSAGE_LIMIT,
+  messagePage,
+} from '@/lib/submission-groups/views';
 
 import { CaseStoreError, date, rows, str } from './store';
 import type { Case } from './types';
@@ -54,19 +58,50 @@ export async function loadCaseGroup(
   };
 }
 
-/** An ACTIVE group's messages, oldest first; post_end rows excluded. */
+/**
+ * An ACTIVE group's newest messages, oldest first; post_end rows excluded.
+ * Read newest first under a limit of our own: an unlimited read is cut at
+ * PostgREST's max rows, and oldest first that cut off the newest messages.
+ * `truncated`: older ones are left out.
+ */
 export async function liveGroupMessages(
   db: SupabaseClient,
   groupId: string
-): Promise<GroupMessage[]> {
+): Promise<{ messages: GroupMessage[]; truncated: boolean }> {
+  const data = await newestLive(
+    db,
+    groupId,
+    MESSAGE_COLUMNS,
+    DETAIL_MESSAGE_LIMIT + 1
+  );
+  const page = messagePage(rows(data));
+  return { messages: page.rows.map(toMessage), truncated: page.hasMore };
+}
+
+/** When the newest of those messages was written, or null for none; no content. */
+export async function newestLiveMessageAt(
+  db: SupabaseClient,
+  groupId: string
+): Promise<Date | null> {
+  const [row] = rows(await newestLive(db, groupId, 'created_at', 1));
+  return date(row?.created_at);
+}
+
+async function newestLive(
+  db: SupabaseClient,
+  groupId: string,
+  columns: string,
+  limit: number
+): Promise<unknown> {
   const { data, error } = await db
     .from('submission_group_messages')
-    .select(MESSAGE_COLUMNS)
+    .select(columns)
     .eq('group_id', groupId)
     .eq('post_end', false)
-    .order('created_at', { ascending: true })
-    .order('id', { ascending: true });
+    .order('created_at', { ascending: false })
+    .order('id', { ascending: false })
+    .limit(limit);
   if (error)
     throw new CaseStoreError('submission_group_messages', error.code ?? null);
-  return rows(data).map(toMessage);
+  return data;
 }

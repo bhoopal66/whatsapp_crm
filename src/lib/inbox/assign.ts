@@ -11,23 +11,121 @@ import type { Profile } from '@/types';
  * is worth offering.
  */
 
-export type AssignResult = { ok: true } | { ok: false; error: PostgrestError };
+export type AssignResult =
+  /** The row as the database holds it now. */
+  | { ok: true; assignedAgentId: string | null }
+  | { ok: false; reason: 'error'; error: PostgrestError }
+  /** The chat is gone, or the caller may no longer see it. */
+  | { ok: false; reason: 'moved' }
+  /** Someone else changed the assignee after the screen read it. */
+  | { ok: false; reason: 'changed'; assignedAgentId: string | null }
+  /** The caller may read the chat but not change it. */
+  | { ok: false; reason: 'refused' };
 
 /**
  * Point a conversation at `userId` (or release it with `null`) through
  * the caller's own client, so RLS and the assignment trigger judge it.
  * Never toasts: the caller words the failure.
+ *
+ * `expected` is the assignee the screen showed: the write only lands on
+ * a row that still has it, so a stale screen cannot undo a handover.
+ * RLS answers an update it hides with success and no row, so the
+ * returned row, not the missing error, is what says it was written.
  */
 export async function assignConversation(
   supabase: SupabaseClient,
   conversationId: string,
+  expected: string | null,
   userId: string | null
 ): Promise<AssignResult> {
-  const { error } = await supabase
+  const update = supabase
     .from('conversations')
     .update({ assigned_agent_id: userId })
     .eq('id', conversationId);
-  return error ? { ok: false, error } : { ok: true };
+  const { data: written, error } = await (
+    expected === null
+      ? update.is('assigned_agent_id', null)
+      : update.eq('assigned_agent_id', expected)
+  )
+    .select('id, assigned_agent_id')
+    .maybeSingle();
+  if (error) return { ok: false, reason: 'error', error };
+  if (written) {
+    return { ok: true, assignedAgentId: written.assigned_agent_id ?? null };
+  }
+
+  const { data: row, error: readError } = await supabase
+    .from('conversations')
+    .select('id, assigned_agent_id')
+    .eq('id', conversationId)
+    .maybeSingle();
+  if (readError) return { ok: false, reason: 'error', error: readError };
+  if (!row) return { ok: false, reason: 'moved' };
+  const assignedAgentId: string | null = row.assigned_agent_id ?? null;
+  // Somebody already did exactly this.
+  if (assignedAgentId === userId) return { ok: true, assignedAgentId };
+  if (assignedAgentId === expected) return { ok: false, reason: 'refused' };
+  return { ok: false, reason: 'changed', assignedAgentId };
+}
+
+/** What a screen that offers Assign does with each answer. */
+export interface AssignScreen {
+  /** Show this assignee: it came from the database's row. */
+  patch(conversationId: string, assignedAgentId: string | null): void;
+  /**
+   * Ask the person again, about the assignee just patched in. False when
+   * it cannot be asked: another question is open by now (never replaced
+   * in place: its answer would go to the wrong chat), or another chat.
+   */
+  askAgain(assignedAgentId: string | null): boolean;
+  /** Say it did not happen (an `InboxRows` catalogue key). */
+  fail(key: 'assignFailed' | 'assignMoved' | 'assignChanged'): void;
+}
+
+/**
+ * The whole of an answered Assign question, for every screen alike: a
+ * screen only ever shows an assignee the database returned.
+ */
+export async function assignFromScreen(
+  supabase: SupabaseClient,
+  change: {
+    conversationId: string;
+    expected: string | null;
+    userId: string | null;
+  },
+  screen: AssignScreen
+): Promise<void> {
+  const result = await assignConversation(
+    supabase,
+    change.conversationId,
+    change.expected,
+    change.userId
+  );
+  if (result.ok) {
+    screen.patch(change.conversationId, result.assignedAgentId);
+    return;
+  }
+  switch (result.reason) {
+    case 'changed':
+      screen.patch(change.conversationId, result.assignedAgentId);
+      if (!screen.askAgain(result.assignedAgentId))
+        screen.fail('assignChanged');
+      return;
+    case 'moved':
+      screen.fail('assignMoved');
+      return;
+    case 'error':
+      console.error('Failed to update assignment:', result.error);
+      screen.fail('assignFailed');
+      return;
+    case 'refused':
+      screen.fail('assignFailed');
+      return;
+    default: {
+      const never: never = result;
+      return never;
+    }
+  }
 }
 
 /**

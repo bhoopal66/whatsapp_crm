@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
 import { toast } from 'sonner';
@@ -72,6 +72,8 @@ export function CustomFieldsPanel() {
   const [list, setList] = useState<FieldList>({ status: 'loading' });
   const [newName, setNewName] = useState('');
   const [creating, setCreating] = useState(false);
+  // A second Enter lands before `creating` re-renders; the ref is the guard.
+  const creatingRef = useRef(false);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const fetchFields = useCallback(async () => {
@@ -92,7 +94,7 @@ export function CustomFieldsPanel() {
 
   async function handleCreate() {
     const name = newName.trim();
-    if (!name) return;
+    if (!name || creatingRef.current) return;
     if (!accountId || !user) {
       toast.error(t('toastNoAccount'));
       return;
@@ -104,14 +106,20 @@ export function CustomFieldsPanel() {
       return;
     }
 
+    creatingRef.current = true;
     setCreating(true);
-    const { error } = await supabase.from('custom_fields').insert({
-      field_name: name,
-      field_type: 'text',
-      user_id: user.id,
-      account_id: accountId,
-    });
-    setCreating(false);
+    let error;
+    try {
+      ({ error } = await supabase.from('custom_fields').insert({
+        field_name: name,
+        field_type: 'text',
+        user_id: user.id,
+        account_id: accountId,
+      }));
+    } finally {
+      creatingRef.current = false;
+      setCreating(false);
+    }
 
     if (error) {
       toast.error(t('toastCreateFailed'));

@@ -9,6 +9,10 @@
 // passes or the credentials are changed. Admin+.
 // ============================================================
 
+import {
+  isAllowedPbxBaseUrl,
+  PBX_HOST_REFUSED,
+} from '@/lib/pbx/base-url-guard';
 import { NextResponse } from 'next/server';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
@@ -50,6 +54,10 @@ export async function POST() {
         { status: 404 }
       );
     }
+    // A connection saved before the address check came in is checked here
+    // too: the test is what would read an internal host's answers back.
+    if (!(await isAllowedPbxBaseUrl(conn.base_url)))
+      return NextResponse.json({ error: PBX_HOST_REFUSED }, { status: 400 });
     try {
       const { api } = await pbxApiFor(db, conn.id);
       const { extensionCount } = await api.testConnection();

@@ -207,6 +207,20 @@ describe('autoTagFromInsights — when it applies', () => {
     });
   });
 
+  it("the tag's automations get the message's sales-chat decision", async () => {
+    const salesChat = vi.fn();
+    await autoTagFromInsights({ ...ARGS, salesChat }, outcome());
+    expect(h.dispatch.mock.calls[0][0].salesChat).toBe(salesChat);
+  });
+
+  it('a run skipped because the chat is not a sales chat tags nothing', async () => {
+    expect(
+      await autoTagFromInsights(ARGS, outcome({ skipped: 'not_sales' }))
+    ).toBe('not_auto');
+    expect(h.write).not.toHaveBeenCalled();
+    expect(h.dispatch).not.toHaveBeenCalled();
+  });
+
   it('applies at exactly the threshold', async () => {
     const r = await autoTagFromInsights(
       ARGS,

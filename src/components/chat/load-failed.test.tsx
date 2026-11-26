@@ -4,7 +4,11 @@ import { describe, expect, it, vi } from 'vitest';
 
 import en from '../../../messages/en.json';
 
-vi.mock('./message-row', () => ({ MessageRow: () => null }));
+vi.mock('./message-row', () => ({
+  MessageRow: (p: { message: { id: string }; onRetryFiles?: () => void }) => (
+    <p>{`${p.message.id}:${p.onRetryFiles ? 'lost' : 'whole'}`}</p>
+  ),
+}));
 
 import { MessageTimeline } from './message-timeline';
 
@@ -41,5 +45,34 @@ describe('a channel whose messages could not be read', () => {
     expect(render({ loading: false, failed: false })).toContain(
       en.Chat.channel.empty
     );
+  });
+});
+
+describe('a message whose files could not be read', () => {
+  it('is offered a Retry, and no other is', () => {
+    const at = { channelId: 'c', createdAt: '2026-11-24T08:00:00+00:00' };
+    const html = renderToStaticMarkup(
+      <NextIntlClientProvider locale="en" messages={en} timeZone="UTC">
+        <MessageTimeline
+          messages={[
+            { id: 'm1', ...at } as never,
+            { id: 'm2', ...at } as never,
+          ]}
+          cards={{}}
+          callCards={{}}
+          hasMoreOlder={false}
+          loading={false}
+          failed={false}
+          loadingOlder={false}
+          onLoadOlder={() => {}}
+          onToggleReaction={() => {}}
+          onRetry={() => {}}
+          missingFiles={new Set(['m2'])}
+          onRetryFiles={() => {}}
+        />
+      </NextIntlClientProvider>
+    );
+    expect(html).toContain('m1:whole');
+    expect(html).toContain('m2:lost');
   });
 });

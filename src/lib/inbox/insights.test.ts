@@ -687,7 +687,8 @@ describe('countPinnedTile', () => {
           },
           base,
         ],
-        true
+        true,
+        null
       )
     ).toEqual({ pinned: 3, urgent: 1 });
   });
@@ -704,11 +705,25 @@ describe('countPinnedTile', () => {
           campaign,
           { ...base, ai_attention_at: at, last_message_at: undefined },
         ],
-        true
+        true,
+        null
       )
     ).toEqual({ pinned: 0, urgent: 0 });
     // With the AI off nothing is the bot's, so the campaign chat counts.
-    expect(countPinnedTile([campaign], false).pinned).toBe(1);
+    expect(countPinnedTile([campaign], false, null).pinned).toBe(1);
+  });
+  it("leaves out someone else's personal chat and a department's, as the list does", () => {
+    const pinned = { ...base, ai_attention_at: at };
+    const rows = [
+      { ...pinned, personal_owner_id: 'mate' },
+      { ...pinned, inbox_department: 'hr' as const, user_id: 'mate' },
+      { ...pinned, personal_owner_id: 'me' },
+    ];
+    expect(countPinnedTile(rows, false, 'me').pinned).toBe(1);
+    // The Team inbox lists a mate's personal chat; a department chat stays
+    // out unless it is the viewer's own department.
+    expect(countPinnedTile(rows, false, 'me', true).pinned).toBe(2);
+    expect(countPinnedTile(rows, false, 'me', true, 'hr').pinned).toBe(3);
   });
 });
 

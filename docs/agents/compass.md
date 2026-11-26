@@ -17,7 +17,10 @@ gateway call; a `db_error` after the gateway accepted keeps the key
 spent). `error_code = 'delivery_unconfirmed'` is written on the row right
 before the gateway call and removed only by a definite refusal or the
 `sent` record: a row carrying it may have reached the customer and is
-never sent again (409). A customer who opted out or is do-not-contact is
+never sent again (409). A group post follows the same rule (`sendSystem`'s
+`beforeGateway`; the marked row names group and message, so the group's
+echo can settle it sent), a try that sent nothing leaves only
+`group_message_id` for the next system key, one try a minute. A customer who opted out or is do-not-contact is
 refused (422) in the group and one-to-one, before anything is created; a
 failed read refuses too. `docs/compass.md` is the contract handed to the
 Compass team.

@@ -13,7 +13,10 @@ import {
 } from '@/lib/whatsapp/template-validators';
 import { buildMetaTemplatePayload } from '@/lib/whatsapp/template-components';
 import { submitMessageTemplate, MetaError } from '@/lib/whatsapp/meta-api';
+import { normalizeStatus } from '@/lib/whatsapp/template-status-normalize';
 import { loadChannels } from '@/lib/whatsapp/channels';
+import type { TemplateMetaAnswer } from '@/lib/whatsapp/template-save-outcome';
+import { isLocalTemplate } from '@/lib/whatsapp/template-submit-row';
 import { AuthUnavailableError } from '@/lib/auth/auth-unavailable';
 
 /**
@@ -48,38 +51,84 @@ import { AuthUnavailableError } from '@/lib/auth/auth-unavailable';
  * user's work over a constraint that only applies to one of their two
  * numbers.
  *
- * So this endpoint is now a plain validated upsert, and a saved
- * template is usable immediately. `status` is written as `APPROVED`
- * rather than introducing a new enum value: the column's CHECK
- * constraint already allows it, every consumer (the composer's template
- * picker, broadcasts, automations) already gates on it, and it
- * accurately describes the state — this template can be sent.
+ * Only Meta's refusal of the template is stored: a row with one is not
+ * offered on the Meta number. "Meta already has it" (409) and no answer
+ * (502) store nothing: Meta may have the template, and Sync brings it in.
  *
- * The Meta-era columns (`meta_template_id`, `submission_error`,
- * `rejection_reason`) are left NULL. They stay on the table so an
- * existing install's history survives the provider switch.
+ * `status` is written as `APPROVED` for a row Meta has not taken, rather
+ * than introducing a new enum value: the column's CHECK constraint
+ * already allows it, every consumer (the composer's template picker,
+ * broadcasts, automations) already gates on it, and it accurately
+ * describes the state on a linked number: this template can be sent.
+ *
+ * ─── Order: refuse, ask Meta, then one write ──────────────────────
+ *
+ * This route only ever adds a template. Saving over one Meta already has
+ * used to drop its Meta id and show it APPROVED, and Meta then refused
+ * the duplicate: no Meta chat could send it until the next Sync. So a
+ * name and language that are Meta's in this account (an id, or a verdict
+ * of Meta's) are a 409 before anything happens, and nothing is written
+ * until Meta has answered: a refused row keeps its reason until then.
+ *
+ * ─── A saved row sent to Meta (`template_id`) ─────────────────────
+ *
+ * "Submit to Meta" on a row names it, so the answer lands on that row
+ * also when a teammate holds one of the same name and language. Only a
+ * row of this account with that name and language counts; any other id
+ * is refused before Meta is asked, never saved as another row.
  */
 
-/**
- * Shared upsert payload builder. Kept as its own function so adding a
- * column later touches one place.
- */
-function buildUpsertRow(
+interface ExistingRow {
+  id: string;
+  user_id: string;
+  meta_template_id: string | null;
+  status: string | null;
+}
+
+/** Every row of the account with this name and language, anybody's. */
+async function rowsOfThatName(
+  supabase: SupabaseClient,
   accountId: string,
-  userId: string,
   payload: TemplatePayload
-) {
+): Promise<ExistingRow[]> {
+  const { data, error } = await supabase
+    .from('message_templates')
+    .select('id, user_id, meta_template_id, status')
+    .eq('account_id', accountId)
+    .eq('name', payload.name)
+    .eq('language', payload.language);
+  if (error) throw new Error(error.message);
+  return (data ?? []) as ExistingRow[];
+}
+
+function nameTaken() {
+  return NextResponse.json(
+    {
+      error:
+        'A template with this name and language already exists. Edit it, or choose another name.',
+      code: 'TEMPLATE_EXISTS',
+    },
+    { status: 409 }
+  );
+}
+
+/** The columns a row cannot do without. */
+function coreColumns(accountId: string, payload: TemplatePayload) {
   return {
     // Account tenancy — required NOT NULL on message_templates as of
     // migration 017. Without this an INSERT throws on the not-null
     // constraint.
     account_id: accountId,
-    // Original author — audit only. The unique index is still on
-    // (user_id, name, language); see the upsert helper.
-    user_id: userId,
     name: payload.name,
     category: payload.category,
     language: payload.language,
+    body_text: payload.body_text,
+    last_submitted_at: new Date().toISOString(),
+  };
+}
+
+function contentColumns(payload: TemplatePayload) {
+  return {
     header_type: payload.header_type ?? null,
     header_content: payload.header_content ?? null,
     header_media_url: payload.header_media_url ?? null,
@@ -87,33 +136,90 @@ function buildUpsertRow(
     // headers are sent by plain URL — but retained so rows created
     // before the provider switch keep their value's column.
     header_handle: null,
-    body_text: payload.body_text,
     footer_text: payload.footer_text ?? null,
     buttons: payload.buttons ?? null,
     sample_values: payload.sample_values ?? null,
-    // Immediately sendable — nothing to wait for.
-    status: 'APPROVED',
-    meta_template_id: null,
-    submission_error: null,
     rejection_reason: null,
-    last_submitted_at: new Date().toISOString(),
   };
 }
 
-async function upsertTemplateRow(
+/** What Meta answered. */
+type Verdict =
+  | { kind: 'taken'; id: string; status: string }
+  | { kind: 'refused'; message: string }
+  | { kind: 'duplicate' }
+  | { kind: 'no_answer' }
+  | { kind: 'not_asked'; reason: 'no_meta_number' | 'meta_unavailable' };
+
+/** Only a refusal of the template itself may be stored as one. */
+function failedVerdict(err: unknown): Verdict {
+  // Not an answer of Meta's: no connection, or one nobody can read.
+  if (!(err instanceof MetaError)) return { kind: 'no_answer' };
+  if (err.isTemplateDuplicate) return { kind: 'duplicate' };
+  // The token or the rate limit: nothing to do with the template.
+  if (err.isAuthError || err.isRateLimited) {
+    return { kind: 'not_asked', reason: 'meta_unavailable' };
+  }
+  // A timeout is a 504; #2 is Meta's "service temporarily unavailable".
+  if (err.status >= 500 || err.code === 2) return { kind: 'no_answer' };
+  return { kind: 'refused', message: err.message };
+}
+
+interface VerdictColumns {
+  status: string;
+  meta_template_id?: string;
+  submission_error?: string | null;
+}
+
+/**
+ * The verdict as columns. Not asked: an earlier refusal stays. `local` is
+ * the status of a row Meta has not taken: submitting a saved draft does
+ * not put it on offer.
+ */
+function verdictColumns(
+  verdict: Exclude<Verdict, { kind: 'duplicate' | 'no_answer' }>,
+  local: string
+): VerdictColumns {
+  switch (verdict.kind) {
+    case 'taken':
+      return {
+        meta_template_id: verdict.id,
+        status: verdict.status,
+        submission_error: null,
+      };
+    case 'refused':
+      return { status: local, submission_error: verdict.message };
+    case 'not_asked':
+      return { status: local };
+  }
+}
+
+/**
+ * One write, to the row named or a new one of the caller's. No row back
+ * is "it became Meta's meanwhile" (a Sync, a second submit): only Meta's
+ * own answer is written over one. An update leaves the author alone (the
+ * unique index is on (user_id, name, language)).
+ */
+async function writeRow(
   supabase: SupabaseClient,
-  row: ReturnType<typeof buildUpsertRow>
+  rowId: string | undefined,
+  userId: string,
+  row: ReturnType<typeof coreColumns> & VerdictColumns
 ) {
-  // TODO(account-sharing): conflict target is still scoped to user_id.
-  // Once a follow-up migration drops the legacy unique index on
-  // (user_id, name, language) and adds (account_id, name, language),
-  // switch `onConflict` here so two teammates can't shadow each
-  // other's same-named template.
-  return supabase
-    .from('message_templates')
-    .upsert(row, { onConflict: 'user_id,name,language' })
-    .select()
-    .single();
+  const table = supabase.from('message_templates');
+  if (!rowId) {
+    return table
+      .insert({ ...row, user_id: userId })
+      .select()
+      .single();
+  }
+  const update = table
+    .update(row)
+    .eq('id', rowId)
+    .eq('account_id', row.account_id);
+  const guarded =
+    'meta_template_id' in row ? update : update.is('meta_template_id', null);
+  return guarded.select().maybeSingle();
 }
 
 export async function POST(request: Request) {
@@ -127,9 +233,9 @@ export async function POST(request: Request) {
       await requireRole('admin')
     );
 
-    let payload: TemplatePayload;
+    let payload: TemplatePayload & { template_id?: unknown };
     try {
-      payload = (await request.json()) as TemplatePayload;
+      payload = (await request.json()) as typeof payload;
     } catch {
       return NextResponse.json(
         { error: 'Invalid JSON body.' },
@@ -163,85 +269,162 @@ export async function POST(request: Request) {
       );
     }
 
-    const { data: row, error: upsertErr } = await upsertTemplateRow(
-      supabase,
-      buildUpsertRow(accountId, userId, payload)
-    );
-
-    if (upsertErr) {
+    const existing = await rowsOfThatName(supabase, accountId, payload);
+    const named = payload.template_id
+      ? existing.find((r) => r.id === payload.template_id)
+      : undefined;
+    if (payload.template_id && !named) {
       return NextResponse.json(
-        { error: `Failed to save template: ${upsertErr.message}` },
-        { status: 500 }
+        {
+          error: 'This template was deleted or renamed.',
+          code: 'TEMPLATE_GONE',
+        },
+        { status: 404 }
       );
     }
+    if (!existing.every(isLocalTemplate)) return nameTaken();
+    const targetRow = (rows: ExistingRow[]) =>
+      (
+        rows.find((r) => r.id === named?.id) ??
+        rows.find((r) => r.user_id === userId)
+      )?.id;
 
     // ── Submit to Meta, when a Meta number is connected ───────────
     //
     // Whapi renders a template locally and needs no approval, so the
-    // local save above is the whole job for a Whapi-only install and
+    // local save below is the whole job for a Whapi-only install and
     // must succeed on its own. But a Meta number can only send an
     // APPROVED template from its WABA's registry, so with one
-    // connected the row is also pushed to Meta for review.
+    // connected the template is also pushed to Meta for review.
     //
-    // Best-effort by design: a submission failure leaves the row saved
-    // and usable over Whapi, and reports why rather than discarding
-    // the user's work. The verdict arrives later on the
+    // Best-effort by design: a template Meta refuses is still saved,
+    // usable over Whapi, with the reason, rather than discarding the
+    // user's work. The verdict arrives later on the
     // `message_template_status_update` webhook.
-    let metaSubmission: {
-      submitted: boolean;
-      status?: string;
-      error?: string;
-    } = { submitted: false };
-
+    let channels: Awaited<ReturnType<typeof loadChannels>> = [];
+    let channelsRead = true;
     try {
-      const channels = await loadChannels(supabase, accountId);
-      const meta = channels.find((c) => c.provider === 'meta' && c.wabaId);
-
-      if (meta?.wabaId) {
-        try {
-          const result = await submitMessageTemplate({
-            wabaId: meta.wabaId,
-            accessToken: meta.accessToken,
-            payload: buildMetaTemplatePayload(payload),
-          });
-          await supabase
-            .from('message_templates')
-            .update({
-              meta_template_id: result.id,
-              status: result.status,
-              submission_error: null,
-              last_submitted_at: new Date().toISOString(),
-            })
-            .eq('id', (row as { id: string }).id)
-            .eq('account_id', accountId);
-
-          metaSubmission = { submitted: true, status: result.status };
-        } catch (err) {
-          const message =
-            err instanceof MetaError
-              ? err.message
-              : err instanceof Error
-                ? err.message
-                : 'Unknown error submitting to Meta.';
-          await supabase
-            .from('message_templates')
-            .update({
-              submission_error: message,
-              last_submitted_at: new Date().toISOString(),
-            })
-            .eq('id', (row as { id: string }).id)
-            .eq('account_id', accountId);
-
-          metaSubmission = { submitted: false, error: message };
-        }
-      }
+      channels = await loadChannels(supabase, accountId);
     } catch (err) {
       // Channel lookup failed entirely — the local save still stands.
+      channelsRead = false;
       console.warn(
         '[templates/submit] could not check for a Meta channel:',
         err instanceof Error ? err.message : err
       );
     }
+    const meta = channels.find((c) => c.provider === 'meta' && c.wabaId);
+    // Told to the author: a Meta number that could not be used (not read,
+    // or without its WhatsApp Business Account) is not "there is none".
+    let verdict: Verdict = {
+      kind: 'not_asked',
+      reason:
+        channelsRead && !channels.some((c) => c.provider === 'meta')
+          ? 'no_meta_number'
+          : 'meta_unavailable',
+    };
+    if (meta?.wabaId) {
+      try {
+        const result = await submitMessageTemplate({
+          wabaId: meta.wabaId,
+          accessToken: meta.accessToken,
+          payload: buildMetaTemplatePayload(payload),
+        });
+        verdict = {
+          kind: 'taken',
+          id: result.id,
+          // One the column does not allow would fail the write, and the
+          // id with it: waiting, as a template just taken is.
+          status: normalizeStatus(result.status) ?? 'PENDING',
+        };
+      } catch (err) {
+        verdict = failedVerdict(err);
+        if (verdict.kind !== 'refused') {
+          console.warn(
+            '[templates/submit] Meta did not take the template:',
+            err instanceof Error ? err.message : err
+          );
+        }
+      }
+    }
+    if (verdict.kind === 'duplicate') {
+      return NextResponse.json(
+        {
+          error:
+            'Meta already has a template with this name and language. Press Sync.',
+          code: 'META_HAS_IT',
+        },
+        { status: 409 }
+      );
+    }
+    if (verdict.kind === 'no_answer') {
+      return NextResponse.json(
+        {
+          error:
+            'Meta did not answer. It may have been submitted; press Sync in a minute.',
+          code: 'META_NO_ANSWER',
+        },
+        { status: 502 }
+      );
+    }
+
+    const core = {
+      ...coreColumns(accountId, payload),
+      ...verdictColumns(
+        verdict,
+        named ? (named.status ?? 'DRAFT') : 'APPROVED'
+      ),
+    };
+    const { data: row, error: saveErr } = await writeRow(
+      supabase,
+      targetRow(existing),
+      userId,
+      { ...core, ...contentColumns(payload) }
+    );
+
+    if (verdict.kind === 'taken' && (saveErr || !row)) {
+      // Meta has it now, and a failed write must not lose its id: the
+      // smallest row once more, over whatever is there by now. Sync
+      // brings the rest from Meta.
+      console.error(
+        `[templates/submit] saving Meta template ${verdict.id} failed:`,
+        saveErr?.message ?? 'the row is gone'
+      );
+      const now = await rowsOfThatName(supabase, accountId, payload).catch(
+        () => existing
+      );
+      const again = await writeRow(supabase, targetRow(now), userId, core);
+      if (again.error) {
+        console.error(
+          `[templates/submit] Meta template ${verdict.id} is not saved here:`,
+          again.error.message
+        );
+      }
+      return NextResponse.json(
+        {
+          error:
+            'Meta accepted this template, but it could not be saved completely here. Press Sync to bring it in.',
+          code: 'META_ACCEPTED_NOT_SAVED',
+        },
+        { status: 500 }
+      );
+    }
+    // Somebody saved the same name between our read and our write.
+    if (saveErr?.code === '23505' || (!saveErr && !row)) return nameTaken();
+    if (saveErr) {
+      console.error('Error saving template:', saveErr);
+      return NextResponse.json(
+        { error: 'Failed to save template.' },
+        { status: 500 }
+      );
+    }
+
+    const metaSubmission: TemplateMetaAnswer =
+      verdict.kind === 'taken'
+        ? { submitted: true, status: verdict.status }
+        : verdict.kind === 'refused'
+          ? { submitted: false, error: verdict.message }
+          : { submitted: false, reason: verdict.reason };
 
     return NextResponse.json({
       success: true,
@@ -252,14 +435,19 @@ export async function POST(request: Request) {
     // Auth failures map to 401/403 before the generic 500 branch —
     // reporting "you aren't an admin" as a template save failure would
     // send the user chasing the wrong problem.
-    if (error instanceof UnauthorizedError || error instanceof ForbiddenError || error instanceof AuthUnavailableError) {
+    if (
+      error instanceof UnauthorizedError ||
+      error instanceof ForbiddenError ||
+      error instanceof AuthUnavailableError
+    ) {
       return toErrorResponse(error);
     }
     console.error('Error saving template:', error);
     return NextResponse.json(
       {
-        error:
-          error instanceof Error ? error.message : 'Failed to save template.',
+        // The detail is logged above; raw database text never
+        // reaches the browser.
+        error: 'Failed to save template.',
       },
       { status: 500 }
     );

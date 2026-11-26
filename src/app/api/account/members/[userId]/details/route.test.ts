@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   requireRole: vi.fn(),
   rpc: vi.fn(),
   adminRpc: vi.fn(),
+  permit: vi.fn(),
   updateUserById: vi.fn(),
   getUserById: vi.fn(),
   readProfile: vi.fn(),
@@ -32,7 +33,10 @@ vi.mock('@supabase/supabase-js', () => ({
         getUserById: mocks.getUserById,
       },
     },
-    rpc: mocks.adminRpc,
+    rpc: (name: string, args: unknown) =>
+      name === 'permit_login_email'
+        ? mocks.permit(args)
+        : mocks.adminRpc(name, args),
     from: (table: string) => {
       if (table !== 'profiles') throw new Error(`unexpected table ${table}`);
       return {
@@ -81,8 +85,18 @@ const ADMIN_CTX = {
 
 const CURRENT = { full_name: 'Sara Ali', email: 'sara@old.example' };
 
-function request(body: unknown): Request {
+/** A tab from before `expected_*` (and, with them, any tab). */
+function rawRequest(body: unknown): Request {
   return { json: async () => body } as unknown as Request;
+}
+
+/** What the dialog sends when it showed CURRENT. */
+function request(body: object): Request {
+  return rawRequest({
+    expected_full_name: CURRENT.full_name,
+    expected_email: CURRENT.email,
+    ...body,
+  });
 }
 
 const params = { params: Promise.resolve({ userId: 'user-2' }) };
@@ -95,6 +109,8 @@ describe('PATCH /api/account/members/[userId]/details', () => {
     mocks.requireRole.mockResolvedValue(ADMIN_CTX);
     mocks.rpc.mockResolvedValue({ error: null });
     mocks.adminRpc.mockResolvedValue({ error: null });
+    mocks.permit.mockReset();
+    mocks.permit.mockResolvedValue({ error: null });
     // Reset, not just clear: a test that queues two answers must not
     // leak its second one into the next test.
     mocks.updateUserById.mockReset();
@@ -110,6 +126,54 @@ describe('PATCH /api/account/members/[userId]/details', () => {
       error: null,
     });
     consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  // 288: the login refuses a new email nobody asked a permit for.
+  it('asks for a permit for the address before GoTrue, and only for an address', async () => {
+    await PATCH(
+      request({ full_name: 'Sara Ali', email: 'sara@new.example' }),
+      params
+    );
+    expect(mocks.permit).toHaveBeenCalledExactlyOnceWith({
+      p_user: 'user-2',
+      p_email: 'sara@new.example',
+    });
+    expect(mocks.permit.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.updateUserById.mock.invocationCallOrder[0]
+    );
+
+    mocks.permit.mockClear();
+    await PATCH(
+      request({ full_name: 'Sara Khan', email: CURRENT.email }),
+      params
+    );
+    expect(mocks.permit).not.toHaveBeenCalled();
+  });
+
+  it('asks for one to put the old address back', async () => {
+    mocks.updateProfiles.mockResolvedValue({
+      data: null,
+      error: { message: 'down' },
+    });
+    await PATCH(
+      request({ full_name: 'Sara Ali', email: 'sara@new.example' }),
+      params
+    );
+    expect(mocks.permit.mock.calls.map(([a]) => a.p_email)).toEqual([
+      'sara@new.example',
+      CURRENT.email,
+    ]);
+  });
+
+  it('carries on before 288, and says when a permit fails', async () => {
+    mocks.permit.mockResolvedValueOnce({ error: { code: 'PGRST202' } });
+    const body = { full_name: 'Sara Ali', email: 'sara@new.example' };
+    expect((await PATCH(request(body), params)).status).toBe(200);
+    expect(consoleError).not.toHaveBeenCalled();
+    mocks.permit.mockResolvedValueOnce({ error: { code: '57014' } });
+    await PATCH(request(body), params);
+    expect(consoleError).toHaveBeenCalledTimes(1);
+    expect(mocks.updateUserById).toHaveBeenCalledTimes(2);
   });
 
   it('asks the database, then GoTrue, then profiles, then the audit row', async () => {
@@ -447,5 +511,80 @@ describe('PATCH /api/account/members/[userId]/details', () => {
       email_confirm: true,
     });
     expect(mocks.adminRpc).not.toHaveBeenCalled();
+  });
+
+  describe('a form that showed old details', () => {
+    const NEW = { full_name: 'Sara Ali', email: 'sara@new.example' };
+    beforeEach(() => {
+      mocks.readProfile.mockResolvedValue({ data: NEW, error: null });
+      mocks.getUserById.mockResolvedValue({
+        data: { user: { id: 'user-2', email: NEW.email } },
+        error: null,
+      });
+    });
+    const nothingWritten = () => {
+      expect(mocks.permit).not.toHaveBeenCalled();
+      expect(mocks.updateUserById).not.toHaveBeenCalled();
+      expect(mocks.updateProfiles).not.toHaveBeenCalled();
+      expect(mocks.adminRpc).not.toHaveBeenCalled();
+    };
+
+    it('changes a name alone and leaves the newer email', async () => {
+      const res = await PATCH(
+        rawRequest({
+          full_name: 'Sara Khan',
+          expected_full_name: 'Sara Ali',
+        }),
+        params
+      );
+      expect(res.status).toBe(200);
+      expect((await res.json()).member).toEqual({
+        user_id: 'user-2',
+        full_name: 'Sara Khan',
+        email: NEW.email,
+      });
+      expect(mocks.updateUserById).not.toHaveBeenCalled();
+      expect(mocks.updateProfiles).toHaveBeenCalledWith(
+        { full_name: 'Sara Khan' },
+        { user_id: 'user-2' }
+      );
+    });
+
+    it('never takes an untouched old email for an edit', async () => {
+      const res = await PATCH(
+        request({ full_name: 'Sara Khan', email: CURRENT.email }),
+        params
+      );
+      expect((await res.json()).changed).toEqual(['full_name']);
+      expect(mocks.updateUserById).not.toHaveBeenCalled();
+    });
+
+    it('refuses an older tab that would put the old email back', async () => {
+      const res = await PATCH(
+        rawRequest({ full_name: 'Sara Khan', email: CURRENT.email }),
+        params
+      );
+      expect(res.status).toBe(409);
+      nothingWritten();
+    });
+
+    it('still takes a name from an older tab whose email is current', async () => {
+      const res = await PATCH(
+        rawRequest({ full_name: 'Sara Khan', email: NEW.email }),
+        params
+      );
+      expect((await res.json()).changed).toEqual(['full_name']);
+      expect(mocks.updateUserById).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['email', { email: 'sara@third.example', expected_email: CURRENT.email }],
+      ['name', { full_name: 'Sara Khan', expected_full_name: 'S. Ali' }],
+    ])('answers 409 when the %s is no longer what it showed', async (_, b) => {
+      const res = await PATCH(rawRequest(b), params);
+      expect(res.status).toBe(409);
+      expect((await res.json()).error).toMatch(/Someone else changed/);
+      nothingWritten();
+    });
   });
 });

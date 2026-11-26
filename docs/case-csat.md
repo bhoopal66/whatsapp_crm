@@ -43,6 +43,11 @@ re-checks everything:
 
 - CSAT and the moment still switched on (else `cancelled` /
   `switched_off`);
+- the moment still holds (281): an approved request whose case is no
+  longer approved, and a submitted one whose case is back before
+  submission or closed as anything but approved, is `cancelled` /
+  `case_changed`, also when it was `held`. Nobody was asked, but the
+  moment is used up: the case is not asked about it again;
 - the workspace's **send hours**, Dubai time (default 09:00 to 20:00;
   never before 08:00 or from 21:00). Outside them the request waits;
 - opt-out and do-not-contact (else `cancelled` / `opted_out`), and the
@@ -53,8 +58,13 @@ re-checks everything:
 - a request not sent within **3 days** of its moment is `cancelled` /
   `expired`.
 
-A claim that gets no result within 10 minutes may have reached WhatsApp
-and is marked `unconfirmed`: it is **never resent**.
+The row is stamped (`handed_to_gateway_at`, 281) as the last thing before
+the gateway. A claim that gets no result within 10 minutes goes **back to
+the queue** when it was never stamped, and is marked `unconfirmed` when it
+was: it may have reached WhatsApp and is **never resent**. A send that
+times out or breaks off after the stamp is `unconfirmed` too, with its
+message in the chat (shown as still sending), and a reply to it counts.
+Only a send the gateway certainly refused is `failed`.
 
 The message goes from the chat's **own number** (its pinned number, else
 the number the chat is on), never a personal number:
@@ -120,13 +130,18 @@ is stored and after Flows:
   space, a full stop or a closing bracket and then words is **not** a
   rating: `5 great`, `2 years in business`, `1. Passport`, `1- Passport`,
   `2-year visa`, `3 pm call me`, `2-3 years`.
+
 - Text that is not a rating costs nothing. A rating costs one database
   call, which stores it only when CSAT is on and the person has a request
-  **sent within the reply window** (default 7 days) and not yet
-  answered; the newest such request takes it. Each request is answered
-  **at most once**.
+  **sent in this chat within the reply window** (default 7 days) and not
+  yet answered, and either **nothing else was said to the customer there
+  since** (no staff or bot message) or the reply **quotes the request**. A
+  reply quoting another message is never a rating (281). The newest such
+  request takes it. Each request is answered **at most once**.
+- A rating **with a comment** ("1, please call me") is stored and is not
+  consumed: journeys, automations and the AI still get the message.
 - **A Flow wins.** When a running Flow consumed the message (its menus
-  take typed numbers too), nothing is captured. A captured rating is
+  take typed numbers too), nothing is captured. A captured bare score is
   treated like a Flow's message: no journey bot, no content automations
   (`new_message_received`, `keyword_match`, `intent_match`) and no AI
   reply. Relationship triggers and the `message.received` webhook still
@@ -164,7 +179,10 @@ is configuration.
 Tables force row-level security with no policy and no grants; every
 access is a SECURITY DEFINER function granted to the service role only.
 Apply 246 as a superuser or BYPASSRLS role, after 234. It is re-runnable.
-`supabase/ci/verify-case-csat.sql` asserts the behaviour.
+`supabase/ci/verify-case-csat.sql` asserts the behaviour. Then 281 (after
+263; asserted by `verify-csat-fixes.sql`): re-applying 246 or 263 brings
+their claim back, so re-apply 281 after them. The app works without 281,
+by 246's rules. Switch CSAT on only with 281 and its build.
 
 Statuses: `queued`, `held`, `sending`, `sent`, `failed`, `cancelled`,
 `unconfirmed`, `skipped`.

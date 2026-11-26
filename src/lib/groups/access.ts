@@ -2,6 +2,11 @@
  * Who may see, manage and create a WhatsApp group. Mirror of 114, 208 and
  * 218 (whatsapp_group_visible_ids / _manageable_ids / _can_create) —
  * change both. It informs UI and route decisions only; the database decides.
+ *
+ * Nothing here sees one thing 299 decides first: the mirror of a submission
+ * group (a row with its WhatsApp id in the same account) is nobody's, admins
+ * included. The database leaves it out and `loadGroupForCaller` answers 404,
+ * so these functions are only ever asked about ordinary groups.
  */
 import {
   canCreateGroups,

@@ -44,6 +44,10 @@ const HINTS: Record<string, MappedError> = {
     error: 'Only a live agent or team leader can be a coordinator.',
   },
   unknown_bank: { status: 400, error: 'One of those banks does not exist.' },
+  banks_changed: {
+    status: 409,
+    error: 'The banks of this person were changed meanwhile.',
+  },
   self_share: { status: 400, error: 'Share with another person.' },
   not_coordinator: {
     status: 400,

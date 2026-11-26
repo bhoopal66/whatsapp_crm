@@ -7,6 +7,7 @@ import { PhoneCall, PhoneMissed } from 'lucide-react';
 
 import { useCalls } from '@/components/pbx/call-provider';
 import { useAuth } from '@/hooks/use-auth';
+import { DEFAULT_TIME_ZONE } from '@/lib/pbx/call-status';
 import { loadCallsBadge } from '@/lib/pbx/calls-badge';
 import { createClient } from '@/lib/supabase/client';
 import { callsSidebar, startOfDay, type MyPhone } from '@/lib/pbx/timeline';
@@ -45,8 +46,10 @@ export function CallsSection({
     if (isBankGuest) return;
     let cancelled = false;
     (async () => {
-      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-      const from = encodeURIComponent(startOfDay(Date.now(), tz));
+      // Dubai's day, as the Calls screen and the reports count.
+      const from = encodeURIComponent(
+        startOfDay(Date.now(), DEFAULT_TIME_ZONE)
+      );
       const [me, badge, calls] = await Promise.all([
         getJson('/api/pbx/me'),
         userId
@@ -62,7 +65,9 @@ export function CallsSection({
         missed: badge.missed ?? 0,
         today: Array.isArray(calls?.calls) ? calls.calls.length : 0,
       });
-    })();
+    })().catch(() => {
+      // A failed read keeps the last answer on screen.
+    });
     return () => {
       cancelled = true;
     };

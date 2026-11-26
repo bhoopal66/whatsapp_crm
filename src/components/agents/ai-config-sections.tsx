@@ -860,7 +860,12 @@ export function KnowledgeSection({
         onWriteAnswer={onWriteAnswer}
       />
 
-      <AiKbLearnSwitch accountId={form.accountId} canEdit={form.canEdit} />
+      {/* Keyed: another workspace's setting never shows while its own loads. */}
+      <AiKbLearnSwitch
+        key={form.accountId}
+        accountId={form.accountId}
+        canEdit={form.canEdit}
+      />
     </div>
   );
 }

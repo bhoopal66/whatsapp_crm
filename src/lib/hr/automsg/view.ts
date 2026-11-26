@@ -284,11 +284,15 @@ export function validateSettingsForm(form: SettingsForm): SettingsCheck {
 
 // ---- refusals and Run now ---------------------------------------------------
 
-export type AutomsgErrorKey = 'NOT_ALLOWED' | 'INVALID' | 'LIMIT' | 'UNKNOWN';
+export type AutomsgErrorKey =
+  'NOT_ALLOWED' | 'INVALID' | 'LIMIT' | 'STALE' | 'UNKNOWN';
 
 /** The `automsg.error.*` key for a refusal code; anything else is UNKNOWN. */
 export function automsgErrorKey(code: HrErrorCode | string): AutomsgErrorKey {
-  return code === 'NOT_ALLOWED' || code === 'INVALID' || code === 'LIMIT'
+  return code === 'NOT_ALLOWED' ||
+    code === 'INVALID' ||
+    code === 'LIMIT' ||
+    code === 'STALE'
     ? code
     : 'UNKNOWN';
 }

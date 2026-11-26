@@ -38,9 +38,11 @@ contract.
   company and personal chats. `inbound.ts` runs from both branches of
   `processMessage` (personal before its early return), after the
   idempotency boundary, via `later`; it costs one indexed read unless
-  the account's 'orchestrator' switch is on. A STOP is recorded
-  (`contacts.opted_out_at` + `hr_agent_supersede`) only while agents or
-  automated messages are on (`hr_automsg_active`). The model is the
+  the account's 'orchestrator' switch is on. A STOP is
+  stamped (`contacts.opted_out_at`, then `hr_agent_supersede`) on every HR
+  chat or HR line **whatever the switches say**: `recordHrStop`
+  (`agents/stop.ts`), called right after the idempotency boundary; a stamp
+  that failed is repeated by the durable inbox (264). The model is the
   workspace's AI config (`createAiModelPort`); spend is
   `ai_usage_log.mode` 'hr_agent' (the 202 CHECK, `LogAiUsageArgs` and
   the usage route's `byMode` change together). Candidate text only
@@ -75,7 +77,7 @@ contract.
   and OpenWA errors for a fetch that threw carry it as `cause`. `handleStatusUpdate` mirrors a
   receipt for a bot message onto the outbox (`hr_automsg_delivery_record`,
   forward-only `delivery_state`, `failed` → terminal
-  `delivery_failed:<code>`); a receipt that beats the provider-id stamp
+  `delivery_failed:<code>`, corrected only by a delivery, 291); a receipt that beats the provider-id stamp
   is caught up from `messages.status` by a trigger when the row turns
   `sent`. 212 restates 203's `hr_automsg_expire` (a terminal failure is
   never relabelled cancelled): apply in order, once.
@@ -113,7 +115,9 @@ contract.
   in Recruitment (cv_review, created_by NULL), but only if every message
   in it came through an HR line (`'other_numbers'` otherwise: one company
   chat per contact means a sales chat must never turn into a candidate).
-  Off by default.
+  Off by default. The sales bot asks the same function before it answers
+  (`notSalesChat` in `lib/ai/auto-reply.ts`) and stands down on an HR
+  line; with auto-open off it only knows a chat by its HR row.
   `verify-hr-lines.sql`.
 - **My worklist (029c).** `/worklist`: `lib/worklist` ranks open HR
   chats (Hire fast's own scoring, imported), cases needing action and

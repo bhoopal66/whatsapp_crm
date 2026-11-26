@@ -10,6 +10,7 @@ import {
   type RepeatDescription,
 } from '../rrule-form';
 import { formRrule, type EventFormValues } from './event-form';
+import { addDaysToKey } from './mini-month';
 
 /** The zones offered before the account's and the event's own. */
 export const COMMON_TIME_ZONES = [
@@ -37,6 +38,7 @@ export type RepeatChoice =
   | 'monthlyDate'
   | 'monthlyNth'
   | 'monthlyLast'
+  | 'monthlyLastDay'
   | 'yearly'
   | 'custom';
 
@@ -60,7 +62,9 @@ export function repeatChoiceOf(v: EventFormValues): RepeatChoice {
       ? 'monthlyDate'
       : r.monthly === 'nth'
         ? 'monthlyNth'
-        : 'monthlyLast';
+        : r.monthly === 'lastDay'
+          ? 'monthlyLastDay'
+          : 'monthlyLast';
   }
   return r.freq;
 }
@@ -68,7 +72,7 @@ export function repeatChoiceOf(v: EventFormValues): RepeatChoice {
 /**
  * The options offered: "the nth weekday" only up to the 4th (a 5th is
  * better said as "the last"), "the last weekday" only when the start is
- * one, a custom rule only while the event still has it; the current
+ * one, "the last day of the month" likewise, a custom rule only while the event still has it; the current
  * choice is always offered.
  */
 export function repeatChoices(v: EventFormValues): RepeatChoice[] {
@@ -82,6 +86,7 @@ export function repeatChoices(v: EventFormValues): RepeatChoice[] {
     'monthlyDate',
     'monthlyNth',
     'monthlyLast',
+    'monthlyLastDay',
     'yearly',
     'custom',
   ];
@@ -90,6 +95,9 @@ export function repeatChoices(v: EventFormValues): RepeatChoice[] {
     if (c === 'custom') return false;
     if (c === 'monthlyNth') return !!facts && facts.nth <= 4;
     if (c === 'monthlyLast') return !!facts && facts.isLast;
+    if (c === 'monthlyLastDay') {
+      return !!facts && addDaysToKey(v.startDate, 1).endsWith('-01');
+    }
     return true;
   });
 }
@@ -105,16 +113,20 @@ export function withRepeatChoice(
     case 'monthlyDate':
     case 'monthlyNth':
     case 'monthlyLast':
+    case 'monthlyLastDay':
       r.freq = 'monthly';
       r.monthly =
         choice === 'monthlyDate'
           ? 'date'
           : choice === 'monthlyNth'
             ? 'nth'
-            : 'last';
+            : choice === 'monthlyLast'
+              ? 'last'
+              : 'lastDay';
       break;
     case 'weekly': {
       r.freq = 'weekly';
+      // Untouched, the days already are the start's (withStart moves them).
       const anchor = anchorOfForm(v);
       if (!r.weekdays.length && anchor) {
         r.weekdays = [anchorFacts(anchor).weekday];
@@ -169,12 +181,76 @@ export function repeatPreview(
   }
 }
 
+/** Monthly on the 29th, 30th or 31st: a month without that day is skipped. */
+export function skipsShortMonths(v: EventFormValues): boolean {
+  const anchor = anchorOfForm(v);
+  return (
+    repeatChoiceOf(v) === 'monthlyDate' &&
+    !!anchor &&
+    anchorFacts(anchor).monthDay > 28
+  );
+}
+
 /** Unsaved changes: anything differs from the values the dialog opened with. */
 export function formChanged(
   current: EventFormValues,
   initial: EventFormValues
 ): boolean {
   return JSON.stringify(current) !== JSON.stringify(initial);
+}
+
+// Fields that only make sense together: kept, or taken, as one.
+const CONFLICT_GROUPS = [
+  ['title', ['title']],
+  [
+    'start',
+    ['allDay', 'startDate', 'startTime', 'endDate', 'endTime', 'timeZone'],
+  ],
+  ['repeat', ['repeat', 'customRrule']],
+  ['attendees', ['attendees']],
+  ['location', ['location']],
+  ['description', ['description']],
+  ['color', ['color']],
+  ['visibility', ['visibility']],
+  ['reminders', ['reminders']],
+] as const;
+
+/** A label under `Calendar.form`. */
+export type ConflictField = (typeof CONFLICT_GROUPS)[number][0];
+
+/**
+ * A save refused because the event changed meanwhile: what this person
+ * changed (against the values the dialog opened with) on top of the event
+ * as it is now, and the fields the other side changed. Guests are merged
+ * person by person, so a guest added there is not dropped here.
+ */
+export function mergeConflict(
+  mine: EventFormValues,
+  initial: EventFormValues,
+  latest: EventFormValues
+): { values: EventFormValues; theirs: ConflictField[] } {
+  const differs = (
+    a: EventFormValues,
+    b: EventFormValues,
+    keys: readonly (keyof EventFormValues)[]
+  ) => keys.some((k) => JSON.stringify(a[k]) !== JSON.stringify(b[k]));
+  const values: EventFormValues = { ...latest };
+  const theirs: ConflictField[] = [];
+  for (const [field, keys] of CONFLICT_GROUPS) {
+    if (differs(latest, initial, keys)) theirs.push(field);
+    if (field !== 'attendees' && differs(mine, initial, keys)) {
+      for (const k of keys) Object.assign(values, { [k]: mine[k] });
+    }
+  }
+  const had = new Set(initial.attendees);
+  const has = new Set(mine.attendees);
+  values.attendees = [
+    ...latest.attendees.filter((id) => has.has(id) || !had.has(id)),
+    ...mine.attendees.filter(
+      (id) => !had.has(id) && !latest.attendees.includes(id)
+    ),
+  ];
+  return { values, theirs };
 }
 
 export interface MemberLike {

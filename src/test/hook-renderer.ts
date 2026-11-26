@@ -50,6 +50,8 @@ const hooks = {
     if (typeof s.value === 'function') s.value();
     s.value = effect();
   },
+  // No providers here: the context's default.
+  useContext: (c: { _currentValue: unknown }) => c._currentValue,
   useCallback: (fn: unknown, deps?: unknown[]) => {
     const s = slot(() => fn);
     if (changed(s.deps, deps)) Object.assign(s, { value: fn, deps });

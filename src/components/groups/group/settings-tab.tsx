@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
-import { reasonKey } from '@/lib/groups/group-page';
+import { infoPatch, reasonKey, type InfoEdits } from '@/lib/groups/group-page';
 import { ICON_MAX_BYTES, ICON_TYPES } from '@/lib/groups/limits';
 import {
   GROUP_DESCRIPTION_MAX,
@@ -31,6 +31,7 @@ export function SettingsTab({
   detail,
   reload,
   onIconChange,
+  iconVersion: pageIconVersion,
 }: GroupTabProps) {
   const t = useTranslations('Groups.page');
   const s = useTranslations('Groups.page.settingsTab');
@@ -42,21 +43,28 @@ export function SettingsTab({
   const settingsBlock = detail.blocks.settings;
   const reasonOf = (code: string) => t(`reasons.${reasonKey(code)}`);
 
-  const [name, setName] = useState(group.name);
-  const [description, setDescription] = useState(group.description ?? '');
+  // A field follows the stored value until it is touched, so saving one
+  // never writes the other back from what was on screen at mount.
+  const [edits, setEdits] = useState<InfoEdits>({});
+  const name = edits.name ?? group.name;
+  const description = edits.description ?? group.description ?? '';
+  const setName = (v: string) => setEdits((e) => ({ ...e, name: v }));
+  const setDescription = (v: string) =>
+    setEdits((e) => ({ ...e, description: v }));
   const [saving, setSaving] = useState(false);
   const [policies, setPolicies] = useState<
     Partial<Record<GroupSetting, GroupPolicy>>
   >({});
   const [pending, setPending] = useState<Set<GroupSetting>>(new Set());
   const [iconBusy, setIconBusy] = useState(false);
-  const [iconVersion, setIconVersion] = useState(0);
+  // The page's counter, so a re-mounted tab keeps the version.
+  const [iconBump, setIconBump] = useState(0);
+  const iconVersion = pageIconVersion ?? iconBump;
   const [iconMissing, setIconMissing] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const dirty =
-    name.trim() !== group.name ||
-    description.trim() !== (group.description ?? '');
+  const infoBody = infoPatch(group, edits);
+  const dirty = Object.keys(infoBody).length > 0;
   const nameLen = nameLength(name);
   const valid =
     nameLen > 0 &&
@@ -82,15 +90,11 @@ export function SettingsTab({
     if (!dirty || !valid || saving) return;
     setSaving(true);
     try {
-      const body: { name?: string; description?: string } = {};
-      if (name.trim() !== group.name) body.name = name.trim();
-      if (description.trim() !== (group.description ?? '')) {
-        body.description = description.trim();
-      }
-      const res = await patch(body);
+      const res = await patch(infoBody);
       if (!res.ok) return await failed(res);
       toast.success(s('toastSaved'));
       await reload();
+      setEdits({});
     } catch {
       toast.error(t('reasons.unknown'));
     } finally {
@@ -149,7 +153,7 @@ export function SettingsTab({
       if (!res.ok) return await failed(res);
       toast.success(s('toastIconSaved'));
       setIconMissing(false);
-      setIconVersion((v) => v + 1);
+      setIconBump((v) => v + 1);
       onIconChange?.();
       await reload();
     } catch {
@@ -166,7 +170,7 @@ export function SettingsTab({
       if (!res.ok) return await failed(res);
       toast.success(s('toastIconRemoved'));
       setIconMissing(true);
-      setIconVersion((v) => v + 1);
+      setIconBump((v) => v + 1);
       onIconChange?.();
       await reload();
     } catch {

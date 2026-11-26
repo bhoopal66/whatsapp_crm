@@ -7,10 +7,77 @@ counter and lock lives in Postgres (migration 084), so every app
 instance shares one window and one clock. The tables and functions are
 service-role only.
 
+## Before you put it on the internet
+
+The app checks what it can. These are the operator's part; skipping
+one undoes a protection below.
+
+1. **Only the proxy reaches the app.** `docker-compose.yml` publishes
+   the app on 127.0.0.1 (`HOST_BIND`, docs/docker.md). Do not open
+   port 3000, Postgres (5432), Kong (8000/8443) or Supabase Studio to
+   the internet; Studio has its own password, change it or keep it on
+   a VPN.
+2. **https everywhere**, with the proxy redirecting http. The session
+   cookie is `Secure` whenever the public Supabase URL is https.
+3. **`EDGE_CLIENT_IP_HEADER`** set to the header your proxy writes
+   (`cf-connecting-ip` behind Cloudflare). Without it every per-IP
+   lockout is one shared bucket; a production server says so in its log
+   at the first request.
+4. **Rate-limit Supabase Auth at the proxy.** The anon key is public,
+   so `POST /auth/v1/token` can be called directly, past the app's own
+   sign-in lockout. Limit that path per IP at nginx or Cloudflare (and
+   set GoTrue's own limits with the real client-IP header). Keep
+   `DISABLE_SIGNUP=true` and `ENABLE_ANONYMOUS_USERS=false`.
+5. **The storage nginx headers** in "Stored file types" below. They are
+   required, not optional: without them a stored HTML or SVG file runs
+   as the app.
+6. **One app instance**, or accept that the in-memory limits (admin
+   actions, the public API) count per instance. The sign-in, webhook and
+   API-key lockouts are in Postgres and shared.
+7. **Secrets**: a fresh `ENCRYPTION_KEY`, `AUTOMATION_CRON_SECRET`,
+   `PBX_GATEWAY_SECRET` and Supabase JWT secret per install; never the
+   example values.
+8. **Keep it current**: `npm audit` and the Supabase images. At
+   2026-11-25, `npm audit` reports no known vulnerabilities.
+
+## Cross-site requests (CSRF)
+
+Every dashboard API call is authenticated by the session cookie, which a
+browser sends with any request to this site, including one a hostile
+page makes. `src/middleware.ts` refuses (403) a POST, PUT, PATCH or
+DELETE to `/api/*` that the browser marks as coming from another site
+or subdomain: `Sec-Fetch-Site` other than `same-origin`, or, from an
+older browser, an `Origin` that is not this host (`Host` or
+`X-Forwarded-Host`). Webhooks, crons and other servers send neither
+header and are not affected; `/api/v1` (API keys) and `/api/public`
+(the web form) are exempt (`lib/edge/same-origin.ts`).
+
+## Session cookie
+
+`sb-wacrm-auth-token` is `Secure` on an https site, `SameSite=Lax`, and
+expires after **7 days without use** (it is rewritten at every token
+refresh; @supabase/ssr's default is 400 days, and it ignores
+`cookieOptions.maxAge`, so every `setAll` caps it:
+`sessionCookiesToWrite`). It is not HttpOnly: the
+browser's Supabase client reads it, which is why a strict CSP matters
+(the CSP is still Report-Only; see `src/lib/csp.ts`).
+
+## Other headers
+
+Besides HSTS, nosniff, `Referrer-Policy`, `Permissions-Policy` and the
+frame headers: `Cross-Origin-Opener-Policy: same-origin-allow-popups`
+(a page that opened the CRM cannot reach into it), and no
+`X-Powered-By`. A group picture is passed through only as a raster
+image (never SVG) and sandboxed.
+
 ## WhatsApp webhooks
 
 Both inbound webhooks (Whapi and Meta) screen every authenticated
-delivery. `docs/whapi.md` and `docs/meta-cloud-api.md` have the details
+delivery. Finding which number a secret belongs to no longer reads and
+decrypts every number's config per request: a per-process index of the
+secrets' SHA-256 answers it, reloaded at most every 5 seconds on a miss
+(`lib/whatsapp/secret-index.ts`), so a flood of wrong secrets costs the
+database nothing. `docs/whapi.md` and `docs/meta-cloud-api.md` have the details
 per provider.
 
 - **Replay keys per number.** Each message and status transition is
@@ -175,6 +242,44 @@ server block sets any. `verify-storage-safe-mime.sql` asserts the bucket
 lists and the trigger's refusals; nothing in CI checks the nginx
 headers.
 
+## Chats and messages from a login (migration 284)
+
+What a signed-in person's own database access may write, whatever the
+client:
+
+| Table | Allowed | Never |
+| --- | --- | --- |
+| `conversations` | open a company chat for a contact they can see; open a personal chat on their own personal number; update a chat they can see | change its contact or workspace; delete it (delete the contact: open work and the legal hold are checked there); take it off its number unless an admin |
+| `messages` | add their own sent message to a chat they may write to | edit or delete any message; add one for the customer, the bot or a colleague, with another status, time or AI mark |
+
+Webhooks, delivery statuses, automations, merges and erasure use the
+service role or definer functions and are not affected. Refusals are
+`42501`.
+
+## WhatsApp media in Storage (migration 283)
+
+`chat-media` and `flow-media` are public buckets, because the WhatsApp
+gateways fetch a file by its link: whoever holds an object's full link can
+open it. Everything else about an object goes through RLS on
+`storage.objects`:
+
+- A signed-in person lists, reads, replaces, moves and removes only the
+  objects they uploaded (`owner_id`, or `owner` on a row an older Storage
+  wrote), and only in their active workspace's folder. This holds for
+  owners and admins too: what a person may see of a customer's files is
+  decided by the messages they may see, not by the bucket.
+- A person uploads into `chat-media` at `account-<id>/<file>`,
+  `account-<id>/staged/<file>` and `account-<id>/groups/<file>` only.
+  `inbound/`, `avatars/`, `voice-library/` and any other folder are
+  written by the server (service role). A new folder the browser uploads
+  to needs a migration restating 283's list
+  (`src/lib/storage/chat-media-owner-policy.test.ts`).
+- Anything a screen must do with another person's object goes through a
+  route with its own permission check and the service role, as the voice
+  library does.
+
+`verify-chat-media-owner.sql`.
+
 ## Housekeeping
 
 `edge_purge()` deletes expired claims, counters, failures and locks.
@@ -183,3 +288,52 @@ process; an install that does not ping that cron can schedule
 `SELECT public.edge_purge()` with pg_cron every 15 minutes instead.
 Correctness does not depend on it: an unpurged row is dead weight,
 never a wrong answer.
+
+## Read rules (migration 285)
+
+- `automation_logs`, `automation_steps`, `flow_nodes`: owners and admins.
+- `whatsapp_config`: every member reads the rows, nobody signed in reads
+  `access_token`, `verify_token` or `app_secret`. These columns are not
+  granted to `authenticated`, so a session never selects `*` from this
+  table; server code adds them with `withChannelSecrets()`
+  (`src/lib/whatsapp/channel-secrets.ts`). A new column needs its own
+  `GRANT SELECT`; `verify-read-rules.sql` fails until it has one.
+- `contact_notes`: a note is inserted and changed by its writer only, on a
+  customer the writer can see.
+## Invitations and API keys (migration 287)
+
+Both are made only in the name of the signed-in owner or admin who makes
+them. An invitation is for an assignable role, lasts at most 365 days and
+cannot be edited, only deleted. It opens with its token, which the database
+hashes; the stored hash is not a link. The older calls that take the hash
+(`redeem_invitation`, `peek_invitation`) stay callable only until the build
+that uses the token is out; then revoke them from `anon` and
+`authenticated`. An API key can be revoked but not otherwise changed by a
+session, and it keeps working after its maker leaves until someone revokes it
+in Settings → API keys.
+## A row belongs to its parent's account (migration 286)
+
+- A table that carries its own `account_id` beside a parent id ties the
+  two with a composite foreign key or a restrictive policy:
+  `team_members`, `whatsapp_channel_members`, `whatsapp_channel_teams`,
+  `whatsapp_routes`, `broadcast_recipients`, `broadcasts`,
+  `contact_tags`, `contact_custom_values`, `ai_knowledge_chunks`.
+- A function that reads `team_members` through a team joins on
+  `account_id` too; `verify-team-and-row-rules.sql` reads every body.
+- `team_members` has ONE foreign key to `teams`, the composite one: a
+  second would make PostgREST's `teams(team_members(...))` ambiguous.
+- A session writes only its own reaction, edits only its own customer
+  note (an admin may delete one), and links a deal only to rows it can
+  read (`deals_link_guard`).
+
+## Access points (migration 289)
+
+- Webhook endpoints and quick replies are inserted as `auth.uid()`, and a
+  session updates only the columns the app writes, never the maker, the
+  account or a webhook's secret.
+- `recycle_excluded_among`, `team_activity_start_check`,
+  `acknowledge_insight_attention` and `dismiss_tag_suggestion` answer only
+  for a customer or chat the caller can see.
+- The rate card tables need a live staff membership
+  (`current_account_id()`); `filter_contacts_by_tags` is not executable by
+  `anon`.

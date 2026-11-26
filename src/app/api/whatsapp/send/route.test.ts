@@ -97,7 +97,20 @@ function makeSupabaseMock() {
           // no .single()), so this comes back through `then` as a list.
           // Under Whapi the row IS the message, so the send path 404s
           // without one.
-          return { data: [TEMPLATE_ROW], error: null };
+          return {
+            data: [
+              TEMPLATE_ROW,
+              {
+                ...TEMPLATE_ROW,
+                id: 'tpl-teammate',
+                body_text: 'The teammate wrote this',
+                // Sorts behind TEMPLATE_ROW: only its id can choose it.
+                status: 'PAUSED',
+                created_at: '2020-01-01T00:00:00Z',
+              },
+            ],
+            error: null,
+          };
         default:
           return { data: null, error: null };
       }
@@ -311,6 +324,8 @@ describe('POST /api/whatsapp/send — contact_id template path', () => {
     expect(res.status).toBe(200);
     expect(json.success).toBe(true);
     expect(json.whatsapp_message_id).toBe('wamid-1');
+    // The customer page's toast opens the chat with it.
+    expect(json.conversation_id).toBe('conv-new');
 
     // A conversation was created for this contact, assigned to the
     // agent who opened it — an outbound chat is never Unassigned.
@@ -342,6 +357,21 @@ describe('POST /api/whatsapp/send — contact_id template path', () => {
       template_name: 'order_update',
       sender_type: 'agent',
     });
+  });
+
+  it('sends the row that was picked, of two with the same name', async () => {
+    const sent = () =>
+      (
+        sendTemplateMessage.mock.calls.at(-1) as unknown as [
+          { template: { id: string } },
+        ]
+      )[0].template.id;
+    expect(
+      (await postContactTemplate({ template_id: 'tpl-teammate' })).status
+    ).toBe(200);
+    expect(sent()).toBe('tpl-teammate');
+    await postContactTemplate({ template_id: 7 });
+    expect(sent()).not.toBe('tpl-teammate');
   });
 
   it('personal: true answers 409 no_personal_number without a personal number', async () => {

@@ -4,6 +4,7 @@ import type { Task } from '@/lib/tasks/types';
 import {
   bucketTasks,
   dueLabel,
+  cutTaskCounts,
   limitGroups,
   missedRepeat,
   taskContactIds,
@@ -125,6 +126,35 @@ describe('taskCounts', () => {
       NOW
     );
     expect(c).toEqual({ overdue: 2, today: 1, open: 5 });
+  });
+});
+
+describe('cutTaskCounts', () => {
+  const overdue = (n: number) =>
+    Array.from({ length: n }, (_, i) => task(local(27, 0, i)));
+
+  it('a figure is a floor only when the list ends inside it', () => {
+    expect(cutTaskCounts(overdue(4), NOW)).toEqual({
+      overdue: 4,
+      overdueCut: true,
+      today: 0,
+      todayCut: true,
+    });
+    expect(
+      cutTaskCounts([...overdue(2), task(local(28, 18))], NOW)
+    ).toMatchObject({
+      overdue: 2,
+      overdueCut: false,
+      today: 1,
+      todayCut: true,
+    });
+    expect(
+      cutTaskCounts([...overdue(2), task(local(28, 18)), task(local(30))], NOW)
+    ).toMatchObject({ overdueCut: false, today: 1, todayCut: false });
+    expect(cutTaskCounts([], NOW)).toMatchObject({
+      overdueCut: false,
+      todayCut: false,
+    });
   });
 });
 

@@ -29,19 +29,66 @@
 // Response (201):
 //   { "data": { "message_id", "whatsapp_message_id", "conversation_id",
 //               "contact_id", "contact_created" } }
+//
+// Sent but not saved: 201 as well, `message_id` null and `"warning":
+// "not_recorded"`. An error would be retried, and the customer would get
+// it twice.
+//
+// Optional `Idempotency-Key` header (or `idempotency_key` field): the
+// message is sent at most once per key (`lib/api/v1/message-keys.ts`).
+//
+// A customer who opted out or is marked do-not-contact is never
+// messaged: 422 `customer_opted_out`.
 // ============================================================
 
 import { requireApiKey } from '@/lib/auth/api-context';
-import { ok, fail, toApiErrorResponse } from '@/lib/api/v1/respond';
-import { resolveConversationByPhone } from '@/lib/whatsapp/resolve-conversation';
+import {
+  claimMessageKey,
+  deliveryUnconfirmed,
+  hashRequest,
+  readIdempotencyKey,
+  type MessageClaim,
+  type SentMessageAnswer,
+} from '@/lib/api/v1/message-keys';
+import {
+  ok,
+  fail,
+  toApiErrorResponse,
+  unavailable,
+} from '@/lib/api/v1/respond';
+import { readTemplateParams } from '@/lib/api/v1/template-params';
+import {
+  ContactLookupError,
+  findMatchingContacts,
+} from '@/lib/contacts/dedupe';
+import {
+  contactLookupNumber,
+  resolveConversationByPhone,
+} from '@/lib/whatsapp/resolve-conversation';
 import {
   sendMessageToConversation,
   validateSendMessageParams,
   SendMessageError,
 } from '@/lib/whatsapp/send-message';
+import { consentRefusal } from '@/lib/whatsapp/send-origin';
 import type { InteractiveMessagePayload } from '@/lib/whatsapp/interactive';
 
+interface ConsentRegister {
+  opted_out_at?: string | null;
+  do_not_contact_at?: string | null;
+}
+
+const customerOptedOut = () =>
+  fail(
+    'customer_opted_out',
+    'The customer has opted out of WhatsApp messages. Nothing was sent.',
+    422
+  );
+
 export async function POST(request: Request) {
+  let claim: MessageClaim | null = null;
+  // From here on only a definite refusal proves nothing went out.
+  let handedToGateway = false;
   try {
     const ctx = await requireApiKey(request, 'messages:send');
 
@@ -53,6 +100,11 @@ export async function POST(request: Request) {
       return fail('bad_request', 'Request body must be a JSON object', 400);
     }
 
+    const key = readIdempotencyKey(
+      request.headers.get('idempotency-key'),
+      body.idempotency_key
+    );
+
     const to = typeof body.to === 'string' ? body.to.trim() : '';
     if (!to) {
       return fail('bad_request', "'to' is required", 400);
@@ -62,20 +114,14 @@ export async function POST(request: Request) {
 
     // Unpack the optional `template` object into the flat params the
     // send core expects. `params` as an array → legacy positional body
-    // params; as an object → structured header/body/button params.
+    // params; as an object → structured header/body/button params. A value
+    // that is neither text nor a number is refused, never left out.
     const template =
       body.template && typeof body.template === 'object'
         ? (body.template as Record<string, unknown>)
         : null;
-    const templateParams = Array.isArray(template?.params)
-      ? (template.params as unknown[]).filter(
-          (p): p is string => typeof p === 'string'
-        )
-      : undefined;
-    const templateMessageParams =
-      template?.params && !Array.isArray(template.params)
-        ? template.params
-        : undefined;
+    const { templateParams, templateMessageParams } =
+      type === 'template' ? readTemplateParams(template?.params) : {};
 
     // Validate the message shape BEFORE resolveConversationByPhone
     // finds-or-creates a contact + conversation, so a bad payload 400s
@@ -95,6 +141,35 @@ export async function POST(request: Request) {
       interactivePayload,
     });
 
+    // Before anything else: a repeat is answered as it was the first time,
+    // whatever has changed since.
+    if (key !== null) {
+      const claimed = await claimMessageKey(
+        ctx.supabase,
+        ctx,
+        key,
+        hashRequest(body)
+      );
+      if ('replay' in claimed) {
+        return ok({ ...claimed.replay, replayed: true });
+      }
+      claim = claimed.claim;
+    }
+    const held = claim;
+
+    // The opt-out may sit on an older twin of the contact this number
+    // resolves to, so every contact it matches is asked, as Compass does.
+    // Before the find-or-create: a refused send leaves nothing behind.
+    const twins = (await findMatchingContacts(
+      ctx.supabase,
+      ctx.accountId,
+      contactLookupNumber(to).number
+    )) as ConsentRegister[];
+    if (twins.some((c) => consentRefusal(c))) {
+      await held?.settle({ state: 'failed' });
+      return customerOptedOut();
+    }
+
     // Find-or-create the conversation for this phone, then send. Both
     // steps share `SendMessageError`, so one catch maps the whole
     // pipeline to the envelope.
@@ -105,7 +180,18 @@ export async function POST(request: Request) {
       typeof body.name === 'string' ? body.name : null
     );
 
-    const result = await sendMessageToConversation(
+    const sent = (
+      messageId: string | null,
+      whatsappMessageId: string | null
+    ): SentMessageAnswer => ({
+      message_id: messageId,
+      whatsapp_message_id: whatsappMessageId,
+      conversation_id: resolved.conversationId,
+      contact_id: resolved.contactId,
+      contact_created: resolved.contactCreated,
+    });
+
+    const answer = await sendMessageToConversation(
       ctx.supabase,
       ctx.accountId,
       {
@@ -128,26 +214,58 @@ export async function POST(request: Request) {
         // A start on a company phone number at its daily new-chat limit
         // is refused 429 `number_daily_limit` (migration 204).
         enforceNumberDailyLimit: true,
+        // Asked again on the contact itself, right before the gateway.
+        respectConsent: true,
         replyToMessageId:
           typeof body.reply_to_message_id === 'string'
             ? body.reply_to_message_id
             : null,
+        beforeGateway: held
+          ? async () => {
+              await held.handOver(resolved.contactId);
+              handedToGateway = true;
+            }
+          : undefined,
+      }
+    ).then(
+      (r) => sent(r.messageId, r.whatsappMessageId),
+      (err: unknown) => {
+        // Raised only after the gateway took it: the customer has it.
+        if (!(err instanceof SendMessageError) || err.code !== 'db_error') {
+          throw err;
+        }
+        return {
+          ...sent(null, err.whatsappMessageId ?? null),
+          warning: 'not_recorded' as const,
+        };
       }
     );
 
-    return ok(
-      {
-        message_id: result.messageId,
-        whatsapp_message_id: result.whatsappMessageId,
-        conversation_id: resolved.conversationId,
-        contact_id: resolved.contactId,
-        contact_created: resolved.contactCreated,
-      },
-      201
-    );
+    await claim?.settle({
+      state: 'sent',
+      contactId: resolved.contactId,
+      answer,
+    });
+    return ok(answer, 201);
   } catch (err) {
+    if (claim) {
+      const unsent =
+        !handedToGateway || (err instanceof SendMessageError && err.definite);
+      await claim.settle({ state: unsent ? 'failed' : 'unconfirmed' });
+      if (!unsent) {
+        console.error('[api/v1/messages] send outcome unconfirmed:', err);
+        return toApiErrorResponse(deliveryUnconfirmed());
+      }
+    }
     if (err instanceof SendMessageError) {
+      if (err.code === 'opted_out' || err.code === 'do_not_contact') {
+        return customerOptedOut();
+      }
       return fail(err.code, err.message, err.status);
+    }
+    // Only ever before the send: whether the customer opted out is unknown.
+    if (err instanceof ContactLookupError) {
+      return toApiErrorResponse(unavailable());
     }
     return toApiErrorResponse(err);
   }

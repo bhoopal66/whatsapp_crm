@@ -30,6 +30,12 @@ export interface SessionQueryResult<T> {
   error: unknown;
   /** Fetch again now, even if a fetch is already running. */
   refresh: () => Promise<void>;
+  /**
+   * `refresh` for a caller that retries (a catch-up): it rejects when
+   * the read failed, and records that only when nothing is cached and
+   * no failure is recorded yet, so its retries are quiet.
+   */
+  reread: () => Promise<void>;
 }
 
 const noopUnsubscribe = () => {};
@@ -150,11 +156,31 @@ export function useSessionQuery<T>(
     if (activeKey) await run(activeKey, { force: true, keepLocalWrites });
   }, [activeKey, run, keepLocalWrites]);
 
+  const reread = useCallback(async () => {
+    if (!activeKey) return;
+    const current = () => isCurrentRequest(activeKey, keyRef.current);
+    try {
+      await prefetchSession(activeKey, () => fetcherRef.current(), {
+        force: true,
+        keepLocalWrites,
+      });
+    } catch (err) {
+      if (err instanceof SessionScopeError) return;
+      if (current() && !sessionCache.peek(activeKey)) {
+        setFailure((f) =>
+          f?.key === activeKey ? f : { key: activeKey, error: err }
+        );
+      }
+      throw err;
+    }
+    if (current()) setFailure(null);
+  }, [activeKey, keepLocalWrites]);
+
   const view = sessionQueryView({
     active: activeKey !== null,
     entry,
     fetching,
     hasError: error !== null,
   });
-  return { ...view, error, refresh };
+  return { ...view, error, refresh, reread };
 }

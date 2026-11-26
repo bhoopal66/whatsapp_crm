@@ -141,11 +141,20 @@ describe('recordSubmissionGroupMembership', () => {
     ]);
   });
 
-  it('ignores a hidden id, someone else and other actions', async () => {
+  it.each([
+    ['counted', event('remove', [], 1)],
+    ['named', event('remove', ['123456@lid'])],
+  ])('a hidden number (%s) leaving may be the customer', async (_, e) => {
+    const store = fake();
+    await recordSubmissionGroupMembership(store, channel, [e]);
+    expect(store.noteCustomerMembership.mock.calls).toEqual([
+      [expect.any(String), 'left_unsure'],
+    ]);
+  });
+
+  it('ignores someone else and other actions', async () => {
     const store = fake();
     await recordSubmissionGroupMembership(store, channel, [
-      event('remove', [], 1),
-      event('remove', ['123456@lid']),
       event('remove', [OTHER]),
       event('promote', [PHONE]),
     ]);

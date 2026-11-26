@@ -2,12 +2,14 @@ import { describe, expect, it } from 'vitest';
 
 import {
   groupMessageSender,
+  infoPatch,
   groupMessagesByDay,
   inviteMessagePreview,
   mergeMessages,
   parseBlocks,
   reasonKey,
   removalFailed,
+  roleChangeToast,
   resolveTab,
   shouldSendOnKey,
   statusTick,
@@ -21,6 +23,7 @@ describe('reasonKey', () => {
     expect(reasonKey('not_group_admin')).toBe('not_group_admin');
     expect(reasonKey('channel_disconnected')).toBe('channel_disconnected');
     expect(reasonKey('own_number')).toBe('own_number');
+    expect(reasonKey('no_saved_number')).toBe('no_saved_number');
     expect(reasonKey('something_new')).toBe('unknown');
     expect(reasonKey(42)).toBe('unknown');
     expect(reasonKey(undefined)).toBe('unknown');
@@ -64,6 +67,15 @@ describe('visibleTabs', () => {
     expect(
       visibleTabs({ ...base, settings: { approve_participants: 'anyone' } })
     ).not.toContain('requests');
+  });
+  it('keeps requests when the list could not be read, or a link asks', () => {
+    expect(visibleTabs({ ...base, pendingRequests: null })).toContain(
+      'requests'
+    );
+    expect(visibleTabs({ ...base, requested: true })).toContain('requests');
+    expect(visibleTabs({ ...base, requested: false })).not.toContain(
+      'requests'
+    );
   });
   it('shows managers to who may edit them', () => {
     expect(visibleTabs({ ...base, canEditManagers: true }).at(-1)).toBe(
@@ -281,6 +293,16 @@ describe('resolveTab', () => {
   });
 });
 
+describe('roleChangeToast', () => {
+  it('never says changed when WhatsApp refused', () => {
+    const failed = { ok: false, failed: [{ waId: '9715' }] };
+    expect(roleChangeToast(failed, 'admin')).toBe('toastMakeAdminFailed');
+    expect(roleChangeToast(failed, 'member')).toBe('toastRemoveAdminFailed');
+    expect(roleChangeToast({ failed: [] }, 'admin')).toBe('toastMadeAdmin');
+    expect(roleChangeToast({ failed: [] }, 'member')).toBe('toastRemovedAdmin');
+  });
+});
+
 describe('removalFailed', () => {
   it('is true only when WhatsApp refused someone', () => {
     expect(removalFailed({ removed: 1, failed: [] })).toBe(false);
@@ -294,5 +316,26 @@ describe('reason codes', () => {
   it('knows the create-group outcomes', () => {
     expect(reasonKey('no_participants')).toBe('no_participants');
     expect(reasonKey('saved_failed_run_sync')).toBe('saved_failed_run_sync');
+  });
+});
+
+describe('infoPatch', () => {
+  const stored = { name: 'Deals', description: 'old' };
+  it('sends nothing for untouched fields', () => {
+    expect(infoPatch(stored, {})).toEqual({});
+  });
+  it('sends only the touched field (no rename-back from a stale copy)', () => {
+    expect(infoPatch(stored, { description: ' new ' })).toEqual({
+      description: 'new',
+    });
+    expect(
+      infoPatch({ ...stored, name: 'Renamed' }, { description: 'x' })
+    ).toEqual({ description: 'x' });
+  });
+  it('drops a touched field that equals the stored value', () => {
+    expect(infoPatch(stored, { name: 'Deals ' })).toEqual({});
+    expect(
+      infoPatch({ name: 'A', description: null }, { description: '' })
+    ).toEqual({});
   });
 });

@@ -98,13 +98,28 @@ export function CoordinatorBanksDialog({
           {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ bank_codes: selected }),
+            body: JSON.stringify({
+              bank_codes: selected,
+              expected_bank_codes: saved,
+            }),
           }
         );
         if (!res.ok) {
           const payload = (await res.json().catch(() => ({}))) as {
             error?: string;
+            code?: string;
+            bank_codes?: string[];
           };
+          if (payload.code === 'BANKS_CHANGED') {
+            // Another admin was first: show theirs, to change again.
+            if (payload.bank_codes) {
+              invalidateCached('coordinators:');
+              setSelected(payload.bank_codes);
+              onSaved(member.user_id, payload.bank_codes, savedPhone);
+            }
+            setError(t('changedMeanwhile'));
+            return;
+          }
           setError(payload.error || t('saveError'));
           return;
         }

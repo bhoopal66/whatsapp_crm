@@ -65,12 +65,14 @@ import {
   canAddNumber,
   canResendInvite,
   canRetryCreate,
+  endToastKey,
   groupBanners,
   groupContactName,
   groupTitle,
   initialsOf,
   ownSendStored,
-  sendErrorKey,
+  retryToastKey,
+  refusedSendOutcome,
   sentAsPreview,
   settleRead,
   shortRef,
@@ -81,6 +83,7 @@ import {
   type SgMessage,
   type SgOlderPage,
   waModeOf,
+  refusalCode,
 } from '@/lib/submission-groups/ui';
 import {
   closeRemaining,
@@ -136,6 +139,7 @@ export function SubmissionGroupPage({
   backHref?: string;
 }) {
   const t = useTranslations('SubmissionGroups.page');
+  const tRefusal = useTranslations('SubmissionGroups.refusals');
   const tDetails = useTranslations('SubmissionGroups.details');
   const tGroups = useTranslations('Groups.page');
   const backLabel = backHref === '/groups' ? tGroups('back') : t('backToList');
@@ -327,8 +331,7 @@ export function SubmissionGroupPage({
 
   /**
    * One send into the group (text or an uploaded attachment). False when
-   * the composer should give the text back or delete the upload; a 502
-   * counts as sent, because WhatsApp may already hold it.
+   * the composer should give the text back or delete the upload.
    */
   const postMessage = async (
     payload: { text: string } | { media: GroupMediaSendPayload }
@@ -357,19 +360,15 @@ export function SubmissionGroupPage({
         body: JSON.stringify(payload),
       });
       if (!res.ok) {
-        const json = (await res.json().catch(() => null)) as {
-          reason?: string;
-        } | null;
-        toast.error(t(`sendErrors.${sendErrorKey(res.status, json?.reason)}`));
-        // A 502 (failed) or 409 consent block is kept as a stored row,
-        // which points at an attachment's file: treat it as sent so the
-        // composer neither gives it back nor deletes the file. Other
-        // refusals store nothing, unless a proxy answered for the app.
-        return (
-          res.status === 502 ||
-          (res.status === 409 && json?.reason !== undefined) ||
-          (res.status > 502 && (await stored()) === true)
+        const json = (await res.json().catch(() => null)) as Parameters<
+          typeof refusedSendOutcome
+        >[0]['body'];
+        const outcome = await refusedSendOutcome(
+          { status: res.status, body: json, media: 'media' in payload },
+          stored
         );
+        toast.error(t(`sendErrors.${outcome.toast}`));
+        return outcome.kept;
       }
       if (res.status === 202) {
         // WhatsApp has it; only the CRM copy is unrecorded (it may later
@@ -411,7 +410,7 @@ export function SubmissionGroupPage({
         return;
       }
       refreshList();
-      router.push(`/cases/${json.caseId}`);
+      if (mounted.current) router.push(`/cases/${json.caseId}`);
     } catch {
       toast.error(t('openNewCaseFailed'));
     } finally {
@@ -426,11 +425,22 @@ export function SubmissionGroupPage({
       const res = await fetch(`/api/submission-groups/${groupId}/${path}`, {
         method: 'POST',
       });
-      if (!res.ok) toast.error(t(path === 'end' ? 'endFailed' : 'retryFailed'));
+      const json = (await res.json().catch(() => null)) as
+        | (Parameters<typeof endToastKey>[0] &
+            Parameters<typeof retryToastKey>[1])
+        | null;
+      if (path === 'retry') {
+        const key = retryToastKey(res.status, json);
+        if (key === 'retryDone') toast.success(t(key));
+        else if (key === 'retryPending') toast.warning(t(key));
+        else toast.error(t(key));
+      } else if (!res.ok) toast.error(t('endFailed'));
       else {
-        toast.success(t(path === 'end' ? 'endDone' : 'retryDone'));
-        refreshList();
+        const key = endToastKey(json);
+        if (key === 'endDone') toast.success(t(key));
+        else toast.warning(t(key));
       }
+      if (res.ok) refreshList();
     } catch {
       toast.error(t(path === 'end' ? 'endFailed' : 'retryFailed'));
     } finally {
@@ -448,11 +458,15 @@ export function SubmissionGroupPage({
       if (res.ok) toast.success(t('inviteResendDone'));
       else {
         const json = (await res.json().catch(() => null)) as {
+          code?: unknown;
           error?: unknown;
         } | null;
-        toast.error(
-          typeof json?.error === 'string' ? json.error : t('inviteResendFailed')
-        );
+        const code = refusalCode(json);
+        // A reason without a code (the gateway's own words) still says more
+        // than "failed": shown under it.
+        const why = typeof json?.error === 'string' ? json.error : undefined;
+        if (code) toast.error(tRefusal(code));
+        else toast.error(t('inviteResendFailed'), { description: why });
       }
     } catch {
       toast.error(t('inviteResendFailed'));
@@ -478,6 +492,8 @@ export function SubmissionGroupPage({
       const json = (await res.json()) as { messages?: SgMessage[] };
       stickRef.current = true;
       setArchive(json.messages ?? []);
+      // The messages after the end are read here and nowhere else (308).
+      void markSubmissionGroupRead(groupId);
     } catch {
       toast.error(t('archiveFailed'));
     } finally {
@@ -705,6 +721,7 @@ export function SubmissionGroupPage({
             {!ended && (
               <GroupComposer
                 chatKey={`submission:${groupId}`}
+                chatName={groupTitle(detail.group) ?? t('untitled')}
                 userId={user?.id ?? null}
                 onSendText={(text) => postMessage({ text })}
                 onSendMedia={(media) => postMessage({ media })}

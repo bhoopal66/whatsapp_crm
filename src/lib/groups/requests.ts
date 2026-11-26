@@ -137,6 +137,8 @@ export interface GroupCreate {
   contactIds: string[];
   settings: GroupSettings;
   managerIds: string[];
+  /** Asked for a second group of the same name (`create_repeat`). */
+  createAnother: boolean;
 }
 
 /**
@@ -171,6 +173,7 @@ export function parseCreate(raw: unknown): GroupCreate {
     contactIds,
     settings: b.settings === undefined ? {} : parseSettings(b.settings),
     managerIds: parseIdList(b.managerIds, 'managerIds'),
+    createAnother: b.createAnother === true,
   };
 }
 

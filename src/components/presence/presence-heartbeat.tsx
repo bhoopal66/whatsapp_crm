@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
-import { HEARTBEAT_MS, IDLE_AFTER_MS, type StoredPresence } from "@/lib/presence";
+import type { StoredPresence } from "@/lib/presence";
+import { startPresenceTabs } from "@/lib/presence-tabs";
 
 /**
  * PresenceHeartbeat — headless. Mount ONCE per signed-in dashboard tab
@@ -12,19 +13,16 @@ import { HEARTBEAT_MS, IDLE_AFTER_MS, type StoredPresence } from "@/lib/presence
  * presence to the `member_presence` table via the `touch_presence` RPC
  * roughly every HEARTBEAT_MS.
  *
+ * Only one tab of the browser beats, for all of them (presence-tabs.ts).
  * The client only ever reports 'online' or 'away':
- *   - 'away'   when the tab is hidden, or no user input for IDLE_AFTER_MS
- *   - 'online' otherwise
+ *   - 'online' while some tab is on screen and was used within IDLE_AFTER_MS
+ *   - 'away'   otherwise
  * It keeps heartbeating while away (so the row stays fresh, i.e. not
  * offline). When the tab closes the beats simply stop and viewers derive
  * 'offline' from staleness — no unreliable unload write needed.
  */
 export function PresenceHeartbeat() {
   const { accountId } = useAuth();
-
-  // 0 = "never recorded"; set on mount so we don't read the clock during
-  // render (impure). Until the effect runs the tab counts as active.
-  const lastActivityRef = useRef<number>(0);
 
   useEffect(() => {
     // Hold off until the account is known. Beating during the brief
@@ -36,19 +34,7 @@ export function PresenceHeartbeat() {
     const supabase = createClient();
     let cancelled = false;
     let lastBeatAt = 0;
-    lastActivityRef.current = Date.now();
-
-    const markActive = () => {
-      lastActivityRef.current = Date.now();
-    };
-
-    const currentStatus = (): StoredPresence => {
-      if (typeof document !== "undefined" && document.hidden) return "away";
-      if (Date.now() - lastActivityRef.current > IDLE_AFTER_MS) return "away";
-      return "online";
-    };
-
-    const beat = async () => {
+    const beat = async (status: StoredPresence) => {
       if (cancelled) return;
       // Coalesce bursts: a tab refocus fires visibilitychange AND focus
       // together, so skip a beat within 1s of the last to avoid two RPCs
@@ -57,7 +43,7 @@ export function PresenceHeartbeat() {
       if (t - lastBeatAt < 1_000) return;
       lastBeatAt = t;
       const { error } = await supabase.rpc("touch_presence", {
-        p_status: currentStatus(),
+        p_status: status,
       });
       if (error && !cancelled) {
         // Non-fatal: presence is best-effort. Log once per failure so a
@@ -65,6 +51,20 @@ export function PresenceHeartbeat() {
         console.error("[PresenceHeartbeat] touch_presence failed:", error.message);
       }
     };
+
+    const name = `wacrm-presence:${accountId}`;
+    const tabs = startPresenceTabs({
+      name,
+      // Not randomUUID: it needs https, which a LAN install may lack.
+      id: Math.random().toString(36).slice(2),
+      locks: navigator.locks ?? null,
+      channel:
+        typeof BroadcastChannel === "undefined"
+          ? null
+          : new BroadcastChannel(name),
+      isVisible: () => !document.hidden,
+      beat: (status) => void beat(status),
+    });
 
     // Activity listeners. `passive` so we never block scroll/input.
     const activityEvents: (keyof DocumentEventMap)[] = [
@@ -74,30 +74,29 @@ export function PresenceHeartbeat() {
       "scroll",
     ];
     activityEvents.forEach((e) =>
-      document.addEventListener(e, markActive, { passive: true }),
+      document.addEventListener(e, tabs.active, { passive: true }),
     );
 
     // Returning to the tab should beat immediately so a member flips
     // back to online without a 30s wait. The debounce in beat() absorbs
     // the visibilitychange + focus double-fire.
-    const onReturn = () => {
-      if (!document.hidden) markActive();
-      void beat();
-    };
+    const onReturn = () => tabs.changed();
     document.addEventListener("visibilitychange", onReturn);
     window.addEventListener("focus", onReturn);
 
-    void beat();
-    const interval = setInterval(() => void beat(), HEARTBEAT_MS);
+    // A closing tab says so, rather than be counted until it goes stale.
+    const onLeave = () => tabs.leave();
+    window.addEventListener("pagehide", onLeave);
 
     return () => {
       cancelled = true;
-      clearInterval(interval);
+      tabs.stop();
       activityEvents.forEach((e) =>
-        document.removeEventListener(e, markActive),
+        document.removeEventListener(e, tabs.active),
       );
       document.removeEventListener("visibilitychange", onReturn);
       window.removeEventListener("focus", onReturn);
+      window.removeEventListener("pagehide", onLeave);
     };
   }, [accountId]);
 

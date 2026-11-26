@@ -45,6 +45,21 @@ export type RedactResult =
     }
   | { readonly ok: false; readonly refused: true; readonly reason: string };
 
+/** One redacted value: what `redact` puts in its place, and the text it stood for. */
+export interface RedactedSpan {
+  readonly type: RedactionType;
+  readonly token: string;
+  readonly original: string;
+}
+/** The input in order: kept text, and the redacted spans. Joining text and originals gives the input back. */
+export type RedactSpansResult =
+  | {
+      readonly ok: true;
+      readonly pieces: readonly (string | RedactedSpan)[];
+      readonly redactions: RedactionCounts;
+    }
+  | { readonly ok: false; readonly refused: true; readonly reason: string };
+
 /** Arabic-Indic and Extended Arabic-Indic digits to ASCII; same length as the input. */
 export function foldDigits(s: string): string {
   return s.replace(/[٠-٩۰-۹]/g, (d) => String((d.charCodeAt(0) & 0x0f) % 10));
@@ -342,6 +357,16 @@ const RULES: readonly Rule[] = [
 ];
 
 export function redact(input: string): RedactResult {
+  const r = redactSpans(input);
+  if (!r.ok) return r;
+  const text = r.pieces
+    .map((p) => (typeof p === 'string' ? p : p.token))
+    .join('');
+  return { ok: true, text, redactions: r.redactions };
+}
+
+/** `redact` for a caller that puts the originals back (Translate): never store or send `original`. */
+export function redactSpans(input: string): RedactSpansResult {
   try {
     if (typeof input !== 'string')
       return { ok: false, refused: true, reason: 'content is not a string' };
@@ -400,16 +425,21 @@ export function redact(input: string): RedactResult {
       counts.CARD = (counts.CARD ?? 0) + 1;
     }
     spans.sort((a, b) => a.start - b.start);
-    let out = '';
+    const pieces: (string | RedactedSpan)[] = [];
     let at = 0;
     for (const s of spans) {
       // A view span maps to whole original code points; two spans can share one only inside an NFKC expansion.
       const start = Math.max(view.from[s.start]!, at);
-      out += input.slice(at, start) + s.token;
-      at = Math.max(view.to[s.end - 1]!, at);
+      const end = Math.max(view.to[s.end - 1]!, start);
+      pieces.push(input.slice(at, start), {
+        type: s.type,
+        token: s.token,
+        original: input.slice(start, end),
+      });
+      at = end;
     }
-    out += input.slice(at);
-    return { ok: true, text: out, redactions: counts };
+    pieces.push(input.slice(at));
+    return { ok: true, pieces, redactions: counts };
   } catch (e) {
     return {
       ok: false,

@@ -5,6 +5,7 @@
 // pattern).
 
 import { isCallStatsPeriod, type CallStatsPeriod } from './call-report';
+import { latinDigits, numberSearchTerm } from './phone';
 
 export const RECORDING_DIRECTIONS = [
   'all',
@@ -122,7 +123,7 @@ export interface TeamRecordingsQuery {
   user: string | null;
   direction: RecordingDirection;
   minTalk: number;
-  /** Digits to find in the customer's number, or null. */
+  /** Digits to find in the customer's number (numberSearchTerm), or null. */
   q: string | null;
   before: RecordingsCursor | null;
   limit: number;
@@ -194,8 +195,13 @@ export function parseTeamRecordingsQuery(
   let q: string | null = null;
   const search = (p.get('q') ?? '').trim();
   if (search) {
-    q = search.replace(/\D/g, '');
-    if (q.length < NUMBER_SEARCH_MIN || q.length > NUMBER_SEARCH_MAX)
+    // Counted as typed; `0` and `00` alone are the empty search.
+    const digits = latinDigits(search).replace(/\D/g, '');
+    q = numberSearchTerm(digits) || null;
+    if (
+      !/^0{1,2}$/.test(digits) &&
+      (digits.length < NUMBER_SEARCH_MIN || digits.length > NUMBER_SEARCH_MAX)
+    )
       return `q must hold ${NUMBER_SEARCH_MIN} to ${NUMBER_SEARCH_MAX} digits`;
   }
   let before: RecordingsCursor | null = null;

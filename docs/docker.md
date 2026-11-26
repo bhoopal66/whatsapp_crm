@@ -24,6 +24,12 @@ is included.
 
 3. The app is served on [http://localhost:3000](http://localhost:3000)
    (publish it elsewhere with `HOST_PORT=8080` in `.env.local`).
+   It listens on **127.0.0.1 only**: put your reverse proxy or tunnel
+   on the same host. Docker's published ports go around ufw, so a port
+   on every interface let anyone skip the proxy (plain http, and a
+   forged client-IP header past the sign-in lockout). When the proxy is
+   on another machine, set `HOST_BIND=0.0.0.0` and firewall the port to
+   that machine only.
 
 > Use `HOST_PORT`, not `PORT`, to move the published port. `PORT` is
 > what the server listens on _inside_ the container, and `env_file`

@@ -20,6 +20,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/use-auth';
 import { loadPbxNames } from '@/hooks/use-pbx-names';
@@ -29,15 +30,19 @@ import {
   clockSkewMs,
   closableKeys,
   closeWrapUp,
+  endsGoneCall,
   frameQuietMs,
+  isCallGoneCode,
   liveKey,
   livePollMs,
   livePollRuns,
   loadsPbxMe,
+  markCallGone,
   myRingingCall,
   noteFrames,
   noteOutcome,
   recoverWrapUps,
+  reopenWrapUp,
   ringFloor,
   selectPanel,
   wrapUpPanel,
@@ -78,6 +83,11 @@ interface CallsValue {
   closable: boolean;
   /** Closes the panel of that call; a live one only while `closable`. */
   closePanel: (key: string) => void;
+  /**
+   * Opens a closed wrap-up again, its two minutes from now. False while
+   * a live call has the panel.
+   */
+  reopenPanel: (panel: PanelCall) => boolean;
   /** The panel reports whether its call has an outcome chosen. */
   noteOutcome: (key: string, chosen: boolean) => void;
   softphone: SoftphoneAdapter | null;
@@ -104,6 +114,7 @@ export const useCalls = () => useContext(CallsContext);
 
 export function CallProvider({ children }: { children: React.ReactNode }) {
   const { user, accountId, accountRole } = useAuth();
+  const t = useTranslations('PbxCall');
   const userId = user?.id ?? null;
   const asksMe = loadsPbxMe(userId, accountId, accountRole);
   const supabase = useMemo(() => createClient(), []);
@@ -114,6 +125,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const [closable, setClosable] = useState<string[]>([]);
   const [panels, setPanels] = useState<PanelState>(NO_PANEL);
   const panel = panels.panel;
+  // For reopenPanel, which a message outside the tree calls later.
+  const panelRef = useRef(panel);
+  useEffect(() => {
+    panelRef.current = panel;
+  }, [panel]);
   const [adapter, setAdapter] = useState<SoftphoneAdapter | null>(null);
   const [adapterActive, setAdapterActive] = useState(false);
   const adapterRef = useRef<SoftphoneAdapter | null>(null);
@@ -374,6 +390,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     []
   );
 
+  const reopenPanel = useCallback((call: PanelCall) => {
+    if (panelRef.current && panelRef.current.endedAt === null) return false;
+    setPanels((s) => reopenWrapUp(s, call, Date.now()));
+    return true;
+  }, []);
+
   const registerSoftphone = useCallback((a: SoftphoneAdapter) => {
     adapterRef.current = a;
     setAdapter(a);
@@ -385,6 +407,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
   const control = useCallback(
     async (pbxCallId: string, action: string, body?: object) => {
+      // As it is now: a frame landing while the PBX is asked is newer.
+      const asked = rowsRef.current.find(
+        (r) =>
+          r.pbx_call_id === pbxCallId && r.connection_id === me?.connectionId
+      );
       try {
         const res = await fetch(
           `/api/pbx/calls/${encodeURIComponent(pbxCallId)}/${action}`,
@@ -397,14 +424,44 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         if (res.ok) return true;
         const b = (await res.json().catch(() => null)) as {
           error?: string;
+          code?: string;
         } | null;
+        if (res.status === 404 && isCallGoneCode(b?.code)) {
+          const now = Date.now();
+          const pulse = pulseAt(now);
+          const rows = rowsRef.current;
+          const ended = !asked || endsGoneCall(asked, rows, pulse);
+          if (asked)
+            setPanels((s) =>
+              markCallGone(
+                s,
+                asked,
+                rows,
+                userId,
+                now,
+                mandatoryRef.current,
+                pulse
+              )
+            );
+          void reload();
+          // Hanging up a call that is over is done, not refused. A
+          // ringing card's Decline has no wrap-up to show for it.
+          if (
+            action === 'hangup' &&
+            ended &&
+            (!asked || asked.answered_by === userId)
+          )
+            return true;
+          toast.error(t(b.code === 'call_gone' ? 'callGone' : 'notOnCall'));
+          return false;
+        }
         toast.error(b?.error ?? res.statusText);
       } catch (err) {
         toast.error(err instanceof Error ? err.message : String(err));
       }
       return false;
     },
-    []
+    [me, userId, pulseAt, reload, t]
   );
 
   const value = useMemo<CallsValue>(
@@ -432,6 +489,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           )
         );
       },
+      reopenPanel,
       noteOutcome: reportOutcome,
       softphone,
       registerSoftphone,
@@ -458,6 +516,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       panel,
       closable,
       pulseAt,
+      reopenPanel,
       reportOutcome,
       softphone,
       registerSoftphone,

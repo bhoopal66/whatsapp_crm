@@ -3,10 +3,17 @@
 //
 // GET: an audited read (view_case writes its row before any message is
 // fetched). An ENDED group is read only through 115's archive. Answers
-// `{ groupId, archived, waMode, messages }` (messages in the
+// `{ groupId, archived, waMode, truncated, messages }` (a live group's
+// newest messages, `truncated` when older ones are left out, in the
 // submission-group message view shape; waMode 'group' | 'none' (136: no
 // WhatsApp group, nothing can be sent) | null without a group row), or
 // 404 NOT_READABLE.
+//
+// GET `?since=<iso>`: `{ changed }` only, for the open tab to ask whether
+// to read again. No content and no audit row (view_case is not called; any
+// role on the case may ask, its own rule). `since` is the newest message
+// shown, as the view gives it: cut to milliseconds, so the comparison is
+// in milliseconds too. A group no longer ACTIVE counts as changed.
 //
 // POST `{ text }` (trimmed, 1–4096), or (210) `{ media: { kind, url, path,
 // caption?, filename?, mimeType? } }` for an attachment the browser
@@ -23,6 +30,7 @@ import { after, NextResponse } from 'next/server';
 import { assertSalesAccess, getCurrentAccount } from '@/lib/auth/account';
 import { brainSink } from '@/lib/brain/sink';
 import { canWriteCase } from '@/lib/cases/access';
+import { loadCaseGroup, newestLiveMessageAt } from '@/lib/cases/case-group';
 import {
   assertUnderGroupSendLimit,
   badRequest,
@@ -52,11 +60,23 @@ export const maxDuration = 60;
 
 type Params = { params: Promise<{ id: string }> };
 
-export async function GET(_request: Request, { params }: Params) {
+export async function GET(request: Request, { params }: Params) {
   try {
     const ctx = assertSalesAccess(await getCurrentAccount());
     const { id } = await params;
     const { case: c } = await loadCaseForCaller(ctx, id, caseStore());
+
+    const since = new URL(request.url).searchParams.get('since');
+    if (since !== null) {
+      const shown = new Date(since).getTime();
+      if (Number.isNaN(shown)) throw badRequest('since is not valid');
+      const db = supabaseAdmin();
+      const group = await loadCaseGroup(db, c);
+      const changed =
+        group?.status !== 'ACTIVE' ||
+        ((await newestLiveMessageAt(db, group.id))?.getTime() ?? 0) !== shown;
+      return NextResponse.json({ changed });
+    }
 
     const read = await caseConversations(ctx.accountId).read(ctx.userId, c.id);
     if (!read.allowed)
@@ -72,6 +92,7 @@ export async function GET(_request: Request, { params }: Params) {
       groupId: read.groupId,
       archived: read.archived,
       waMode: read.waMode,
+      truncated: read.truncated,
       messages: read.messages.map((m) => toMessageView(m, names)),
     });
   } catch (err) {

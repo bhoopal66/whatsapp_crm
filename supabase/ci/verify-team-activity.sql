@@ -121,8 +121,15 @@ BEGIN
   EXECUTE $fn$
     CREATE FUNCTION pg_temp.ta_val(p_role text, p_uid uuid, p_sql text)
     RETURNS text LANGUAGE plpgsql AS $body$
-    DECLARE v text;
+    DECLARE v text; v_cv uuid; v_was uuid;
     BEGIN
+      -- 289: the start check answers only for a chat its caller can see;
+      -- these fixtures' chats are the owner's, so lend it for the call.
+      v_cv := substring(p_sql FROM 'team_activity_start_check\(''([0-9a-f-]{36})''')::uuid;
+      IF v_cv IS NOT NULL AND p_uid IS NOT NULL THEN
+        SELECT user_id INTO v_was FROM conversations WHERE id = v_cv;
+        UPDATE conversations SET user_id = p_uid WHERE id = v_cv;
+      END IF;
       BEGIN
         PERFORM set_config('request.jwt.claim.sub', coalesce(p_uid::text, ''), true);
         PERFORM set_config('request.jwt.claims',
@@ -132,6 +139,9 @@ BEGIN
         RESET ROLE;
         PERFORM set_config('request.jwt.claim.sub', '', true);
         PERFORM set_config('request.jwt.claims', '', true);
+        IF v_was IS NOT NULL THEN
+          UPDATE conversations SET user_id = v_was WHERE id = v_cv;
+        END IF;
         RETURN v;
       EXCEPTION WHEN OTHERS THEN
         RESET ROLE;

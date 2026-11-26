@@ -3,17 +3,23 @@
 import { useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
+import { PHONE_EXAMPLE } from '@/lib/contacts/phone-validation';
 import {
   insertContacts,
   planImport,
   type ImportPlan,
   type ImportProblem,
+  type SavedElsewhere,
 } from '@/lib/contacts/import-contacts';
-import {
-  readContactCsv,
-  type ParsedContactRow,
-  type ReadContactCsvResult,
+import type {
+  ParsedContactRow,
+  ReadContactCsvResult,
 } from '@/lib/contacts/parse-contact-csv';
+import {
+  CONTACT_FILE_ACCEPT,
+  contactFileProblem,
+  readContactFile,
+} from '@/lib/contacts/read-contact-file';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import {
@@ -38,10 +44,12 @@ import { useTranslations } from 'next-intl';
 const PREVIEW_LIMIT = 5;
 /** Rows listed by name; the rest are counted. */
 const PROBLEM_LIMIT = 200;
+const SAVED_ELSEWHERE_LIMIT = 20;
 
 /** The rows that gave no contact, each with its line and reason. */
 function ProblemList({ problems }: { problems: ImportProblem[] }) {
   const t = useTranslations('Contacts.importModal');
+  const tForm = useTranslations('Contacts.form');
   if (problems.length === 0) return null;
   return (
     <div className="space-y-1 text-xs">
@@ -65,13 +73,47 @@ function ProblemList({ problems }: { problems: ImportProblem[] }) {
                 ? t('problemNoPhone')
                 : p.reason === 'save'
                   ? t('problemNotSaved', { reason: p.detail ?? '' })
-                  : p.detail}
+                  : !p.phoneReason || p.phoneReason === 'required'
+                    ? t('problemNoPhone')
+                    : tForm(`phoneError.${p.phoneReason}`, {
+                        example: PHONE_EXAMPLE,
+                      })}
           </li>
         ))}
       </ul>
       {problems.length > PROBLEM_LIMIT && (
         <p className="text-muted-foreground">
           {t('problemsMore', { count: problems.length - PROBLEM_LIMIT })}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Numbers already a customer under another spelling of the number. */
+function SavedElsewhereList({ items }: { items: SavedElsewhere[] }) {
+  const t = useTranslations('Contacts.importModal');
+  if (items.length === 0) return null;
+  return (
+    <div className="space-y-1 text-xs">
+      <ul className="border-border divide-border/70 max-h-48 divide-y overflow-y-auto rounded-lg border">
+        {items.slice(0, SAVED_ELSEWHERE_LIMIT).map((item, i) => (
+          <li key={i} className="text-muted-foreground px-3 py-1.5">
+            {item.line !== null && (
+              <span className="text-foreground font-medium">
+                {t('problemLine', { line: item.line })}
+              </span>
+            )}{' '}
+            <span dir="ltr" className="font-mono">
+              {item.phone}
+            </span>{' '}
+            {t('savedAs', { savedAs: item.savedAs })}
+          </li>
+        ))}
+      </ul>
+      {items.length > SAVED_ELSEWHERE_LIMIT && (
+        <p className="text-muted-foreground">
+          {t('problemsMore', { count: items.length - SAVED_ELSEWHERE_LIMIT })}
         </p>
       )}
     </div>
@@ -202,11 +244,19 @@ export function ImportModal({
     setPlan(null);
     setPlanFailed(false);
 
-    const text = await selected.text();
-    // A `tags` column is ignored: contact tags are retired, and chat
-    // tags belong to a conversation, which an import does not create.
+    let parsed: ReadContactCsvResult;
+    try {
+      // A `tags` column is ignored: contact tags are retired, and chat
+      // tags belong to a conversation, which an import does not create.
+      parsed = await readContactFile(selected);
+    } catch (err) {
+      if (run.current !== mine) return;
+      reset();
+      const { key, reason } = contactFileProblem(err);
+      toast.error(t(key, { reason }));
+      return;
+    }
     if (run.current !== mine) return;
-    const parsed = readContactCsv(text);
     const { rows, hasCompanyColumn: csvHasCompany } = parsed;
     setParsedFile(parsed);
     // The same file can be chosen again once it is corrected.
@@ -369,7 +419,7 @@ export function ImportModal({
           <input
             ref={fileInputRef}
             type="file"
-            accept=".csv,text/csv"
+            accept={CONTACT_FILE_ACCEPT}
             onChange={handleFileChange}
             className="hidden"
           />
@@ -410,6 +460,7 @@ export function ImportModal({
                   </p>
                 )
               )}
+              {plan && <SavedElsewhereList items={plan.savedElsewhere} />}
               {plan && <ProblemList problems={plan.problems} />}
             </div>
           )}
@@ -421,7 +472,7 @@ export function ImportModal({
               </p>
 
               <div className="border-border ring-border/50 overflow-hidden rounded-xl border ring-1">
-                <div className="overflow-x-auto">
+                <div className="relative overflow-x-auto">
                   <table className="w-full min-w-[32rem] text-xs">
                     <thead>
                       <tr className="border-border bg-background/60 border-b">

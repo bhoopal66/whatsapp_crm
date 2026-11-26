@@ -312,6 +312,25 @@ export function needsOutcomeReason(stage: string): boolean {
 }
 
 /**
+ * The outcome of a closed case whose reason was never recorded and can
+ * still be, by this person, else null. By `outcome`, like 134's
+ * case_outcome_reason_set: a Declined case moved on to Closed keeps it.
+ */
+export function reasonOwed(
+  d: Pick<CaseDetail, 'case' | 'permissions' | 'outcomeReason' | 'locked'>
+): string | null {
+  const { closedAt, outcome } = d.case;
+  return closedAt !== null &&
+    outcome !== null &&
+    needsOutcomeReason(outcome) &&
+    d.outcomeReason === null &&
+    d.permissions.canWrite &&
+    !caseLocks(d).outcomeReason
+    ? outcome
+    : null;
+}
+
+/**
  * The stages the move dialog offers, mirroring 130's case_set_stage:
  * nothing from Closed; only Closed from Approved / Declined / Withdrawn;
  * never back to a pre-submission stage once past them (PRESUB_REENTRY);
@@ -332,12 +351,65 @@ export function allowedNextStages(
   );
 }
 
-/** The stage POST body: the outcome is the stage name, and only there. */
-export function stageMoveBody(stage: string): {
+/**
+ * The stage POST body: the outcome is the stage name, and only there.
+ * `from`: the stage the person saw, which the route compares.
+ */
+export function stageMoveBody(
+  stage: string,
+  from?: string
+): {
   stage: string;
   outcome?: string;
+  from?: string;
 } {
-  return isOutcomeStage(stage) ? { stage, outcome: stage } : { stage };
+  return {
+    stage,
+    ...(isOutcomeStage(stage) ? { outcome: stage } : {}),
+    ...(from === undefined ? {} : { from }),
+  };
+}
+
+/** The stage the case is in now, when a move was refused over it. */
+export function stageChangedTo(status: number, json: unknown): string | null {
+  const body = obj(json);
+  return status === 409 &&
+    body?.code === 'STAGE_CHANGED' &&
+    typeof body.stage === 'string'
+    ? body.stage
+    : null;
+}
+
+/** Away from the tab for longer than this, the case is read again on return. */
+export const CASE_RETURN_RELOAD_MS = 60_000;
+
+/** When the tab was hidden, and whether a re-read is owed. */
+export interface CaseAway {
+  hiddenAt: number | null;
+  stale: boolean;
+}
+
+/**
+ * The case page's re-read after a long absence, one step per change of
+ * `visible` or `dialogOpen`. Never under an open dialog (the details dialog
+ * saves the difference with the live case, so a reload there would send
+ * untouched old values as changes): it is owed until the dialog closes.
+ */
+export function caseAwayStep(
+  away: CaseAway,
+  now: { visible: boolean; dialogOpen: boolean; at: number }
+): CaseAway & { reload: boolean } {
+  if (!now.visible)
+    return {
+      hiddenAt: away.hiddenAt ?? now.at,
+      stale: away.stale,
+      reload: false,
+    };
+  const stale =
+    away.stale ||
+    (away.hiddenAt !== null && now.at - away.hiddenAt > CASE_RETURN_RELOAD_MS);
+  const reload = stale && !now.dialogOpen;
+  return { hiddenAt: null, stale: stale && !reload, reload };
 }
 
 /** 130's reason codes (NO_RESPONSE: Withdrawn only); `dashboard.ts`'s OUTCOME_REASON_CODES (tested equal). */
@@ -405,6 +477,7 @@ const STAGE_ERRORS: Record<string, string> = {
   PRESUB_REENTRY: 'presubReentry',
   SUBMISSION_REQUIRED: 'submissionRequired',
   MANAGED_EXTERNALLY: 'managedExternally',
+  STAGE_CHANGED: 'stageChanged',
 };
 const DETAIL_ERRORS: Record<string, string> = {
   BANK_UNKNOWN: 'bankUnknown',
@@ -434,6 +507,7 @@ const DOC_RESULTS: Record<string, string> = {
   BLOCKED: 'blocked',
   REFUSED: 'refused',
   SEND_FAILED: 'sendFailed',
+  UNCONFIRMED: 'unconfirmed',
   SEND_RATE_LIMITED: 'rateLimited',
 };
 
@@ -451,7 +525,12 @@ export const detailsErrorKey = pick(DETAIL_ERRORS);
 export const reasonErrorKey = pick(REASON_ERRORS);
 export const reassignErrorKey = pick(REASSIGN_ERRORS);
 
-/** CasePage.docs.* for a document request that was not sent. */
+/**
+ * CasePage.docs.* for a document request that was not sent, or whose
+ * outcome is unknown: the browser's own network error (status 0), a
+ * timeout and any 5xx (a proxy's 524 included) may have come after the
+ * message went out.
+ */
 export function docRequestKey(
   status: number,
   code: unknown,
@@ -462,7 +541,26 @@ export function docRequestKey(
     return 'noWhatsappGroup';
   if (typeof code === 'string' && DOC_RESULTS[code]) return DOC_RESULTS[code];
   if (status === 429) return 'rateLimited';
+  if (status === 0 || status === 408 || status >= 500) return 'unconfirmed';
   return 'sendFailed';
+}
+
+/**
+ * The refusal of a document request made less than 10 minutes after the
+ * case's last one (297): by whom (a user id) and when; null for any other
+ * answer. The person may send again.
+ */
+export function requestedRecently(
+  status: number,
+  json: unknown
+): { by: string; at: string } | null {
+  const r = json as { code?: unknown; by?: unknown; at?: unknown } | null;
+  return status === 409 &&
+    r?.code === 'REQUESTED_RECENTLY' &&
+    typeof r.by === 'string' &&
+    typeof r.at === 'string'
+    ? { by: r.by, at: r.at }
+    : null;
 }
 
 /**
@@ -579,4 +677,52 @@ export function fromLocalInput(value: string): string | null {
 export function normaliseAmount(raw: string): string | null {
   const v = raw.replace(/[,\s]/g, '');
   return /^\d+(\.\d{1,2})?$/.test(v) ? v : null;
+}
+
+export interface DetailsForm {
+  bank: string;
+  product: string;
+  amount: string;
+  priority: string;
+  /** A `datetime-local` value. */
+  due: string;
+}
+
+/**
+ * The PATCH body of Edit details: only what was changed. The route cannot
+ * empty a product or an amount, so an emptied one is an error, not a no-op.
+ * The input has no seconds, so the due date is compared as it was shown.
+ */
+export function detailsPatch(
+  c: Pick<CaseRecord, 'bankCode' | 'product' | 'amount' | 'priority' | 'dueAt'>,
+  form: DetailsForm,
+  locked: boolean
+):
+  | { patch: Record<string, unknown> }
+  | { error: 'cannotEmpty'; field: 'product' | 'amount' }
+  | { error: 'amountInvalid' | 'dueInvalid' } {
+  const patch: Record<string, unknown> = {};
+  if (!locked) {
+    const product = form.product.trim();
+    const amount = form.amount.trim();
+    if (form.bank && form.bank !== (c.bankCode ?? ''))
+      patch.bank_code = form.bank;
+    if (!product && c.product?.trim())
+      return { error: 'cannotEmpty', field: 'product' };
+    if (product && product !== (c.product ?? '')) patch.product = product;
+    if (!amount && c.amount?.trim())
+      return { error: 'cannotEmpty', field: 'amount' };
+    if (amount && amount !== (c.amount ?? '')) {
+      const a = normaliseAmount(amount);
+      if (a === null) return { error: 'amountInvalid' };
+      if (a !== c.amount) patch.amount = a;
+    }
+  }
+  if (form.priority !== c.priority) patch.priority = form.priority;
+  if (form.due !== toLocalInput(c.dueAt)) {
+    const dueIso = fromLocalInput(form.due);
+    if (form.due && dueIso === null) return { error: 'dueInvalid' };
+    patch.due_at = dueIso;
+  }
+  return { patch };
 }

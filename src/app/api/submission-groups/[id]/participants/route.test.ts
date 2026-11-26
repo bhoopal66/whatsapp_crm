@@ -92,7 +92,9 @@ describe('POST /api/submission-groups/[id]/participants', () => {
     });
     const res = await post({ phone: '+971501234567' });
     expect(res.status).toBe(429);
-    expect((await res.json()).error).toMatch(/last 24 hours/);
+    const body = await res.json();
+    expect(body.error).toMatch(/last 24 hours/);
+    expect(body.code).toBe('too_many');
   });
 
   it('hands back the invite link when WhatsApp declines', async () => {
@@ -112,5 +114,15 @@ describe('POST /api/submission-groups/[id]/participants', () => {
   it('answers 502 when the gateway failed', async () => {
     mocks.addNumber.mockResolvedValue({ status: 'failed', reason: 'down' });
     expect((await post({ phone: '+971501234567' })).status).toBe(502);
+  });
+
+  it('says an unconfirmed add may have happened', async () => {
+    mocks.addNumber.mockResolvedValue({ status: 'unconfirmed' });
+    const res = await post({ phone: '+971501234567' });
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({
+      error: 'The number may have been added; check the group',
+      code: 'send_unconfirmed',
+    });
   });
 });

@@ -246,13 +246,13 @@ BEGIN
     AND q.renamed_name = 'CF-181-1_passport.pdf'
     AND (SELECT status = 'pending_checks' AND classified_by = u_agent FROM case_document_files WHERE id = f1),
     format('first classify is not seq 1, version 1, CF-181-1_passport.pdf (%s)', q));
+  SELECT x.classify_seq, x.version INTO q FROM case_document_file_classify(u_agent, f1, 'passport') x;
+  n := n + 1; failed := failed || pg_temp.cf_ok(q.classify_seq = 2 AND q.version = 1,
+    format('reclassifying to the same doc_key did not bump classify_seq and keep the version (%s)', q));
   f2 := pg_temp.cf_file(u_agent, k1, 'passport', NULL);
   n := n + 1; failed := failed || pg_temp.cf_ok(
     (SELECT version = 2 AND classify_seq = 1 FROM case_document_files WHERE id = f2),
     'a second file of the same doc_key is not version 2');
-  SELECT x.classify_seq, x.version INTO q FROM case_document_file_classify(u_agent, f1, 'passport') x;
-  n := n + 1; failed := failed || pg_temp.cf_ok(q.classify_seq = 2 AND q.version = 1,
-    format('reclassifying to the same doc_key did not bump classify_seq and keep the version (%s)', q));
 
   -- ---------- 4/5. check results, everything off ----------
   n := n + 1; failed := failed || pg_temp.cf_check('a result for an older classification was accepted', NULL, NULL,

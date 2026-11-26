@@ -21,6 +21,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
+  COMPANY_FIND_LIMIT,
   DESK_CONTACT_ROLES,
   type DeskCompany,
   type DeskCompanyContact,
@@ -30,6 +31,7 @@ import {
 import { CompanyBanks } from './company-banks';
 import { deskApi } from './desk-api';
 import { DeskSelect } from './desk-select';
+import { LoadFailed } from './load-failed';
 
 export function CompaniesTab() {
   const t = useTranslations('Desk');
@@ -120,6 +122,11 @@ export function CompaniesTab() {
               ))}
             </ul>
           )}
+          {results !== null && results.length >= COMPANY_FIND_LIMIT && (
+            <p className="text-muted-foreground text-xs">
+              {t('companies.capped', { count: COMPANY_FIND_LIMIT })}
+            </p>
+          )}
         </CardContent>
       </Card>
       {picked && (
@@ -136,7 +143,7 @@ export function CompaniesTab() {
   );
 }
 
-function CompanyPeople({
+export function CompanyPeople({
   company,
   onChanged,
 }: {
@@ -145,6 +152,7 @@ function CompanyPeople({
 }) {
   const t = useTranslations('Desk');
   const [people, setPeople] = useState<DeskCompanyContact[] | null>(null);
+  const [failed, setFailed] = useState(false);
   const [contact, setContact] = useState<ContactOption | null>(null);
   const [role, setRole] = useState<DeskContactRole>('pro');
   const [authorised, setAuthorised] = useState(false);
@@ -153,11 +161,9 @@ function CompanyPeople({
   const load = useCallback(
     () =>
       deskApi.companyContacts(company.customerId).then((r) => {
+        setFailed(!r.ok);
         if (r.ok) setPeople(r.data);
-        else {
-          toast.error(r.error);
-          setPeople([]);
-        }
+        else toast.error(r.error);
       }),
     [company.customerId]
   );
@@ -207,7 +213,8 @@ function CompanyPeople({
         <h2 className="text-foreground text-base font-semibold">
           {t('companies.people', { company: company.legalName })}
         </h2>
-        {people === null && (
+        {failed && <LoadFailed onRetry={load} />}
+        {people === null && !failed && (
           <p className="text-muted-foreground text-sm">{t('loading')}</p>
         )}
         {people !== null && people.length === 0 && (

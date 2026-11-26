@@ -262,7 +262,7 @@ export function BankPage({ bankWsId }: { bankWsId: string }) {
         value={tab}
         onValueChange={(v) => setQuery({ tab: String(v), thread: null })}
       >
-        <div className="overflow-x-auto">
+        <div className="relative overflow-x-auto">
           <TabsList>
             {BANK_TABS.map((k) => (
               <TabsTrigger key={k} value={k}>

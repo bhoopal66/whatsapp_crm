@@ -44,7 +44,7 @@ export async function POST(request: Request) {
 
     const found = await ctx.supabase
       .from('calls')
-      .select('id')
+      .select('id, status, user_id')
       .eq('account_id', ctx.accountId)
       .eq('connection_id', connectionId)
       .eq('pbx_call_id', pbxCallId)
@@ -52,10 +52,24 @@ export async function POST(request: Request) {
       .maybeSingle();
     if (found.error)
       throw new Error(`calls read failed: ${found.error.message}`);
-    const callId = (found.data as { id: string } | null)?.id;
-    if (!callId) return NextResponse.json({ linked: false });
+    const call = found.data as {
+      id: string;
+      status: string;
+      user_id: string | null;
+    } | null;
+    if (!call) return NextResponse.json({ linked: false });
+    const callId = call.id;
 
     const linked = await linkCallContact(ctx.supabase, callId, b.contactId);
+    // Still ringing, so nobody's yet: its end matches the number.
+    if (
+      linked instanceof NextResponse &&
+      linked.status === 403 &&
+      !call.user_id &&
+      ['ringing', 'in_progress'].includes(call.status)
+    ) {
+      return NextResponse.json({ linked: false, atEnd: true });
+    }
     return linked instanceof NextResponse
       ? linked
       : NextResponse.json({ linked: true, callId, ...linked });

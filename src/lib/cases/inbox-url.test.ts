@@ -103,7 +103,10 @@ describe('saved view and Clear', () => {
     void _q;
     s = writeFilters(
       s,
-      inboxFiltersFromView({ filters: { ...base, bank: 'RAK' }, sort: null })
+      inboxFiltersFromView({
+        filters: { ...base, snoozed: 'hide', bank: 'RAK' },
+        sort: null,
+      })
     );
     s = reconcileInboxUrl(s, 'q=al');
     expect([s.draft, inboxUrlSearch(s)]).toEqual(['', 'bank=RAK']);

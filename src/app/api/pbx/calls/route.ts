@@ -1,12 +1,14 @@
 // ============================================================
 // GET /api/pbx/calls — a call list (module 015, migration 089).
-//   ?contactId=&userId=&userIds=&direction=external&scope=mine|my_missed|missed|all|unrouted&from=&to=&limit=
+//   ?contactId=&userId=&userIds=&direction=external&scope=mine|my_missed|missed|all|unrouted&from=&to=&before=&beforeId=&limit=
 //   → { calls: [{ id, pbxCallId, direction, status, startedAt,
 //       answeredAt, endedAt, ringSeconds, talkSeconds, remoteNumber, didNumber, extension,
 //       contactId, contactName, doNotContactAt, doNotContactReason,
 //       userId, userName, rangNames, disposition, notes, recordingState,
-//       recordingDeleted, legalHold }],
-//       numbers?: [{ didNumber, calls, lastAt }] }
+//       recordingDeleted, legalHold, task? }],
+//       truncated, numbers?: [{ didNumber, calls, lastAt }] }
+// truncated: calls older than the last one exist; before/beforeId (that
+// call's startedAt and id, as answered) is the page that continues.
 // didNumber: the number the customer dialled (calls.did_number).
 // pbxCallId: the PBX's own id (calls.pbx_call_id), the one a live call
 // is known by, so the in-call window can leave the call in progress
@@ -25,6 +27,9 @@
 // rangNames: who an inbound call rang, first rung first
 // (calls.meta.rang_user_ids, kept by the PBX processor), named as in
 // the caller's workspace: one person holds a profile per workspace.
+// task: missed / my_missed only: the call's callback task, { status,
+// name } or null, whoever holds it (read on the service role, for the
+// calls this list returned, so a colleague's call back is seen).
 // recordingDeleted: the stored audio was deleted under the retention
 // period (the recording row's erased_at, migration 093); legalHold: an
 // admin's legal hold keeps it.
@@ -34,9 +39,9 @@
 // stamp and reason (086) only when they can see the contact too, so
 // the Calls screen disables Call back for that customer. The dial route
 // still decides: it checks the number across the workspace, which this
-// list does not. mine (the default): calls they were a party to or
-// that rang their phone (myCallsFilter); missed: inbound calls nobody
-// answered (as the month summary counts them); my_missed: both; all:
+// list does not. mine (the default): calls they were a party to,
+// that rang their phone or that they answered (myCallsFilter); missed: inbound calls
+// that ended missed (isMissedCall, as the reports count them); my_missed: both; all:
 // every call RLS shows them (a leader's teams, an admin's workspace;
 // a call reviewer's too, migration 198, whose customers RLS hides are
 // named on the service role, the name only).
@@ -51,6 +56,7 @@
 
 import { NextResponse } from 'next/server';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
+import { pbxServiceDb } from '@/lib/pbx/admin';
 import { canViewAllCalls } from '@/lib/auth/roles';
 import { internalPeerExtension } from '@/lib/pbx/call-legs';
 import { reviewerContactNames, seesAllCalls } from '@/lib/pbx/call-reviewers';
@@ -65,6 +71,7 @@ import {
   unroutedNumbers,
   type UnroutedNumber,
 } from '@/lib/pbx/calls';
+import { missedCallTasks } from '@/lib/pbx/missed-tasks';
 
 /** PostgREST's default max-rows, so a page shorter than this is the last. */
 const PAGE = 1000;
@@ -156,23 +163,33 @@ export async function GET(request: Request) {
       if (q.scope === 'missed' || q.scope === 'my_missed')
         query = query
           .eq('direction', 'inbound')
-          .in('status', [...MISSED_STATUSES])
-          .is('answered_at', null);
+          .in('status', [...MISSED_STATUSES]);
       if (q.scope === 'unrouted') query = query.eq('meta->>unrouted', 'true');
       if (from) query = query.gte('started_at', from);
       if (q.to) query = query.lt('started_at', q.to);
       return query;
     };
-    const { data, error } = await scoped(
+    let page = scoped(
       'id, pbx_call_id, direction, status, started_at, answered_at, ended_at, ring_seconds, talk_seconds, remote_number, did_number, extension, contact_id, user_id, disposition, notes, recording_state, meta'
-    )
+    );
+    // Past (started_at, id): at or before that instant, and not that
+    // call or one listed before it.
+    if (q.before)
+      page = page
+        .lte('started_at', q.before.startedAt)
+        .or(`started_at.lt.${q.before.startedAt},id.lt.${q.before.id}`);
+    const { data, error } = await page
       .order('started_at', { ascending: false })
-      .limit(q.limit);
+      .order('id', { ascending: false })
+      .limit(q.limit + 1);
     if (error) throw new Error(`calls read failed: ${error.message}`);
-    const rows = (data ?? []) as unknown as CallRow[];
+    const read = (data ?? []) as unknown as CallRow[];
+    const truncated = read.length > q.limit;
+    const rows = read.slice(0, q.limit);
 
     let numbers: UnroutedNumber[] | undefined;
-    if (q.scope === 'unrouted') {
+    // A later page's reader has them already.
+    if (q.scope === 'unrouted' && !q.before) {
       // The numbers start at the request's `from`, else
       // UNROUTED_SUMMARY_DAYS ago. Reading all history on every open
       // made the tab slower each day, and a number fixed long ago
@@ -181,7 +198,7 @@ export async function GET(request: Request) {
         q.from ??
         new Date(Date.now() - UNROUTED_SUMMARY_DAYS * DAY_MS).toISOString();
       let all: Pick<CallRow, 'did_number' | 'started_at'>[];
-      if (rows.length < q.limit) {
+      if (!truncated) {
         // A short list is every unrouted call, the older ones included.
         const sinceAt = Date.parse(since);
         all = rows.filter((r) => Date.parse(r.started_at) >= sinceAt);
@@ -254,7 +271,8 @@ export async function GET(request: Request) {
     const recorded = rows
       .filter((r) => r.recording_state === 'fetched')
       .map((r) => r.id);
-    const [contacts, people, recordings] = await Promise.all([
+    const listsMissed = q.scope === 'missed' || q.scope === 'my_missed';
+    const [contacts, people, recordings, tasks] = await Promise.all([
       contactIds.length
         ? ctx.supabase
             .from('contacts')
@@ -274,6 +292,11 @@ export async function GET(request: Request) {
             .select('call_id, legal_hold, erased_at')
             .in('call_id', recorded)
         : { data: [], error: null },
+      // A failure fails the list: calls without badges would say nobody
+      // has called back.
+      listsMissed && rows.length
+        ? missedCallTasks(pbxServiceDb(), ctx.accountId, rows)
+        : null,
     ]);
     if (recordings.error)
       throw new Error(
@@ -369,8 +392,10 @@ export async function GET(request: Request) {
           recordingState: r.recording_state,
           recordingDeleted: !!recording.get(r.id)?.erased_at,
           legalHold: recording.get(r.id)?.legal_hold === true,
+          ...(listsMissed && { task: tasks?.get(r.id) ?? null }),
         };
       }),
+      truncated,
       ...(numbers && { numbers }),
     });
   } catch (err) {

@@ -24,6 +24,14 @@ describe('thread load', () => {
     expect(threadView(loadSucceeded('a'), 'b', idle)).toBe('loading');
   });
 
+  it('never calls a chat empty before it is known to be still ours', () => {
+    const load = loadSucceeded('a');
+    const unconfirmed = { ...idle, unconfirmed: true };
+    expect(threadView(load, 'a', unconfirmed)).toBe('loading');
+    const shown = { ...unconfirmed, hasContent: true };
+    expect(threadView(load, 'a', shown)).toBe('messages');
+  });
+
   it('keeps what is shown when a later read fails', () => {
     const failed = loadFailed(loadStarted(loadSucceeded('a'), 'a', false), 'a');
     expect(isKnown(failed, 'a')).toBe(true);

@@ -1,10 +1,7 @@
 import { NextResponse, after } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { decrypt } from '@/lib/whatsapp/encryption'
-import {
-  extractWebhookSecret,
-  secretsMatch,
-} from '@/lib/whatsapp/whapi-webhook-auth'
+import { findConfigBySecret } from '@/lib/whatsapp/webhook-secret-lookup'
+import { extractWebhookSecret } from '@/lib/whatsapp/whapi-webhook-auth'
 import {
   normalizeWhapiWebhook,
   type NormalizedWhapiWebhook,
@@ -496,34 +493,11 @@ async function findConfigByWebhookSecret(
   secret: string,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): Promise<{ failed: boolean; row: any | null }> {
-  const { data: configs, error } = await supabaseAdmin()
-    .from('whatsapp_config')
-    .select('*')
-    // Whapi rows only. A Meta row's `verify_token` holds the
-    // hub.challenge token, which is a different credential in a
-    // different namespace — scanning it would be both wasted
-    // decryption and a chance to match the wrong channel.
-    .eq('provider', 'whapi')
-
-  if (error || !configs) {
-    console.error('[whapi-webhook] could not load configs:', error)
-    return { failed: true, row: null }
-  }
-
-  for (const config of configs) {
-    if (!config.verify_token) continue
-    let stored: string
-    try {
-      stored = decrypt(config.verify_token)
-    } catch {
-      // Row encrypted under a rotated ENCRYPTION_KEY — skip it rather
-      // than failing the whole lookup for every other tenant.
-      continue
-    }
-    if (secretsMatch(secret, stored)) return { failed: false, row: config }
-  }
-
-  return { failed: false, row: null }
+  // Whapi rows only. A Meta row's `verify_token` holds the hub.challenge
+  // token, a different credential in a different namespace. Indexed by
+  // hash per process, so a flood of wrong secrets is not a full read and
+  // decrypt per request (lib/whatsapp/webhook-secret-lookup.ts).
+  return findConfigBySecret('whapi', secret, supabaseAdmin)
 }
 
 /**
@@ -644,8 +618,8 @@ async function processWhapiGroups(
     console.error('[whapi-webhook] group messages failed:', error)
   }
   try {
-    // Submission groups (module 018a) are not in `whatsapp_groups`, so
-    // the write above counted them as unknown. A failure clears `ok` so
+    // The write above skips submission groups (module 018a), even one
+    // mirrored in `whatsapp_groups` (299). A failure clears `ok` so
     // the delivery is not confirmed and Whapi redelivers it: both writes
     // are idempotent on (group, message id), so a replay is safe.
     const sg = await recordSubmissionGroupInbound(

@@ -21,12 +21,17 @@ import {
   toErrorResponse,
   assertSalesAccess,
 } from '@/lib/auth/account';
+import { chunkIds } from '@/lib/contacts/fuzzy-search';
 import { SgHttpError } from '@/lib/submission-groups/http';
 import {
   submissionGroupStore,
   supabaseAdmin,
 } from '@/lib/submission-groups/server';
-import { GROUP_COLUMNS, toGroup } from '@/lib/submission-groups/store';
+import {
+  GROUP_COLUMNS,
+  toGroup,
+  type SubmissionGroup,
+} from '@/lib/submission-groups/store';
 import {
   loadBankHolding,
   loadBanks,
@@ -171,14 +176,20 @@ export async function GET(request: Request) {
       mine = (res.data ?? []) as AccessRow[];
     }
 
-    // An ENDED group has no unread count; 173 counts ACTIVE groups only.
-    const [refs, unread, banks] = await Promise.all([
-      loadRefs(admin, ctx.accountId, groups),
-      ended ? new Map<string, number>() : loadUnread(ctx.supabase),
+    const unread = await loadUnread(ctx.supabase);
+    // The sidebar counts a customer's message in an ENDED group (267), so the
+    // first page of the plain Active list carries those groups too (308).
+    const endedUnread =
+      ended || query.cursor || query.search || query.bank
+        ? { groups: [], mine: [] }
+        : await loadEndedUnread(admin, ctx, groups, unread);
+    const listed = [...groups, ...endedUnread.groups];
+    const [refs, banks] = await Promise.all([
+      loadRefs(admin, ctx.accountId, listed),
       loadBanks(
         admin,
         ctx.accountId,
-        groups.map((g) => g.id)
+        listed.map((g) => g.id)
       ),
     ]);
     // With no open row on an ACTIVE group, a leader of the case's agent
@@ -214,11 +225,84 @@ export async function GET(request: Request) {
           unread: unread.get(g.id),
         })
       ),
+      ended_unread: endedUnread.groups.map((g) =>
+        toListItem(g, {
+          ...refs,
+          banks,
+          myLabel: myLabelOf(g, endedUnread.mine),
+          unread: unread.get(g.id),
+        })
+      ),
       next_cursor: next,
     });
   } catch (err) {
     if (err instanceof SgHttpError)
       return NextResponse.json(err.body, { status: err.status });
     return toErrorResponse(err);
+  }
+}
+
+/** Ended groups listed at most; the Ended tab has them all. */
+const ENDED_UNREAD_MAX = 30;
+
+/**
+ * The ENDED groups among the caller's unread counts, newest end first.
+ * `sg_unread_by_group` already answers only for groups they may read;
+ * sg_can_read decides again, as for every ENDED group. Beside the list,
+ * like the counts: a failure is logged and the list stands without it.
+ */
+async function loadEndedUnread(
+  admin: ReturnType<typeof supabaseAdmin>,
+  ctx: { accountId: string; userId: string },
+  listed: readonly { id: string }[],
+  unread: ReadonlyMap<string, number>
+): Promise<{ groups: SubmissionGroup[]; mine: AccessRow[] }> {
+  const none = { groups: [], mine: [] };
+  const have = new Set(listed.map((g) => g.id));
+  const ids = [...unread.keys()].filter((id) => !have.has(id));
+  if (!ids.length) return none;
+  try {
+    const pages = await Promise.all(
+      chunkIds(ids).map(async (chunk) => {
+        const { data, error } = await admin
+          .from('submission_groups')
+          .select(GROUP_COLUMNS)
+          .eq('account_id', ctx.accountId)
+          .eq('status', 'ENDED')
+          .in('id', chunk)
+          .order('ended_at', { ascending: false })
+          .limit(ENDED_UNREAD_MAX);
+        if (error) throw new Error(`submission_groups: ${error.message}`);
+        return (data ?? []) as unknown as Row[];
+      })
+    );
+    const groups = pages
+      .flat()
+      .sort((a, b) => String(b.ended_at).localeCompare(String(a.ended_at)))
+      .slice(0, ENDED_UNREAD_MAX)
+      .map(toGroup);
+    const store = submissionGroupStore(admin);
+    const allowed = await Promise.all(
+      groups.map((g) => store.canRead(g.id, ctx.userId))
+    );
+    const shown = groups.filter((_, i) => allowed[i]);
+    if (!shown.length) return none;
+    const { data, error } = await admin
+      .from('submission_group_access')
+      .select('group_id, label, removed_at')
+      .eq('account_id', ctx.accountId)
+      .eq('user_id', ctx.userId)
+      .in(
+        'group_id',
+        shown.map((g) => g.id)
+      );
+    if (error) throw new Error(`submission_group_access: ${error.message}`);
+    return { groups: shown, mine: (data ?? []) as AccessRow[] };
+  } catch (err) {
+    console.error(
+      '[submission-groups] ended groups with unread messages not read:',
+      err instanceof Error ? err.message : err
+    );
+    return none;
   }
 }

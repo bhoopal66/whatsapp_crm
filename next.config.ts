@@ -28,6 +28,11 @@ const SECURITY_HEADERS = [
   },
   { key: 'X-Content-Type-Options', value: 'nosniff' },
   { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+  // A page another site opened cannot reach back into the CRM's window
+  // (window.opener), and a page the CRM opens cannot either unless it is
+  // ours. `allow-popups` keeps the meeting and softphone windows the app
+  // opens itself working.
+  { key: 'Cross-Origin-Opener-Policy', value: 'same-origin-allow-popups' },
   {
     // Microphone is allowed for same-origin (`self`) so the inbox
     // composer can record voice notes via MediaRecorder (and the
@@ -69,6 +74,9 @@ const FRAME_HEADERS = [
 ] as const;
 
 const nextConfig: NextConfig = {
+  // No "X-Powered-By: Next.js": the framework and its version are one
+  // less thing to look up for an attacker scanning the site.
+  poweredByHeader: false,
   /**
    * Client-side route cache.
    *
@@ -179,7 +187,9 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
-        source: '/api/:path*',
+        // A group's picture sets its own (no-store or a short private
+        // life): a header set here replaces the route's.
+        source: '/api/:path((?!whatsapp/groups/[^/]+/icon$).*)',
         headers: [{ key: 'Cache-Control', value: 'no-store' }],
       },
       {

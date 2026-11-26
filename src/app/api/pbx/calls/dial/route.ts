@@ -27,7 +27,11 @@
 //
 // Unless this build turned calling on (NEXT_PUBLIC_PBX_OUTBOUND_CALLS,
 // lib/pbx/outbound.ts) every request is refused (403 outbound_calls_off)
-// before the body, the database or the PBX is touched.
+// before the body, the database or the PBX is touched. Then 20 calls a
+// minute per person (429), and one number is not dialled twice by the
+// same person within 10 seconds (409 dialled_just_now): a double click,
+// or a second try while the first is still ringing. A call refused for
+// do-not-contact does not count, so an override can follow at once.
 // ============================================================
 
 import { NextResponse } from 'next/server';
@@ -51,10 +55,18 @@ import {
 import { pbxApiFor } from '@/lib/pbx/connection';
 import { outboundCallsEnabled } from '@/lib/pbx/outbound';
 import {
+  checkRateLimit,
+  RATE_LIMITS,
+  rateLimitResponse,
+} from '@/lib/rate-limit';
+import {
   listBankNumber,
   participantCallee,
   participantRoomId,
 } from '@/lib/deal-rooms/call';
+
+/** One dial of a number per person in this window. */
+const REPEAT_DIAL = { limit: 1, windowMs: 10_000 };
 
 const ID_FIELDS = [
   'contactId',
@@ -70,6 +82,8 @@ export async function POST(request: Request) {
       return fail('Calling from the CRM is switched off', 403, {
         code: 'outbound_calls_off',
       });
+    const rate = checkRateLimit(`pbx-dial:${ctx.userId}`, RATE_LIMITS.pbxDial);
+    if (!rate.success) return rateLimitResponse(rate);
     const b = (await request.json().catch(() => null)) as Record<
       string,
       unknown
@@ -189,7 +203,8 @@ export async function POST(request: Request) {
 }
 
 /**
- * Do-not-contact, then the PBX: refused, or an owner's or admin's
+ * Do-not-contact, then a repeat of the same number, then the PBX:
+ * refused, or an owner's or admin's
  * override written to pbx_audit before the call; a bank officer's
  * number listed as a bank number; then the caller's own extension rings
  * first.
@@ -213,6 +228,16 @@ async function placeCall(args: {
     overrideReason: args.override,
   });
   if (decision.kind === 'refuse') return dncRefused(dnc!.reason);
+  const repeat = checkRateLimit(
+    `pbx-dial-to:${ctx.userId}:${number}`,
+    REPEAT_DIAL
+  );
+  if (!repeat.success)
+    return fail(
+      'You called this number a few seconds ago. Wait a moment, then try again.',
+      409,
+      { code: 'dialled_just_now' }
+    );
   if (decision.kind === 'override') {
     const { error } = await service.from('pbx_audit').insert({
       account_id: ctx.accountId,

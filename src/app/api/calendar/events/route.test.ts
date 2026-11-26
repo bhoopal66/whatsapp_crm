@@ -70,6 +70,12 @@ describe('POST /api/calendar/events', () => {
 
   it('stores the end of a bounded series, and none for a one-off', async () => {
     expect((await create(valid)).status).toBe(201);
+    // 10 October 2026 is a Saturday in Dubai.
+    const refused = await create({ ...valid, rrule: 'FREQ=WEEKLY;BYDAY=TU' });
+    expect(refused.status).toBe(400);
+    expect((await refused.json()).error).toBe(
+      'The first date is not one of the repeat days'
+    );
     const res = await create({ ...valid, rrule: 'FREQ=DAILY;COUNT=3' });
     expect(res.status).toBe(201);
     expect(

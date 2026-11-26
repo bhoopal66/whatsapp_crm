@@ -26,6 +26,8 @@ import {
 } from '@/lib/groups/outbound-media';
 import {
   joinFreshPage,
+  messagePageQuery,
+  oldestStored,
   startChatCatchUp,
   type ChatLog,
 } from '@/lib/groups/live-chat';
@@ -73,11 +75,9 @@ export function ChatTab({ groupId, detail }: GroupTabProps) {
   const sendBlock = detail.blocks.send;
 
   const load = useCallback(
-    async (before?: string) => {
-      const qs = new URLSearchParams({ limit: String(PAGE) });
-      if (before) qs.set('before', before);
+    async (after?: Msg) => {
       const res = await fetch(
-        `/api/whatsapp/groups/${groupId}/messages?${qs}`,
+        `/api/whatsapp/groups/${groupId}/messages?${messagePageQuery(PAGE, after)}`,
         { cache: 'no-store' }
       );
       if (!res.ok) throw new Error(String(res.status));
@@ -194,18 +194,18 @@ export function ChatTab({ groupId, detail }: GroupTabProps) {
   };
 
   const loadOlder = async () => {
-    const first = messages[0];
+    const first = oldestStored(messages);
     if (!first) return;
     setLoadingOlder(true);
     olderRef.current = true;
     const el = scrollRef.current;
     const prevHeight = el?.scrollHeight ?? 0;
     try {
-      const r = await load(first.created_at);
+      const r = await load(first);
       // A fresh page replaced the log meanwhile: these rows no longer
       // join it, so leave them to the next press.
       setLog((l) =>
-        l.messages[0]?.id === first.id
+        oldestStored(l.messages)?.id === first.id
           ? {
               messages: mergeMessages(l.messages, r.messages),
               hasMore: r.hasMore,
@@ -432,6 +432,7 @@ export function ChatTab({ groupId, detail }: GroupTabProps) {
 
       <GroupComposer
         chatKey={`group:${groupId}`}
+        chatName={detail.group.name}
         userId={userId}
         onSendText={sendText}
         onSendMedia={sendMedia}

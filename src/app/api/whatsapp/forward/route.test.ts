@@ -9,6 +9,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 let sourceRow: Record<string, unknown> | null;
 let sourceVisible: boolean;
 let visibleTargets: string[];
+/** The read that fails: the source, its chat or the destinations. */
+let failing: 'messages' | 'conversations' | 'targets' | null;
+const TIMEOUT = {
+  message: 'canceling statement due to timeout',
+  code: '57014',
+};
 
 function makeSupabase() {
   return {
@@ -18,18 +24,26 @@ function makeSupabase() {
         chain[m] = () => chain;
       }
       chain.maybeSingle = () =>
-        Promise.resolve({
-          data:
-            table === 'messages'
-              ? sourceRow
-              : sourceVisible
-                ? { id: 'conv-src' }
-                : null,
-          error: null,
-        });
+        Promise.resolve(
+          failing === table
+            ? { data: null, error: TIMEOUT }
+            : {
+                data:
+                  table === 'messages'
+                    ? sourceRow
+                    : sourceVisible
+                      ? { id: 'conv-src' }
+                      : null,
+                error: null,
+              }
+        );
       // Awaited without a terminal: the target-visibility list.
       chain.then = (resolve: (v: unknown) => void) =>
-        resolve({ data: visibleTargets.map((id) => ({ id })), error: null });
+        resolve(
+          failing === 'targets'
+            ? { data: null, error: TIMEOUT }
+            : { data: visibleTargets.map((id) => ({ id })), error: null }
+        );
       return chain;
     },
   };
@@ -90,6 +104,7 @@ describe('POST /api/whatsapp/forward', () => {
     __resetRateLimitForTests();
     sourceRow = TEXT_SOURCE;
     sourceVisible = true;
+    failing = null;
     visibleTargets = ['conv-a', 'conv-b'];
     requireRole.mockResolvedValue({
       supabase: makeSupabase(),
@@ -141,6 +156,23 @@ describe('POST /api/whatsapp/forward', () => {
     expect(res.status).toBe(400);
     expect(sendMessageToConversation).not.toHaveBeenCalled();
   });
+
+  it.each(['messages', 'conversations', 'targets'] as const)(
+    'answers 503, not "not found", when reading the %s fails',
+    async (read) => {
+      vi.spyOn(console, 'error').mockReturnValueOnce(undefined);
+      failing = read;
+      const res = await post({
+        message_id: 'msg-src',
+        conversation_ids: ['conv-a'],
+      });
+      expect(res.status).toBe(503);
+      expect(await res.json()).toEqual({
+        error: 'The service is temporarily unavailable. Please try again.',
+      });
+      expect(sendMessageToConversation).not.toHaveBeenCalled();
+    }
+  );
 
   it('404s a source message the caller cannot see', async () => {
     sourceRow = null;
@@ -266,11 +298,15 @@ describe('POST /api/whatsapp/forward', () => {
       media_url: '/api/whatsapp/media/42',
       media_type: 'image/jpeg',
       provider: 'meta',
+      sender_type: 'customer',
     };
     const whapi = { provider: 'whapi', isPrimary: true };
     const meta = { provider: 'meta', isPrimary: false };
     loadChannels.mockResolvedValue([whapi, meta]);
-    resolveForwardMediaUrl.mockResolvedValue('https://public/fwd.jpg');
+    resolveForwardMediaUrl.mockResolvedValue({
+      ok: true,
+      url: 'https://public/fwd.jpg',
+    });
 
     await post({
       message_id: 'msg-src',
@@ -282,6 +318,7 @@ describe('POST /api/whatsapp/forward', () => {
       expect.objectContaining({
         channel: meta,
         mediaUrl: '/api/whatsapp/media/42',
+        fromCustomer: true,
       })
     );
     expect(sendMessageToConversation).toHaveBeenCalledWith(
@@ -301,13 +338,36 @@ describe('POST /api/whatsapp/forward', () => {
       media_url: '/api/whatsapp/media/42',
     };
     loadChannels.mockResolvedValue([{ provider: 'whapi', isPrimary: true }]);
-    resolveForwardMediaUrl.mockResolvedValue(null);
+    resolveForwardMediaUrl.mockResolvedValue({
+      ok: false,
+      reason: 'unavailable',
+    });
 
     const res = await post({
       message_id: 'msg-src',
       conversation_ids: ['conv-a'],
     });
     expect(res.status).toBe(502);
+    expect(sendMessageToConversation).not.toHaveBeenCalled();
+  });
+
+  it('answers "cannot be forwarded" for a place attachments do not live in', async () => {
+    sourceRow = {
+      ...TEXT_SOURCE,
+      content_type: 'image',
+      media_url: 'https://attacker.example/a.jpg',
+    };
+    loadChannels.mockResolvedValue([{ provider: 'whapi', isPrimary: true }]);
+    resolveForwardMediaUrl.mockResolvedValue({ ok: false, reason: 'refused' });
+
+    const res = await post({
+      message_id: 'msg-src',
+      conversation_ids: ['conv-a'],
+    });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: 'This kind of message cannot be forwarded',
+    });
     expect(sendMessageToConversation).not.toHaveBeenCalled();
   });
 });

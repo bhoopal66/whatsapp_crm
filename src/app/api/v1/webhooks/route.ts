@@ -10,7 +10,8 @@
 import { requireApiKey } from '@/lib/auth/api-context';
 import { ok, okList, fail, toApiErrorResponse } from '@/lib/api/v1/respond';
 import { encrypt } from '@/lib/whatsapp/encryption';
-import { normalizeEvents } from '@/lib/webhooks/events';
+import { hasScope } from '@/lib/api-keys/scopes';
+import { hasMessageEvent, normalizeEvents } from '@/lib/webhooks/events';
 import {
   WEBHOOK_PUBLIC_COLUMNS,
   serializeWebhookEndpoint,
@@ -83,6 +84,14 @@ export async function POST(request: Request) {
       );
     }
 
+    if (hasMessageEvent(events) && !hasScope(ctx.scopes, 'messages:read')) {
+      return fail(
+        'forbidden',
+        "Message events need the 'messages:read' scope",
+        403
+      );
+    }
+
     const secret = generateWebhookSecret();
 
     const { data: created, error } = await ctx.supabase
@@ -90,6 +99,8 @@ export async function POST(request: Request) {
       .insert({
         account_id: ctx.accountId,
         created_by: ctx.createdBy,
+        // Revoking or deleting this key switches the endpoint off (315).
+        api_key_id: ctx.keyId,
         url,
         secret: encrypt(secret),
         events,
@@ -104,7 +115,10 @@ export async function POST(request: Request) {
 
     // Secret shown exactly once.
     return ok(
-      { ...serializeWebhookEndpoint(created as Record<string, unknown>), secret },
+      {
+        ...serializeWebhookEndpoint(created as Record<string, unknown>),
+        secret,
+      },
       201
     );
   } catch (err) {

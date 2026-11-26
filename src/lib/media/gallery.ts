@@ -61,3 +61,13 @@ export function galleryIndexOf(
   if (!messageId) return -1;
   return items.findIndex((item) => item.messageId === messageId);
 }
+
+/**
+ * Index step for an arrow key. Left/right follow reading direction: in a
+ * right-to-left page ArrowLeft goes to the NEXT item. Null for other keys.
+ */
+export function arrowKeyDelta(key: string, rtl: boolean): -1 | 1 | null {
+  if (key !== 'ArrowLeft' && key !== 'ArrowRight') return null;
+  const towardNext = key === 'ArrowRight' ? !rtl : rtl;
+  return towardNext ? 1 : -1;
+}

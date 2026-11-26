@@ -23,6 +23,24 @@ variable `UPTIME_URL` is set to the site's address (Settings → Secrets and
 variables → Actions → Variables). GitHub may start a scheduled run some
 minutes late, so this is a safety net, not a pager.
 
+## What staff browsers report
+
+Two lines in the server log, nothing stored:
+
+- `[client-error] <kind> <path> user=<first 8 of the id> <class>: <message> | <frames>`:
+  a screen broke in a signed-in person's browser (an error screen, or an
+  error nothing caught). Nothing typed or received is in it: the path has no
+  ids and no query, and an error's own words are kept only when they are a
+  sentence the browser engine or React writes itself ("Cannot read
+  properties of undefined (reading 'map')"), else `(message withheld)`; the
+  browser and the server apply the same rule. The same break is logged once
+  per ten minutes with how often it was held back; network losses and
+  browser extensions are left out.
+- `[csp] <rule> would block <origin> on <path>`: what the
+  Content-Security-Policy (still report-only) would have blocked, once per
+  six hours each. When nothing of ours has shown up for a couple of weeks,
+  the header in `next.config.ts` can be enforced.
+
 ## Metrics
 
 `GET /api/metrics` serves the Prometheus text format (0.0.4).
@@ -52,6 +70,9 @@ not_configured` (a shorter one is logged once, without its value).
 | `wacrm_inbound_queue_pending`            | gauge   | inbound WhatsApp events recorded and not processed yet                                        |
 | `wacrm_inbound_queue_dead`               | gauge   | inbound WhatsApp events given up on after every retry (kept 14 days)                          |
 | `wacrm_inbound_queue_oldest_pending_age_seconds` | gauge   | age of the oldest unprocessed inbound event (0 when none)                                     |
+| `wacrm_customer_documents_stats_up`      | gauge   | 1 when the customer document copies could be read for this scrape, else 0                     |
+| `wacrm_customer_documents_failed`        | gauge   | customer documents whose copy to the NAS failed for good                                      |
+| `wacrm_customer_documents_oldest_pending_age_seconds` | gauge   | age of the oldest document waiting for its copy (0 when none)                                 |
 | `wacrm_integration_configured{name}`     | gauge   | 1 when an optional integration is configured                                                  |
 | `wacrm_integration_unverified{name}`     | gauge   | 1 when a configured integration runs on an untested wire format (RCS, SMS)                    |
 
@@ -75,6 +96,11 @@ page still answers.
 The inbound queue figures come from `webhook_inbox_stats()` (migration 264)
 under the same rules; `wacrm_inbound_queue_stats_up 0` also means 264 is not
 applied, so inbound messages are not durable.
+
+The customer document figures come from `customer_documents_stats()`
+(migration 316) under the same rules: a copy to the NAS that failed for good
+tells nobody else. `wacrm_customer_documents_stats_up 0` also means 316 is
+not applied.
 
 ### Prometheus
 
@@ -100,6 +126,8 @@ Suggested alerts (starting points; tune to your traffic):
 | Inbound not durable       | `wacrm_inbound_queue_stats_up == 0` for 10m                           |
 | Inbound stuck             | `wacrm_inbound_queue_oldest_pending_age_seconds > 900`                |
 | Inbound lost              | `wacrm_inbound_queue_dead > 0`                                        |
+| Document copy failed      | `wacrm_customer_documents_failed > 0`                                 |
+| Document copies stuck     | `wacrm_customer_documents_oldest_pending_age_seconds > 3600`          |
 | Sign-in attack            | `increase(wacrm_edge_refusals_total{kind="signin_locked"}[15m]) > 10` |
 | Untested integration live | `wacrm_integration_unverified == 1`                                   |
 | Event loop stalls         | `nodejs_eventloop_lag_p99_seconds > 0.5` for 5m                       |

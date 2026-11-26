@@ -9,6 +9,15 @@ vi.mock('./channels', () => ({
   loadLinkedChannelsForHealth: async () => h.channels,
 }));
 
+const samePhone = vi.hoisted(() => ({
+  check: vi.fn(),
+  disconnect: vi.fn(),
+}));
+vi.mock('./openwa-number', () => ({
+  phoneAlreadyConnected: samePhone.check,
+  disconnectOpenWANumber: samePhone.disconnect,
+}));
+
 import {
   channelHealthAlert,
   everyInterval,
@@ -629,7 +638,6 @@ describe('OpenWA numbers', () => {
   it.each([
     ['ready', 'disconnected', 'connected', 'up'],
     ['qr_ready', 'connected', 'disconnected', 'down'],
-    ['disconnected', 'connected', 'disconnected', 'down'],
     ['failed', 'connected', 'disconnected', 'down'],
     ['action_required', 'connected', 'disconnected', 'down'],
   ])('%s from %s moves to %s', (word, prev, next, notify) => {
@@ -734,6 +742,33 @@ describe('OpenWA numbers', () => {
       expect(rows[0].type).toBe('channel_reconnected');
     });
 
+    it('a first link of a phone connected elsewhere is removed, not stamped', async () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+      samePhone.check.mockResolvedValueOnce('already connected');
+      const row = { ...openwaRow('disconnected'), connectedAt: null };
+      h.channels = [row];
+      const { db, calls } = fakeAdmin({});
+      await runChannelHealthCheck(db, { probe: readyProbe, now: () => NOW });
+      expect(samePhone.disconnect).toHaveBeenCalledWith(
+        db,
+        row.accountId,
+        { id: row.id, phone_number_id: row.phoneNumberId },
+        { force: true }
+      );
+      expect(calls('whatsapp_config', 'update')).toEqual([]);
+    });
+
+    it('a failed same-phone read stamps and removes nothing', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      samePhone.disconnect.mockClear();
+      samePhone.check.mockRejectedValueOnce(new Error('connection reset'));
+      h.channels = [{ ...openwaRow('disconnected'), connectedAt: null }];
+      const { db, calls } = fakeAdmin({});
+      await runChannelHealthCheck(db, { probe: readyProbe, now: () => NOW });
+      expect(samePhone.disconnect).not.toHaveBeenCalled();
+      expect(calls('whatsapp_config', 'update')).toEqual([]);
+    });
+
     it('a first link (never connected) is stamped with its number but not announced', async () => {
       h.channels = [{ ...openwaRow('disconnected'), connectedAt: null }];
       const { db, calls } = fakeAdmin({});
@@ -791,6 +826,155 @@ describe('OpenWA numbers', () => {
       });
       expect(calls('whatsapp_config', 'update')).toEqual([]);
       expect(calls('notifications', 'insert')).toEqual([]);
+    });
+
+    describe('an OpenWA `disconnected`', () => {
+      const at = (min: number) => () => new Date(NOW.getTime() + min * 60_000);
+      const says = (status: string) => async (): Promise<ChannelProbe> => {
+        if (status === 'timeout') throw new Error('timed out');
+        return { status, authorized: status === 'ready', phone: null };
+      };
+      const tick = async (
+        seen: Map<string, number>,
+        status: string,
+        min: number
+      ) => {
+        const { db, calls } = fakeAdmin({});
+        await runChannelHealthCheck(db, {
+          probe: says(status),
+          now: at(min),
+          disconnectedSince: seen,
+        });
+        return {
+          status: calls('whatsapp_config', 'update'),
+          alerts: calls('notifications', 'insert').length,
+        };
+      };
+      const quiet = { status: [], alerts: 0 };
+      const down = { status: [[{ status: 'disconnected' }]], alerts: 1 };
+
+      it('seen in a gateway restart neither alerts nor moves the status', async () => {
+        h.channels = [openwaRow('connected')];
+        const seen = new Map<string, number>();
+        expect(await tick(seen, 'disconnected', 0)).toEqual(quiet);
+        // Back up: the run ends, so the next night starts from nothing.
+        expect(await tick(seen, 'ready', 5)).toEqual(quiet);
+        expect(await tick(seen, 'disconnected', 10)).toEqual(quiet);
+        expect(await tick(seen, 'initializing', 15)).toEqual(quiet);
+        expect(await tick(seen, 'ready', 20)).toEqual(quiet);
+        expect(await tick(seen, 'disconnected', 25)).toEqual(quiet);
+      });
+
+      it.each(['initializing', 'authenticating', 'timeout'])(
+        'is down when it alternates with %s',
+        async (between) => {
+          h.channels = [openwaRow('connected')];
+          const seen = new Map<string, number>();
+          expect(await tick(seen, 'disconnected', 0)).toEqual(quiet);
+          expect(await tick(seen, between, 5)).toEqual(quiet);
+          expect(await tick(seen, 'disconnected', 10)).toEqual(down);
+        }
+      );
+
+      it('a run ends with an answer that is down on its own', async () => {
+        h.channels = [openwaRow('connected')];
+        const seen = new Map<string, number>();
+        await tick(seen, 'disconnected', 0);
+        expect(await tick(seen, 'qr_ready', 1)).toEqual(down);
+        expect(seen.size).toBe(0);
+      });
+
+      it('forgets a number that is no longer probed', async () => {
+        h.channels = [openwaRow('connected')];
+        const seen = new Map([['gone', 0]]);
+        await tick(seen, 'disconnected', 0);
+        expect([...seen.keys()]).toEqual(['o1']);
+      });
+
+      it('is down once consecutive probes five minutes apart agree', async () => {
+        h.channels = [openwaRow('connected')];
+        const seen = new Map<string, number>();
+        expect(await tick(seen, 'disconnected', 0)).toEqual(quiet);
+        // The other cron's tick, too soon to prove anything.
+        expect(await tick(seen, 'disconnected', 1)).toEqual(quiet);
+        expect(await tick(seen, 'disconnected', 5)).toEqual(down);
+      });
+
+      it('qr_ready needs no second look', async () => {
+        h.channels = [openwaRow('connected')];
+        expect(await tick(new Map(), 'qr_ready', 0)).toEqual(down);
+      });
+    });
+
+    describe('a personal number', () => {
+      const personal = (status: string): WhatsAppChannel => ({
+        ...openwaRow(status),
+        isPersonal: true,
+        personalUserId: 'holder-1',
+        connectedAt: '2026-09-01T00:00:00Z',
+      });
+      const run = async (
+        channel: WhatsAppChannel,
+        probe: () => Promise<ChannelProbe>,
+        profiles = [{ user_id: 'holder-1' }]
+      ) => {
+        h.channels = [channel];
+        const { db, calls } = fakeAdmin({ profiles });
+        await runChannelHealthCheck(db, { probe, now: () => NOW });
+        const rows = calls('notifications', 'insert').flatMap(
+          ([r]) => r as Array<{ user_id: string; body: string; type: string }>
+        );
+        return { rows, calls };
+      };
+      const qr = async (): Promise<ChannelProbe> => ({
+        status: 'qr_ready',
+        authorized: false,
+        phone: null,
+      });
+
+      it('down is told to its active holder, not to the admins', async () => {
+        const { rows, calls } = await run(personal('connected'), qr);
+        expect(calls('profiles', 'in')).toEqual([]);
+        expect(calls('profiles', 'eq')).toContainEqual(['user_id', 'holder-1']);
+        expect(calls('profiles', 'is')).toEqual([['deactivated_at', null]]);
+        expect(rows).toHaveLength(1);
+        expect(rows[0].body).toContain('Settings → Profile → My WhatsApp');
+        expect(rows[0].body).not.toContain('admin');
+        expect(rows[0]).toMatchObject({ meta: { personal: true } });
+      });
+
+      it('a shared number alert carries no personal marker', async () => {
+        const { rows } = await run(
+          { ...personal('connected'), isPersonal: false, personalUserId: null },
+          qr,
+          [{ user_id: 'admin-1' }]
+        );
+        expect(rows).toHaveLength(1);
+        expect(rows[0]).not.toHaveProperty('meta');
+      });
+
+      it('up again is told to its holder too', async () => {
+        const { rows, calls } = await run(personal('disconnected'), readyProbe);
+        expect(rows.map((r) => [r.type, r.user_id])).toEqual([
+          ['channel_reconnected', 'holder-1'],
+        ]);
+        expect(calls('profiles', 'in')).toEqual([]);
+      });
+
+      it('rings nobody when its holder is gone', async () => {
+        expect((await run(personal('connected'), qr, [])).rows).toEqual([]);
+        const orphan = { ...personal('connected'), personalUserId: null };
+        expect((await run(orphan, qr)).rows).toEqual([]);
+      });
+
+      it('a refused session names their own screen', () => {
+        const alert = channelHealthAlert(
+          personal('connected'),
+          nextHealth('connected', refused(404), 'openwa')
+        );
+        expect(alert?.body).toContain('Settings → Profile → My WhatsApp');
+        expect(alert?.body).not.toContain('admin');
+      });
     });
   });
 });

@@ -3,8 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   OFFLINE_AFTER_MS,
   derivePresence,
-  formatLastSeen,
-  presenceLabel,
+  presenceTooltip,
   summarize,
 } from "./presence";
 
@@ -42,35 +41,31 @@ describe("derivePresence", () => {
   });
 });
 
-describe("formatLastSeen", () => {
-  it("describes recent activity coarsely", () => {
-    expect(formatLastSeen(ago(10_000), NOW)).toBe("just now");
-    expect(formatLastSeen(ago(60_000), NOW)).toBe("1 minute ago");
-    expect(formatLastSeen(ago(5 * 60_000), NOW)).toBe("5 minutes ago");
+describe("presenceTooltip", () => {
+  it("names each state for the tooltip", () => {
+    expect(presenceTooltip("online", ago(1_000), NOW)).toEqual({
+      key: "onlineNow",
+    });
+    expect(presenceTooltip("away", ago(1_000), NOW)).toEqual({
+      key: "awayIdle",
+    });
+    expect(presenceTooltip("offline", ago(2 * 60 * 60_000), NOW)).toEqual({
+      key: "offlineSince",
+      lastSeen: new Date(NOW - 2 * 60 * 60_000),
+    });
   });
 
-  it("rolls up into hours and days", () => {
-    expect(formatLastSeen(ago(60 * 60_000), NOW)).toBe("1 hour ago");
-    expect(formatLastSeen(ago(2 * 60 * 60_000), NOW)).toBe("2 hours ago");
-    expect(formatLastSeen(ago(24 * 60 * 60_000), NOW)).toBe("1 day ago");
-    expect(formatLastSeen(ago(3 * 24 * 60 * 60_000), NOW)).toBe("3 days ago");
-  });
-
-  it("falls back gracefully on missing/invalid input", () => {
-    expect(formatLastSeen(null, NOW)).toBe("a while ago");
-    expect(formatLastSeen("nonsense", NOW)).toBe("a while ago");
-  });
-});
-
-describe("presenceLabel", () => {
-  it("labels each state for the tooltip", () => {
-    expect(presenceLabel("online", ago(1_000), NOW)).toBe(
-      "Online — active now",
-    );
-    expect(presenceLabel("away", ago(1_000), NOW)).toBe("Away — idle");
-    expect(presenceLabel("offline", ago(2 * 60 * 60_000), NOW)).toBe(
-      "Offline — last seen 2 hours ago",
-    );
+  it("never sees anyone in the future, and says so when it does not know", () => {
+    expect(presenceTooltip("offline", ago(-60_000), NOW)).toEqual({
+      key: "offlineSince",
+      lastSeen: new Date(NOW),
+    });
+    expect(presenceTooltip("offline", null, NOW)).toEqual({
+      key: "offlineUnknown",
+    });
+    expect(presenceTooltip("offline", "nonsense", NOW)).toEqual({
+      key: "offlineUnknown",
+    });
   });
 });
 

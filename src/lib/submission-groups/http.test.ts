@@ -17,7 +17,9 @@ import {
 } from './http';
 import {
   SubmissionGroupSendBlockedError,
+  SubmissionGroupSendNotStoredError,
   SubmissionGroupSendRefusedError,
+  SubmissionGroupSendUnconfirmedError,
   SubmissionGroupSentNotRecordedError,
 } from './service';
 import { SubmissionGroupDbError, type SubmissionGroup } from './store';
@@ -143,6 +145,22 @@ describe('sendErrorFor', () => {
     expect(e.status).toBe(202);
     expect(e.body).toEqual({ error: 'Sent, but not recorded yet', sent: true });
   });
+  it('is a 503 of its own when nothing was stored', () => {
+    const e = sendErrorFor(
+      new SubmissionGroupSendNotStoredError(new Error('db: secret'))
+    );
+    expect(e.status).toBe(503);
+    expect(e.body).toMatchObject({ code: 'not_stored' });
+    expect(e.message).not.toContain('secret');
+  });
+  it('keeps the refused attachment a 400 (210)', () => {
+    const e = sendErrorFor(
+      new SubmissionGroupSendNotStoredError(
+        new SubmissionGroupDbError('bad media', '22023')
+      )
+    );
+    expect(e.status).toBe(400);
+  });
   it('maps anything else to a generic 502', () => {
     const e = sendErrorFor(new Error('whapi: token abc'));
     expect(e.status).toBe(502);
@@ -168,5 +186,15 @@ describe('accessErrorFor', () => {
   it('passes an SgHttpError through', () => {
     const e = new SgHttpError(400, 'bad');
     expect(accessErrorFor(e)).toBe(e);
+  });
+});
+
+describe('an unconfirmed send', () => {
+  it('is a 502 with its own code', () => {
+    const out = sendErrorFor(
+      new SubmissionGroupSendUnconfirmedError('m-1', new Error('timeout'))
+    );
+    expect(out.status).toBe(502);
+    expect(out.body).toMatchObject({ code: 'send_unconfirmed' });
   });
 });

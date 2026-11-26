@@ -33,6 +33,12 @@ export const CRON_BUDGET_MS = 45_000;
  * is left to its own POST, whose body names the bank.
  */
 export const CASE_OPENS_PER_RUN = 20;
+/** How many groups without a case one run looks at: failing ones must not hide the rest. */
+const CASE_LIST_LIMIT = 200;
+/**
+ * Groups whose case could not be opened, by this process. Kept in memory: a restart only lets them go first once.
+ */
+const failedCaseOpens = new Set<string>();
 /** Membership reads per account per run. The cron runs every 2 minutes per process. */
 export const MEMBERSHIP_CHECKS_PER_RUN = 10;
 /** No membership read starts after this, counted from the start of the pass. */
@@ -184,14 +190,20 @@ export async function runSubmissionGroupsCron(
     try {
       const bare = await store.listWithoutCase(
         new Date(started - PENDING_CREATE_AGE_MS),
-        { limit: CASE_OPENS_PER_RUN }
+        { limit: CASE_LIST_LIMIT }
       );
-      for (const g of bare) {
+      const listed = new Set(bare.map((g) => g.id));
+      for (const id of failedCaseOpens)
+        if (!listed.has(id)) failedCaseOpens.delete(id);
+      const queue = failedLast(bare, (g) => failedCaseOpens.has(g.id), started);
+      for (const g of queue.slice(0, CASE_OPENS_PER_RUN)) {
         if (overBudget()) break;
         try {
           await openCase(g.accountId, g.id);
           out.casesOpened++;
+          failedCaseOpens.delete(g.id);
         } catch (err) {
+          failedCaseOpens.add(g.id);
           out.errors.push(`${g.id}: case: ${caseErrorText(err)}`);
         }
       }

@@ -50,7 +50,8 @@ data or send messages, add `"TAAMUL_ENABLE_WRITES": "true"` (and
   longer take or filter by tags.
 - **Broadcasts (opt-in):** launch a template broadcast — requires an
   explicit `confirm` and is marked destructive. Contacts who opted out
-  of messages are skipped.
+  of messages or are marked do-not-contact are skipped; a single send to
+  one is refused (`customer_opted_out`).
 
 ## Safety
 

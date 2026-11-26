@@ -9,14 +9,12 @@ import { useAuth } from '@/hooks/use-auth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
-} from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Card, CardContent } from '@/components/ui/card';
 import { useTranslations } from 'next-intl';
 import { SettingsPanelHead } from './settings-panel-head';
+import { seedFullName } from '@/lib/settings/seed-name';
+import { uiLocale } from '@/i18n/ui-locale';
 
 const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
 const ALLOWED_MIME = new Set([
@@ -38,10 +36,16 @@ export function ProfileForm() {
   const [removeAvatar, setRemoveAvatar] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // Seed form state once the profile loads.
+  // Seed the name once the profile loads, and again only when the stored
+  // name really changed and the field is untouched: `profile` is a new
+  // object on any change (role, department), which must not wipe typing.
+  const seededName = useRef<string | null>(null);
   useEffect(() => {
     if (!profile) return;
-    setFullName(profile.full_name ?? '');
+    const stored = profile.full_name ?? '';
+    const seeded = seededName.current;
+    seededName.current = stored;
+    setFullName((current) => seedFullName(current, seeded, stored));
   }, [profile]);
 
   // Cleanup object URLs to avoid leaks.
@@ -52,7 +56,7 @@ export function ProfileForm() {
   }, [previewUrl]);
 
   const currentAvatar =
-    previewUrl ?? (!removeAvatar ? profile?.avatar_url ?? null : null);
+    previewUrl ?? (!removeAvatar ? (profile?.avatar_url ?? null) : null);
 
   const initial = (fullName || profile?.full_name || profile?.email || 'U')
     .charAt(0)
@@ -89,9 +93,14 @@ export function ProfileForm() {
     setRemoveAvatar(true);
   };
 
+  const nameChanged =
+    !!profile && fullName.trim() !== (profile.full_name ?? '').trim();
+  const dirty =
+    !!profile && (nameChanged || pendingAvatar !== null || removeAvatar);
+
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || !profile) return;
+    if (!user || !profile || !dirty) return;
 
     const trimmedName = fullName.trim();
     if (!trimmedName) {
@@ -100,12 +109,14 @@ export function ProfileForm() {
     }
     setSaving(true);
     try {
-      let nextAvatarUrl: string | null = profile.avatar_url ?? null;
+      // Only what was changed here: the name on an old tab may not be
+      // the one an administrator has saved since.
+      const values: { full_name?: string; avatar_url?: string | null } = {};
+      if (nameChanged) values.full_name = trimmedName;
 
       // Upload a newly-staged image, if any.
       if (pendingAvatar) {
-        const ext =
-          pendingAvatar.name.split('.').pop()?.toLowerCase() || 'png';
+        const ext = pendingAvatar.name.split('.').pop()?.toLowerCase() || 'png';
         const path = `${user.id}/avatar-${Date.now()}.${ext}`;
         const { error: uploadError } = await supabase.storage
           .from('avatars')
@@ -120,19 +131,16 @@ export function ProfileForm() {
         const {
           data: { publicUrl },
         } = supabase.storage.from('avatars').getPublicUrl(path);
-        nextAvatarUrl = publicUrl;
+        values.avatar_url = publicUrl;
       } else if (removeAvatar) {
-        nextAvatarUrl = null;
+        values.avatar_url = null;
       }
 
-      // Persist name + avatar to profiles. Every workspace's row of this
+      // Every workspace's row of this
       // person is updated on purpose: the name is theirs, not a workspace's.
       const { error: updateError } = await supabase
         .from('profiles')
-        .update({
-          full_name: trimmedName,
-          avatar_url: nextAvatarUrl,
-        })
+        .update(values)
         .eq('user_id', user.id);
       if (updateError) {
         throw new Error(t('saveFailed', { message: updateError.message }));
@@ -152,14 +160,8 @@ export function ProfileForm() {
     }
   };
 
-  const dirty =
-    !!profile &&
-    (fullName.trim() !== (profile.full_name ?? '') ||
-      pendingAvatar !== null ||
-      removeAvatar);
-
   const joined = user?.created_at
-    ? new Date(user.created_at).toLocaleDateString(undefined, {
+    ? new Date(user.created_at).toLocaleDateString(uiLocale(), {
         year: 'numeric',
         month: 'long',
         day: 'numeric',
@@ -167,132 +169,128 @@ export function ProfileForm() {
     : '—';
 
   return (
-    <section className="max-w-2xl animate-in fade-in-50 duration-200">
-      <SettingsPanelHead
-        title={t('title')}
-        description={t('description')}
-      />
+    <section className="animate-in fade-in-50 max-w-2xl duration-200">
+      <SettingsPanelHead title={t('title')} description={t('description')} />
       <form onSubmit={onSubmit} className="space-y-4">
         <Card>
           <CardContent className="space-y-6">
-          {/* Avatar row */}
-          <div className="flex flex-wrap items-center gap-5">
-            <Avatar size="lg" className="size-16">
-              {currentAvatar ? (
-                <AvatarImage src={currentAvatar} alt={fullName || 'Avatar'} />
-              ) : null}
-              <AvatarFallback className="bg-primary/10 text-base text-primary">
-                {initial}
-              </AvatarFallback>
-            </Avatar>
+            {/* Avatar row */}
+            <div className="flex flex-wrap items-center gap-5">
+              <Avatar size="lg" className="size-16">
+                {currentAvatar ? (
+                  <AvatarImage src={currentAvatar} alt={fullName || 'Avatar'} />
+                ) : null}
+                <AvatarFallback className="bg-primary/10 text-primary text-base">
+                  {initial}
+                </AvatarFallback>
+              </Avatar>
 
-            <div className="flex flex-wrap gap-2">
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/png,image/jpeg,image/webp,image/gif"
-                className="hidden"
-                onChange={onPickFile}
-              />
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={saving}
-              >
-                <Upload className="size-4" />
-                {currentAvatar ? t('changePhoto') : t('uploadPhoto')}
-              </Button>
-              {currentAvatar && (
+              <div className="flex flex-wrap gap-2">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/gif"
+                  className="hidden"
+                  onChange={onPickFile}
+                />
                 <Button
                   type="button"
-                  variant="ghost"
-                  onClick={onRemoveAvatar}
+                  variant="outline"
+                  onClick={() => fileInputRef.current?.click()}
                   disabled={saving}
-                  className="text-muted-foreground hover:text-foreground"
                 >
-                  <Trash2 className="size-4" />
-                  {t('remove')}
+                  <Upload className="size-4" />
+                  {currentAvatar ? t('changePhoto') : t('uploadPhoto')}
                 </Button>
-              )}
-              <p className="w-full text-xs text-muted-foreground">
-                {t('photoHint')}
+                {currentAvatar && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={onRemoveAvatar}
+                    disabled={saving}
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    <Trash2 className="size-4" />
+                    {t('remove')}
+                  </Button>
+                )}
+                <p className="text-muted-foreground w-full text-xs">
+                  {t('photoHint')}
+                </p>
+              </div>
+            </div>
+
+            {/* Name */}
+            <div className="space-y-2">
+              <Label htmlFor="profile-full-name" className="text-foreground">
+                {t('displayName')}
+              </Label>
+              <Input
+                id="profile-full-name"
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                placeholder="Ada Lovelace"
+                maxLength={120}
+                disabled={saving}
+                required
+              />
+            </div>
+
+            {/* Email: read-only. A change here moved the login but not
+              profiles.email; an administrator's change moves both (167). */}
+            <div className="space-y-2">
+              <Label htmlFor="profile-email" className="text-foreground">
+                {t('email')}
+              </Label>
+              <Input
+                id="profile-email"
+                type="email"
+                dir="ltr"
+                value={profile?.email ?? ''}
+                readOnly
+                aria-describedby="profile-email-hint"
+                className="bg-muted text-muted-foreground"
+              />
+              <p
+                id="profile-email-hint"
+                className="text-muted-foreground text-xs"
+              >
+                {t('emailReadOnly')}
               </p>
             </div>
-          </div>
 
-          {/* Name */}
-          <div className="space-y-2">
-            <Label htmlFor="profile-full-name" className="text-foreground">
-              {t('displayName')}
-            </Label>
-            <Input
-              id="profile-full-name"
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-              placeholder="Ada Lovelace"
-              maxLength={120}
-              disabled={saving}
-              required
-            />
-          </div>
+            {/* Read-only block */}
+            <div className="border-border bg-muted rounded-lg border p-4">
+              <p className="text-muted-foreground mb-3 text-xs font-semibold tracking-wider uppercase">
+                {t('accountDetails')}
+              </p>
+              <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
+                <div>
+                  <dt className="text-muted-foreground">{t('role')}</dt>
+                  <dd className="text-foreground mt-0.5 font-mono">
+                    {profile?.role ?? 'user'}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">{t('joined')}</dt>
+                  <dd className="text-foreground mt-0.5">{joined}</dd>
+                </div>
+                <div className="sm:col-span-2">
+                  <dt className="text-muted-foreground">{t('userId')}</dt>
+                  <dd className="text-muted-foreground mt-0.5 font-mono text-xs break-all">
+                    {user?.id ?? '—'}
+                  </dd>
+                </div>
+              </dl>
+            </div>
 
-          {/* Email: read-only. A change here moved the login but not
-              profiles.email; an administrator's change moves both (167). */}
-          <div className="space-y-2">
-            <Label htmlFor="profile-email" className="text-foreground">
-              {t('email')}
-            </Label>
-            <Input
-              id="profile-email"
-              type="email"
-              dir="ltr"
-              value={profile?.email ?? ''}
-              readOnly
-              aria-describedby="profile-email-hint"
-              className="bg-muted text-muted-foreground"
-            />
-            <p
-              id="profile-email-hint"
-              className="text-xs text-muted-foreground"
-            >
-              {t('emailReadOnly')}
-            </p>
-          </div>
-
-          {/* Read-only block */}
-          <div className="rounded-lg border border-border bg-muted p-4">
-            <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              {t('accountDetails')}
-            </p>
-            <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
-              <div>
-                <dt className="text-muted-foreground">{t('role')}</dt>
-                <dd className="mt-0.5 font-mono text-foreground">
-                  {profile?.role ?? 'user'}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">{t('joined')}</dt>
-                <dd className="mt-0.5 text-foreground">{joined}</dd>
-              </div>
-              <div className="sm:col-span-2">
-                <dt className="text-muted-foreground">{t('userId')}</dt>
-                <dd className="mt-0.5 break-all font-mono text-xs text-muted-foreground">
-                  {user?.id ?? '—'}
-                </dd>
-              </div>
-            </dl>
-          </div>
-
-          {!profile && (
-            <p className="flex items-center gap-2 text-sm text-muted-foreground">
-              <CircleAlert className="size-4" />
-              {t('loading')}
-            </p>
-          )}
-
-        </CardContent>
+            {!profile && (
+              <p className="text-muted-foreground flex items-center gap-2 text-sm">
+                <CircleAlert className="size-4" />
+                {t('loading')}
+              </p>
+            )}
+          </CardContent>
         </Card>
 
         <div className="flex justify-end">

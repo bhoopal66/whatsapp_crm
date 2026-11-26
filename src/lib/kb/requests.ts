@@ -194,7 +194,7 @@ export interface KbFilter {
   audience: KbAudience | 'all';
   status: KbStatus | 'all';
   query: string;
-  /** 'learned': only drafts learned from team answers (migration 278).
+  /** 'learned': only drafts learned from team answers (migration 290).
    *  Absent = any origin. */
   origin?: 'all' | 'learned';
 }

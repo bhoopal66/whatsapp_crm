@@ -119,6 +119,28 @@ function hasExtension(name: string): boolean {
 }
 
 /**
+ * Whether a document's `content_text` is its file name rather than a
+ * caption: one line that ends in an extension. Anything else (several
+ * lines, no extension) is the sender's caption.
+ */
+export function isDocumentFilenameText(text: string | undefined | null) {
+  const t = (text ?? '').trim();
+  return !!t && !/[\r\n]/.test(t) && hasExtension(t);
+}
+
+/**
+ * The visible caption of a document message: `content_text` unless that
+ * is only the file name (the inbound pipeline stores the file name there
+ * when the sender typed no caption). "" when there is none.
+ */
+export function documentCaption(message: {
+  content_text?: string | null;
+}): string {
+  const text = message.content_text ?? '';
+  return text.trim() && !isDocumentFilenameText(text) ? text : '';
+}
+
+/**
  * Basename of a URL's path, query and fragment dropped, percent-decoded,
  * and with `buildMediaPath`'s `<epoch-ms>-` prefix removed. Returns "" when
  * the URL has no filename-looking last segment (e.g. a proxy URL, whose
@@ -173,7 +195,7 @@ export function mediaFilename(
   //    caption. Restricted to documents on purpose: an image caption like
   //    "is this the right invoice.pdf" is prose, not a filename.
   if (message.content_type === 'document' && message.content_text) {
-    const fromText = hasExtension(message.content_text)
+    const fromText = isDocumentFilenameText(message.content_text)
       ? sanitizeFilename(message.content_text)
       : '';
     if (fromText) return fromText;

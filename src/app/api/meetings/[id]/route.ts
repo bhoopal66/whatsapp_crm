@@ -204,35 +204,31 @@ export async function PATCH(request: Request, { params }: Params) {
     if (invErr)
       return meetingDbErrorResponse(invErr, 'Failed to load invitees');
     let invitees = (inv ?? []).map((r) => r.user_id as string);
-    let removedInvitees = false;
-    if (inviteeUserIds !== undefined) {
-      const { add, remove } = diffInvitees(invitees, inviteeUserIds);
-      removedInvitees = remove.length > 0;
-      // Invitee changes go first, additions before removals: a refused
-      // invitee (not a live staff member: 23514) then changes nothing.
-      if (add.length > 0) {
-        const { error } = await supabase.from('meeting_invitees').insert(
-          add.map((user_id) => ({
-            meeting_id: id,
-            account_id: current.account_id,
-            user_id,
-          }))
-        );
-        if (error)
-          return meetingDbErrorResponse(error, 'Failed to invite people');
-      }
-      if (remove.length > 0) {
-        const { error } = await supabase
-          .from('meeting_invitees')
-          .delete()
-          .eq('meeting_id', id)
-          .in('user_id', remove);
-        if (error)
-          return meetingDbErrorResponse(error, 'Failed to update invitees');
-      }
-      invitees = inviteeUserIds;
-    }
+    const { add, remove } =
+      inviteeUserIds === undefined
+        ? { add: [], remove: [] }
+        : diffInvitees(invitees, inviteeUserIds);
     let meeting = current;
+    let meetingSaved = false;
+    let removedInvitees = false;
+    let failure: NextResponse | null = null;
+    // Removals first: someone taken off is not told that the meeting they
+    // are no longer in has moved (278), and whoever lost access is evicted
+    // below whatever happens next.
+    if (remove.length > 0) {
+      const { error } = await supabase
+        .from('meeting_invitees')
+        .delete()
+        .eq('meeting_id', id)
+        .in('user_id', remove);
+      if (error)
+        return meetingDbErrorResponse(error, 'Failed to update invitees');
+      removedInvitees = true;
+      invitees = invitees.filter((u) => !remove.includes(u));
+    }
+    // The row before the additions: an invitee added in the same save is
+    // invited to the time it now has, never the old one. A failure after
+    // the first write answers `saved: true`, so the dialog reloads.
     if (Object.keys(values).length > 0) {
       const { data, error } = await supabase
         .from('meetings')
@@ -242,15 +238,40 @@ export async function PATCH(request: Request, { params }: Params) {
         .select(MEETING_COLUMNS)
         .maybeSingle();
       if (error)
-        return meetingDbErrorResponse(error, 'Failed to update meeting');
-      if (!data) return jsonError(NOT_FOUND, 404);
-      meeting = data;
+        failure = meetingDbErrorResponse(error, 'Failed to update meeting');
+      else if (!data) failure = jsonError(NOT_FOUND, 404);
+      else {
+        meeting = data;
+        meetingSaved = true;
+      }
+    }
+    if (!failure && add.length > 0) {
+      const { error } = await supabase.from('meeting_invitees').insert(
+        add.map((user_id) => ({
+          meeting_id: id,
+          account_id: current.account_id,
+          user_id,
+        }))
+      );
+      if (error) {
+        failure = meetingDbErrorResponse(error, 'Failed to invite people');
+      } else {
+        invitees = [...invitees, ...add];
+      }
     }
     if (
       !meeting.open_to_workspace &&
       (removedInvitees || current.open_to_workspace)
     ) {
       await evictSeatsWithoutAccess(supabase, meeting, invitees);
+    }
+    if (failure) {
+      if (!meetingSaved && !removedInvitees) return failure;
+      const { error } = (await failure.json()) as { error: string };
+      return NextResponse.json(
+        { error, saved: true },
+        { status: failure.status }
+      );
     }
 
     return NextResponse.json({ meeting, invitee_user_ids: invitees });

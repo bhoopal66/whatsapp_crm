@@ -9,6 +9,7 @@
 // is the same, so it lives here once.
 // ============================================================
 
+import { withChannelSecrets } from '@/lib/whatsapp/channel-secrets';
 import { randomBytes } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -29,8 +30,13 @@ import {
   startSession,
   updateWebhookEvents,
 } from './openwa-api';
+import { PHONE_ALREADY_CONNECTED } from './openwa-connect';
 import { teardownOpenWASession } from './openwa-cleanup';
-import { promoteOldestToPrimary } from './personal-numbers';
+import {
+  personalNumbersAdmin,
+  promoteOldestToPrimary,
+} from './personal-numbers';
+import { messagesWaitingResponse, waitingMessages } from './waiting-messages';
 import { generateWebhookSecret } from './whapi-webhook-auth';
 
 /** A failure the connect turns into its own answer (after the undo). */
@@ -244,7 +250,7 @@ function explainConnectFailure(err: unknown, clean: boolean): string {
 }
 
 const ROW_COLUMNS =
-  'id, phone_number_id, access_token, waba_id, status, connected_at, is_personal';
+  'id, phone_number_id, waba_id, status, connected_at, is_personal';
 
 export interface OpenWARow {
   id: string;
@@ -274,8 +280,15 @@ export async function loadOpenWARow(
   if (args.ownerId !== undefined) {
     query = query.eq('is_personal', true).eq('user_id', args.ownerId);
   }
-  const { data } = await query.maybeSingle();
-  return (data as OpenWARow | null) ?? null;
+  const { data, error } = await query.maybeSingle();
+  // A failed read is not "absent": callers answer 404 / success on null.
+  if (error) throw new Error(`loadOpenWARow: ${error.message}`);
+  if (!data) return null;
+  const [row] = await withChannelSecrets(
+    [data as Omit<OpenWARow, 'access_token'>],
+    ['access_token']
+  );
+  return row;
 }
 
 /**
@@ -297,6 +310,50 @@ export async function loadOpenWARow(
  * stamped without a phone, or a re-link to another handset, would
  * otherwise show the old number (or none) forever.
  */
+/**
+ * Whether the phone that just scanned a QR is already connected on this
+ * instance as another number: the Whapi route's "same phone twice" guard
+ * for a phone that only becomes known at the first link. A company phone
+ * scanned into "My WhatsApp" would otherwise deliver every company chat a
+ * second time, as that person's personal chats.
+ *
+ * Whapi and OpenWA rows keep their phone in `waba_id`; a Meta row keeps
+ * the WABA id there and no phone, so it cannot be compared. Every
+ * workspace counts, so `admin` is the service role. Returns the refusal
+ * text or null; throws when the rows cannot be read.
+ */
+export async function phoneAlreadyConnected(
+  admin: SupabaseClient,
+  row: { id: string; accountId: string },
+  phone: string
+): Promise<string | null> {
+  const { data, error } = await admin
+    .from('whatsapp_config')
+    .select('id, account_id, label, is_personal')
+    .in('provider', ['whapi', 'openwa'])
+    .in('waba_id', [phone, `+${phone}`])
+    .neq('id', row.id);
+  if (error) throw new Error(`phoneAlreadyConnected: ${error.message}`);
+  const clashes = (data ?? []) as Array<{
+    account_id: string;
+    label: string | null;
+    is_personal: boolean | null;
+  }>;
+  if (clashes.length === 0) return null;
+  const clash =
+    clashes.find((r) => r.account_id === row.accountId) ?? clashes[0];
+  const where =
+    clash.account_id !== row.accountId
+      ? 'in another workspace'
+      : clash.is_personal
+        ? 'as somebody’s personal number'
+        : `as "${clash.label || phone}"`;
+  return (
+    `The phone ${phone} is already connected ${where}, so it was not connected again. ` +
+    'Each WhatsApp number can be connected once: remove it there first, or scan with another phone.'
+  );
+}
+
 /** Rows whose webhook already carries every event, this process. */
 const eventsChecked = new Set<string>();
 
@@ -425,6 +482,26 @@ async function probeOnce(
       });
     }
     if (session.status === 'ready') {
+      // First link only: a number that is already linked is never torn
+      // down here, and a failed read refuses nothing. It stamps nothing
+      // either; the next poll asks again.
+      if (row.connected_at == null && session.phone) {
+        let refusal: string | null;
+        try {
+          refusal = await phoneAlreadyConnected(
+            personalNumbersAdmin(),
+            { id: row.id, accountId },
+            session.phone
+          );
+        } catch (err) {
+          console.error('[openwa status] same-phone check failed:', err);
+          return answer(
+            { error: 'The phone could not be checked. Try again shortly.' },
+            503
+          );
+        }
+        if (refusal) return await refuseFirstLink(db, accountId, row, refusal);
+      }
       if (row.is_personal === true) await ensureOwnSendEvents(row.id, creds);
       if (row.connected_at == null) {
         const { error } = await db
@@ -486,6 +563,38 @@ async function probeOnce(
 }
 
 /**
+ * Undo a link the same-phone guard refused: the session and the row go
+ * the way "Disconnect" removes them. `force`: what waits for this row is
+ * the other number's mail, which arrives there too.
+ */
+async function refuseFirstLink(
+  db: SupabaseClient,
+  accountId: string,
+  row: OpenWARow,
+  refusal: string
+): Promise<ProbeAnswer> {
+  console.warn(`[openwa status] ${row.id}: first link refused, same phone`);
+  const res = await disconnectOpenWANumber(db, accountId, row, { force: true });
+  if (!res.ok) {
+    return answer(
+      { error: 'The number could not be removed. Try again shortly.' },
+      500
+    );
+  }
+  const { gatewayCleanup } = (await res.json()) as { gatewayCleanup?: string };
+  return answer(
+    {
+      error:
+        gatewayCleanup === 'incomplete'
+          ? `${refusal} Part of it may be left on the OpenWA gateway; an admin can remove it from the OpenWA dashboard.`
+          : refusal,
+      code: PHONE_ALREADY_CONNECTED,
+    },
+    409
+  );
+}
+
+/**
  * Disconnect a number. The gateway side is best effort, each step
  * logged: unlink the phone, delete the session, revoke its scoped key.
  * Then the row goes the way the Whapi DELETE removes a number: its
@@ -496,6 +605,11 @@ async function probeOnce(
  * Without OPENWA_API_KEY the row is still removed, so an install that
  * dropped OpenWA can clean up; the gateway side is then left alone.
  *
+ * Unless `force`, customer messages still waiting in the inbox (264)
+ * make it answer 409 `messages_waiting` before anything is touched;
+ * offboarding passes `force` (it must cut access at once) and logs the
+ * count itself.
+ *
  * Answers `{ ok: true, gatewayCleanup }`. The row goes either way, but
  * when the gateway could not be reached (or there is no admin key) the
  * session may still be running a browser with a working key, and only
@@ -505,8 +619,13 @@ async function probeOnce(
 export async function disconnectOpenWANumber(
   db: SupabaseClient,
   accountId: string,
-  row: Pick<OpenWARow, 'id' | 'phone_number_id'>
+  row: Pick<OpenWARow, 'id' | 'phone_number_id'>,
+  opts: { force: boolean }
 ): Promise<NextResponse> {
+  if (!opts.force) {
+    const waiting = await waitingMessages(personalNumbersAdmin, [row.id]);
+    if (waiting > 0) return messagesWaitingResponse(waiting);
+  }
   const sessionId = row.phone_number_id;
   const adminKey = openwaAdminApiKey();
   // No session id means nothing was ever created on the gateway (the

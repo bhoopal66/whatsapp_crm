@@ -70,6 +70,20 @@ export interface WeekSummary {
   readPct: number | null;
 }
 
+/**
+ * The week's finished campaigns: every 'sent' one (a fully failed one still
+ * counts, as before) and a 'stopped' one only if it got some messages out;
+ * one stopped before its first send is not a campaign that went out.
+ */
+export function weekCampaigns<
+  T extends { status: string; sent_count: number | null },
+>(rows: readonly T[]): T[] {
+  return rows.filter(
+    (r) =>
+      r.status === 'sent' || (r.status === 'stopped' && n(r.sent_count) > 0)
+  );
+}
+
 /** "5 sent this week · 82% delivered · 31% read". */
 export function weekSummary(
   rows: readonly Pick<

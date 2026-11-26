@@ -1,6 +1,10 @@
 import { supabaseAdmin } from '@/lib/automations/admin-client';
 import { bearerMatches, metricsToken } from '@/lib/metrics/auth';
 import {
+  collectCustomerDocuments,
+  readCustomerDocumentStats,
+} from '@/lib/metrics/customer-documents';
+import {
   collectInboundQueue,
   readInboundQueueStats,
 } from '@/lib/metrics/inbound-queue';
@@ -15,7 +19,8 @@ import { edgeRefusals, metricsRegistry } from '@/lib/metrics/registry';
 //
 // Per process: the process gauges, edge refusal counters (since start),
 // the HR automated-message queue (migration 228; `wacrm_outbox_stats_up 0`
-// when it cannot be read within 2 s) and which optional integrations are
+// when it cannot be read within 2 s), the customer document copies (316,
+// `wacrm_customer_documents_stats_up`) and which optional integrations are
 // configured. Never a customer, an id or a value of a secret.
 //
 // docs/monitoring.md is the operator contract.
@@ -40,19 +45,23 @@ export async function GET(request: Request) {
   collectPosture(registry, startupPosture());
   let stats = null;
   let inbound = null;
+  let documents = null;
   try {
     const db = supabaseAdmin();
     // Together: each may wait out its timeout.
-    [stats, inbound] = await Promise.all([
+    [stats, inbound, documents] = await Promise.all([
       readOutboxStats(db),
       readInboundQueueStats(db),
+      readCustomerDocumentStats(db),
     ]);
   } catch {
     stats = null;
     inbound = null;
+    documents = null;
   }
   collectOutbox(registry, stats);
   collectInboundQueue(registry, inbound);
+  collectCustomerDocuments(registry, documents);
 
   return new Response(registry.render(), {
     status: 200,

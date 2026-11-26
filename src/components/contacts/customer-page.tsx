@@ -5,7 +5,7 @@
 // this month's calls (module 015). Every read is the viewer's own (RLS
 // or the viewer's API routes), so it shows only what they may see.
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useLocale, useTranslations } from 'next-intl';
@@ -97,6 +97,13 @@ import { predictSendChannels } from '@/lib/contacts/predict-send-channels';
 import { sessionCache, sessionKey } from '@/lib/session-cache';
 import type { Contact } from '@/types';
 import { deleteRows } from '@/lib/supabase/changed-rows';
+import {
+  markAsked,
+  markFailed,
+  NAMES_RETRY_AFTER_MS,
+  newAskedNames,
+  stillWanted,
+} from '@/lib/contacts/asked-names';
 import { createClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
 
@@ -175,7 +182,17 @@ export function CustomerPage({
   const [filter, setFilter] = useState<TimelineFilter>('all');
   const [paging, setPaging] = useState(false);
   const [ticking, setTicking] = useState<string | null>(null);
-  const asked = useRef(new Set<string>());
+  const asked = useRef(newAskedNames());
+  // After a failed read of names: one render when they may be asked again.
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [, rerender] = useReducer((n: number) => n + 1, 0);
+  useEffect(
+    () => () => {
+      if (retryTimer.current) clearTimeout(retryTimer.current);
+      retryTimer.current = null;
+    },
+    []
+  );
   const sentinel = useRef<HTMLDivElement>(null);
   const [editing, setEditing] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
@@ -321,17 +338,31 @@ export function CustomerPage({
     ...(timeline?.rows.notes.map((n) => n.user_id) ?? []),
     ...(timeline?.rows.internal.map((p) => p.authorId) ?? []),
     ...(view.tasks?.map((t) => t.assigned_to) ?? []),
-  ].filter((id): id is string => !!id && !asked.current.has(askedKey(id)));
+  ].filter(
+    (id): id is string =>
+      !!id && stillWanted(asked.current, askedKey(id), Date.now())
+  );
   const wantedKey = [...new Set(wanted)].sort().join(',');
   useEffect(() => {
     if (!wantedKey) return;
     const ids = wantedKey.split(',');
-    ids.forEach((id) => asked.current.add(`${contactId}:${id}`));
+    const keys = ids.map((id) => `${contactId}:${id}`);
+    markAsked(asked.current, keys);
+    // A failed read takes the ids back out so a later render asks again,
+    // at most once per NAMES_RETRY_AFTER_MS (see lib/contacts/asked-names).
+    const failed = () => {
+      markFailed(asked.current, keys, Date.now());
+      retryTimer.current ??= setTimeout(() => {
+        retryTimer.current = null;
+        rerender();
+      }, NAMES_RETRY_AFTER_MS);
+    };
     void createClient()
       .from('profiles')
       .select('user_id, full_name')
       .in('user_id', ids)
-      .then(({ data }) => {
+      .then(({ data, error }) => {
+        if (error) return failed();
         const found = (data ?? []) as { user_id: string; full_name: string }[];
         if (found.length)
           landOn(contactId, {
@@ -340,7 +371,7 @@ export function CustomerPage({
               found.map((p) => [p.user_id, p.full_name])
             ),
           });
-      });
+      }, failed);
   }, [wantedKey, contactId]);
 
   const horizon = timeline ? timelineHorizon(timeline.paging, filter) : null;
@@ -449,6 +480,11 @@ export function CustomerPage({
           }
         : v
     );
+
+  // 286: the author, or an admin. The database decides.
+  const mayDeleteNote = (id: string) =>
+    (!!accountRole && hasMinRole(accountRole, 'admin')) ||
+    !!timeline?.rows.notes.some((n) => n.id === id && n.user_id === user?.id);
 
   const deleteNote = async (id: string) => {
     if (!window.confirm(td('confirmDeleteNote'))) return;
@@ -566,7 +602,7 @@ export function CustomerPage({
                 {h.details.map((d) => ` · ${say(d)}`).join('')}
               </span>
             </p>
-            {e.kind === 'note' && access.addNote && (
+            {e.kind === 'note' && access.addNote && mayDeleteNote(e.id) && (
               <button
                 type="button"
                 onClick={() => void deleteNote(e.id)}

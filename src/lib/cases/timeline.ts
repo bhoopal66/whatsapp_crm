@@ -11,7 +11,8 @@
  *      through 115's audited viewArchive (CaseConversations.read).
  *   3. Live group messages, only with `includeMessages`, only while the
  *      group is ACTIVE, and only after `store.viewCases` (view_case, the
- *      audited read) returned the case. post_end rows are left out.
+ *      audited read) returned the case. post_end rows are left out, and
+ *      only the newest page is read (liveGroupMessages).
  *   4. Calls of the case's contact since the case opened, read through the
  *      CALLER's RLS client, so 113's pbx_can_view_call decides which.
  *
@@ -28,7 +29,7 @@ export type TimelineSource = 'case' | 'group' | 'message' | 'call';
 
 export interface CaseTimelineEntry {
   at: Date;
-  /** SQL kinds, group_open, group_end, conversation_archived, group_message, call. */
+  /** SQL kinds, group_open, group_end, conversation_archived, messages_cut, group_message, call. */
   kind: string;
   refId: string;
   /** A user id; null when no staff user acted (customer messages, group events). */
@@ -123,7 +124,17 @@ export async function caseTimeline(
     } else if (input.includeMessages) {
       const readable = await store.viewCases(actor, [caseId]);
       if (readable.includes(caseId)) {
-        for (const m of await liveGroupMessages(db, group.id))
+        const live = await liveGroupMessages(db, group.id);
+        if (live.truncated && live.messages[0])
+          entries.push({
+            at: live.messages[0].createdAt,
+            kind: 'messages_cut',
+            refId: group.id,
+            actor: null,
+            summary: '',
+            source: 'group',
+          });
+        for (const m of live.messages)
           entries.push({
             at: m.createdAt,
             kind: 'group_message',

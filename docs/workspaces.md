@@ -107,13 +107,20 @@ staff. A guest:
   workspace B. For any other registered address the answer is the same
   as for an unknown email, so nobody can test whether an address has a
   login; creating a login for it then fails with "This email already
-  has a login. An administrator of one of that person's workspaces can
-  add them here."
+  has a login that you cannot add. If they can sign in, send them an
+  invitation link; otherwise an administrator of both this workspace and
+  one where they are active can add them."
 - **Removal from the only workspace:** the person keeps their login and
   is moved to a new, empty workspace of their own — as a viewer (a bank
   guest stays a bank guest), never as its owner or an admin, and with
   any deactivation cleared. They cannot add people or create
-  workspaces from there; an invitation brings them back.
+  workspaces from there; an invitation brings them back, and so does
+  adding them by email in the workspace that removed them (migration
+  306; by the owner, for a removed admin), as long as it was the last
+  to remove them and they have not used the new workspace since: opening
+  the app there is enough, and then only an invitation works. A login a deactivation
+  disabled stays disabled until they are added back, with the password
+  they had.
 
 ## Deactivation
 
@@ -327,3 +334,11 @@ first; a refusal names its reason there. The same panel, in another
 workspace where they are an admin or owner, lists the archived
 workspaces they own, each with Restore. In Settings → Workspaces an
 archived workspace is listed, marked Archived, with no Switch button.
+
+## Removing an admin
+
+Only the owner of a workspace removes one of its admins (migration 287). An
+admin removes everyone below admin, except a person who was an admin there
+until a few days ago. Being the owner of another workspace gives no extra
+reach over such a person's login: for 7 days only the owner of the workspace
+where they were an admin can set their password or edit their details.

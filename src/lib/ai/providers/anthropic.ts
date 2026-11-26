@@ -85,16 +85,17 @@ export async function generateAnthropic(
     .map((b) => b.text)
     .join('')
     .trim();
-  if (!text) {
-    throw new AiError('Anthropic returned an empty response.', {
-      code: 'empty_response',
-    });
-  }
   // Anthropic reports input/output but no total — normalizeUsage sums.
   const usage = normalizeUsage({
     prompt: data?.usage?.input_tokens,
     completion: data?.usage?.output_tokens,
   });
+  if (!text) {
+    throw new AiError('Anthropic returned an empty response.', {
+      code: 'empty_response',
+      usage,
+    });
+  }
   return {
     text,
     usage,

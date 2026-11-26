@@ -25,15 +25,20 @@ The knowledge base is hybrid retrieval: `chunk.ts` splits documents,
 matching the `vector(1536)` column in migration 030 — changing the model
 means a migration), and `knowledge.ts` retrieves semantically when an
 embeddings key exists, topped up with Postgres full-text. With no
-embeddings key it degrades to lexical-only rather than failing.
+embeddings key it degrades to lexical-only rather than failing. A search that
+errors (the count, or the semantic half with a key set) comes back `failed`:
+with a floor or strict grounding the bot hands off (`error`), except on a
+short turn. Gap questions are masked before they are stored or embedded.
 
 **AI agent v2 (migration 077, `docs/ai-agent.md`).**
 - *Tiers.* `ai_configs.model` is the standard tier; `model_small` / `model_large` are the others. `router.ts` picks one per message: a TypeSafe route judgment (`lib/typesafe/checks/route.ts`, `qs-route-v1`), run in parallel with triage, else a heuristic. The route judgment is not a safety check: it is not in `ts_account_settings`, never written to `ts_decision_log`, and has its own breaker key.
 - *Escalation.* At most one extra generation per dispatch, plus one guardrail rewrite on the large model.
-- *Held drafts.* A guardrail **hold** is queued in `conversations.ai_pending_draft` for Send / Edit / Discard (`/api/ai/pending-draft`, claim-then-send). A **block** is never queued.
+- *Held drafts.* A guardrail **hold** is queued in `conversations.ai_pending_draft` for Send / Edit / Discard (`/api/ai/pending-draft`, claim-then-send). It is written by the hand-off's own conditional update, so a chat a person took meanwhile gets neither. A **block** is never queued.
 - *Pauses.* `ai_paused_reason` records why the bot is paused. The `agent_reply` pause is set by a `messages` trigger, never by app code, and only that pause auto-resumes.
 - *Cut-off answers.* The adapters set `truncated` (the output cap, the context window, a refusal, a content filter) and every caller of an adapter runs `assertComplete`, which throws `AiError` `truncated`: half an answer, or a lost `[[HANDOFF]]`, never goes out. OpenAI reasoning models (by id) get `OPENAI_REASONING_TOKENS` on top of the cap.
+- *One provider call.* Only `provider-call.ts` imports the adapters (scanned by its test): it masks every turn and calls `assertAiTransfer`. Text that is sent on (Translate into Arabic) carries `⟦n⟧` placeholders, restored only if each comes back exactly once (`translate_unsafe` otherwise).
 - *Outcomes.* Every dispatch records one outcome (`outcomes.ts`) on the conversation and in `ai_reply_events`. That record is how "why didn't the AI reply" gets answered, so an exit path without one is a bug.
+- *Sales chats only.* The bot stands down (`skipped_number`) for a personal chat, an `inbox_department` other than sales, a chat with an `hr_conversations` row (closed too) and a message on an HR line; a check that cannot be read records `error` and sends nothing. `hr_lines` has no service-role grant: the line is asked of `hr_is_line` (279), before it of `hr_auto_open_recruiter`, which answers `off` while auto-open is off.
 - *Time budget.* The dispatch runs on a deadline inside the 60 s `after()`. A step that cannot fit is skipped in favour of a hand-off, never left to be killed.
 - *Partner banks (078).* `ts_account_settings.partner_banks` (`{codes, custom}`) is the account's own list for the guardrail; NULL means the built-in `PARTNER_BANK_CODES` (`lib/typesafe/banks.ts`). Parsed tolerantly by `parsePartnerBanks`.
 - *Important pin (078).* `conversations.ai_attention_at` is stamped at hand-off; the inbox pins those chats with a red "Important" label (`lib/inbox/attention.ts`). A person's reply clears it via 077's messages trigger (`ai_pause_on_agent_reply()`), whatever the AI config now says; Take over / Resume / acting on a held draft clear it too.
@@ -80,17 +85,69 @@ reserves room at the end of the last line; the composer textarea does
 get it. Anything under a bubble goes after the reactions chip, which
 overlaps the bubble (`-mt-1.5`).
 
-**Learn from team answers (migration 278, `lib/kb/learn*.ts`,
+**Learn from team answers (migration 290, `lib/kb/learn*.ts`,
 `docs/ai-agent.md`).** Off by default (`kb_learn_settings`, set only via
 `kb_learn_set_enabled`, admin+ of the active account). The automations
-cron runs `runKbLearning` hourly; `kb_learn_claim_run` lets an account
-through once per 7 days. Drafts are written only by
+cron runs `runKbLearning` hourly; `kb_learn_claim_run` marks a due
+account `running` and due again in 50 minutes (3 attempts per 24 h), so
+only `kb_learn_finish_run` without an error starts the 7-day wait; its
+codes are `KB_LEARN_RUN_ERRORS` ↔ 290's CHECK. The ledger's last 7 days
+(`kb_learn_asked_this_week`) count toward the ten topics, so an asked
+topic that cannot be noted stops the run. A team answer is the first non-holding person reply (bubbles
+joined, `pickTeamAnswer`); a topic needs `MIN_ANSWERS_PER_TOPIC` (2). Drafts are written only by
 `kb_learn_record_draft` (service role), always status `draft`, source
 `learned`, ref `LRN-…`; it refuses while the switch is off and when the
 topic has a live draft (`kb_learned_drafts`: same gaps ≥ half, or same
-label; a deleted or `remove` draft frees the topic). Evidence is
-redacted with `brainRedact` plus known names before `generateReply`
+`topic_key`, an HMAC of the label with `ENCRYPTION_KEY`, so only the app
+makes it; a deleted or `remove` draft frees the topic). A deleted gap
+leaves the ledger and takes a thin unapproved draft with it (trigger
+`kb_learn_gaps_deleted`). A discarded
+one (`kb_learn_record_discard`) holds it for 28 days, as does a declined, malformed or cut-off answer;
+`kb_learn_open_topics` leaves all of these out by gaps (the run checks
+the key), puts topics looked at longest ago first (`kb_learn_looks`,
+`noteLook`) and orders each topic's gaps newest first. `loadConfig` requires the AI master switch on. The label is a
+customer's message: never sent or stored. Chats pass `notSalesChat`
+(`lib/ai/not-sales-chat.ts`, shared with auto-reply; `readOnly` here) for
+the chat and every message's number; every read throws. Evidence is
+masked with `maskIdentifiers` (`brainRedact`, case numbers, 5+ digit runs)
+and `buildNameMatcher` over the account's whole list (`knownNames`, once
+per run; `kb_learn_case_names` for tables the service role may not read) before `generateReply`
 (purpose `kb_learn`, so `assertAiTransfer` runs), fail closed; the
-answer is dropped if it carries an identifier or mask. Usage mode
-`kb_learn`: 278 restates 202's CHECK list, so apply in order, once.
+model's question and both answers are screened with the same
+(`screenText`). Usage mode
+`kb_learn`: 290 adds it to the CHECK list it finds in the catalog; a
+re-run of 202 drops it, so apply in order, once. A failed call that was
+billed is logged too (`AiError.usage`).
 The bot's reply path and `kb_shortlist` are unchanged.
+
+**The learner's skill library (migration 318, `lib/kb/skills.ts`,
+`evolveSkills` in `learn-run.ts`).** Short general rules distilled from
+how admins reviewed earlier drafts. `kb_learn_add_skills` (service role)
+is the only writer: at most 3 per cycle, 24 active, never a title the
+library already has for that kind, so never one an admin retired. One model call at
+most, with the switch on and at most once a week
+(`distillState.lastDistilledAt`, `EVOLVE_INTERVAL_MS`); purpose and usage
+mode `kb_learn`. Examples (the entry's question, the draft, the approved
+text) are masked with the run's known names; proposed and stored rules
+are screened with them (`isSafeSkill` ↔ 318's CHECK
+`kb_learn_skills_no_identifiers`), stored ones again at every use
+(`safeSkills`). Rules go into the draft prompt only (the distil prompt
+lists their titles), never into a reply or `kb_shortlist`; the topic's
+label picks them in the app and is never sent. A draft erased with its
+chats is not a review. 318 restates `kb_learn_record_draft` and
+`kb_learn_gaps_deleted`: **re-run 318 after 290**. `lib/kb/learn-eval`
+(test-only) is the gate for every change here: 0 leaks and 100% on every
+score; don't loosen `EVAL_THRESHOLDS` or drop a case, and a new failure
+becomes a case in `corpus.ts`.
+
+- The bot's sales-chat check is the pipeline's `salesChat` decision
+  (`salesChatOnce`), shared with Flows, journeys and automations; a caller
+  without one (an older caller, a test) has the dispatch read its own.
+- **A superseded question is never nobody's** (`lib/ai/stranded.ts`): when
+  the newest message of a burst is consumed elsewhere (`skipConsumed`, or
+  `consumedBy` from the pipeline), the chat is flagged. Both sides write
+  their outcome row before they look, so neither order misses the other.
+  A `consumedBy` message looks first and writes its row only when a
+  question stood down for it or may still (`pending`): an ordinary Flow,
+  journey or rating answer records nothing. One the Flow's own AI fallback
+  took (`ai_outcome` on the flow result) is not looked at again.

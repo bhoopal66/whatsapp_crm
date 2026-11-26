@@ -11,7 +11,10 @@ const mocks = vi.hoisted(() => ({
   rpc: vi.fn(),
   updateUserById: vi.fn(),
   limit: vi.fn(),
+  /** The other workspaces that are not archived. */
+  openWorkspaces: vi.fn(),
   disconnectPersonal: vi.fn(),
+  cutMember: vi.fn(),
   filters: [] as unknown[][],
 }));
 
@@ -36,10 +39,23 @@ const otherRows = {
   limit: mocks.limit,
 };
 
+const openRows = {
+  select: () => openRows,
+  in: (...args: unknown[]) => (
+    mocks.filters.push(['accounts.in', ...args]),
+    openRows
+  ),
+  is: (...args: unknown[]) => (
+    mocks.filters.push(['accounts.is', ...args]),
+    openRows
+  ),
+  limit: mocks.openWorkspaces,
+};
+
 vi.mock('@supabase/supabase-js', () => ({
   createClient: () => ({
     auth: { admin: { updateUserById: mocks.updateUserById } },
-    from: () => otherRows,
+    from: (table: string) => (table === 'accounts' ? openRows : otherRows),
   }),
 }));
 
@@ -56,6 +72,8 @@ vi.mock('@/lib/rate-limit', () => ({
 vi.mock('@/lib/whatsapp/personal-offboarding', () => ({
   disconnectPersonalNumbersOf: mocks.disconnectPersonal,
 }));
+
+vi.mock('@/lib/meetings/cut', () => ({ cutMemberSeats: mocks.cutMember }));
 
 import { DELETE, PATCH } from './route';
 
@@ -80,13 +98,21 @@ describe('PATCH /api/account/members/[userId] { active }', () => {
     mocks.rpc.mockResolvedValue({ error: null });
     mocks.updateUserById.mockResolvedValue({ error: null });
     mocks.limit.mockResolvedValue({ data: [], error: null });
+    mocks.openWorkspaces.mockResolvedValue({
+      data: [{ id: 'account-2' }],
+      error: null,
+    });
     mocks.disconnectPersonal.mockResolvedValue(true);
     mocks.filters.length = 0;
   });
 
   it('disconnects the personal number once the deactivation stands', async () => {
     const res = await PATCH(request({ active: false }), params);
-    expect(await res.json()).toEqual({ ok: true, active: false });
+    expect(await res.json()).toEqual({
+      ok: true,
+      active: false,
+      banned: true,
+    });
     expect(mocks.disconnectPersonal).toHaveBeenCalledTimes(1);
     expect(mocks.disconnectPersonal.mock.calls[0].slice(1)).toEqual([
       'account-1',
@@ -113,9 +139,41 @@ describe('PATCH /api/account/members/[userId] { active }', () => {
     expect(await res.json()).toEqual({
       ok: true,
       active: false,
+      banned: true,
       warning: 'personal_number_not_disconnected',
     });
     expect(mocks.rpc).toHaveBeenCalledTimes(1);
+  });
+
+  it('cuts the call they are in once the deactivation stands', async () => {
+    await PATCH(request({ active: false }), params);
+    expect(mocks.cutMember).toHaveBeenCalledTimes(1);
+    expect(mocks.cutMember.mock.calls[0].slice(1)).toEqual([
+      'account-1',
+      'user-2',
+    ]);
+    expect(mocks.updateUserById.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.cutMember.mock.invocationCallOrder[0]
+    );
+  });
+
+  it('cuts it when they keep another workspace too', async () => {
+    mocks.limit.mockResolvedValue({
+      data: [{ account_id: 'a2' }],
+      error: null,
+    });
+    await PATCH(request({ active: false }), params);
+    expect(mocks.cutMember).toHaveBeenCalledTimes(1);
+  });
+
+  it('cuts nobody on a failed deactivation, a reactivation or a role', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mocks.updateUserById.mockResolvedValueOnce({ error: { message: 'x' } });
+    await PATCH(request({ active: false }), params);
+    await PATCH(request({ active: true }), params);
+    await PATCH(request({ role: 'viewer' }), params);
+    expect(mocks.cutMember).not.toHaveBeenCalled();
+    spy.mockRestore();
   });
 
   it('leaves the number alone on a failed deactivation or a reactivation', async () => {
@@ -162,22 +220,112 @@ describe('PATCH /api/account/members/[userId] { active }', () => {
     });
     const res = await PATCH(request({ active: false }), params);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, active: false });
+    expect(await res.json()).toEqual({
+      ok: true,
+      active: false,
+      banned: false,
+    });
     expect(mocks.rpc).toHaveBeenCalledTimes(1);
     expect(mocks.updateUserById).not.toHaveBeenCalled();
   });
 
-  it('puts the flag back when the other memberships cannot be read', async () => {
+  it('bans a login whose only other workspace is archived', async () => {
+    mocks.filters.length = 0;
+    mocks.limit.mockResolvedValue({
+      data: [{ account_id: 'account-2' }],
+      error: null,
+    });
+    mocks.openWorkspaces.mockResolvedValue({ data: [], error: null });
+    const res = await PATCH(request({ active: false }), params);
+    expect((await res.json()).banned).toBe(true);
+    expect(mocks.updateUserById).toHaveBeenCalledWith('user-2', {
+      ban_duration: '876000h',
+    });
+    expect(mocks.filters).toContainEqual(['accounts.in', 'id', ['account-2']]);
+    expect(mocks.filters).toContainEqual(['accounts.is', 'archived_at', null]);
+  });
+
+  it('changes nothing when the other workspaces cannot be read', async () => {
+    mocks.limit.mockResolvedValue({
+      data: [{ account_id: 'account-2' }],
+      error: null,
+    });
+    mocks.openWorkspaces.mockResolvedValue({
+      data: null,
+      error: { message: 'boom' },
+    });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await PATCH(request({ active: false }), params);
+    expect(res.status).toBe(502);
+    expect(mocks.rpc).not.toHaveBeenCalled();
+    expect(mocks.updateUserById).not.toHaveBeenCalled();
+  });
+
+  it('changes nothing when the other memberships cannot be read', async () => {
     mocks.limit.mockResolvedValue({ data: null, error: { message: 'boom' } });
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const res = await PATCH(request({ active: false }), params);
     expect(res.status).toBe(502);
+    expect((await res.json()).error).toContain('Nothing was changed');
     expect(mocks.updateUserById).not.toHaveBeenCalled();
-    expect(mocks.rpc).toHaveBeenNthCalledWith(2, 'set_member_active', {
-      p_user_id: 'user-2',
-      p_active: true,
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it('bans a login whose last other workspace let it go meanwhile', async () => {
+    mocks.limit
+      .mockResolvedValueOnce({
+        data: [{ account_id: 'account-2' }],
+        error: null,
+      })
+      .mockResolvedValueOnce({ data: [], error: null });
+    const res = await PATCH(request({ active: false }), params);
+    expect(res.status).toBe(200);
+    expect(mocks.updateUserById).toHaveBeenCalledWith('user-2', {
+      ban_duration: '876000h',
     });
   });
+
+  it('keeps the login when only the second look fails', async () => {
+    mocks.limit
+      .mockResolvedValueOnce({
+        data: [{ account_id: 'account-2' }],
+        error: null,
+      })
+      .mockResolvedValueOnce({ data: null, error: { message: 'boom' } });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await PATCH(request({ active: false }), params);
+    expect(res.status).toBe(200);
+    expect(mocks.updateUserById).not.toHaveBeenCalled();
+    expect(mocks.rpc).toHaveBeenCalledTimes(1);
+  });
+
+  it('says what was cleared when a failed ban undoes a deactivation', async () => {
+    mocks.updateUserById.mockResolvedValue({ error: { message: 'boom' } });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const body = await (await PATCH(request({ active: false }), params)).json();
+    expect(body.code).toBe('deactivation_undone');
+    expect(body.error).toMatch(/active again.*team, phone extension/);
+    expect(body.error).not.toContain('Nothing was changed');
+  });
+
+  it.each([
+    [false, 'deactivation_half_done'],
+    [true, 'reactivation_half_done'],
+  ])(
+    'says so when the flag could not be put back (active: %s)',
+    async (active, code) => {
+      mocks.updateUserById.mockResolvedValue({ error: { message: 'boom' } });
+      mocks.rpc
+        .mockResolvedValueOnce({ error: null })
+        .mockResolvedValueOnce({ error: { code: 'XX000', message: 'boom' } });
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      const res = await PATCH(request({ active }), params);
+      expect(res.status).toBe(502);
+      const body = await res.json();
+      expect(body.code).toBe(code);
+      expect(body.error).not.toContain('Nothing was changed');
+    }
+  );
 
   it('reactivating lifts the ban', async () => {
     const res = await PATCH(request({ active: true }), params);
@@ -386,6 +534,21 @@ describe('DELETE /api/account/members/[userId]', () => {
       'account-1',
       'user-2',
     ]);
+  });
+
+  it('cuts the call the removed person is in, and only once removed', async () => {
+    mocks.cutMember.mockClear();
+    mocks.rpc.mockResolvedValue({ data: null, error: null });
+    await DELETE(request({}), params);
+    expect(mocks.cutMember.mock.calls.map((c) => c.slice(1))).toEqual([
+      ['account-1', 'user-2'],
+    ]);
+    mocks.cutMember.mockClear();
+    mocks.rpc.mockResolvedValue({
+      error: { code: '42501', message: 'no' },
+    });
+    await DELETE(request({}), params);
+    expect(mocks.cutMember).not.toHaveBeenCalled();
   });
 
   it('accepts NULL: the person keeps another membership', async () => {

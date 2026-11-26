@@ -4,12 +4,32 @@ import {
   createContext,
   useContext,
   useEffect,
+  useMemo,
   useId,
   useState,
   type ReactNode,
 } from "react"
 import { useRouter } from "next/navigation"
 import { useTranslations } from "next-intl"
+import {
+  headerTakesValue,
+  resolveTemplateValues,
+  valuesByPlaceholder,
+  type TemplateStepValues,
+} from "@/lib/automations/template-values"
+import { renderTemplateBody } from "@/lib/whatsapp/template-body"
+import { extractVariableKeys } from "@/lib/whatsapp/template-validators"
+import {
+  broadcastTemplateSendsFrom,
+  templateOptions,
+  type TemplateSendsFrom,
+} from "@/lib/whatsapp/template-offer"
+import { useAccountNumbers } from "@/hooks/use-whatsapp-numbers"
+import { triggerRuns } from "@/lib/automations/trigger-meta"
+import {
+  CONDITION_CONTACT_FIELDS,
+  isConditionContactField,
+} from "@/lib/automations/contact-fields"
 import { toast } from "sonner"
 import {
   ArrowLeft,
@@ -251,7 +271,7 @@ function blankConfig(type: AutomationStepType): Record<string, unknown> {
 }
 
 // ------------------------------------------------------------
-// Account resources (members, approved templates, pipelines)
+// Account resources (members, templates, pipelines)
 //
 // Loaded once at the builder root and shared via context so the
 // tag / agent / template pickers below can offer existing resources
@@ -262,7 +282,9 @@ function blankConfig(type: AutomationStepType): Record<string, unknown> {
 
 interface AutomationResources {
   members: AccountMember[]
+  /** Every status: what may be picked depends on `templatesSendFrom`. */
   templates: MessageTemplate[]
+  templatesSendFrom: TemplateSendsFrom
   customFields: CustomField[]
   pipelines: PipelineOption[]
   stages: PipelineStageOption[]
@@ -295,6 +317,7 @@ interface PipelineStageOption {
 const ResourcesContext = createContext<AutomationResources>({
   members: [],
   templates: [],
+  templatesSendFrom: "unknown",
   customFields: [],
   pipelines: [],
   stages: [],
@@ -309,6 +332,9 @@ function useResources(): AutomationResources {
 function ResourcesProvider({ children }: { children: ReactNode }) {
   const [members, setMembers] = useState<AccountMember[]>([])
   const [templates, setTemplates] = useState<MessageTemplate[]>([])
+  const numbers = useAccountNumbers()
+  // Undefined until it is read, or when it could not be.
+  const [routedId, setRoutedId] = useState<string | null | undefined>()
   const [customFields, setCustomFields] = useState<CustomField[]>([])
   const [pipelines, setPipelines] = useState<PipelineOption[]>([])
   const [stages, setStages] = useState<PipelineStageOption[]>([])
@@ -360,17 +386,18 @@ function ResourcesProvider({ children }: { children: ReactNode }) {
     const supabase = createClient()
 
     // Templates and custom fields come straight from the DB — RLS
-    // scopes them to the caller's account. Only APPROVED templates can
-    // actually be sent (anything else 400s at send time), matching the
-    // broadcast picker.
+    // scopes them to the caller's account. Templates of every status:
+    // which can be sent depends on the number automations go out on
+    // (`templateOptions`).
     void (async () => {
-      const [templatesRes, customFieldsRes, pipelinesRes, stagesRes] =
+      const [templatesRes, routeRes, customFieldsRes, pipelinesRes, stagesRes] =
         await Promise.all([
+          supabase.from("message_templates").select("*").order("name"),
           supabase
-            .from("message_templates")
-            .select("*")
-            .eq("status", "APPROVED")
-            .order("name"),
+            .from("whatsapp_routes")
+            .select("config_id")
+            .eq("surface", "automation")
+            .maybeSingle(),
           supabase.from("custom_fields").select("*").order("field_name"),
           supabase.from("pipelines").select("id, name").order("name"),
           supabase
@@ -379,6 +406,7 @@ function ResourcesProvider({ children }: { children: ReactNode }) {
             .order("position"),
         ])
       if (cancelled) return
+      if (!routeRes.error) setRoutedId(routeRes.data?.config_id ?? null)
       setTemplates((templatesRes.data as MessageTemplate[] | null) ?? [])
       setCustomFields((customFieldsRes.data as CustomField[] | null) ?? [])
       setPipelines((pipelinesRes.data as PipelineOption[] | null) ?? [])
@@ -409,6 +437,7 @@ function ResourcesProvider({ children }: { children: ReactNode }) {
       value={{
         members,
         templates,
+        templatesSendFrom: broadcastTemplateSendsFrom(numbers, routedId),
         customFields,
         pipelines,
         stages,
@@ -598,6 +627,34 @@ function ChatTagAnySelect({
  *  any account custom fields (stored as `custom:<id>`). A saved custom field
  *  that's since been deleted is preserved as a labelled option so editing an
  *  existing automation doesn't silently drop it. */
+function ConditionFieldSelect({
+  value,
+  onChange,
+  t,
+}: {
+  value: string
+  onChange: (v: string) => void
+  t: ReturnType<typeof useTranslations>
+}) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className={SELECT_CLASS}
+    >
+      <option value="">{t("fields.choose")}</option>
+      {CONDITION_CONTACT_FIELDS.map((f) => (
+        <option key={f} value={f}>
+          {t(`fields.${f}`)}
+        </option>
+      ))}
+      {value && !isConditionContactField(value) && (
+        <option value={value}>{t("fields.unknown", { id: value })}</option>
+      )}
+    </select>
+  )
+}
+
 function ContactFieldSelect({
   value,
   onChange,
@@ -842,21 +899,95 @@ function DealPipelineFields({
   )
 }
 
-/** Template dropdown showing approved templates by name + language,
- *  storing both template_name and language. Falls back to manual name +
- *  language inputs when no approved templates are synced yet. */
+/** One input per placeholder of the picked template, and the filled text. */
+function TemplateValueFields({
+  template,
+  values,
+  onValues,
+  t,
+}: {
+  template: MessageTemplate
+  values: TemplateStepValues
+  onValues: (patch: TemplateStepValues) => void
+  t: ReturnType<typeof useTranslations>
+}) {
+  const keys = extractVariableKeys(template.body_text)
+  const header = headerTakesValue(template)
+  if (keys.length === 0 && !header) return null
+  const { params, headerText } = resolveTemplateValues(template, values)
+  // What the preview shows, whatever keys the step was saved under.
+  const current = valuesByPlaceholder(template, values)
+  // An empty value stays as its placeholder in the preview.
+  const filled = (text: string, list: string[]) =>
+    renderTemplateBody(
+      text,
+      list.map((v) => v || undefined) as string[],
+    )
+  return (
+    <>
+      {header && (
+        <FieldBlock label={t("templates.headerValue")}>
+          <Input
+            value={values.header_text ?? ""}
+            onChange={(e) => onValues({ header_text: e.target.value })}
+            className="text-foreground"
+          />
+        </FieldBlock>
+      )}
+      {keys.map((key) => (
+        <FieldBlock key={key} label={t("templates.value", { name: `{{${key}}}` })}>
+          <Input
+            value={current[key]}
+            onChange={(e) =>
+              onValues({ variables: { ...current, [key]: e.target.value } })
+            }
+            className="text-foreground"
+          />
+        </FieldBlock>
+      ))}
+      <p className="text-xs text-muted-foreground">
+        {t.raw("templates.valuesHint")}
+      </p>
+      <div
+        dir="auto"
+        className="rounded-md bg-card-2 px-3 py-2 text-sm whitespace-pre-wrap text-foreground"
+      >
+        {header && (
+          <p className="font-medium">
+            {filled(template.header_content ?? "", headerText ? [headerText] : [])}
+          </p>
+        )}
+        {filled(template.body_text, params)}
+      </div>
+    </>
+  )
+}
+
+/** Template dropdown by name + language, storing both template_name and
+ *  language. One that the number automations send from cannot send is
+ *  shown disabled, with the reason. Falls back to manual name + language
+ *  inputs when there is no template at all. */
 function SendTemplateFields({
   templateName,
   language,
+  values,
   onChange,
+  onValues,
   t,
 }: {
   templateName: string
   language: string
+  values: TemplateStepValues
   onChange: (patch: { template_name: string; language: string }) => void
+  onValues: (patch: TemplateStepValues) => void
   t: ReturnType<typeof useTranslations>
 }) {
-  const { templates } = useResources()
+  const { templates, templatesSendFrom } = useResources()
+  const tPicker = useTranslations("Inbox.templatePicker")
+  const options = useMemo(
+    () => templateOptions(templates, templatesSendFrom),
+    [templates, templatesSendFrom],
+  )
 
   if (templates.length === 0) {
     return (
@@ -887,11 +1018,13 @@ function SendTemplateFields({
   // share a name across languages stay distinct.
   const toValue = (name: string, lang: string) => `${name}::${lang}`
   const current = templateName ? toValue(templateName, language) : ""
-  const hasMatch = templates.some(
-    (t) => toValue(t.name, t.language ?? "en_US") === current,
+  const picked = options.find(
+    ({ template }) =>
+      toValue(template.name, template.language ?? "en_US") === current,
   )
 
   return (
+    <>
     <FieldBlock label={t("templates.templateLabel")}>
       <select
         value={current}
@@ -902,21 +1035,40 @@ function SendTemplateFields({
         className={SELECT_CLASS}
       >
         <option value="">{t("templates.select")}</option>
-        {templates.map((tmpl) => {
-          const lang = tmpl.language ?? "en_US"
+        {options.map(({ template, reason }) => {
+          const lang = template.language ?? "en_US"
           return (
-            <option key={tmpl.id} value={toValue(tmpl.name, lang)}>
-              {tmpl.name} ({lang})
+            <option
+              key={template.id}
+              value={toValue(template.name, lang)}
+              disabled={reason !== null}
+            >
+              {template.name} ({lang})
+              {reason && ` · ${tPicker(`blocked.${reason}`)}`}
             </option>
           )
         })}
-        {current && !hasMatch && (
+        {current && !picked && (
           <option value={current}>
             {t("templates.unknown", { name: templateName, lang: language || t("templates.unknownLang") })}
           </option>
         )}
       </select>
     </FieldBlock>
+    {picked?.reason && (
+      <p className="text-warning text-xs">
+        {tPicker(`blocked.${picked.reason}`)}
+      </p>
+    )}
+    {picked && (
+      <TemplateValueFields
+        template={picked.template}
+        values={values}
+        onValues={onValues}
+        t={t}
+      />
+    )}
+    </>
   )
 }
 
@@ -1156,11 +1308,25 @@ function TriggerCard({
                 className="w-full rounded-md border border-border bg-card dark:bg-muted px-2 py-1.5 text-sm text-foreground focus:border-primary focus:outline-none"
               >
                 {TRIGGER_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {label(o.value)}
+                  <option
+                    key={o.value}
+                    value={o.value}
+                    disabled={!triggerRuns(o.value)}
+                  >
+                    {triggerRuns(o.value)
+                      ? label(o.value)
+                      : t("triggerNotAvailable", { trigger: label(o.value) })}
                   </option>
                 ))}
               </select>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {t("triggerNotAvailableWhy")}
+              </p>
+              {!triggerRuns(type) && (
+                <p className="mt-1 text-xs font-medium text-warning">
+                  {t("triggerNotRunning")}
+                </p>
+              )}
               <p className="mt-1 text-xs text-muted-foreground">
                 {type === "intent_match"
                   ? tm("triggerHint")
@@ -1755,7 +1921,12 @@ function StepEditor({
         <SendTemplateFields
           templateName={(cfg.template_name as string) ?? ""}
           language={(cfg.language as string) ?? ""}
-          onChange={(patch) => set(patch)}
+          values={cfg as TemplateStepValues}
+          // Another template's values say nothing about this one.
+          onChange={(patch) =>
+            set({ ...patch, variables: undefined, header_text: undefined })
+          }
+          onValues={(patch) => set({ ...patch })}
           t={t}
         />
       )
@@ -1937,11 +2108,10 @@ function StepEditor({
           {subject === "contact_field" && (
             <>
               <FieldBlock label={t("config.operandLabel")}>
-                <Input
-                  placeholder={t("config.placeholderContact")}
+                <ConditionFieldSelect
                   value={(cfg.operand as string) ?? ""}
-                  onChange={(e) => set({ operand: e.target.value })}
-                  className="text-foreground"
+                  onChange={(operand) => set({ operand })}
+                  t={t}
                 />
               </FieldBlock>
               <FieldBlock label={t("config.conditionIs")}>

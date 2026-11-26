@@ -196,8 +196,8 @@ export interface InboxFilters {
   bankQueryOpen: boolean;
   includeClosed: boolean;
   noActivityDays: number | null;
-  /** Snoozed cases: hidden (default), only those, or mixed in. */
-  snoozed: InboxSnoozed;
+  /** Snoozed cases; null: not chosen (`snoozedDefault`). */
+  snoozed: InboxSnoozed | null;
   /** Cases with a note that mentions me. */
   mentionedMe: boolean;
   sort: InboxSort;
@@ -205,6 +205,21 @@ export interface InboxFilters {
 
 export const SNOOZED_MODES = ['hide', 'only', 'all'] as const;
 export type InboxSnoozed = (typeof SNOOZED_MODES)[number];
+
+/**
+ * Snoozed cases are out of the list until asked for, but a search finds
+ * them (`searchInbox`): it looks for one case, wherever it is.
+ */
+export function snoozedDefault(q: string | null): InboxSnoozed {
+  return q ? 'all' : 'hide';
+}
+
+/** The mode the list is read with: the chosen one, else the default. */
+export function effectiveSnoozed(
+  f: Pick<InboxFilters, 'q' | 'snoozed'>
+): InboxSnoozed {
+  return f.snoozed ?? snoozedDefault(f.q);
+}
 
 export const EMPTY_FILTERS: InboxFilters = {
   q: null,
@@ -218,7 +233,7 @@ export const EMPTY_FILTERS: InboxFilters = {
   bankQueryOpen: false,
   includeClosed: false,
   noActivityDays: null,
-  snoozed: 'hide',
+  snoozed: null,
   mentionedMe: false,
   sort: 'most_overdue',
 };
@@ -262,7 +277,7 @@ export function filtersFromSearch(
     bankQueryOpen: get('bank_query_open') === 'true',
     includeClosed: get('include_closed') === 'true',
     noActivityDays: parseDays(get('no_activity_days')),
-    snoozed: oneOf(SNOOZED_MODES, get('snoozed')) ?? 'hide',
+    snoozed: oneOf(SNOOZED_MODES, get('snoozed')),
     mentionedMe: get('mentionedMe') === 'true',
     sort: oneOf(INBOX_SORTS, get('sort')) ?? 'most_overdue',
   };
@@ -287,7 +302,9 @@ export function filterParams(f: InboxFilters): URLSearchParams {
   if (f.includeClosed) qs.set('include_closed', 'true');
   if (f.noActivityDays !== null)
     qs.set('no_activity_days', String(f.noActivityDays));
-  if (f.snoozed !== 'hide') qs.set('snoozed', f.snoozed);
+  // Without a search 'hide' is the default, chosen or not.
+  if (f.snoozed !== null && (f.snoozed !== 'hide' || f.q))
+    qs.set('snoozed', f.snoozed);
   if (f.mentionedMe) qs.set('mentionedMe', 'true');
   if (f.sort !== 'most_overdue') qs.set('sort', f.sort);
   return qs;
@@ -300,7 +317,10 @@ export function filtersToSearch(f: InboxFilters): string {
 
 /** How many filters narrow the list (the sort is not one). */
 export function activeFilterCount(f: InboxFilters): number {
-  return [...filterParams({ ...f, sort: 'most_overdue' }).keys()].length;
+  const snoozed =
+    effectiveSnoozed(f) === snoozedDefault(f.q) ? null : f.snoozed;
+  return [...filterParams({ ...f, snoozed, sort: 'most_overdue' }).keys()]
+    .length;
 }
 
 /**
@@ -316,7 +336,7 @@ export function moreFiltersCount(f: InboxFilters): number {
     f.bankQueryOpen,
     f.noActivityDays !== null,
     f.includeClosed,
-    f.snoozed !== 'hide',
+    effectiveSnoozed(f) !== snoozedDefault(f.q),
     f.mentionedMe,
   ].filter(Boolean).length;
 }

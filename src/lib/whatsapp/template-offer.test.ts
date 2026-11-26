@@ -1,0 +1,260 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { describe, expect, it } from 'vitest';
+
+import type { MessageTemplateStatus } from '@/types';
+import {
+  broadcastTemplateSendsFrom,
+  chatTemplateSendsFrom,
+  contactTemplateSendsFrom,
+  offerTemplates,
+  templateOptions,
+} from './template-offer';
+
+const row = (
+  id: string,
+  status?: MessageTemplateStatus,
+  metaId?: string,
+  submissionError?: string
+) => ({
+  id,
+  status,
+  meta_template_id: metaId,
+  submission_error: submissionError,
+});
+const rows = [
+  row('local', 'APPROVED'),
+  row('refused', 'APPROVED', undefined, 'Invalid parameter'),
+  row('approved', 'APPROVED', '1'),
+  row('pending', 'PENDING', '2'),
+  row('appeal', 'IN_APPEAL', '3'),
+  row('rejected', 'REJECTED', '4'),
+  row('paused', 'PAUSED', '5'),
+  row('disabled', 'DISABLED', '6'),
+  row('deleting', 'PENDING_DELETION', '7'),
+  row('draft', 'DRAFT'),
+  row('bare'),
+];
+const ids = (list: { id: string }[]) => list.map((r) => r.id);
+
+describe('offerTemplates', () => {
+  it('Meta: what Meta did not refuse and approved, the rest with the reason', () => {
+    const { offered, blocked } = offerTemplates(rows, 'meta');
+    // 'local' has no id and no refusal: it may be approved at Meta and
+    // never synced here, so it is offered and Meta answers.
+    expect(ids(offered)).toEqual(['local', 'approved']);
+    expect(blocked.map((b) => [b.template.id, b.reason])).toEqual([
+      ['refused', 'not_approved'],
+      ['pending', 'waiting'],
+      ['appeal', 'waiting'],
+      ['rejected', 'not_approved'],
+      ['paused', 'paused'],
+    ]);
+  });
+
+  it('linked: whatever Meta says, except gone and draft rows', () => {
+    const { offered, blocked } = offerTemplates(rows, 'linked');
+    expect(ids(offered)).toEqual([
+      'local',
+      'refused',
+      'approved',
+      'pending',
+      'appeal',
+      'rejected',
+      'paused',
+    ]);
+    expect(blocked).toEqual([]);
+  });
+
+  it('unknown: the approved ones, as before', () => {
+    const { offered, blocked } = offerTemplates(rows, 'unknown');
+    expect(ids(offered)).toEqual(['local', 'refused', 'approved']);
+    expect(blocked).toEqual([]);
+  });
+});
+
+describe('templateOptions', () => {
+  const named = (
+    id: string,
+    name: string,
+    metaId?: string,
+    error?: string
+  ) => ({
+    ...row(id, 'APPROVED', metaId, error),
+    name,
+    language: 'en_US',
+  });
+  const list = [
+    named('refused', 'a', undefined, 'Invalid parameter'),
+    named('b-local', 'b'),
+    named('b-meta', 'b', '1'),
+    { ...named('wait', 'c', '2'), status: 'PENDING' as const },
+  ];
+  const shown = (sendsFrom: 'meta' | 'linked' | 'unknown') =>
+    templateOptions(list, sendsFrom).map((o) => [o.template.id, o.reason]);
+
+  it('lists one row per template, blocked ones last with the reason', () => {
+    expect(shown('meta')).toEqual([
+      ['b-meta', null],
+      ['refused', 'not_approved'],
+      ['wait', 'waiting'],
+    ]);
+  });
+
+  it('blocks nothing on a linked number, nor while the number is unknown', () => {
+    expect(shown('linked')).toEqual([
+      ['refused', null],
+      ['b-meta', null],
+      ['wait', null],
+    ]);
+    expect(shown('unknown')).toEqual([
+      ['refused', null],
+      ['b-meta', null],
+    ]);
+  });
+});
+
+describe('the automation builder', () => {
+  const src = readFileSync(
+    join(process.cwd(), 'src/components/automations/automation-builder.tsx'),
+    'utf8'
+  );
+
+  it('reads every status and offers by the automation route', () => {
+    expect(src).not.toMatch(/\.eq\("status", "APPROVED"\)/);
+    expect(src).toMatch(/\.eq\("surface", "automation"\)/);
+    expect(src).toContain('broadcastTemplateSendsFrom(numbers, routedId)');
+    expect(src).toContain('templateOptions(templates, templatesSendFrom)');
+    expect(src).toContain('disabled={reason !== null}');
+  });
+});
+
+describe('chatTemplateSendsFrom', () => {
+  const numbers = [
+    { id: 'm', provider: 'meta', is_personal: false },
+    { id: 'w', provider: 'whapi', is_personal: false },
+    { id: 'p', provider: 'openwa', is_personal: true },
+  ];
+  const at = '2026-11-24T10:00:00Z';
+  const from = (channel_id: string | null, provider: string | null) => ({
+    created_at: at,
+    channel_id,
+    provider,
+  });
+
+  it('follows the pin', () => {
+    const pinned = (id: string) => ({ channel_id: 'm', send_channel_id: id });
+    expect(chatTemplateSendsFrom(numbers, pinned('m'), undefined)).toBe('meta');
+    expect(chatTemplateSendsFrom(numbers, pinned('w'), undefined)).toBe(
+      'linked'
+    );
+    expect(chatTemplateSendsFrom(numbers, pinned('gone'), undefined)).toBe(
+      'unknown'
+    );
+  });
+
+  it('else the number the customer last wrote to, then its provider', () => {
+    const chat = { channel_id: 'w' };
+    expect(chatTemplateSendsFrom(numbers, chat, from('m', 'meta'))).toBe(
+      'meta'
+    );
+    expect(chatTemplateSendsFrom(numbers, chat, from('w', 'whapi'))).toBe(
+      'linked'
+    );
+    expect(chatTemplateSendsFrom(numbers, chat, from(null, 'whapi'))).toBe(
+      'linked'
+    );
+    // Only a colleague's own phone is OpenWA here: never a company chat's.
+    expect(chatTemplateSendsFrom(numbers, chat, from('p', 'openwa'))).toBe(
+      'unknown'
+    );
+    expect(chatTemplateSendsFrom(numbers, chat, undefined)).toBe('unknown');
+  });
+
+  it("else the chat's own number", () => {
+    const own = (id: string | null) => ({ channel_id: id });
+    expect(chatTemplateSendsFrom(numbers, own('m'), null)).toBe('meta');
+    expect(chatTemplateSendsFrom(numbers, own('w'), null)).toBe('linked');
+    expect(chatTemplateSendsFrom(numbers, own(null), null)).toBe('unknown');
+    // An old row that names neither: Meta is not certain, nor linked.
+    expect(chatTemplateSendsFrom(numbers, own('m'), from(null, null))).toBe(
+      'unknown'
+    );
+  });
+
+  it('no Meta number, or a personal chat: linked', () => {
+    expect(chatTemplateSendsFrom([numbers[1]], {}, undefined)).toBe('linked');
+    expect(
+      chatTemplateSendsFrom(numbers, { personal_owner_id: 'u' }, undefined)
+    ).toBe('linked');
+  });
+
+  it('numbers not loaded, or none: unknown', () => {
+    expect(chatTemplateSendsFrom(null, { channel_id: 'm' }, null)).toBe(
+      'unknown'
+    );
+    expect(chatTemplateSendsFrom([], {}, null)).toBe('unknown');
+  });
+});
+
+it('the contact screens send over Meta when a Meta number is connected', () => {
+  const channel = (provider: 'meta' | 'whapi') => ({
+    templateChannel: { provider } as never,
+  });
+  expect(contactTemplateSendsFrom(channel('meta'))).toBe('meta');
+  expect(contactTemplateSendsFrom(channel('whapi'))).toBe('linked');
+  expect(contactTemplateSendsFrom({ templateChannel: null })).toBe('unknown');
+});
+
+// No DOM here to mount the dialog: its query and its callers are pinned.
+describe('the picker', () => {
+  const src = (p: string) =>
+    readFileSync(join(process.cwd(), 'src/components', p), 'utf8');
+
+  it('reads every status, bounded, and shows the offer', () => {
+    const picker = src('inbox/template-picker.tsx');
+    expect(picker).not.toMatch(/\.eq\(["']status["']/);
+    expect(picker).toMatch(/\.limit\(MAX_TEMPLATES\)/);
+    expect(picker).toMatch(/offerTemplates\(templates, sendsFrom\)/);
+  });
+
+  it('is told what the chat and the customer page send from', () => {
+    expect(src('inbox/message-thread.tsx')).toMatch(
+      /sendsFrom=\{\s*conversation\s*\? chatTemplateSendsFrom\(\s*accountNumbers,\s*conversation,\s*lastCustomer\s*\)/
+    );
+    expect(src('contacts/contact-outreach.tsx')).toContain(
+      'sendsFrom={contactTemplateSendsFrom(prediction)}'
+    );
+  });
+});
+
+describe('broadcastTemplateSendsFrom', () => {
+  const meta = { id: 'm', provider: 'meta', is_primary: false };
+  const whapi = { id: 'w', provider: 'whapi', is_primary: true };
+  const mine = {
+    id: 'p',
+    provider: 'openwa',
+    is_primary: false,
+    is_personal: true,
+  };
+
+  it('is the route, else the primary number', () => {
+    expect(broadcastTemplateSendsFrom([meta, whapi], 'm')).toBe('meta');
+    expect(broadcastTemplateSendsFrom([meta, whapi], 'w')).toBe('linked');
+    expect(broadcastTemplateSendsFrom([meta, whapi], null)).toBe('linked');
+    expect(broadcastTemplateSendsFrom([meta, whapi], 'gone')).toBe('linked');
+  });
+
+  it('is certain without the route only with one kind of number', () => {
+    expect(broadcastTemplateSendsFrom([meta, whapi], undefined)).toBe(
+      'unknown'
+    );
+    expect(broadcastTemplateSendsFrom([meta, mine], undefined)).toBe('meta');
+    expect(broadcastTemplateSendsFrom([whapi], undefined)).toBe('linked');
+  });
+
+  it('is unknown without numbers, and never a personal one', () => {
+    expect(broadcastTemplateSendsFrom(null, 'm')).toBe('unknown');
+    expect(broadcastTemplateSendsFrom([mine], 'p')).toBe('unknown');
+  });
+});

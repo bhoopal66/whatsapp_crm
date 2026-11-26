@@ -256,3 +256,20 @@ export function withOverride<C extends SnapshotSource>(
   }
   return { ...server, ...override.value };
 }
+
+/**
+ * One slot per chat: sets (or, with null, clears) `chatId`'s value and
+ * leaves every other chat's alone. The banner's busy flag and override
+ * are kept this way, so A's answer cannot clear B's busy state or
+ * overwrite B's override.
+ */
+export function setPerChat<T>(
+  slots: Readonly<Record<string, T>>,
+  chatId: string,
+  value: T | null
+): Readonly<Record<string, T>> {
+  const next = { ...slots };
+  if (value === null) delete next[chatId];
+  else next[chatId] = value;
+  return next;
+}

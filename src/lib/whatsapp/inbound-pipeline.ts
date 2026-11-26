@@ -40,8 +40,14 @@ import type {
   NormalizedStatus,
   NormalizedStatusValue,
 } from '@/lib/whatsapp/inbound';
-import { describeMetaFailure } from '@/lib/whatsapp/meta-failure';
-import { settleBroadcastAfterLateFailure } from '@/lib/whatsapp/broadcast-core';
+import {
+  describeMetaFailure,
+  FAILURE_REASON_MAX,
+} from '@/lib/whatsapp/meta-failure';
+import {
+  settleBroadcastAfterCorrection,
+  settleBroadcastAfterLateFailure,
+} from '@/lib/whatsapp/broadcast-core';
 import { buildHandoffSummary } from '@/lib/ai/handoff';
 import { buildConversationContext } from '@/lib/ai/context';
 import type { WhatsAppChannel } from '@/lib/whatsapp/channels';
@@ -53,6 +59,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { runAutomationsForTrigger } from '@/lib/automations/engine';
 import { dispatchInboundToFlows } from '@/lib/flows/engine';
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply';
+import { closesBurst, noteTaken } from '@/lib/ai/stranded';
+import { salesAnswersOff, salesChatOnce } from '@/lib/ai/not-sales-chat';
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver';
 import { watchInboundMessage } from '@/lib/ai/typesafe-watch';
 import { autoTagFromInsights } from '@/lib/insights/auto-tag';
@@ -63,6 +71,7 @@ import {
 import { runInboundInsights } from '@/lib/insights/inbound';
 import { suggestReminderForMessage } from '@/lib/reminders/suggest';
 import { handleHrInboundMessage } from '@/lib/hr/agents/inbound';
+import { recordHrStop } from '@/lib/hr/agents/stop';
 import { autoOpenRecruiterChat } from '@/lib/hr/auto-open';
 import { recordHrDelivery } from '@/lib/hr/automsg/delivery';
 import { getInsightSettings, insightsAvailable } from '@/lib/insights/settings';
@@ -95,10 +104,13 @@ import { routeDeskDocument } from '@/lib/desk/route-inbound';
 // replied. Webhook replays must never regress a recipient back down
 // this ladder.
 //
-// `failed` is NOT on this ladder. It's a terminal side branch that is
-// only valid from the early states (pending / sent) — once the message
-// has been delivered or read, a later "failed" status event is a bug in
-// the gateway's pipeline or a spoof attempt and must be ignored.
+// `failed` is NOT on this ladder. It's a side branch that is only valid
+// from the early states (pending / sent) — once the message has been
+// delivered or read, a later "failed" status event is a bug in the
+// gateway's pipeline or a spoof attempt and must be ignored. It is not
+// the last word either: a gateway may report an ack error, retry, and
+// deliver. `delivered` and `read` correct it (migration 291); `sent`
+// does not. Ignoring them kept the bubble red, and staff sent again.
 const RECIPIENT_STATUS_LADDER = [
   'pending',
   'sent',
@@ -126,8 +138,8 @@ const MESSAGE_STATUS_PREDECESSORS: Record<
 > = {
   pending: [],
   sent: ['sending'],
-  delivered: ['sending', 'sent'],
-  read: ['sending', 'sent', 'delivered'],
+  delivered: ['sending', 'sent', 'failed'],
+  read: ['sending', 'sent', 'delivered', 'failed'],
   failed: ['sending', 'sent'],
 };
 
@@ -135,19 +147,19 @@ const MESSAGE_STATUS_PREDECESSORS: Record<
 // vocabulary (migration 001's CHECK: the ladder above plus 'failed').
 // A compare-and-set on the status the handler had read used to drop a
 // concurrent 'read' whenever 'delivered' committed first: both read
-// 'sent', and the second UPDATE matched nothing — and migration 066's
-// reconcile only moves rows still at 'sent', so nothing repaired it.
+// 'sent', and the second UPDATE matched nothing, and nothing repaired it.
 // With the predecessors in the WHERE a higher receipt lands whichever
 // commits first, and a lower one arriving late matches nothing.
-// 'replied' and 'failed' are never overwritten; 'pending' moves nothing.
+// 'replied' is never overwritten, 'failed' only by a delivery; 'pending'
+// moves nothing. SQL mirror: reconcile_broadcast_recipient_statuses (291).
 const RECIPIENT_STATUS_PREDECESSORS: Record<
   NormalizedStatusValue,
   readonly string[]
 > = {
   pending: [],
   sent: ['pending'],
-  delivered: ['pending', 'sent'],
-  read: ['pending', 'sent', 'delivered'],
+  delivered: ['pending', 'sent', 'failed'],
+  read: ['pending', 'sent', 'delivered', 'failed'],
   failed: ['pending', 'sent'],
 };
 
@@ -156,19 +168,30 @@ const RECIPIENT_STATUS_PREDECESSORS: Record<
  *   - Along the ladder, only forward moves are allowed.
  *   - `failed` is accepted only from `pending` or `sent`; it's refused
  *     once the recipient has reached any of the success states.
+ *   - Out of `failed`, only proof of delivery is accepted.
  */
 function isValidStatusTransition(current: string, incoming: string): boolean {
   if (incoming === 'failed') {
     return current === 'pending' || current === 'sent';
   }
   if (current === 'failed') {
-    return false; // failed is terminal
+    return incoming === 'delivered' || incoming === 'read';
   }
   const ci = ladderLevel(current);
   const ii = ladderLevel(incoming);
   if (ii < 0) return false; // unknown incoming status
   if (ci < 0) return true; // unknown current — accept anything on the ladder
   return ii > ci;
+}
+
+/** What `messages.failure_reason` holds after this receipt (292). */
+function messageFailureReason(status: NormalizedStatus): string | null {
+  if (status.status !== 'failed' || !status.error) return null;
+  return describeMetaFailure(
+    status.error.code,
+    status.error.title,
+    status.error.details
+  ).slice(0, FAILURE_REASON_MAX);
 }
 
 export interface StatusUpdateResult {
@@ -197,7 +220,7 @@ export async function handleStatusUpdate(
   let rowsQuery = supabaseAdmin()
     .from('messages')
     .select(
-      'id, conversation_id, ai_generated, sender_type, conversations!inner(account_id)'
+      'id, conversation_id, ai_generated, sender_type, conversations!inner(account_id, personal_owner_id)'
     )
     .eq('message_id', status.messageId);
   if (accountId)
@@ -218,7 +241,12 @@ export async function handleStatusUpdate(
   if (rows.length > 0 && predecessors.length > 0) {
     const { data: updated, error: msgErr } = await supabaseAdmin()
       .from('messages')
-      .update({ status: status.status })
+      // Why, when the gateway said (Meta only); a receipt that corrects an
+      // earlier 'failed' takes its reason away (292).
+      .update({
+        status: status.status,
+        failure_reason: messageFailureReason(status),
+      })
       .in(
         'id',
         rows.map((r) => r.id)
@@ -280,6 +308,11 @@ export async function handleStatusUpdate(
       update.sent_at = tsIso;
     if (status.status === 'delivered') update.delivered_at = tsIso;
     if (status.status === 'read') update.read_at = tsIso;
+    // A delivered message failed at nothing: the reason an earlier
+    // 'failed' left goes too, or the page shows it beside the tick.
+    if (status.status === 'delivered' || status.status === 'read') {
+      update.error_message = null;
+    }
     // Why, when the gateway said (Meta only). Without it the detail
     // page shows '-' and offers Retry failed, which for most of these
     // codes only fails again.
@@ -303,15 +336,18 @@ export async function handleStatusUpdate(
     if (recUpdateErr) {
       failed = true;
       console.error('Error updating broadcast recipient status:', recUpdateErr);
-    } else if (
-      status.status === 'failed' &&
-      (flipped ?? []).length > 0 &&
-      recipient.broadcast_id
-    ) {
-      await settleBroadcastAfterLateFailure(
-        supabaseAdmin(),
-        recipient.broadcast_id
-      );
+    } else if ((flipped ?? []).length > 0 && recipient.broadcast_id) {
+      if (status.status === 'failed') {
+        await settleBroadcastAfterLateFailure(
+          supabaseAdmin(),
+          recipient.broadcast_id
+        );
+      } else if (recipient.status === 'failed') {
+        await settleBroadcastAfterCorrection(
+          supabaseAdmin(),
+          recipient.broadcast_id
+        );
+      }
     }
   }
 
@@ -334,12 +370,15 @@ export async function handleStatusUpdate(
 
   // 4) HR automated messages (migration 212): the receipt onto the HR
   //    outbox row. After the broadcast mirror, so it cannot delay it;
-  //    only bot messages pay the round trip. Never throws.
-  await recordHrDelivery({ accountId, status, at: tsIso, rows });
+  //    only bot messages pay the round trip. Never throws. Not written:
+  //    the receipt is retried (the function only moves forward).
+  const hr = await recordHrDelivery({ accountId, status, at: tsIso, rows });
+  if (hr === false) failed = true;
 
   // 5) Webhook fan-out for messages we store (inbox / API sends).
   //    Runs last so a slow subscriber can't delay the mirrors above.
-  const first = moved[0];
+  //    Never for a chat on somebody's own number.
+  const first = moved.find((row) => !rowIsPersonal(row));
   if (first) {
     const ownerAccountId = accountId ?? rowAccountId(first);
     if (ownerAccountId) {
@@ -365,6 +404,13 @@ interface StatusMessageRow {
   ai_generated?: boolean | null;
   sender_type?: string | null;
   conversations: unknown;
+}
+
+function rowIsPersonal(row: StatusMessageRow): boolean {
+  const rawConv = row.conversations;
+  const conv = (Array.isArray(rawConv) ? rawConv[0] : rawConv) as
+    { personal_owner_id?: string | null } | null | undefined;
+  return !!conv?.personal_owner_id;
 }
 
 function rowAccountId(row: StatusMessageRow): string | undefined {
@@ -698,13 +744,42 @@ export interface ProcessMessageOptions {
   /**
    * 'throw': a message that could not be stored throws
    * `InboundPersistError`, so a durable caller retries it. Only before the
-   * idempotency boundary; after it nothing changes. Default: the failure is
-   * logged and swallowed.
+   * idempotency boundary; after it nothing changes, bar a candidate's STOP
+   * that could not be recorded (stage `opt_out`, thrown once all else ran).
+   * Default: the failure is logged and swallowed.
    */
   onPersistFailure?: 'throw';
+  /**
+   * A durable caller runs this event again. A message already stored then
+   * still owes its STOP stamp, if it is one; nothing else is repeated. Not
+   * set for a gateway's own replay, which repeats nothing at all.
+   */
+  retry?: boolean;
 }
 
 export async function processMessage(
+  message: NormalizedInboundMessage,
+  accountId: string,
+  configOwnerUserId: string,
+  channel: WhatsAppChannel,
+  later?: Promise<unknown>[],
+  options: ProcessMessageOptions = {}
+) {
+  const owed = { stop: false };
+  await runInboundMessage(
+    message,
+    accountId,
+    configOwnerUserId,
+    channel,
+    later,
+    options,
+    owed
+  );
+  if (owed.stop && options.onPersistFailure === 'throw')
+    throw new InboundPersistError('opt_out');
+}
+
+async function runInboundMessage(
   message: NormalizedInboundMessage,
   // Tenancy. Resolved from the matched whatsapp_config row; every
   // contact / conversation / message row created downstream is
@@ -723,8 +798,10 @@ export async function processMessage(
   // up the next message of the same delivery (TypeSafe's watch, then
   // Smart insights). The route awaits it after its loop; without it, it
   // is awaited here.
-  later?: Promise<unknown>[],
-  options: ProcessMessageOptions = {}
+  later: Promise<unknown>[] | undefined,
+  options: ProcessMessageOptions,
+  // Set when a STOP could not be recorded.
+  owed: { stop: boolean }
 ) {
   // Before the idempotency boundary only: the message is not in the inbox.
   const notStored = (stage: InboundPersistStage, code?: string) => {
@@ -917,6 +994,17 @@ export async function processMessage(
     return notStored('message', msgError.code);
   }
 
+  const recordStop = async (retry: boolean) => {
+    owed.stop = !(await recordHrStop(supabaseAdmin(), {
+      accountId,
+      conversationId: conversation.id,
+      contactId: contactRecord.id,
+      channelId: channel.id,
+      text: contentText ?? message.text ?? '',
+      retry,
+    }));
+  };
+
   // Replayed delivery: the message already exists, so acknowledge it as a
   // no-op. Returning here is what keeps a retry from double-bumping unread,
   // re-advancing flows, re-firing automations, re-invoking AI handling, and
@@ -926,8 +1014,15 @@ export async function processMessage(
       '[webhook] duplicate inbound message ignored (idempotent replay):',
       message.id
     );
+    // A durable retry may still owe the STOP stamp (idempotent).
+    if (options.retry) await recordStop(true);
     return;
   }
+
+  // A candidate's STOP, before anything reacts to the message and whatever
+  // the HR switches say. Never throws; a stamp that did not land fails the
+  // event at the end of processMessage, so the durable queue retries it.
+  await recordStop(false);
 
   // A chat no person has touched goes to whoever last called this
   // customer from an extension. human_engaged_at (067) is the test
@@ -1046,10 +1141,9 @@ export async function processMessage(
   // The worker downloads the recorded URL with no credentials, so only a
   // copy in our own bucket is recorded here. When the number opted out
   // of mirroring (039), the mirror failed or the file is over its size
-  // cap, `mediaUrl` is the gateway's link: a Meta lookaside URL needs a
-  // bearer token and expires in minutes, a Whapi `/media/` link needs the
-  // channel token, so recording it files a document the NAS can never
-  // fetch. That case is filed by `fileWithDurableCopy`, which makes its
+  // cap, `mediaUrl` is our proxy path (Meta) or the gateway's link, and a
+  // Whapi `/media/` link needs the channel token, so recording it files a
+  // document the NAS can never fetch. That case is filed by `fileWithDurableCopy`, which makes its
   // own copy first (the message row keeps the link it has). It can take
   // up to 20 s, so it runs on each exit below, after the inbox and the
   // fan-out, and goes to `later` when the route collects it: awaited
@@ -1098,9 +1192,9 @@ export async function processMessage(
         admin: supabaseAdmin(),
         channel: () => channel,
         media: {
-          // The link parseMessageContent already resolved (Meta's comes
-          // from getMediaUrl), still fresh this early in the after().
-          link: mediaUrl,
+          // The link parseMessageContent already resolved. Our proxy path
+          // (Meta) is no link to download: the media id is asked again.
+          link: mediaUrl.startsWith('/') ? (media.link ?? null) : mediaUrl,
           id: media.id,
           objectId: media.id ?? message.id,
           mimeType: media.mimeType,
@@ -1214,7 +1308,18 @@ export async function processMessage(
   // broadcast pool when that switch is on (migration 236). Ahead of the
   // follow-up flow and the bots, so they see the assignee. The call-
   // history pick above ran first and keeps its person. Never throws.
-  if (campaignReply) {
+  // Not a candidate's chat, or another department's: who holds a chat may
+  // read it.
+  //
+  // One decision for this message, read when the first of them needs it:
+  // no sales answer (flow, journey, automation message step, AI reply),
+  // assignment, campaign sorting or smart insight in an HR chat or another
+  // department's. Other internal automation steps run.
+  const salesChat = salesChatOnce(supabaseAdmin, {
+    conversationId: conversation.id,
+    inboundChannelId: channel.id,
+  });
+  if (campaignReply && !(await salesAnswersOff(salesChat))) {
     await rotateBroadcastReply(accountId, conversation);
   }
 
@@ -1241,6 +1346,7 @@ export async function processMessage(
         deadlineMs: CAMPAIGN_REPLY_CLASS_DEADLINE_MS,
         inboundMessageId: insertedRows[0].id,
         conversationId: conversation.id,
+        salesChat,
       })
     : Promise.resolve(null);
   const followUpReplyClass = campaignReply?.followUpFlowId
@@ -1272,6 +1378,7 @@ export async function processMessage(
   // basically for free (one indexed SELECT for the active run).
   // ============================================================
   const flowResult = await dispatchInboundToFlows({
+    salesChat,
     accountId,
     userId: configOwnerUserId,
     contactId: contactRecord.id,
@@ -1303,8 +1410,9 @@ export async function processMessage(
 
   // A 1-5 reply to a case rating request (migration 246) is stored as the
   // case's CSAT score. A Flow that consumed the message wins (its menus
-  // take typed numbers too); a captured rating is consumed like a Flow's,
-  // so no journey, content automation or AI reply answers it. Costs
+  // take typed numbers too); a captured bare rating is consumed like a
+  // Flow's, so no journey, content automation or AI reply answers it. One
+  // with a comment is stored and still answered (281). Costs
   // nothing unless the text reads as a rating; never throws.
   const csatConsumed =
     !flowConsumed &&
@@ -1312,7 +1420,9 @@ export async function processMessage(
     (await noteCsatReply(supabaseAdmin(), {
       accountId,
       contactId: contactRecord.id,
+      conversationId: conversation.id,
       messageRowId: insertedRows[0].id,
+      quotedRowId: replyToInternalId,
       text: contentText ?? message.text,
     }));
 
@@ -1331,9 +1441,15 @@ export async function processMessage(
             contactId: contactRecord.id,
             conversationId: conversation.id,
             message,
+            salesChat,
           }).catch(() => ({ consumed: false }))
         ).consumed;
   const botConsumed = flowConsumed || journeyConsumed || csatConsumed;
+  // No dispatch of this message will stand down for a newer one. One whose
+  // own AI fallback did has left the row that says so.
+  if (botConsumed && flowResult.ai_outcome !== 'superseded') {
+    noteTaken(message.id);
+  }
 
   // An `interested` campaign reply tags an untagged chat with the
   // account's chosen main tag (and runs the chat_tag_set automations).
@@ -1345,6 +1461,7 @@ export async function processMessage(
     accountId,
     conversationId: conversation.id,
     replyClass: await campaignReplyClassP,
+    salesChat,
   });
 
   // Fire any automations that react to this webhook event. All dispatches
@@ -1400,6 +1517,9 @@ export async function processMessage(
   // A keyword_match automation that acted on this message wins: a
   // meaning trigger would otherwise answer the same text a second time.
   let keywordActed = false;
+  // And a meaning trigger that answered the customer wins over the AI
+  // reply below.
+  let meaningActed = false;
   for (const triggerType of automationTriggers) {
     if (triggerType === 'intent_match' && keywordActed) continue;
     const acted = await runAutomationsForTrigger({
@@ -1408,6 +1528,7 @@ export async function processMessage(
       contactId: contactRecord.id,
       // A message step may answer even an opted-out contact here.
       customerJustWrote: true,
+      salesChat,
       context: {
         message_text: inboundText,
         conversation_id: conversation.id,
@@ -1422,6 +1543,7 @@ export async function processMessage(
       return false;
     });
     if (triggerType === 'keyword_match' && acted) keywordActed = true;
+    if (triggerType === 'intent_match' && acted) meaningActed = true;
   }
 
   // AI auto-reply. Runs for any inbound the deterministic flow runner
@@ -1452,6 +1574,7 @@ export async function processMessage(
   ) {
     await dispatchInboundToAiReply({
       accountId,
+      salesChat,
       conversationId: conversation.id,
       contactId: contactRecord.id,
       configOwnerUserId,
@@ -1463,7 +1586,40 @@ export async function processMessage(
       // A media caption is not in the bot's text context (context.ts
       // keeps text/interactive rows only); the gates still read it.
       inboundText,
+      meaningTriggerActed: meaningActed,
     });
+  }
+
+  // A message something else took never reaches the bot, so a question it
+  // superseded in the same burst would be nobody's: the bot then flags the
+  // chat (lib/ai/stranded.ts), after its burst wait, so `later`. Not when
+  // the flow's own AI fallback took it: that has its outcome.
+  const consumedBy = journeyConsumed
+    ? 'A journey'
+    : csatConsumed
+      ? 'A case rating'
+      : flowConsumed && !flowBroke
+        ? 'A flow'
+        : null;
+  if (
+    consumedBy &&
+    !flowResult.ai_outcome &&
+    inboundText.trim() &&
+    (await closesBurst(supabaseAdmin(), accountId, conversation.id, message.id))
+  ) {
+    const flagged = dispatchInboundToAiReply({
+      accountId,
+      conversationId: conversation.id,
+      contactId: contactRecord.id,
+      configOwnerUserId,
+      inboundProvider: channel.provider,
+      inboundChannelId: channel.id,
+      inboundMessageId: message.id,
+      inboundText,
+      consumedBy,
+    });
+    if (later) later.push(flagged);
+    else await flagged;
   }
 
   // message.received webhook (public API). Awaited — not fire-and-forget
@@ -1499,13 +1655,14 @@ export async function processMessage(
   // Smart insights (docs/jev-insights.md): the customer signals and a
   // chat-tag suggestion. After the watch, so the triage row it logged for
   // this message is there to reuse; display data only, off unless the
-  // account switched it on, never throws. In Auto mode its tag answer
-  // then tags an untagged chat (autoTagFromInsights, never throws),
-  // awaited in the same chain so after() keeps it alive.
+  // account switched it on, only in a sales chat, never throws. In Auto
+  // mode its tag answer then tags an untagged chat (autoTagFromInsights,
+  // never throws), awaited in the same chain so after() keeps it alive.
   const insightsArgs = {
     accountId,
     conversationId: conversation.id,
     contactId: contactRecord.id,
+    salesChat,
   };
   const insights = watch
     .then(() =>
@@ -1748,8 +1905,8 @@ export async function resolveInboundMediaUrl(
         // OpenWA loopback URL was refused and never mirrored. Whapi and
         // Meta land on the same client as before (Whapi links are on
         // Whapi's host, Meta's on its lookaside host).
-        download: ({ downloadUrl: url }) =>
-          downloadMedia({ channel, downloadUrl: url }),
+        download: ({ downloadUrl: url, maxBytes }) =>
+          downloadMedia({ channel, downloadUrl: url, maxBytes }),
         mimeType: mimeType ?? undefined,
         fileSize,
         fileName: media.filename,
@@ -1766,10 +1923,31 @@ export async function resolveInboundMediaUrl(
     }
   }
 
-  // Mirroring off or failed: fall back to the gateway's own link. On
-  // Whapi and Meta it works today and expires in ~30 days, which beats
-  // an empty bubble now. OpenWA's never works in a browser (above).
-  return gatewayLinkViewable ? downloadUrl : null;
+  // Mirroring off or failed. Meta's link needs a bearer token and dies
+  // within minutes, while the file itself stays with Meta for weeks: the
+  // bubble gets our proxy, which asks for a fresh link each time. Whapi's
+  // own link works today and expires in ~30 days, which beats an empty
+  // bubble now. OpenWA's never works in a browser (above).
+  if (channel.provider === 'meta' && media.id && !media.link) {
+    return `/api/whatsapp/media/${encodeURIComponent(media.id)}`;
+  }
+  // The link becomes the bubble's href: http(s) only, never
+  // `javascript:` or `data:`, whatever the gateway sent (a self-hosted
+  // gateway on the LAN links over plain http).
+  return gatewayLinkViewable ? httpUrlOrNull(downloadUrl) : null;
+}
+
+/** The URL when it is http(s), else null. */
+export function httpUrlOrNull(value: unknown): string | null {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  try {
+    const u = new URL(value.trim());
+    return u.protocol === 'https:' || u.protocol === 'http:'
+      ? u.toString()
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

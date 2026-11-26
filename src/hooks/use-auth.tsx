@@ -12,6 +12,8 @@ import {
 } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { User } from "@supabase/supabase-js";
+import { useTranslations } from "next-intl";
+import { toast } from "sonner";
 import { DEFAULT_CURRENCY } from "@/lib/currency";
 import {
   canEditSettings as canEditSettingsFor,
@@ -23,6 +25,22 @@ import {
   type AccountRole,
 } from "@/lib/auth/roles";
 import { pickActiveProfile } from "@/lib/auth/active-profile";
+import { listenForExplicitSignOut } from "@/lib/auth/explicit-sign-out";
+import {
+  compareProfile,
+  profileCheckDue,
+  watchedActiveRow,
+  type ProfileNotice,
+} from "@/lib/auth/profile-watch";
+import {
+  forgetRefreshFailure,
+  recheckDelayMs,
+  retryAction,
+  statusFromAnswer,
+  statusFromEvent,
+  type SessionStatus,
+} from "@/lib/auth/session-state";
+import { signOutThisDevice } from "@/lib/auth/sign-out";
 import {
   fallbackWorkspace,
   parseMyWorkspaces,
@@ -48,6 +66,7 @@ import {
   releasePushOnSessionChange,
   signOutReleasingPush,
 } from "@/lib/push/sign-out";
+import { isMissingFunction } from "@/lib/team-activity/db-errors";
 import { isLocale, syncLocaleCookie, type Locale } from "@/i18n/locales";
 
 interface Profile {
@@ -122,11 +141,36 @@ interface AuthContextValue {
    * and may take the "not opted in" branch incorrectly.
    */
   profileLoading: boolean;
+  /**
+   * End this device's session and go to /login. A refused sign-out says
+   * so and leaves the person where they are. Signing out everywhere is
+   * Settings' own button (`sessions-card.tsx`).
+   */
   signOut: () => Promise<void>;
+  /**
+   * Still `loading` after 3 s: whether anyone is signed in is not known
+   * (a refresh that failed or has not come back). Never a sign-out.
+   */
+  sessionStalled: boolean;
+  /** Ask again now. */
+  retrySession: () => void;
+  /** `signOut()` is under way: it does the navigation to /login itself. */
+  signingOut: boolean;
   /** Re-fetch the current user's profile row — call after a save from
    *  the settings form so header/sidebar reflect the change without a
    *  full page reload. */
   refreshProfile: () => Promise<void>;
+  /**
+   * The workspace this tab shows is no longer the one the person works
+   * in (switched elsewhere), or was deactivated for them. Null otherwise.
+   * Shown by `<ProfileNoticeBar />`; nothing reloads by itself, because
+   * nobody here knows about text typed and not yet sent.
+   */
+  profileNotice: ProfileNotice | null;
+  /** The bar's button: load this tab again, where the person now works. */
+  followProfileNotice: () => void;
+  /** Hide the bar until the next check finds the same. */
+  dismissProfileNotice: () => void;
 
   // ----------------------------------------------------------
   // Account-scoped context (added by the account-sharing series)
@@ -259,24 +303,37 @@ function sweepBrowserStorage(): void {
 
 /**
  * SQL `department_restricted()` (192) as the caller; the server's
- * `getCurrentAccount` makes the same call. Never throws and answers
- * false on any failure (a missing function included): RLS and the
- * server guards still hold, so a hiccup must not hide the sales areas.
+ * `getCurrentAccount` makes the same call. Never throws; null on any
+ * failure (a missing function included).
+ */
+async function readDepartmentRestricted(
+  supabase: ReturnType<typeof createClient>,
+  accountId: string,
+  department: Department,
+): Promise<boolean | null> {
+  try {
+    const { data, error } = await supabase.rpc("department_restricted", {
+      p_account: accountId,
+      p_department: department,
+    });
+    return error || typeof data !== "boolean" ? null : data;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The same, false on any failure, for a page that is loading: RLS and
+ * the server guards still hold, so a hiccup must not hide the sales areas.
  */
 async function fetchDepartmentRestricted(
   supabase: ReturnType<typeof createClient>,
   accountId: string,
   department: Department,
 ): Promise<boolean> {
-  try {
-    const { data, error } = await supabase.rpc("department_restricted", {
-      p_account: accountId,
-      p_department: department,
-    });
-    return !error && data === true;
-  } catch {
-    return false;
-  }
+  return (
+    (await readDepartmentRestricted(supabase, accountId, department)) ?? false
+  );
 }
 
 /**
@@ -316,6 +373,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [account, setAccount] = useState<AccountSummary | null>(null);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [loading, setLoading] = useState(true);
+  const [signingOut, setSigningOut] = useState(false);
+  const signingOutRef = useRef(false);
+  const [sessionStalled, setSessionStalled] = useState(false);
+  const retrySessionRef = useRef<() => void>(() => {});
+  const retrySession = useCallback(() => retrySessionRef.current(), []);
+  const t = useTranslations("AccountAccess");
   // Why the account/role couldn't be established, when it couldn't.
   // Null on the happy path.
   const [statusDetail, setStatusDetail] = useState<string | null>(null);
@@ -329,6 +392,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // a profile for. This prevents redundant re-fetches and toggling
   // profileLoading back to true on window focus events/token refresh.
   const lastFetchedUserIdRef = useRef<string | null>(null);
+
+  // What this tab shows, for the profile watch to compare with; null
+  // while nothing settled is shown. Written with `setProfile`, not from
+  // the render after it, and a new object each time: an answer that
+  // comes back to another object is late.
+  const shownRef = useRef<{
+    userId: string;
+    profile: Profile & { account_id: string; account_role: AccountRole };
+  } | null>(null);
+  const [profileNotice, setProfileNotice] = useState<ProfileNotice | null>(
+    null,
+  );
 
   // Every switch lands here: drop what the old workspace cached, tell
   // this browser's other tabs (they share the active workspace, which
@@ -351,6 +426,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  // Load the workspace that is already the active one, telling nobody:
+  // another tab may hold text typed and not yet sent.
+  const followWorkspace = useCallback((role: AccountRole | null) => {
+    clearClientCache();
+    leaveSession();
+    window.location.assign(workspaceHomePath(role));
+  }, []);
+
   // Shared across init, auth-state-change listener, and the exposed
   // refreshProfile() callback. Reads the current session's user id and
   // pulls the matching profile row along with its account summary.
@@ -358,6 +441,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const supabase = createClient();
     setProfileLoading(true);
     setStatusDetail(null);
+    setProfileNotice(null);
+    shownRef.current = null;
     lastFetchedUserIdRef.current = userId;
     // Start the account read NOW, in parallel with the profile read
     // below, rather than after it. These are two sequential round trips
@@ -382,11 +467,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     );
     // The person's workspaces (migration 083), for the switcher, for a
     // bank guest's account name (a guest cannot read `accounts`), and
-    // for leaving a deactivated workspace. In parallel too; a failure
-    // (a database without 083) reads as none.
+    // for leaving a deactivated workspace. In parallel too. A database
+    // without 083 reads as none; null is not known, which must never
+    // pass for "none is left" below.
     const workspacesRead = Promise.resolve(supabase.rpc("my_workspaces")).then(
-      (r) => (r.error ? [] : parseMyWorkspaces(r.data)),
-      () => [] as Workspace[],
+      (r): Workspace[] | null =>
+        isMissingFunction(r.error)
+          ? []
+          : r.error || !Array.isArray(r.data)
+            ? null
+            : parseMyWorkspaces(r.data),
+      () => null,
     );
     // A switch navigates away; keep the loading state rather than flash
     // the error alert for the profile this tab is about to replace.
@@ -432,8 +523,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      const workspaceList = await workspacesRead;
+      const workspacesAnswer = await workspacesRead;
+      const workspaceList = workspacesAnswer ?? [];
       setWorkspaces(workspaceList);
+
+      if (data?.deactivated_at && !workspacesAnswer) {
+        // Another workspace may still be open: signing out here would end
+        // every session of somebody who still works. The access alert
+        // shows this with a Retry.
+        lastFetchedUserIdRef.current = null;
+        setProfile(null);
+        setAccount(null);
+        setStatusDetail(
+          "this workspace was deactivated; your other workspaces could not be read",
+        );
+        return;
+      }
 
       if (data?.deactivated_at) {
         // An admin deactivated this membership (migration 069) — since
@@ -578,7 +683,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             ),
           });
 
-        setProfile({
+        const loaded: Profile = {
           id: data.id,
           full_name: data.full_name,
           email: data.email,
@@ -599,7 +704,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           preferred_language: isLocale(data.preferred_language)
             ? data.preferred_language
             : null,
-        });
+        };
+        setProfile(loaded);
+        if (data.account_id && accountRole) {
+          shownRef.current = {
+            userId,
+            profile: {
+              ...loaded,
+              account_id: data.account_id,
+              account_role: accountRole,
+            },
+          };
+        }
         setAccount(accountRow);
         if (!data.account_id || !accountRole) {
           // The row exists but carries no tenancy. Migration 017 made
@@ -652,71 +768,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     workspaceChannelRef.current = channel;
     channel.onmessage = (event: MessageEvent) => {
       const role: unknown = (event.data as { role?: unknown } | null)?.role;
-      clearClientCache();
-      leaveSession();
-      window.location.assign(
-        workspaceHomePath(isAccountRole(role) ? role : null),
-      );
+      followWorkspace(isAccountRole(role) ? role : null);
     };
     return () => {
       workspaceChannelRef.current = null;
       channel.close();
     };
-  }, []);
+  }, [followWorkspace]);
 
   useEffect(() => {
     const supabase = createClient();
     let mounted = true;
+    let status: SessionStatus = "unknown";
+    let attempts = 0;
+    let retries = 0;
+    let checkStartedAt: number | null = null;
+    let recheckTimer: ReturnType<typeof setTimeout> | undefined;
 
-    const safetyTimer = setTimeout(() => {
-      if (mounted) {
-        console.warn("[AuthProvider] getSession() timed out after 3s");
-        setLoading(false);
-        setProfileLoading(false);
-      }
+    // A slow or failed refresh is not "nobody is signed in": the shell
+    // says it is reconnecting and the tab keeps asking.
+    const stalledTimer = setTimeout(() => {
+      if (!mounted || status !== "unknown") return;
+      console.warn("[AuthProvider] session still unknown after 3s");
+      setSessionStalled(true);
     }, 3000);
 
-    const init = async () => {
-      try {
-        const {
-          data: { session },
-          error,
-        } = await supabase.auth.getSession();
-
-        if (error) console.error("[AuthProvider] getSession error:", error.message);
-
-        if (!mounted) return;
-        const currentUser = session?.user ?? null;
-        noteSessionUser(currentUser?.id ?? null);
-        setUser(currentUser);
-
-        if (currentUser) {
-          // Don't block session loading on profile fetch — chrome
-          // (header, sidebar) can render from the user object alone,
-          // profile enriches async. Callers that need to branch on
-          // profile data gate on `profileLoading` instead.
-          fetchProfile(currentUser.id);
-        } else {
-          // No user → no profile to load. Flip profileLoading off so
-          // pages that gate on it don't wait forever on the logged-out
-          // path (the route guard or redirect should fire instead).
-          setProfileLoading(false);
-        }
-      } catch (err) {
-        console.error("[AuthProvider] init threw:", err);
-      } finally {
-        if (mounted) setLoading(false);
-        clearTimeout(safetyTimer);
-      }
-    };
-
-    init();
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!mounted) return;
-      const currentUser = session?.user ?? null;
+    const settle = (
+      answer: "signed_in" | "signed_out",
+      currentUser: User | null,
+    ) => {
+      status = answer;
+      clearTimeout(stalledTimer);
+      clearTimeout(recheckTimer);
+      setSessionStalled(false);
       // Screen data is per user: a sign-out (here or in another tab) or
       // a different user signing in to this tab empties it.
       if (noteSessionUser(currentUser?.id ?? null)) {
@@ -729,11 +813,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(currentUser);
 
       if (currentUser) {
+        // Don't block session loading on profile fetch — chrome
+        // (header, sidebar) can render from the user object alone,
+        // profile enriches async. Callers that need to branch on
+        // profile data gate on `profileLoading` instead.
         if (currentUser.id !== lastFetchedUserIdRef.current) {
           fetchProfile(currentUser.id);
         }
       } else {
+        // No user → no profile to load. Flip profileLoading off so
+        // pages that gate on it don't wait forever on the logged-out
+        // path (the route guard or redirect should fire instead).
         lastFetchedUserIdRef.current = null;
+        shownRef.current = null;
+        setProfileNotice(null);
         setProfile(null);
         setAccount(null);
         setWorkspaces([]);
@@ -741,18 +834,168 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       setLoading(false);
+    };
+
+    // Only while the session is unknown; once it is, the events say.
+    const check = async () => {
+      if (!mounted || status !== "unknown" || checkStartedAt !== null) return;
+      clearTimeout(recheckTimer);
+      checkStartedAt = Date.now();
+      let currentUser: User | null = null;
+      let error: unknown = null;
+      try {
+        const answer = await supabase.auth.getSession();
+        currentUser = answer.data.session?.user ?? null;
+        error = answer.error;
+      } catch (err) {
+        error = err;
+      }
+      checkStartedAt = null;
+      if (error) console.error("[AuthProvider] getSession error:", error);
+      if (!mounted || status !== "unknown") return;
+      const answer = statusFromAnswer(currentUser, error);
+      if (answer !== "unknown") return settle(answer, currentUser);
+      recheckTimer = setTimeout(recheck, recheckDelayMs(attempts++));
+    };
+    const recheck = () => {
+      if (!mounted || status !== "unknown" || checkStartedAt !== null) return;
+      // As auth-js itself: a hidden tab does not refresh. It asks at
+      // once when it is shown.
+      if (document.visibilityState === "hidden") return;
+      forgetRefreshFailure(supabase.auth);
+      void check();
+    };
+    retrySessionRef.current = () => {
+      const action = retryAction({
+        online: navigator.onLine !== false,
+        retries: retries++,
+        checkingForMs: checkStartedAt && Date.now() - checkStartedAt,
+      });
+      if (action === "reload") window.location.reload();
+      else recheck();
+    };
+    // A tab stays open for days: a workspace switched on another device,
+    // a new role or department, or a deactivation in one of several
+    // workspaces reaches it here. Quiet: never `profileLoading`, and an
+    // answer that is doubtful or late changes nothing.
+    let lastWatchAt: number | null = null;
+    let watches = 0;
+    const watchProfile = async (trigger: "visibility" | "token") => {
+      const before = shownRef.current;
+      if (!mounted || !before) return;
+      const now = Date.now();
+      const visible = document.visibilityState === "visible";
+      if (!profileCheckDue({ trigger, visible, lastCheckAt: lastWatchAt, now }))
+        return;
+      lastWatchAt = now;
+      const watch = ++watches;
+      const late = () =>
+        !mounted ||
+        watch !== watches ||
+        shownRef.current !== before ||
+        isLeavingSession();
+      try {
+        const row = watchedActiveRow<ProfileRow>(
+          await supabase
+            .from("profiles")
+            .select("*")
+            .eq("user_id", before.userId),
+        );
+        if (!row || late()) return;
+        const shown = before.profile;
+        const change = compareProfile(shown, row);
+        if (change.kind === "switched" || change.kind === "deactivated") {
+          setProfileNotice(change);
+          return;
+        }
+        // The workspace shown is the active one: switched back, say.
+        setProfileNotice(null);
+        if (change.kind === "none") return;
+
+        const { role, department } = change;
+        let restricted: boolean | null = false;
+        if (
+          !isBankGuestRole(role) &&
+          !hasMinRole(role, "admin") &&
+          "department" in row
+        ) {
+          restricted = await readDepartmentRestricted(
+            supabase,
+            shown.account_id,
+            department,
+          );
+          if (late()) return;
+        }
+        const profile = {
+          ...shown,
+          account_role: role,
+          department,
+          // Not known (the department read failed): keep what was shown,
+          // but a role the restriction never applies to is never kept.
+          sales_restricted: isSalesRestricted({
+            role,
+            department,
+            restricted: restricted ?? shown.sales_restricted === true,
+          }),
+          may_review_all_calls:
+            row.may_review_all_calls === true && !isBankGuestRole(role),
+        };
+        shownRef.current = { userId: before.userId, profile };
+        setProfile(profile);
+      } catch (err) {
+        console.warn("[AuthProvider] profile check failed:", err);
+      }
+    };
+    const onVisibility = () => {
+      recheck();
+      void watchProfile("visibility");
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("online", recheck);
+    const stopListening = listenForExplicitSignOut();
+
+    void check();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!mounted) return;
+      const currentUser = session?.user ?? null;
+      const answer = statusFromEvent(event, currentUser);
+      if (answer) settle(answer, currentUser);
+      // After this callback: auth-js holds its lock while it runs.
+      if (event === "TOKEN_REFRESHED") {
+        setTimeout(() => void watchProfile("token"), 0);
+      }
     });
 
     return () => {
       mounted = false;
-      clearTimeout(safetyTimer);
+      clearTimeout(stalledTimer);
+      clearTimeout(recheckTimer);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("online", recheck);
+      stopListening();
       subscription.unsubscribe();
     };
   }, [fetchProfile]);
 
   const signOut = useCallback(async () => {
-    const supabase = createClient();
-    await signOutReleasingPush(() => supabase.auth.signOut());
+    // One under way ends this session by itself, however long it takes.
+    if (signingOutRef.current) return;
+    signingOutRef.current = true;
+    setSigningOut(true);
+    let slow: string | number | undefined;
+    const ended = await signOutThisDevice(createClient().auth, () => {
+      slow ??= toast.loading(t("stillSigningOut"));
+    });
+    if (!ended) {
+      signingOutRef.current = false;
+      setSigningOut(false);
+      if (slow !== undefined) toast.dismiss(slow);
+      toast.error(t("signOutFailed"));
+      return;
+    }
     leaveSession();
     sweepBrowserStorage();
     setUser(null);
@@ -760,7 +1003,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAccount(null);
     setWorkspaces([]);
     window.location.href = "/login";
-  }, []);
+  }, [t]);
+
+  const followProfileNotice = useCallback(() => {
+    // Deactivated: the load runs that path (the next workspace, or out).
+    if (profileNotice?.kind === "switched") followWorkspace(profileNotice.role);
+    else window.location.reload();
+  }, [profileNotice, followWorkspace]);
+  const dismissProfileNotice = useCallback(() => setProfileNotice(null), []);
 
   const switchWorkspace = useCallback(
     async (accountId: string, next?: string) => {
@@ -837,7 +1087,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loading,
       profileLoading,
       signOut,
+      signingOut,
+      sessionStalled,
+      retrySession,
       refreshProfile,
+      profileNotice,
+      followProfileNotice,
+      dismissProfileNotice,
       account,
       defaultCurrency,
       accountStatus,
@@ -854,7 +1110,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loading,
       profileLoading,
       signOut,
+      signingOut,
+      sessionStalled,
+      retrySession,
       refreshProfile,
+      profileNotice,
+      followProfileNotice,
+      dismissProfileNotice,
       account,
       defaultCurrency,
       accountStatus,
@@ -889,7 +1151,13 @@ export function useAuth(): AuthContextValue {
       signOut: async () => {
         window.location.href = "/login";
       },
+      signingOut: false,
+      sessionStalled: false,
+      retrySession: () => {},
       refreshProfile: async () => {},
+      profileNotice: null,
+      followProfileNotice: () => {},
+      dismissProfileNotice: () => {},
       account: null,
       defaultCurrency: DEFAULT_CURRENCY,
       // Outside the provider there is nothing to resolve yet — 'loading'

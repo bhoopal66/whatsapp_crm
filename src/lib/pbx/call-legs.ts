@@ -192,6 +192,42 @@ export function longestAnsweredRecording(legs: CallLeg[]): string | null {
   return best?.recording ?? null;
 }
 
+/**
+ * The numbers that spoke to the customer: our side of each answered leg,
+ * and the other side of an internal one when the customer ended with
+ * them. An internal leg is a transfer or only a consultation (A asks B,
+ * A keeps the customer), and who answered may see the call, so B counts
+ * only when that leg outlasts A's own time with the customer. When the
+ * legs cannot tell (no time, A's customer leg missing, both ending
+ * together) B is out, and may still come in with a later leg. Ring
+ * groups among the numbers belong to no one.
+ */
+export function answeredExtensions(legs: CallLeg[]): string[] {
+  const answered = [...legs]
+    .sort(byStart)
+    .filter((l) => ANSWERED_STATUSES.has(l.status));
+  const endOf = (l: CallLeg) => timeOf(l) + l.call_seconds * 1000;
+  /** When each extension was last with the customer. */
+  const until = new Map<string, number>();
+  const stays = (ext: string, end: number) =>
+    until.set(ext, Math.max(end, until.get(ext) ?? -Infinity));
+  for (const l of answered) {
+    if (l.extension && l.direction !== 'internal') stays(l.extension, endOf(l));
+  }
+  // In start order, so a customer handed on twice is followed along.
+  const handed: string[] = [];
+  for (const l of answered) {
+    if (l.direction !== 'internal' || !l.extension || !l.peer) continue;
+    const end = endOf(l);
+    if (!(end > (until.get(l.extension) ?? NaN))) continue;
+    stays(l.peer, end);
+    handed.push(l.peer);
+  }
+  return [...answered.map((l) => l.extension), ...handed].filter(
+    (e): e is string => !!e
+  );
+}
+
 const iso = (ms: number) => new Date(ms).toISOString();
 
 /**

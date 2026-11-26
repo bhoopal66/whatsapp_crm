@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ run: vi.fn() }));
+const mocks = vi.hoisted(() => ({ run: vi.fn(), once: vi.fn() }));
 
 vi.mock('./engine', () => ({ runAutomationsForTrigger: mocks.run }));
+vi.mock('./admin-client', () => ({ supabaseAdmin: vi.fn() }));
+vi.mock('@/lib/ai/not-sales-chat', () => ({ salesChatOnce: mocks.once }));
 
 import { dispatchChatTagSet } from './chat-tag-dispatch';
 
@@ -12,9 +14,14 @@ const base = {
   conversationId: 'conv-1',
 };
 
+/** The check the dispatcher makes when it is given none. */
+const readItself = vi.fn();
+
 beforeEach(() => {
   mocks.run.mockReset();
   mocks.run.mockResolvedValue(undefined);
+  mocks.once.mockReset();
+  mocks.once.mockReturnValue(readItself);
 });
 
 describe('dispatchChatTagSet', () => {
@@ -43,6 +50,7 @@ describe('dispatchChatTagSet', () => {
       accountId: 'acc-1',
       triggerType: 'chat_tag_set',
       contactId: 'contact-1',
+      salesChat: readItself,
       context: {
         conversation_id: 'conv-1',
         chat_tag_id: 'interested',
@@ -70,6 +78,30 @@ describe('dispatchChatTagSet', () => {
         }),
       })
     );
+  });
+
+  const change = {
+    ...base,
+    previous: { chat_tag_id: null, chat_sub_tag_id: null },
+    saved: { chat_tag_id: 'interested', chat_sub_tag_id: null },
+  };
+
+  it("passes the message's decision on and reads none of its own", async () => {
+    const given = vi.fn();
+    await dispatchChatTagSet({ ...change, salesChat: given });
+    expect(mocks.run.mock.calls[0][0].salesChat).toBe(given);
+    expect(mocks.once).not.toHaveBeenCalled();
+  });
+
+  it('asks about the chat itself when given none (a hand-set tag)', async () => {
+    await dispatchChatTagSet(change);
+    expect(mocks.once).toHaveBeenCalledWith(expect.any(Function), {
+      conversationId: 'conv-1',
+      inboundChannelId: null,
+    });
+    expect(mocks.run.mock.calls[0][0].salesChat).toBe(readItself);
+    // Lazily: an automation without a message step costs no read.
+    expect(readItself).not.toHaveBeenCalled();
   });
 
   it('awaits the engine before resolving', async () => {

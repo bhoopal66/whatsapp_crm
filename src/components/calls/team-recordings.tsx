@@ -552,7 +552,7 @@ export function TeamRecordings() {
           {t('summary.empty')}
         </p>
       ) : (
-        <div className="overflow-x-auto">
+        <div className="relative overflow-x-auto">
           <table className="w-full min-w-[52rem] text-sm">
             <thead>
               <tr className="border-border text-muted-foreground border-b text-xs">

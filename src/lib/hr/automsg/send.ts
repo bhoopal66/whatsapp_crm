@@ -78,6 +78,10 @@ async function chatChannel(
   );
 }
 
+/** A read that failed before any send: worth another try, never a refusal. */
+const readFailed = (what: string) =>
+  new HrSendRefusal('database_error', `the ${what} could not be read`, true);
+
 /** Everything up to the gateway call: nothing here sends. */
 async function prepareSend(db: SupabaseClient, req: TemplateSendRequest) {
   const { data: conv, error: convErr } = await db
@@ -88,7 +92,8 @@ async function prepareSend(db: SupabaseClient, req: TemplateSendRequest) {
     .eq('id', req.conversationId)
     .eq('account_id', req.accountId)
     .maybeSingle();
-  if (convErr || !conv)
+  if (convErr) throw readFailed('conversation');
+  if (!conv)
     throw new HrSendRefusal(
       'conversation_missing',
       'conversation not found for this account'
@@ -112,7 +117,8 @@ async function prepareSend(db: SupabaseClient, req: TemplateSendRequest) {
     .eq('id', req.contactId)
     .eq('account_id', req.accountId)
     .maybeSingle();
-  if (contactErr || !contact?.phone) {
+  if (contactErr) throw readFailed('contact');
+  if (!contact?.phone) {
     throw new Error('contact not found for this account');
   }
   const sanitized = sanitizePhoneForMeta(contact.phone);

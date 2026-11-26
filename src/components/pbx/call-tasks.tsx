@@ -8,6 +8,7 @@
 
 import { useEffect, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
+import Link from 'next/link';
 import { toast } from 'sonner';
 import {
   CheckSquare,
@@ -20,6 +21,7 @@ import {
 
 import { useAuth } from '@/hooks/use-auth';
 import { canSendMessages } from '@/lib/auth/roles';
+import { customerPath } from '@/lib/contacts/customer-links';
 import { isOverdue } from '@/lib/pbx/call-context';
 import { messageWhen } from '@/lib/pbx/call-ui';
 import type { Task, TaskKind } from '@/lib/tasks/types';
@@ -49,16 +51,20 @@ export function OpenTasks({ contactId }: { contactId: string }) {
     contactId: string;
     state: 'ready' | 'hidden' | 'error';
     rows: OpenTask[];
+    more: boolean;
   } | null>(null);
   const [ticking, setTicking] = useState<string | null>(null);
+  // Read again after a tick while the API held some back.
+  const [round, setRound] = useState(0);
   const [now] = useState(() => Date.now());
 
   useEffect(() => {
     let live = true;
     const settle = (
       state: 'ready' | 'hidden' | 'error',
-      rows: OpenTask[] = []
-    ) => live && setRead({ contactId, state, rows });
+      rows: OpenTask[] = [],
+      more = false
+    ) => live && setRead({ contactId, state, rows, more });
     const q = new URLSearchParams({
       scope: 'contact',
       contactId,
@@ -71,15 +77,16 @@ export function OpenTasks({ contactId }: { contactId: string }) {
         if (!r.ok) return settle('error');
         const body = (await r.json().catch(() => null)) as {
           tasks?: unknown;
+          truncated?: unknown;
         } | null;
         if (!Array.isArray(body?.tasks)) return settle('error');
-        settle('ready', body.tasks as OpenTask[]);
+        settle('ready', body.tasks as OpenTask[], body.truncated === true);
       })
       .catch(() => settle('error'));
     return () => {
       live = false;
     };
-  }, [contactId]);
+  }, [contactId, round]);
 
   const mine = read?.contactId === contactId ? read : null;
 
@@ -98,6 +105,7 @@ export function OpenTasks({ contactId }: { contactId: string }) {
         ? { ...prev, rows: prev.rows.filter((r) => r.id !== task.id) }
         : prev
     );
+    if (mine?.more) setRound((n) => n + 1);
   };
 
   if (!mine)
@@ -162,6 +170,14 @@ export function OpenTasks({ contactId }: { contactId: string }) {
             );
           })}
         </ul>
+      )}
+      {mine.more && (
+        <Link
+          href={customerPath(contactId, false)}
+          className="text-primary text-xs hover:underline"
+        >
+          {t('more')}
+        </Link>
       )}
     </div>
   );

@@ -254,6 +254,20 @@ describe('revalidateTimeline', () => {
     expect(out.overflowed).toEqual([]);
   });
 
+  it('counts the details of a fetch that overflowed as not read', () => {
+    const { entry, mark } = inFlight(cached([msg('m1', 1)]));
+    let e = entry;
+    for (let i = 0; i <= TIMELINE_JOURNAL_MAX; i++)
+      e = recordTimelineEvent(e, inserted(msg(`live${i}`, 10)));
+    const out = applyTimelineDetails(e, ['m1'], { attachments: {} }, mark, [
+      'attachments',
+    ]);
+    expect(out.timeline).toBe(e.timeline);
+    expect(out.missing.attachments).toContain('m1');
+    expect(out.filesRead.has('m1')).toBe(false);
+    expect(out.flights).toEqual([]);
+  });
+
   it('drops older pages loaded before, which the page did not refresh', () => {
     const prev = cached([msg('old', 0), msg('m1', 1), msg('m2', 2)]);
     const page = { messages: [msg('m1', 1), msg('m2', 2)], hasMore: true };

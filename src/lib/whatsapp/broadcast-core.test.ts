@@ -5,6 +5,7 @@ import {
   deliverBroadcast,
   finalizeBroadcastStatus,
   reconcileBroadcastStatuses,
+  settleBroadcastAfterCorrection,
   settleBroadcastAfterLateFailure,
   BroadcastError,
   type BroadcastPlan,
@@ -34,6 +35,7 @@ vi.mock('@/lib/whatsapp/provider', () => ({
   // Every other error here stands for a refusal the gateway answered;
   // unconfirmed sends are in broadcast-delivery.test.ts.
   isDefiniteSendRefusal: () => true,
+  isGatewayUnavailable: () => false,
 }));
 // The reconcile RPC (migration 066) goes through the service-role client.
 const rpc = vi.fn<
@@ -99,6 +101,8 @@ function makeDb(
     template?: Record<string, unknown>;
     /** Contact ids whose `opted_out_at` is set (migration 076). */
     optedOut?: string[];
+    /** Contact ids whose `do_not_contact_at` is set (migration 086). */
+    doNotContact?: string[];
   } = {}
 ) {
   const calls = {
@@ -177,10 +181,8 @@ function makeDb(
         return chain;
       }
       if (table === 'contacts') {
-        // The opted-out lookup: honours the id list and the
-        // `opted_out_at IS NOT NULL` filter it is given.
+        // The consent lookup: honours the id list it is given.
         let ids: string[] = [];
-        let notNull = false;
         const chain: Record<string, unknown> = {
           select: () => chain,
           eq: () => chain,
@@ -188,15 +190,15 @@ function makeDb(
             ids = vals;
             return chain;
           },
-          not: (col: string, op: string, val: unknown) => {
-            notNull = col === 'opted_out_at' && op === 'is' && val === null;
-            return chain;
-          },
           then: (resolve: (r: { data: unknown[]; error: null }) => unknown) =>
             resolve({
-              data: ids
-                .filter((id) => !notNull || (opts.optedOut ?? []).includes(id))
-                .map((id) => ({ id })),
+              data: ids.map((id) => ({
+                id,
+                opted_out_at: opts.optedOut?.includes(id) ? '2026' : null,
+                do_not_contact_at: opts.doNotContact?.includes(id)
+                  ? '2026'
+                  : null,
+              })),
               error: null,
             }),
         };
@@ -247,6 +249,35 @@ describe('createBroadcast atomicity (#370)', () => {
         params: [],
       },
     ]);
+  });
+
+  it('asks beforeCreate right before the insert, and creates nothing when it throws', async () => {
+    const { db, calls } = makeDb({
+      data: [{ broadcast_id: 'b-1', recipient_id: 'r-1', contact_id: 'c1' }],
+      error: null,
+    });
+    const recipients = [{ to: '+14155550123' }];
+    const beforeCreate = vi.fn(async () => {
+      expect(calls.rpc).toHaveLength(0);
+    });
+    await createBroadcast(db, 'acc', 'user', {
+      templateName: 'promo',
+      recipients,
+      beforeCreate,
+    });
+    expect(beforeCreate).toHaveBeenCalledTimes(1);
+    expect(calls.rpc).toHaveLength(1);
+
+    await expect(
+      createBroadcast(db, 'acc', 'user', {
+        templateName: 'promo',
+        recipients,
+        beforeCreate: async () => {
+          throw new Error('claim lost');
+        },
+      })
+    ).rejects.toThrow('claim lost');
+    expect(calls.rpc).toHaveLength(1);
   });
 
   it('throws and leaves no orphaned parent when the atomic create fails', async () => {
@@ -395,6 +426,24 @@ describe('createBroadcast opted-out customers', () => {
     ]);
     expect(plan.skippedOptedOut).toBe(1);
     expect(plan.rejected).toBe(0);
+  });
+
+  it('plans no row for a do-not-contact customer', async () => {
+    vi.mocked(findOrCreateContact).mockImplementation(async () => ({
+      id: 'c-dnc',
+      created: false,
+    }));
+    const { db, calls } = makeDb(
+      { data: [], error: null },
+      { doNotContact: ['c-dnc'] }
+    );
+    await expect(
+      createBroadcast(db, 'acc', 'user', {
+        templateName: 'promo',
+        recipients: [{ to: '+14155550124' }],
+      })
+    ).rejects.toThrow(/do-not-contact/);
+    expect(calls.rpc).toHaveLength(0);
   });
 
   it('refuses, persisting nothing, when every recipient opted out', async () => {
@@ -677,6 +726,44 @@ describe('createBroadcast header media (Meta)', () => {
     name: 'pos_intro_offer_video',
     language: 'en',
   };
+
+  it.each([
+    ['meta', 'refused'],
+    ['whapi', 'created'],
+  ])(
+    'a template Meta refused, on a %s number: %s',
+    async (provider, outcome) => {
+      const { db, calls } = makeDb(
+        {
+          data: [
+            { broadcast_id: 'b-1', recipient_id: 'r-1', contact_id: 'c1' },
+          ],
+          error: null,
+        },
+        {
+          provider: provider as 'meta',
+          template: {
+            ...VIDEO,
+            header_type: undefined,
+            meta_template_id: null,
+            submission_error: 'Bad footer',
+          },
+        }
+      );
+      const err = await createBroadcast(db, 'acc', 'user', {
+        templateName: 'pos_intro_offer_video',
+        recipients: [{ to: '+14155550123' }],
+      }).catch((e: unknown) => e);
+
+      if (outcome === 'created') {
+        expect(err).not.toBeInstanceOf(Error);
+        return;
+      }
+      expect(err).toMatchObject({ code: 'template_refused', status: 409 });
+      expect((err as Error).message).toContain('Bad footer');
+      expect(calls.rpc).toHaveLength(0);
+    }
+  );
 
   it('refuses a media template with no media before anything is persisted', async () => {
     const { db, calls } = makeDb(
@@ -991,6 +1078,24 @@ function settleDb(
     },
   } as unknown as SupabaseClient;
 }
+
+describe('settleBroadcastAfterCorrection', () => {
+  it.each([
+    ['a corrected recipient', { pending: 0, failed: 11 }, 'sent'],
+    ['every recipient still failed', { pending: 0, failed: 12 }, undefined],
+    ['a recipient still pending', { pending: 1, failed: 10 }, undefined],
+  ])('%s', async (_name, counts, expected) => {
+    const writes = { filters: {} as Record<string, unknown> } as {
+      update?: Record<string, unknown>;
+      filters: Record<string, unknown>;
+    };
+    await settleBroadcastAfterCorrection(settleDb(counts, 12, writes), 'b-1');
+    expect(writes.update?.status).toBe(expected);
+    if (expected) {
+      expect(writes.filters).toEqual({ id: 'b-1', status: 'failed' });
+    }
+  });
+});
 
 describe('settleBroadcastAfterLateFailure', () => {
   it("fails a 'sent' campaign once every recipient has failed", async () => {

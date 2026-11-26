@@ -6,7 +6,8 @@
 // `checkTracksRequest` confines local names to `${participantId}:` and
 // remote tracks to sessions of people present in this meeting. Accepted
 // local tracks are recorded on the row (service role) so others can
-// discover them. Returns Cloudflare's JSON as is.
+// discover them. Returns Cloudflare's JSON as is, unless the seat was
+// closed meanwhile (404, and the session is cut again).
 // ============================================================
 
 import { NextResponse } from 'next/server';
@@ -21,6 +22,7 @@ import {
   readErrorResponse,
   readJson,
   requireMeetingsUser,
+  seatClosedMeanwhile,
   sfuErrorResponse,
   supabaseAdmin,
   type Params,
@@ -78,10 +80,15 @@ export async function POST(request: Request, { params }: Params) {
     try {
       answer = await newTracks(own.cf_session_id, checked.value.request);
     } catch (err) {
+      // A call that timed out may have gone through.
+      await seatClosedMeanwhile(ctx.supabase, ctx, id, own);
       const res = sfuErrorResponse(err);
       if (res) return res;
       throw err;
     }
+
+    if (await seatClosedMeanwhile(ctx.supabase, ctx, id, own))
+      return jsonError('You are not in this meeting', 404);
 
     const added = acceptedLocalTracks(checked.value.localTracks, answer);
     if (added.length > 0) {

@@ -79,7 +79,11 @@ import { AiThreadBanner, type AiBannerPatch } from './ai-thread-banner';
 import { NO_DRAFT_MEMORY, draftMemoryReducer } from '@/lib/ai/pending-draft';
 import { needsAttention } from '@/lib/inbox/attention';
 import { pageWithUnsettled, sentRowId } from '@/lib/inbox/optimistic';
-import { shouldMarkRead, startUnreadReset } from '@/lib/inbox/read-state';
+import {
+  shouldMarkRead,
+  startUnreadReset,
+  unreadResetKey,
+} from '@/lib/inbox/read-state';
 import {
   bottomGap,
   isNearBottom,
@@ -148,6 +152,7 @@ import {
   type ComposerModeState,
 } from '@/lib/inbox/composer-mode';
 import { predictSendingNumber } from '@/lib/inbox/sending-number';
+import { chatTemplateSendsFrom } from '@/lib/whatsapp/template-offer';
 import {
   latestCustomerMessage,
   mayNeedServiceWindow,
@@ -158,6 +163,13 @@ import {
 } from '@/lib/inbox/service-window';
 import { channelDisplayName } from '@/lib/whatsapp/channel-management';
 import { buildReplyPreview } from './reply-quote';
+import {
+  closeForward,
+  forwardDialogKey,
+  forwardMessage,
+  type ForwardEntry,
+} from '@/lib/inbox/forward-entry';
+import { ownReaction, rollbackReaction } from '@/lib/inbox/reaction-rollback';
 import { ForwardDialog } from './forward-dialog';
 import {
   canSendMessages,
@@ -166,24 +178,18 @@ import {
 } from '@/lib/auth/roles';
 import { renderTemplateBody } from '@/lib/whatsapp/template-body';
 import { toast } from 'sonner';
-import { assignableMembers, assignConversation } from '@/lib/inbox/assign';
+import { assignableMembers, assignFromScreen } from '@/lib/inbox/assign';
 import {
   isShareOnlyViewer,
   isSharedChatNumberRefusal,
 } from '@/lib/coordinators/ui';
 import { useInsightSettings } from '@/hooks/use-insight-settings';
 import { ReminderDialog } from './chat-reminder-button';
-import {
-  REMINDER_SUGGESTION_COLUMNS,
-  type ReminderSuggestion,
-} from '@/lib/reminders/types';
+import { useReminderSuggestions } from './use-reminder-suggestions';
 import {
   reminderNote,
   reminderTitleKey,
   suggestionActionResult,
-  withSuggestion,
-  mergeLoadedSuggestions,
-  withoutSuggestion,
   type ReminderChip,
   type SuggestionActionOutcome,
 } from '@/lib/reminders/suggestion-view';
@@ -369,9 +375,6 @@ function messagesPageQuery(conversationId: string) {
     .limit(MESSAGE_PAGE_SIZE);
 }
 
-/** No suggestions: a stable empty map for a chat not yet read. */
-const EMPTY_SUGGESTIONS: ReadonlyMap<string, ReminderSuggestion> = new Map();
-
 export function MessageThread({
   conversation,
   fullConversation = null,
@@ -433,7 +436,8 @@ export function MessageThread({
   // the layout effect can keep the same message under the reader's eye
   // instead of jumping to the bottom.
   const prependAnchorRef = useRef<{ height: number; top: number } | null>(null);
-  const [templateModalOpen, setTemplateModalOpen] = useState(false);
+  // The chat the template picker was opened for: it is closed in any other.
+  const [templatesFor, setTemplatesFor] = useState<string | null>(null);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   // Until then a bubble from someone else waits for their name rather
   // than call them unknown (lib/inbox/sender.ts).
@@ -468,10 +472,8 @@ export function MessageThread({
   const [replyTo, setReplyTo] = useState<ReplyDraft | null>(null);
   // The message the Forward dialog is open for. Paired with its
   // conversation like `openMedia` below, so switching threads closes it.
-  const [forwarding, setForwarding] = useState<{
-    conversationId: string;
-    message: Message;
-  } | null>(null);
+  const [forwarding, setForwarding] = useState<ForwardEntry | null>(null);
+  const forwardSeqRef = useRef(0);
   // Which attachment the media viewer is showing. Lives here rather than in
   // the bubble so the viewer can page through every image/video in the
   // thread (issue #373). Paired with the conversation it belongs to and read
@@ -675,7 +677,7 @@ export function MessageThread({
   const conversationId = conversation?.id;
   const threadKnown = isKnown(threadLoad, conversationId);
   const threadFailed = isFailed(threadLoad, conversationId);
-  const hasUnread = (conversation?.unread_count ?? 0) > 0;
+  const unreadKey = unreadResetKey(conversation ?? null);
   const hasOlder =
     !!conversationId &&
     olderState?.conversationId === conversationId &&
@@ -935,7 +937,7 @@ export function MessageThread({
   // Fetch the latest page whenever the selected conversation changes.
   // Kept separate from the unread-reset effect so that incoming messages
   // arriving while the thread is open don't trigger a full refetch —
-  // they only flip hasUnread, which only the reset effect listens to.
+  // they only change unreadKey, which only the reset effect listens to.
   //
   // One page, not the whole history: a long-running customer thread was
   // thousands of rows on the critical path of opening it. Reactions come
@@ -1160,9 +1162,8 @@ export function MessageThread({
   // names a later time. Only while the account's switch is on and Jev
   // can run, and only for someone who could file the task from the
   // header's "Remind me" (agent and up, not a share-only coordinator).
-  // Kept with the chat it was read for, so a late answer for the chat
-  // left behind shows nothing. Never in client-cache / session-cache.
   const tReminder = useTranslations('Inbox.reminderSuggestion');
+  const tRows = useTranslations('InboxRows');
   const { settings: insightSettings, available: insightsAvailable } =
     useInsightSettings();
   const reminderChipsOn =
@@ -1174,104 +1175,11 @@ export function MessageThread({
       conversation &&
       isShareOnlyViewer(accountRole, viewerId, conversation, !!sharedBank)
     );
-  const [reminderState, setReminderState] = useState<{
-    conversationId: string | undefined;
-    map: ReadonlyMap<string, ReminderSuggestion>;
-    /** Date.now() when the map last changed: the chips' "now". */
-    at: number;
-  }>(() => ({ conversationId: undefined, map: new Map(), at: 0 }));
-  const suggestionsByMessageId =
-    reminderState.conversationId === conversationId
-      ? reminderState.map
-      : EMPTY_SUGGESTIONS;
-
-  useEffect(() => {
-    if (!conversationId || !reminderChipsOn) return;
-    let live = true;
-    // A failed read is no chips, never an error.
-    void createClient()
-      .from('message_reminder_suggestions')
-      .select(REMINDER_SUGGESTION_COLUMNS)
-      .eq('conversation_id', conversationId)
-      .order('created_at', { ascending: false })
-      .limit(200)
-      .then(
-        ({ data, error }) => {
-          if (!live || error || !Array.isArray(data)) return;
-          // Newest first: the first row read for a message wins.
-          const map = new Map<string, ReminderSuggestion>();
-          for (const row of data as unknown as ReminderSuggestion[]) {
-            if (!map.has(row.message_id)) map.set(row.message_id, row);
-          }
-          // Realtime may have delivered rows while the read was in
-          // flight; they are newer than the read, so they win.
-          const at = Date.now();
-          setReminderState((prev) => ({
-            conversationId,
-            map: mergeLoadedSuggestions(
-              map,
-              prev.conversationId === conversationId ? prev.map : new Map()
-            ),
-            at,
-          }));
-        },
-        () => {}
-      );
-    return () => {
-      live = false;
-    };
-  }, [conversationId, reminderChipsOn]);
-
-  // "Now" for the chips only moved when the map did, so a chat left
-  // open showed "Today 15:00" at 16:00. While any suggestion is held,
-  // tick it every minute (rows without one never receive it).
-  const hasSuggestions = suggestionsByMessageId.size > 0;
-  useEffect(() => {
-    if (!hasSuggestions) return;
-    const timer = setInterval(
-      () => setReminderState((prev) => ({ ...prev, at: Date.now() })),
-      60_000
-    );
-    return () => clearInterval(timer);
-  }, [hasSuggestions, conversationId]);
-
-  useEffect(() => {
-    if (!conversationId || !reminderChipsOn) return;
-    const supabase = createClient();
-    const channel = supabase
-      .channel(`reminder-suggestions:${conversationId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'message_reminder_suggestions',
-          filter: `conversation_id=eq.${conversationId}`,
-        },
-        (payload) => {
-          const at = Date.now();
-          setReminderState((prev) => {
-            const base =
-              prev.conversationId === conversationId
-                ? prev.map
-                : EMPTY_SUGGESTIONS;
-            if (payload.eventType === 'DELETE') {
-              const id = (payload.old as { id?: string } | null)?.id;
-              return id
-                ? { conversationId, map: withoutSuggestion(base, id), at }
-                : prev;
-            }
-            const row = payload.new as ReminderSuggestion;
-            if (row.conversation_id !== conversationId) return prev;
-            return { conversationId, map: withSuggestion(base, row), at };
-          });
-        }
-      )
-      .subscribe();
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [conversationId, reminderChipsOn]);
+  const {
+    byMessageId: suggestionsByMessageId,
+    at: suggestionsAt,
+    merge: mergeSuggestion,
+  } = useReminderSuggestions(conversationId, reminderChipsOn);
 
   /** POST an action; merges the row it answers with (a 409 silently). */
   const postReminderAction = useCallback(
@@ -1295,21 +1203,10 @@ export function MessageThread({
         res?.status ?? null,
         json
       );
-      if (suggestion) {
-        const at = Date.now();
-        setReminderState((prev) =>
-          prev.conversationId === suggestion.conversation_id
-            ? {
-                conversationId: prev.conversationId,
-                map: withSuggestion(prev.map, suggestion),
-                at,
-              }
-            : prev
-        );
-      }
+      if (suggestion) mergeSuggestion(suggestion);
       return outcome;
     },
-    []
+    [mergeSuggestion]
   );
 
   const [addingReminder, setAddingReminder] = useState<{
@@ -1319,8 +1216,11 @@ export function MessageThread({
   } | null>(null);
   // The dialog unmounts with the chat, not through onClose: drop the
   // prefill so it does not pop up again on returning.
+  // The Forward dialog likewise.
   useEffect(() => {
     setAddingReminder(null);
+    setForwarding(null);
+    setTemplatesFor(null);
   }, [conversationId]);
 
   const handleAddReminder = useCallback(
@@ -1465,7 +1365,7 @@ export function MessageThread({
   // unread_count to N+1; the realtime UPDATE propagates it into the
   // client, which re-runs this effect and flips it back to 0).
   //
-  // Guarding on hasUnread prevents the eq-update loop: once unread_count
+  // Guarding on unreadKey prevents the eq-update loop: once unread_count
   // is 0 the condition is false, so no further UPDATE is issued.
   //
   // Only while the tab is on screen, and again when it comes back. A
@@ -1473,7 +1373,7 @@ export function MessageThread({
   // the tokens) or the next time the tab is shown.
   const pageVisible = usePageVisible();
   useEffect(() => {
-    if (!shouldMarkRead({ conversationId, hasUnread, visible: pageVisible })) {
+    if (!shouldMarkRead({ conversationId, unreadKey, visible: pageVisible })) {
       return;
     }
     return startUnreadReset(async () => {
@@ -1484,7 +1384,7 @@ export function MessageThread({
       if (error) console.error('Failed to reset unread_count:', error);
       return !error;
     });
-  }, [conversationId, hasUnread, pageVisible, resyncToken, deltaSyncToken]);
+  }, [conversationId, unreadKey, pageVisible, resyncToken, deltaSyncToken]);
 
   // Where the reader last left the thread, in pixels above its end. Read
   // from scroll events, so content growing under someone at the bottom
@@ -1631,10 +1531,11 @@ export function MessageThread({
   const deliver = useCallback(
     async (attempt: SendAttempt) => {
       const { message } = attempt;
-      const toastPrefix =
-        message.content_type === 'template'
-          ? 'Failed to send template'
-          : 'Failed to send';
+      const failedTitle = (reason: string) =>
+        tFailedSend(
+          message.content_type === 'template' ? 'toastTemplate' : 'toast',
+          { reason }
+        );
       const startsChat = outreachStartingRef.current;
 
       const conversationId = message.conversation_id;
@@ -1703,7 +1604,7 @@ export function MessageThread({
         const kind = thrownSendKind(offlineBefore, isOffline());
         const reason = tFailedSend(kind === 'offline' ? 'offline' : 'noAnswer');
         toast.error(
-          `${toastPrefix}: ${reason}`,
+          failedTitle(reason),
           kind === 'maybe'
             ? { description: tFailedSend('maybeSent') }
             : undefined
@@ -1754,7 +1655,7 @@ export function MessageThread({
         setOutreachRefresh((k) => k + 1);
       } else {
         toast.error(
-          `${toastPrefix}: ${reason}`,
+          failedTitle(reason),
           shouldWarnMaybeSent(res.status, payload)
             ? { description: tFailedSend('maybeSent') }
             : undefined
@@ -1936,8 +1837,8 @@ export function MessageThread({
   );
 
   const handleOpenTemplates = useCallback(() => {
-    setTemplateModalOpen(true);
-  }, []);
+    setTemplatesFor(conversationId ?? null);
+  }, [conversationId]);
 
   const handleSendTemplate = useCallback(
     async (
@@ -1971,6 +1872,7 @@ export function MessageThread({
           message_type: 'template',
           template_name: template.name,
           template_language: template.language,
+          template_id: template.id,
           // Structured params drive the new send-builder path
           // (header media + URL button substitution). Body values
           // are mirrored under both shapes so the route can fall
@@ -2073,24 +1975,20 @@ export function MessageThread({
         return;
       }
       if (messageId.startsWith('temp-')) {
-        toast.error('Wait for the message to finish sending');
+        toast.error(t('reactionWait'));
         return;
       }
 
       const convId = conversationId;
       const userId = user.id;
-      let snapshot: MessageReaction[] = [];
+      let before: MessageReaction | undefined;
 
       // Functional updater — captures the freshest reactions list, never a
-      // stale closure. Snapshot stored for rollback on POST failure.
+      // stale closure. What this person had before is kept for rollback
+      // on POST failure (lib/inbox/reaction-rollback.ts).
       setReactions((prev) => {
-        snapshot = prev;
-        const own = prev.find(
-          (r) =>
-            r.message_id === messageId &&
-            r.actor_type === 'agent' &&
-            r.actor_id === userId
-        );
+        const own = ownReaction(prev, messageId, userId);
+        before = own;
         if (emoji === '') return own ? prev.filter((r) => r !== own) : prev;
         if (own) return prev.map((r) => (r === own ? { ...own, emoji } : r));
         return [
@@ -2118,22 +2016,35 @@ export function MessageThread({
           throw new Error(payload?.error || `HTTP ${res.status}`);
         }
       } catch (err) {
-        const reason = err instanceof Error ? err.message : 'network error';
-        toast.error(`Reaction failed: ${reason}`);
-        setReactions(snapshot);
+        const reason =
+          err instanceof Error ? err.message : t('reactionNetworkError');
+        toast.error(t('reactionFailed', { reason }));
+        setReactions((prev) =>
+          rollbackReaction(
+            prev,
+            { conversationId: convId, messageId, userId, emoji, before },
+            conversationIdRef.current
+          )
+        );
       }
     },
     // Keyed on the id, not the conversation object: every realtime patch
     // to the conversation replaces the object, and a new identity here
     // would re-render every memoised bubble.
-    [conversationId, user?.id]
+    [conversationId, user?.id, t]
   );
 
   // Stable Forward opener for the memoised rows.
   const handleForward = useCallback(
     (message: Message) => {
       if (!conversationId) return;
-      setForwarding({ conversationId, message });
+      forwardSeqRef.current += 1;
+      setForwarding({
+        id: forwardSeqRef.current,
+        conversationId,
+        message,
+        open: true,
+      });
     },
     [conversationId]
   );
@@ -2208,25 +2119,37 @@ export function MessageThread({
     [profiles]
   );
 
+  // The chat on screen, for an answer that lands after a switch.
+  const openConversationIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    openConversationIdRef.current = conversation?.id ?? null;
+    return () => {
+      openConversationIdRef.current = null;
+    };
+  }, [conversation?.id]);
+
   const handleAssignChange = useCallback(
-    async (agentId: string | null) => {
+    async (
+      agentId: string | null,
+      expected: string | null,
+      askAgain: () => boolean,
+      customer: string
+    ) => {
       if (!conversation) return;
-
-      const result = await assignConversation(
+      const id = conversation.id;
+      await assignFromScreen(
         createClient(),
-        conversation.id,
-        agentId
+        { conversationId: id, expected, userId: agentId },
+        {
+          patch: onAssignChange,
+          // The question is about the chat it was asked on: once the
+          // agent has opened another, say it did not happen instead.
+          askAgain: () => openConversationIdRef.current === id && askAgain(),
+          fail: (key) => toast.error(tRows(key, { customer })),
+        }
       );
-
-      if (!result.ok) {
-        console.error('Failed to update assignment:', result.error);
-        toast.error('Failed to update assignment');
-        return;
-      }
-
-      onAssignChange(conversation.id, agentId);
     },
-    [conversation, onAssignChange]
+    [conversation, onAssignChange, tRows]
   );
 
   // Empty state — WhatsApp's plain intro panel rather than the chat
@@ -2259,6 +2182,7 @@ export function MessageThread({
       visibleMessages.length > 0 ||
       threadEvents.length > 0 ||
       failedHere.length > 0,
+    unconfirmed: !fullConversation && !fullRowFailed,
   });
   // This chat's "N unread messages" divider, if it was opened unread.
   const unreadDivider =
@@ -2568,7 +2492,7 @@ export function MessageThread({
                           }
                           reminderNowMs={
                             suggestionsByMessageId.has(msg.id)
-                              ? reminderState.at
+                              ? suggestionsAt
                               : undefined
                           }
                         />
@@ -2763,14 +2687,15 @@ export function MessageThread({
         </div>
 
         <ForwardDialog
-          message={
-            forwarding?.conversationId === conversation.id
-              ? forwarding.message
-              : null
-          }
+          key={forwardDialogKey(forwarding, conversation.id)}
+          message={forwardMessage(forwarding, conversation.id)}
           authorLabel={forwarding ? authorLabelFor(forwarding.message) : ''}
           sourceConversationId={conversation.id}
-          onClose={() => setForwarding(null)}
+          onClose={() => {
+            // This render's opening: a send may outlive it.
+            const id = forwarding?.id;
+            if (id !== undefined) setForwarding((f) => closeForward(f, id));
+          }}
         />
 
         {/* A reminder suggestion being added: the header's dialog,
@@ -2805,8 +2730,21 @@ export function MessageThread({
           )}
 
         <TemplatePicker
-          open={templateModalOpen}
-          onOpenChange={setTemplateModalOpen}
+          // Its picked template and values are this chat's.
+          key={conversation.id}
+          open={templatesFor === conversation.id}
+          onOpenChange={(open) =>
+            setTemplatesFor(open ? conversation.id : null)
+          }
+          sendsFrom={
+            conversation
+              ? chatTemplateSendsFrom(
+                  accountNumbers,
+                  conversation,
+                  lastCustomer
+                )
+              : 'unknown'
+          }
           onSelect={handleSendTemplate}
         />
 

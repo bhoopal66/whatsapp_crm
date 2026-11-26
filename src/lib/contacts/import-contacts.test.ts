@@ -17,21 +17,59 @@ const file = (list: ParsedContactRow[]) => ({
 });
 
 describe('planImport', () => {
-  it('asks only about the file, 200 numbers at a time, past 1,000', async () => {
+  it('asks only about the file, every stored form, 200 keys at a time, 4 at once', async () => {
     const asked: number[] = [];
+    let inFlight = 0;
+    let peak = 0;
     const plan = await planImport(file(rows(1250)), async (chunk) => {
       asked.push(chunk.length);
-      // Everything from 1,100 up already exists.
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      await new Promise((r) => setTimeout(r, 1));
+      inFlight--;
+      // Everything from 1,100 up already exists, in its exact form.
       return {
         data: chunk
-          .filter((p) => Number(p.slice(5)) >= 1001100)
+          .filter((p) => p.startsWith('971') && Number(p.slice(5)) >= 1001100)
           .map((phone_normalized) => ({ phone_normalized })),
         error: null,
       };
     });
-    expect(asked).toEqual([200, 200, 200, 200, 200, 200, 50]);
+    // 1,250 numbers, six forms each.
+    expect(asked.reduce((a, b) => a + b, 0)).toBe(1250 * 6);
+    expect(Math.max(...asked)).toBe(200);
+    expect(peak).toBe(4);
     expect(plan.toInsert).toHaveLength(1100);
     expect(plan.alreadyThere).toBe(150);
+    expect(plan.savedElsewhere).toEqual([]);
+  });
+
+  it('counts a customer saved in local form as already there', async () => {
+    const plan = await planImport(
+      file([
+        { phone: '+971 50 123 0043', values: {}, line: 2 },
+        { phone: '+971 50 123 0044', values: {}, line: 3 },
+        { phone: '+966 50 123 0045', values: {}, line: 4 },
+      ]),
+      async () => ({
+        // Two rows match the first number; Saudi 0501230045 is not it.
+        data: [
+          { phone_normalized: '0501230043' },
+          { phone_normalized: '501230043' },
+          { phone_normalized: '0501230045' },
+        ],
+        error: null,
+      })
+    );
+    expect(plan.alreadyThere).toBe(1);
+    expect(plan.savedElsewhere).toMatchObject([
+      { line: 2, phone: '971501230043' },
+    ]);
+    expect(['0501230043', '501230043']).toContain(
+      plan.savedElsewhere[0].savedAs
+    );
+    expect(plan.toInsert.map((r) => r.line)).toEqual([3, 4]);
+    expect(plan.problems).toEqual([]);
   });
 
   it('matches however the number is typed, and counts repeats', async () => {
@@ -64,6 +102,21 @@ describe('planImport', () => {
       [3, 'phone'],
       [5, 'unreadable'],
     ]);
+  });
+
+  it('carries the phone rule code so the screen can translate it', async () => {
+    const plan = await planImport(
+      {
+        rows: [{ phone: '12', values: {}, line: 3 }],
+        badLines: [],
+        noPhoneLines: [],
+      },
+      async () => ({ data: [], error: null })
+    );
+    expect(plan.problems[0]).toMatchObject({
+      reason: 'phone',
+      phoneReason: 'too_short',
+    });
   });
 
   it('does not call numbers new when the read failed', async () => {

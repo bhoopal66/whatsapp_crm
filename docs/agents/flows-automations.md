@@ -10,12 +10,19 @@ Two independent engines, deliberately kept apart:
   partial unique index for one active run per contact). Abandoned runs are swept
   by `GET /api/flows/cron`.
 - `lib/automations/*` — stateless trigger → steps rules (keyword, chat
-  tag, inbound message, schedule). Scheduled work runs via `GET /api/automations/cron`.
+  tag, inbound message, button reply, meaning). `time_based` and
+  `conversation_assigned` are never dispatched (`triggerRuns`): they are
+  disabled in the builder and refused on activation. Parked waits resume
+  via `GET /api/automations/cron`.
   A wait suspends the whole run and parks it by the wait's step id
   (`wait_step_id`, 269), so saving must keep step ids: only
   `automation_save` writes the steps of an existing automation. Every read
   a resumed run starts from happens before its first step; only those are
   retried. A step runs at most once per run.
+
+Only `flow_save` (300) writes an existing flow's nodes: one transaction, the
+caller's own rights, a version of `edited_at ?? created_at` (a counted run or a
+status change is nobody's edit). A live flow is validated before it is saved.
 
 A flow's `fallback_policy.on_unknown_reply` (JSONB, resolved in
 `lib/flows/fallback.ts`) decides what an off-script reply does: reprompt,
@@ -69,3 +76,12 @@ Cron / GitHub Actions / any pinger):
   `creating`, and stale invite claims.
 - `GET /api/pbx/cron` (migration 089) — recordings, call-backs, event
   retries, purge.
+
+- **Only in a sales chat.** `salesChatOnce` (`lib/ai/not-sales-chat.ts`) is
+  one lazy decision per inbound message, passed as `salesChat` to Flows,
+  journeys, automations and the AI reply. Not a sales chat, or unreadable:
+  no flow or journey takes the message and message steps are skipped
+  (`sales_answers_off` carries that across a wait); internal steps run, except
+  `assign_conversation` and campaign rotation (who holds a chat may read
+  it). A
+  new customer-facing dispatcher takes the check too.

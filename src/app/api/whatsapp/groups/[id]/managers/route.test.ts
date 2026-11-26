@@ -15,6 +15,11 @@ const mocks = vi.hoisted(() => ({
   admin: null as unknown as FakeDb,
 }));
 
+// `loadGroupForCaller` asks whether the row mirrors a submission group
+// (299); server.load-group.test.ts pins its answers.
+vi.mock('@/lib/groups/submission-ids', () => ({
+  submissionGroupIds: async () => new Set<string>(),
+}));
 vi.mock('@/lib/auth/account', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/auth/account')>()),
   getCurrentAccount: mocks.getCurrentAccount,
@@ -35,6 +40,8 @@ vi.mock('@/lib/groups/server', async (importOriginal) => ({
   persistGroupSnapshot: mocks.persistGroupSnapshot,
 }));
 
+import { __resetRateLimitForTests } from '@/lib/rate-limit';
+import { addBudget } from '@/lib/groups/add-budget';
 import { GET, PUT } from './route';
 
 const G = '22222222-2222-4222-8222-222222222222';
@@ -60,6 +67,7 @@ const managerIds = () =>
 
 beforeEach(() => {
   vi.clearAllMocks();
+  __resetRateLimitForTests();
   vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'http://supabase.test');
   vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'service-key');
   vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -221,6 +229,27 @@ describe('PUT', () => {
     expect(managerIds()).toEqual([CREATOR, U1].sort());
   });
 
+  it('keeps a colleague added since the tab loaded its base', async () => {
+    mocks.admin.tables.whatsapp_group_managers.push({
+      group_id: G,
+      account_id: 'acct-1',
+      user_id: U2,
+    });
+    const res = await put({ userIds: [], base: [U1] });
+    expect(res.status).toBe(200);
+    expect(managerIds()).toEqual([CREATOR, U2].sort());
+  });
+
+  it('does not bring back a manager a colleague removed since', async () => {
+    mocks.admin.tables.whatsapp_group_managers.pop();
+    expect((await put({ userIds: [U1, U2], base: [U1] })).status).toBe(200);
+    expect(managerIds()).toEqual([CREATOR, U2].sort());
+  });
+
+  it('refuses a base that is not ids', async () => {
+    expect((await put({ userIds: [U1], base: ['me'] })).status).toBe(400);
+  });
+
   it('drops a manager who was deactivated since, instead of refusing', async () => {
     mocks.admin.tables.profiles.find((p) => p.user_id === U1)!.deactivated_at =
       '2026-11-01T00:00:00Z';
@@ -256,6 +285,13 @@ describe('PUT: manager numbers follow the managers', () => {
     [U2]: '+971 50 000 0002',
     [CREATOR]: null,
   };
+  const live = (args: Record<string, unknown>) =>
+    mocks.admin.tables.profiles.some(
+      (p) =>
+        p.user_id === args.p_user &&
+        !p.deactivated_at &&
+        ['agent', 'team_leader'].includes(String(p.account_role))
+    );
   beforeEach(() => {
     mocks.rls.tables.whatsapp_groups[0] = {
       ...mocks.rls.tables.whatsapp_groups[0],
@@ -264,7 +300,12 @@ describe('PUT: manager numbers follow the managers', () => {
       our_role: 'admin',
     };
     mocks.admin.rpc = {
+      // Live agents and leaders only, like 219.
       staff_saved_phone: (args) => ({
+        data: live(args) ? (PHONES[String(args.p_user)] ?? null) : null,
+      }),
+      // Whatever the person is now (299).
+      staff_removal_phone: (args) => ({
         data: PHONES[String(args.p_user)] ?? null,
       }),
     };
@@ -297,7 +338,41 @@ describe('PUT: manager numbers follow the managers', () => {
     });
   });
 
-  it('does nothing at WhatsApp for people with no saved number', async () => {
+  it.each([
+    { deactivated_at: '2026-11-01T00:00:00Z' },
+    { account_role: 'viewer' },
+  ])('removes the number of a dropped manager who is now %o', async (now) => {
+    Object.assign(
+      mocks.admin.tables.profiles.find((p) => p.user_id === U1)!,
+      now
+    );
+    const res = await put({ userIds: [U2] });
+    expect(res.status).toBe(200);
+    expect(mocks.removeParticipants.mock.calls[0][0]).toMatchObject({
+      participants: ['971500000001'],
+    });
+    expect((await res.json()).numbers).toEqual({
+      added: ['Ugo'],
+      removed: ['Uma'],
+      failed: [],
+    });
+  });
+
+  it('never adds by the removal number: an admin sends from the app', async () => {
+    mocks.admin.tables.profiles.find((p) => p.user_id === U2)!.account_role =
+      'admin';
+    const res = await put({ userIds: [U1, U2] });
+    expect(res.status).toBe(200);
+    expect(managerIds()).toEqual([CREATOR, U1, U2].sort());
+    expect(mocks.addParticipants).not.toHaveBeenCalled();
+    expect((await res.json()).numbers).toEqual({
+      added: [],
+      removed: [],
+      failed: [],
+    });
+  });
+
+  it('says so when it has no number to remove, and does nothing at WhatsApp', async () => {
     PHONES[U2] = null;
     PHONES[U1] = null;
     try {
@@ -308,7 +383,7 @@ describe('PUT: manager numbers follow the managers', () => {
       expect((await res.json()).numbers).toEqual({
         added: [],
         removed: [],
-        failed: [],
+        failed: [{ name: 'Uma', reason: 'no_saved_number' }],
       });
     } finally {
       PHONES[U1] = '971500000001';
@@ -326,6 +401,15 @@ describe('PUT: manager numbers follow the managers', () => {
       removed: [],
       failed: [{ name: 'Ugo', reason: 'unavailable' }],
     });
+  });
+
+  it('adds no number past the hourly add limit', async () => {
+    addBudget('admin-1', CH).spend(60);
+    const res = await put({ userIds: [U1, U2] });
+    expect((await res.json()).numbers.failed).toEqual([
+      { name: 'Ugo', reason: 'too_many_adds' },
+    ]);
+    expect(mocks.addParticipants).not.toHaveBeenCalled();
   });
 
   it('reports a refused add so the invite link can be shared', async () => {

@@ -17,7 +17,7 @@ const h = vi.hoisted(() => ({
     rpcCalls: [] as { fn: string; params: unknown }[],
     // resolve_chat_deal_owner's answer, and the profiles it maps to.
     dealOwnerRpc: { data: null, error: null } as { data: unknown; error: unknown },
-    profiles: [] as { id: string; user_id: string; account_id: string }[],
+    profiles: [] as { id: string; user_id: string; account_id: string; account_role?: string }[],
     // chat_channels rows, and chat_post_system_message's answer.
     chatChannels: [] as Record<string, unknown>[],
     chatPostRpc: { data: "msg-1", error: null } as { data: unknown; error: unknown },
@@ -125,13 +125,13 @@ vi.mock("./admin-client", () => {
     if (table === "conversations" && type === "select") {
       state.convSelects.push(ops.filters);
       // Honour every eq() filter, like PostgREST would.
-      const row = state.conversations.find((c) =>
+      const rows = state.conversations.filter((c) =>
         ops.filters.every(
           ([op, k, v]) =>
             op !== "eq" || (c as Record<string, unknown>)[k] === v
         )
       );
-      return { data: row ?? null, error: null };
+      return { data: ops.many ? rows : (rows[0] ?? null), error: null };
     }
     return { data: null, error: null };
   }
@@ -153,6 +153,7 @@ vi.mock("./admin-client", () => {
       upsert: (p: unknown) => ((ops.type = "upsert"), (ops.payload = p), b),
       eq: (k: string, v: unknown) => (ops.filters.push(["eq", k, v]), b),
       gte: () => b,
+      in: () => b,
       is: (k: string, v: unknown) => (ops.filters.push(["is", k, v]), b),
       order: () => b,
       limit: () => b,
@@ -194,7 +195,7 @@ vi.mock("@/lib/chat-tags/server", () => ({
   writeConversationChatTags: h.writeChatTags,
 }));
 
-vi.mock("./meta-send", () => ({
+vi.mock("./channel-send", () => ({
   engineSendText: vi.fn(async () => ({ whatsapp_message_id: "m1" })),
   engineSendTemplate: vi.fn(async () => ({ whatsapp_message_id: "m1" })),
   engineSendInteractive: vi.fn(async () => ({ whatsapp_message_id: "m1" })),
@@ -221,6 +222,7 @@ import {
   runAutomationsForTrigger,
   triggerMatches,
 } from "./engine";
+import { engineSendText } from "./channel-send";
 import { safeFetch } from "@/lib/webhooks/ssrf";
 import type { Automation, KeywordMatchTriggerConfig } from "@/types";
 
@@ -366,12 +368,31 @@ describe("runAutomationsForTrigger — intent_match", () => {
     ).toEqual(["a3"]);
   });
 
-  it("reports whether anything executed", async () => {
+  // What the AI stands down for: a customer who was answered.
+  it("reports whether the customer was sent something", async () => {
     h.state.automations = [intentAutomation("a1")];
+    h.state.conversations = [
+      { id: "cv-1", account_id: ACCOUNT, contact_id: "c1" },
+    ];
+    const context = {
+      message_text: "x",
+      message_id: "wamid.1",
+      conversation_id: "cv-1",
+    };
     judge.mockResolvedValue(new Map([["automation:a1", 0.9]]));
-    expect(await run({ message_text: "x", message_id: "wamid.1" })).toBe(true);
+    // Only changed a field.
+    expect(await run(context)).toBe(false);
+
+    h.state.steps = [
+      { ...updateStep(), step_type: "send_message", step_config: { text: "Hi" } },
+    ];
+    expect(await run(context)).toBe(true);
+
+    vi.mocked(engineSendText).mockRejectedValueOnce(new Error("refused"));
+    expect(await run(context)).toBe(false);
+
     judge.mockResolvedValue(new Map());
-    expect(await run({ message_text: "x", message_id: "wamid.2" })).toBe(false);
+    expect(await run({ ...context, message_id: "wamid.2" })).toBe(false);
   });
 
   it("skips an automation whose stored config is invalid", async () => {
@@ -463,7 +484,10 @@ describe("company chat only", () => {
     h.state.owned = { id: "c1" };
     h.state.automations = [automationWithUpdateStep()];
     h.state.steps = [{ ...updateStep(), step_type, step_config }];
-    h.state.profiles = [{ id: "p1", user_id: "owner-1", account_id: ACCOUNT }];
+    h.state.profiles = [
+      { id: "p1", user_id: "owner-1", account_id: ACCOUNT },
+      { id: "p2", user_id: "a", account_id: ACCOUNT, account_role: "agent" },
+    ];
     await runAutomationsForTrigger({
       accountId: ACCOUNT,
       triggerType: "new_message_received",
@@ -580,6 +604,9 @@ describe("assign_conversation — the rotation engine decides (migration 236)", 
   });
 
   it("a named person still takes the chat", async () => {
+    h.state.profiles = [
+      { id: "p1", user_id: "agent-1", account_id: ACCOUNT, account_role: "agent" },
+    ];
     const { writes, rotations } = await run({ mode: "specific", agent_id: "agent-1" });
     expect(rotations).toEqual([]);
     expect(writes).toHaveLength(1);

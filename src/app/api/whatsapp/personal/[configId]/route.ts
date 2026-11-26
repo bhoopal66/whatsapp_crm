@@ -5,6 +5,7 @@ import {
   disconnectOpenWANumber,
   loadOpenWARow,
 } from '@/lib/whatsapp/openwa-number';
+import { wantsForce } from '@/lib/whatsapp/waiting-messages';
 import { personalNumbersAdmin } from '@/lib/whatsapp/personal-numbers';
 
 /**
@@ -17,7 +18,7 @@ import { personalNumbersAdmin } from '@/lib/whatsapp/personal-numbers';
  * Admins remove anyone's through `/api/whatsapp/config/openwa/[id]`.
  */
 export async function DELETE(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ configId: string }> }
 ) {
   let ctx;
@@ -29,13 +30,24 @@ export async function DELETE(
   const { configId } = await context.params;
 
   const db = personalNumbersAdmin();
-  const row = await loadOpenWARow(db, {
-    accountId: ctx.accountId,
-    configId,
-    ownerId: ctx.userId,
-  });
+  let row;
+  try {
+    row = await loadOpenWARow(db, {
+      accountId: ctx.accountId,
+      configId,
+      ownerId: ctx.userId,
+    });
+  } catch (err) {
+    console.error('Error loading OpenWA number:', err);
+    return NextResponse.json(
+      { error: 'Failed to read the number' },
+      { status: 500 }
+    );
+  }
   if (!row) {
     return NextResponse.json({ error: 'Number not found' }, { status: 404 });
   }
-  return disconnectOpenWANumber(db, ctx.accountId, row);
+  return disconnectOpenWANumber(db, ctx.accountId, row, {
+    force: wantsForce(request),
+  });
 }

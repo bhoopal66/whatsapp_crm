@@ -1,7 +1,8 @@
 // ============================================================
 // PUT /api/meetings/[id]/sfu/renegotiate — proxy Cloudflare
 // renegotiate on the caller's own session.
-// Body `{ participantId, sessionDescription }`.
+// Body `{ participantId, sessionDescription }`. A seat closed meanwhile
+// answers 404 and its session is cut again.
 // ============================================================
 
 import { NextResponse } from 'next/server';
@@ -15,6 +16,7 @@ import {
   readErrorResponse,
   readJson,
   requireMeetingsUser,
+  seatClosedMeanwhile,
   sfuErrorResponse,
   type Params,
 } from '@/lib/meetings/server';
@@ -48,15 +50,19 @@ export async function PUT(request: Request, { params }: Params) {
     if (!own || own.left_at)
       return jsonError('You are not in this meeting', 404);
 
+    let answer;
     try {
-      return NextResponse.json(
-        await renegotiate(own.cf_session_id, body.sessionDescription)
-      );
+      answer = await renegotiate(own.cf_session_id, body.sessionDescription);
     } catch (err) {
+      // A call that timed out may have gone through.
+      await seatClosedMeanwhile(ctx.supabase, ctx, id, own);
       const res = sfuErrorResponse(err);
       if (res) return res;
       throw err;
     }
+    if (await seatClosedMeanwhile(ctx.supabase, ctx, id, own))
+      return jsonError('You are not in this meeting', 404);
+    return NextResponse.json(answer);
   } catch (err) {
     return toErrorResponse(err);
   }

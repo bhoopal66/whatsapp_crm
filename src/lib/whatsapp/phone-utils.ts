@@ -1,3 +1,5 @@
+import { latinDigits } from '@/lib/contacts/digits'
+
 /**
  * Sanitize phone number for Meta WhatsApp API.
  * Meta requires digits only — no + prefix, no spaces, no dashes.
@@ -5,7 +7,7 @@
  */
 export function sanitizePhoneForMeta(phone: string): string {
   if (!phone) return ''
-  return phone.replace(/\D/g, '')
+  return latinDigits(phone).replace(/\D/g, '')
 }
 
 /**
@@ -14,7 +16,7 @@ export function sanitizePhoneForMeta(phone: string): string {
  */
 export function normalizePhone(phone: string): string {
   if (!phone) return ''
-  return phone.replace(/\D/g, '')
+  return latinDigits(phone).replace(/\D/g, '')
 }
 
 /**

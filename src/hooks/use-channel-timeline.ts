@@ -24,9 +24,9 @@ import {
 } from '@/lib/chat';
 import {
   applyOlderPage,
-  applyTimelineDetails,
   beginTimelineFetch,
   endTimelineFetch,
+  missingFiles,
   placeholderTimeline,
   recordTimelineEvent,
   revalidateTimeline,
@@ -38,6 +38,10 @@ import {
   type TimelineEvent,
 } from '@/lib/chat/timeline-cache';
 import {
+  createDetailLoader,
+  type ReadDetail,
+} from '@/lib/chat/timeline-details';
+import {
   prefetchSession,
   sessionCache,
   type SessionKey,
@@ -46,23 +50,36 @@ import type { ChatWorkspace } from '@/hooks/use-chat-workspace';
 
 const PAGE_SIZE = 50;
 
+/** The mark each newest page now being read began at. */
+const pageReads = new Map<SessionKey, number>();
+
+/**
+ * Realtime was down, or nobody listened: a page read begun before now is
+ * not whole, whenever it lands, so nothing joins it any more.
+ */
+export function timelineGap(): void {
+  pageReads.clear();
+}
+
 /**
  * Fetch a channel's newest page (rows only) into its cache entry. The
  * fetch is opened on the entry (a placeholder when there is none, so
  * realtime events land in it meanwhile) and the page is merged into the
  * entry as it is when the page lands, with the events recorded during
  * the flight replayed over it. Shared by the sidebar's hover prefetch
- * and the timeline itself (prefetchSession joins a fetch already in
- * flight, so a hover is not repeated).
+ * and the timeline itself, which joins one in flight (a hover is not
+ * repeated) unless it began before a gap or `force` asks for one begun
+ * now. Never joining is how a catch-up is sure to cover its gap.
  */
 export function fetchTimelineFirstPage(
   sb: SupabaseClient,
   key: SessionKey,
   channelId: string,
-  opts: { keepOlder?: boolean } = {}
+  { force, ...opts }: { keepOlder?: boolean; force?: boolean } = {}
 ): Promise<CachedTimeline> {
-  return prefetchSession(key, async () => {
+  const read = async () => {
     const mark = timelineMark();
+    pageReads.set(key, mark);
     const open = (e: CachedTimeline) => beginTimelineFetch(e, mark);
     if (!sessionCache.update<CachedTimeline>(key, open))
       sessionCache.set(key, open(placeholderTimeline(channelId)));
@@ -74,6 +91,8 @@ export function fetchTimelineFirstPage(
         endTimelineFetch(e, mark)
       );
       throw err;
+    } finally {
+      if (pageReads.get(key) === mark) pageReads.delete(key);
     }
     const prev = sessionCache.peek<CachedTimeline>(key)?.value;
     // Dropped meanwhile (the channel left the list, the cache was
@@ -82,8 +101,17 @@ export function fetchTimelineFirstPage(
     // an empty, not-loaded placeholder entry comes back. Harmless: it
     // shows the skeleton and the next show revalidates.
     if (!prev) return placeholderTimeline(channelId);
-    return revalidateTimeline(prev, channelId, page, Date.now(), mark, opts);
-  });
+    // A later read of it has landed already: this answer is the older one.
+    const next =
+      (prev.pageMark ?? 0) > mark
+        ? endTimelineFetch(prev, mark)
+        : revalidateTimeline(prev, channelId, page, Date.now(), mark, opts);
+    // Written here too: of two reads prefetchSession stores the later one
+    // only, and the first page to land is shown (and its flight closed).
+    sessionCache.update(key, () => next);
+    return next;
+  };
+  return prefetchSession(key, read, { force: force || !pageReads.has(key) });
 }
 
 /** The sidebar's hover: fetch unless the entry was fetched moments ago. */
@@ -100,22 +128,18 @@ export function prefetchChannelTimeline(
   fetchTimelineFirstPage(sb, key, channelId).catch(() => {});
 }
 
-async function fetchDetails(sb: SupabaseClient, ids: string[]) {
-  const [attachments, reactions, threads, cards, callCards] = await Promise.all(
-    [
-      attachmentsFor(sb, ids),
-      reactionsFor(sb, ids),
-      threadSummaries(sb, ids),
-      sharedCards(sb, ids),
-      sharedCallCards(sb, ids),
-    ]
-  );
-  return { attachments, reactions, threads, cards, callCards };
-}
+const DETAIL_READS = {
+  attachments: attachmentsFor,
+  reactions: reactionsFor,
+  threads: threadSummaries,
+  cards: sharedCards,
+  callCards: sharedCallCards,
+};
 
 const noopUnsubscribe = () => {};
 const NO_CARDS: Record<string, SharedCard> = {};
 const NO_CALL_CARDS: Record<string, SharedCallCard> = {};
+const NO_IDS: ReadonlySet<string> = new Set();
 
 /**
  * One channel's top-level timeline: pages from listMessages with their
@@ -164,28 +188,37 @@ export function useChannelTimeline(ws: ChatWorkspace, channelId: string) {
     [patch]
   );
 
-  const loadDetails = useCallback(
-    async (ids: string[]) => {
-      if (ids.length === 0) return;
-      const mark = timelineMark();
-      patch((e) => beginTimelineFetch(e, mark));
-      try {
-        const details = await fetchDetails(sb, ids);
-        patch((e) => applyTimelineDetails(e, ids, details, mark));
-      } catch (err) {
-        patch((e) => endTimelineFetch(e, mark));
-        throw err;
-      }
-    },
-    [sb, patch]
+  // A details read that fails never fails the page it belongs to.
+  const details = useMemo(
+    () =>
+      createDetailLoader({
+        read: ((kind, ids) => DETAIL_READS[kind](sb, ids)) as ReadDetail,
+        get: () =>
+          key ? sessionCache.peek<CachedTimeline>(key)?.value : undefined,
+        patch,
+      }),
+    [sb, key, patch]
   );
+  useEffect(() => details.show(), [details]);
+
+  // The mark of this visit, or of the last gap in realtime: until a page
+  // read since has landed, rows may be missing before the newest one shown
+  // (a cached timeline, a live row that came before the gap was filled).
+  const staleSince = useRef(Number.POSITIVE_INFINITY);
+  /** Whether one has. Asked when it matters. */
+  const isFresh = useCallback(() => {
+    const mark = key && sessionCache.peek<CachedTimeline>(key)?.value.pageMark;
+    return typeof mark === 'number' && mark >= staleSince.current;
+  }, [key]);
 
   useEffect(() => {
     if (!key) return;
     let cancelled = false;
+    // A hover's read still under way is joined, and counts.
+    staleSince.current = pageReads.get(key) ?? timelineMark();
     // Cached or not, always revalidate: rows first, details after.
     fetchTimelineFirstPage(sb, key, channelId)
-      .then((fresh) => loadDetails(fresh.timeline.messages.map((m) => m.id)))
+      .then((fresh) => details.load(fresh.timeline.messages.map((m) => m.id)))
       .catch((err) => {
         if (cancelled) return;
         setFailedKey(key);
@@ -193,8 +226,9 @@ export function useChannelTimeline(ws: ChatWorkspace, channelId: string) {
       });
     return () => {
       cancelled = true;
+      staleSince.current = Number.POSITIVE_INFINITY;
     };
-  }, [key, sb, channelId, loadDetails, fail, attempt]);
+  }, [key, sb, channelId, details, fail, attempt]);
 
   const retry = useCallback(() => {
     setFailedKey(null);
@@ -220,13 +254,13 @@ export function useChannelTimeline(ws: ChatWorkspace, channelId: string) {
         throw err;
       }
       patch((e) => applyOlderPage(e, page, mark));
-      await loadDetails(page.messages.map((m) => m.id));
+      await details.load(page.messages.map((m) => m.id));
     } catch (err) {
       fail(err);
     } finally {
       setLoadingOlder(false);
     }
-  }, [key, sb, channelId, loadingOlder, patch, loadDetails, fail]);
+  }, [key, sb, channelId, loadingOlder, patch, details, fail]);
 
   useEffect(
     () =>
@@ -237,17 +271,18 @@ export function useChannelTimeline(ws: ChatWorkspace, channelId: string) {
         }
         if (e.kind === 'resync') {
           // Events were missed: the newest page again, without dropping
-          // the older pages someone may be reading. A failure is silent;
-          // what is on screen stays.
+          // the older pages someone may be reading. A failure is silent
+          // and what is on screen stays; the catch-up tries again.
           if (!key) return;
-          fetchTimelineFirstPage(sb, key, channelId, { keepOlder: true })
-            .then((fresh) =>
-              loadDetails(
-                fresh.timeline.messages.slice(-PAGE_SIZE).map((m) => m.id)
-              )
-            )
-            .catch(() => {});
-          return;
+          staleSince.current = timelineMark();
+          return fetchTimelineFirstPage(sb, key, channelId, {
+            keepOlder: true,
+            force: true,
+          }).then((fresh) => {
+            void details.catchUp(
+              fresh.timeline.messages.slice(-PAGE_SIZE).map((m) => m.id)
+            );
+          });
         }
         if (e.kind !== 'message') return;
         const ev = e.event;
@@ -271,10 +306,10 @@ export function useChannelTimeline(ws: ChatWorkspace, channelId: string) {
         if (ev.type === 'delete' || !targets.open) return;
         // A new top-level post: fetch what the row event does not carry.
         if (ev.type === 'insert' && !ev.message.threadRootId) {
-          loadDetails([ev.message.id]).catch(() => {});
+          void details.load([ev.message.id]);
         }
       }),
-    [listen, sb, key, channelId, accountId, userId, record, loadDetails]
+    [listen, sb, key, channelId, accountId, userId, record, details]
   );
 
   /** Optimistic; the realtime echo is a no-op in the reducer. */
@@ -305,14 +340,23 @@ export function useChannelTimeline(ws: ChatWorkspace, channelId: string) {
     entry && entry.timeline.channelId === channelId ? entry : undefined;
   const empty = useMemo(() => createTimeline(channelId), [channelId]);
   const timeline = shown?.loaded ? shown.timeline : empty;
+  const missing = useMemo(
+    () => (shown ? missingFiles(shown) : NO_IDS),
+    [shown]
+  );
   return {
     ...timeline,
+    missingFiles: missing,
+    retryFiles: details.retry,
     cards: shown?.cards ?? NO_CARDS,
     callCards: shown?.callCards ?? NO_CALL_CARDS,
     // Until there are rows to show: a failed read is no empty channel,
-    // and must not count as one seen (the read mark, the divider).
+    // and must not count as one seen (the read mark, the divider). A
+    // cached timeline shows at once; the read mark also asks isFresh.
     loading: !shown?.loaded,
     failed: !shown?.loaded && key !== null && failedKey === key,
+    isFresh,
+    pageMark: shown?.pageMark ?? null,
     retry,
     loadingOlder,
     loadOlder,

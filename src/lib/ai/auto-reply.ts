@@ -1,4 +1,11 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import {
+  earlierQuestion,
+  isNewestText,
+  supersededDetail,
+  unansweredSince,
+} from './stranded';
+import { salesChatOnce, type SalesChatCheck } from './not-sales-chat';
 import { supabaseAdmin } from './admin-client';
 import { loadAiConfig } from './config';
 import { buildConversationContext } from './context';
@@ -18,7 +25,7 @@ import {
 } from './handoff';
 import type { AiDispatchOutcome, AiReplyTier, AiRouteSource } from './outcomes';
 import { matchEscalationKeyword } from './escalation';
-import { logAiUsage } from './usage';
+import { logAiUsage, logFailedAiUsage } from './usage';
 import { latestUserMessage } from './query';
 import {
   enforcedPartnerBanks,
@@ -35,7 +42,11 @@ import {
 import { isGreetingOrThanks, resolveTierModel, routeMessage } from './router';
 import { markOptedOut } from './opt-out';
 import { containsSensitiveData } from '@/lib/kb/sensitive';
-import { echoesRedaction, redactOwnText } from './redact-input';
+import {
+  echoesRedaction,
+  redactForProvider,
+  redactOwnText,
+} from './redact-input';
 import { shortlistApprovedAnswers } from '@/lib/kb/shortlist';
 import {
   decideApprovedAnswer,
@@ -107,6 +118,8 @@ export interface RetrievalGateFailure {
   detail: string;
   /** Best similarity seen, for the knowledge-gaps log (null = lexical). */
   bestScore: number | null;
+  /** The search failed: an `error` hand-off, and no knowledge gap. */
+  errored?: boolean;
 }
 
 /**
@@ -145,6 +158,27 @@ export function retrievalGateFailure(
     };
   }
   return null;
+}
+
+/**
+ * Gate 2's other half: the search itself failed. With a floor or strict
+ * grounding set the account asked for answers from its knowledge base
+ * only, so an unsearchable one hands off (reason `error`) instead of
+ * passing for an empty one, or letting an unscored full-text hit through.
+ * Short conversational turns are exempt, as in `retrievalGateFailure`.
+ * Pure. Without either setting nothing changes.
+ */
+export function retrievalErrored(
+  retrieval: KnowledgeRetrieval,
+  config: Pick<AiConfig, 'retrievalMinScore' | 'strictGrounding'>,
+  question: string
+): boolean {
+  if (!retrieval.failed) return false;
+  if (config.retrievalMinScore === null && !config.strictGrounding) {
+    return false;
+  }
+  const words = question.trim().split(/\s+/).filter(Boolean).length;
+  return words >= RETRIEVAL_GATE_MIN_WORDS;
 }
 
 /**
@@ -211,6 +245,18 @@ export interface DispatchArgs {
   /** The inbound's text (a media caption included). The bot's context
    *  holds text rows only, so a caption reaches the gates through this. */
   inboundText?: string | null;
+  /** A meaning trigger (`intent_match`) automation ran for this message
+   *  just before the dispatch: it has answered, so the bot must not. The
+   *  pipeline says so because only Jev can tell that one matches. */
+  meaningTriggerActed?: boolean;
+  /** The pipeline's one sales-chat decision for this message; without it
+   *  the dispatch reads its own. */
+  salesChat?: SalesChatCheck | null;
+  /** Something else took this message (a Flow, a journey, a case rating):
+   *  nothing is answered or recorded, unless it superseded a question
+   *  nobody answered, which is flagged. Only set when the message closes
+   *  a burst (`closesBurst`). */
+  consumedBy?: string | null;
   /** Clock for the dispatch budget (`aiDispatchBudgetMs`). Tests only. */
   now?: () => number;
 }
@@ -307,6 +353,7 @@ export async function dispatchInboundToAiReply(
     interactiveReplyId = null,
     inboundMessageId = null,
     inboundText = null,
+    meaningTriggerActed = false,
     now = Date.now,
   } = args;
   // The dispatch runs inside an `after()` that the route's maxDuration
@@ -423,6 +470,47 @@ export async function dispatchInboundToAiReply(
     }
   };
 
+  /**
+   * This message was answered elsewhere. A question of the same burst
+   * that stood down for it (`skipped_superseded`) has then lost its
+   * reply (stranded.ts): flag the chat. The outcome row goes first, so
+   * a slower dispatch of that question still finds it; a message with no
+   * dispatch of its own (`consumedBy`) writes it only for such a question.
+   */
+  const skipConsumed = async (
+    dbc: SupabaseClient,
+    detail: string
+  ): Promise<AiReplyOutcome> => {
+    if (!args.consumedBy) await record('skipped_automation', detail);
+    const earlier = inboundMessageId
+      ? await earlierQuestion(dbc, conversationId, inboundMessageId)
+      : null;
+    if (!earlier || !inboundMessageId) return 'skipped';
+    // Unless a newer message yet came: its dispatch answers, or looks in
+    // its turn.
+    const isLost = async () =>
+      (await isNewestText(dbc, conversationId, inboundMessageId)) &&
+      (await unansweredSince(dbc, {
+        accountId,
+        conversationId,
+        since: earlier.since,
+        outcome: 'skipped_superseded',
+      }));
+    if (args.consumedBy) {
+      if (!earlier.pending && !(await isLost())) return 'skipped';
+      await record('skipped_automation', detail);
+    }
+    // The question's own dispatch waits this long before it stands down.
+    const waitMs = aiBurstWaitMs();
+    if (waitMs > 0) await new Promise((r) => setTimeout(r, waitMs));
+    if (await isLost()) {
+      // A question only stands down in a chat that is the bot's.
+      botsChat = true;
+      await flagUnanswered(UNANSWERED_STRANDED);
+    }
+    return 'skipped';
+  };
+
   try {
     db = supabaseAdmin();
     const dbc = db;
@@ -430,24 +518,34 @@ export async function dispatchInboundToAiReply(
     const config = await loadAiConfig(dbc, accountId);
     if (!config || !config.autoReplyEnabled) return 'skipped';
     recording = true;
+    if (args.consumedBy) {
+      return skipConsumed(dbc, `${args.consumedBy} answered this message.`);
+    }
 
     // A personal chat (a staff member's own number) is never the bot's:
     // stand down before the number lookup below, which would throw
     // `personal_chat`, and before any token is spent. Recorded as
     // `skipped_number` - the message is on a number the bot does not
-    // answer. Fails open on a read error (the channel resolver still
-    // refuses a personal chat).
-    const { data: personalRow } = await dbc
-      .from('conversations')
-      .select('personal_owner_id')
-      .eq('id', conversationId)
-      .maybeSingle();
-    if (personalRow?.personal_owner_id) {
+    // answer. A read error stands the bot down (below).
+    const chat = await (
+      args.salesChat ??
+      salesChatOnce(() => dbc, {
+        conversationId,
+        inboundChannelId: inboundChannelId ?? null,
+      })
+    )();
+    if (chat.personal) {
       return skip(
         'skipped_number',
         'Personal chat: the bot never answers on a personal number.'
       );
     }
+
+    // HR, IT and accounts chats are not the sales bot's either. Before
+    // any spend, for a Flow's fallback too. A check that cannot be read
+    // throws: recorded as `error`, and nothing is sent.
+    if (chat.error) throw new Error(chat.error);
+    if (chat.notSales) return skip('skipped_number', chat.notSales);
 
     // Which number the bot answers on (migration 079). Every send below
     // goes out on `replyChannelId` when it is set; unset, the send
@@ -545,6 +643,12 @@ export async function dispatchInboundToAiReply(
     // `new_message_received` matches every message, so an active one
     // still stands the bot down: it is an auto-responder.
     if (!flowContext) {
+      if (meaningTriggerActed) {
+        return skipConsumed(
+          dbc,
+          'A meaning-trigger automation answered this message.'
+        );
+      }
       const autoResponderTriggers = ['new_message_received', 'keyword_match'];
       if (interactiveReply || interactiveReplyId) {
         autoResponderTriggers.push('interactive_reply');
@@ -563,8 +667,8 @@ export async function dispatchInboundToAiReply(
         })
       );
       if (matched) {
-        return skip(
-          'skipped_automation',
+        return skipConsumed(
+          dbc,
           `Automation “${matched.name ?? matched.id}” answers this message.`
         );
       }
@@ -617,10 +721,26 @@ export async function dispatchInboundToAiReply(
       const newest = await newestCustomerMessage(dbc, conversationId);
       newestAt = newest?.at ?? null;
       if (newest?.id && newest.id !== inboundMessageId) {
-        return skip(
+        const outcome = await skip(
           'skipped_superseded',
-          'A newer customer message arrived; its reply answers both.'
+          supersededDetail(inboundText)
         );
+        // Unless that message was already answered elsewhere, and looked
+        // for this one before the row above was there.
+        if (
+          newestAt &&
+          inboundText?.trim() &&
+          !isGreetingOrThanks(inboundText) &&
+          (await unansweredSince(dbc, {
+            accountId,
+            conversationId,
+            since: newestAt,
+            outcome: 'skipped_automation',
+          }))
+        ) {
+          await flagUnanswered(UNANSWERED_STRANDED);
+        }
+        return outcome;
       }
     }
 
@@ -728,6 +848,8 @@ export async function dispatchInboundToAiReply(
      * guardrail's held draft waits on the chat for a person, `error`
      * when the reply itself failed to send.
      *
+     * `heldDraft` is that draft (Send / Edit / Discard in the inbox).
+     *
      * The update applies only while the chat is still the bot's
      * (unpaused, unassigned). When a person took it over since it was
      * read, nothing is overwritten, no bell rings, and the outcome is
@@ -738,7 +860,8 @@ export async function dispatchInboundToAiReply(
       detail: string | null,
       farewell: string | null,
       reasonText: string | null = null,
-      outcome: 'handed_off' | 'held_for_review' | 'error' = 'handed_off'
+      outcome: 'handed_off' | 'held_for_review' | 'error' = 'handed_off',
+      heldDraft: string | null = null
     ): Promise<AiReplyOutcome> => {
       // A pin made during generation: skip only the farewell; the
       // hand-off itself proceeds.
@@ -807,6 +930,14 @@ export async function dispatchInboundToAiReply(
         // on it — assigning the hand-off agent below is not acting.
         ai_attention_at: now,
       };
+      // In the same conditional update: a chat a person took meanwhile
+      // gets neither the hand-off nor the draft, and a draft written for
+      // an older message never replaces the one a newer hold left there
+      // (that hold paused the chat).
+      if (heldDraft) {
+        update.ai_pending_draft = heldDraft;
+        update.ai_pending_draft_at = now;
+      }
       // Only set the assignee when a target is configured AND the thread
       // isn't already owned — never stomp an existing human assignment.
       if (config.handoffAgentId && !conv.assigned_agent_id) {
@@ -1226,9 +1357,22 @@ export async function dispatchInboundToAiReply(
     // Gate 2 — retrieval threshold. When the knowledge base has nothing
     // close enough, hand off rather than let the model improvise, and
     // record the question so the KB can be extended.
-    const gapIn = (p: PassageGateResult) =>
-      retrievalGateFailure(p.retrieval, config.retrievalMinScore, openQuestion);
+    const gapIn = (p: PassageGateResult): RetrievalGateFailure | null =>
+      retrievalErrored(p.retrieval, config, openQuestion)
+        ? {
+            detail: 'Knowledge base search failed',
+            bestScore: null,
+            errored: true,
+          }
+        : retrievalGateFailure(
+            p.retrieval,
+            config.retrievalMinScore,
+            openQuestion
+          );
     const noKnowledge = async (gap: RetrievalGateFailure) => {
+      if (gap.errored) {
+        return handOff('error', gap.detail, config.handoffMessage);
+      }
       await logKnowledgeGap(dbc, {
         accountId,
         conversationId,
@@ -1321,6 +1465,16 @@ export async function dispatchInboundToAiReply(
         messages,
         model,
         timeoutMs,
+      }).catch(async (err) => {
+        // Billed even when the answer was cut off or empty.
+        await logFailedAiUsage(() => dbc, err, {
+          accountId,
+          conversationId,
+          mode: 'auto_reply',
+          provider: config.provider,
+          model,
+        });
+        throw err;
       });
       // Record token spend on the account's BYO key, per generation and
       // under the model that produced it. Fire-and-forget so it never
@@ -1460,30 +1614,14 @@ export async function dispatchInboundToAiReply(
         return handOff('guardrail', guardDetail, config.handoffMessage);
       }
       // A held draft waits on the chat for that person (Send / Edit /
-      // Discard in the inbox banner). A failed write must not stop the
-      // hand-off: the note still quotes the draft.
-      try {
-        const { error: draftErr } = await dbc
-          .from('conversations')
-          .update({
-            ai_pending_draft: text,
-            ai_pending_draft_at: new Date().toISOString(),
-          })
-          .eq('id', conversationId)
-          .eq('account_id', accountId);
-        if (draftErr) throw new Error(draftErr.message);
-      } catch (err) {
-        console.error('[ai auto-reply] held draft not stored:', {
-          conversationId,
-          error: errorMessage(err),
-        });
-      }
+      // Discard in the inbox banner), written by the hand-off itself.
       return handOff(
         'guardrail',
         guardDetail,
         config.handoffMessage,
         null,
-        'held_for_review'
+        'held_for_review',
+        text
       );
     }
 
@@ -1510,10 +1648,7 @@ export async function dispatchInboundToAiReply(
     if (flowContext && inboundMessageId) {
       const newest = await newestCustomerMessage(dbc, conversationId);
       if (newest?.id && newest.id !== inboundMessageId) {
-        await record(
-          'skipped_superseded',
-          'A newer customer message arrived; its reply answers both.'
-        );
+        await record('skipped_superseded', supersededDetail(inboundText));
         return 'superseded';
       }
     }
@@ -1535,6 +1670,13 @@ export async function dispatchInboundToAiReply(
 /** The bell text when a dispatch failed; the error itself is recorded. */
 const UNANSWERED_ERROR =
   'The AI agent failed and did not answer. It is still on for this chat.';
+
+/** The bell text when the message a question stood down for never got
+ *  to the AI agent. */
+const UNANSWERED_STRANDED =
+  'The customer asked something just before a message that was answered ' +
+  'automatically, and the AI agent did not answer it. It is still on for ' +
+  'this chat.';
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -1940,7 +2082,8 @@ async function logKnowledgeGap(
     const { error } = await db.from('ai_knowledge_gaps').insert({
       account_id: args.accountId,
       conversation_id: args.conversationId,
-      question: args.question.slice(0, 2000),
+      // Masked: this row is read by admins and embedded later.
+      question: redactForProvider(args.question).slice(0, 2000),
       best_score: args.bestScore,
     });
     if (error)

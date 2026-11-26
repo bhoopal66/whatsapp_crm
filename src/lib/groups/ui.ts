@@ -8,6 +8,7 @@
  * client, which must stay out of the browser bundle, so its limits are
  * restated here and `ui.test.ts` checks they still agree.
  */
+import { latinDigits } from '@/lib/contacts/digits';
 import { hasMinRole, type AccountRole } from '@/lib/auth/roles';
 import { validateContactPhone } from '@/lib/contacts/phone-validation';
 
@@ -88,6 +89,69 @@ export function parseGroupList(json: unknown): GroupListItem[] {
   return out;
 }
 
+const activityOf = (g: GroupListItem): number =>
+  g.last_message_at ? Date.parse(g.last_message_at) || 0 : 0;
+
+/** Latest activity first. */
+export const byActivity = (a: GroupListItem, b: GroupListItem): number =>
+  activityOf(b) - activityOf(a) || a.name.localeCompare(b.name);
+
+/** The answer could not read the submission groups. */
+export function isPartialList(json: unknown): boolean {
+  return (json as { partial?: unknown } | null)?.partial === true;
+}
+
+/**
+ * The list to show after a read: for a partial answer, the submission
+ * rows already on screen stay, in their place by latest activity.
+ */
+export function keepSubmissionRows(
+  prev: readonly GroupListItem[],
+  next: readonly GroupListItem[],
+  partial: boolean
+): GroupListItem[] {
+  if (!partial) return [...next];
+  const kept = prev.filter((g) => g.kind === 'submission');
+  return [...next.filter((g) => g.kind !== 'submission'), ...kept].sort(
+    byActivity
+  );
+}
+
+export interface SyncProblems {
+  /** Names of the numbers that could not be read. */
+  failedNumbers: string[];
+  failedGroups: number;
+  incomplete: boolean;
+  /** Not every group was reached, and `incomplete` does not say so already. */
+  truncated: boolean;
+}
+
+/** What a Sync's answer admits it missed. An unreadable answer is cut. */
+export function parseSyncProblems(json: unknown): SyncProblems {
+  const readable = typeof json === 'object' && json !== null;
+  const r = (readable ? json : { truncated: true }) as Record<string, unknown>;
+  const incomplete = r.incomplete === true;
+  return {
+    failedNumbers: strings(r.failedNumbers),
+    failedGroups:
+      typeof r.failedGroups === 'number' && r.failedGroups > 0
+        ? r.failedGroups
+        : 0,
+    incomplete,
+    truncated: r.truncated === true && !incomplete,
+  };
+}
+
+/** Whether a Sync read everything: only then is a missing group missing. */
+export function isWholeSync(p: SyncProblems): boolean {
+  return (
+    p.failedNumbers.length === 0 &&
+    p.failedGroups === 0 &&
+    !p.incomplete &&
+    !p.truncated
+  );
+}
+
 /** Where a list row opens; a submission group has its own detail route. */
 export function groupHref(g: Pick<GroupListItem, 'id' | 'kind'>): string {
   return g.kind === 'submission'
@@ -104,7 +168,7 @@ export function filterGroups(
   query: string
 ): GroupListItem[] {
   const q = query.trim().toLowerCase();
-  const digits = q.replace(/\D/g, '');
+  const digits = latinDigits(q).replace(/\D/g, '');
   const hit = (g: GroupListItem) =>
     !q ||
     g.name.toLowerCase().includes(q) ||
@@ -348,10 +412,14 @@ export interface CreateGroupBody {
   contactIds?: string[];
   settings: Record<GroupSetting, GroupPolicy>;
   managerIds?: string[];
+  createAnother?: true;
 }
 
 /** `POST /api/whatsapp/groups` body. Call only once every step is valid. */
-export function buildCreateBody(values: WizardValues): CreateGroupBody {
+export function buildCreateBody(
+  values: WizardValues,
+  createAnother = false
+): CreateGroupBody {
   const merged = mergeMembers(
     values.contacts,
     parsePhoneList(values.typedText)
@@ -364,6 +432,7 @@ export function buildCreateBody(values: WizardValues): CreateGroupBody {
   return {
     channelId: values.channelId ?? '',
     name: values.name.trim(),
+    ...(createAnother ? { createAnother: true as const } : {}),
     ...(description ? { description } : {}),
     participants: merged.members.map((m) => m.waId),
     ...(contactIds.length ? { contactIds } : {}),
@@ -494,6 +563,8 @@ const CREATE_ERROR_KEYS = [
   'channel_disconnected',
   'billing',
   'gateway_unavailable',
+  'too_many_adds',
+  'too_many_creates',
 ] as const;
 export type CreateErrorKey = (typeof CREATE_ERROR_KEYS)[number] | 'unknown';
 
@@ -510,6 +581,24 @@ export function createErrorKey(code: unknown): CreateErrorKey {
  */
 export function isCreatedButUnsaved(code: unknown): boolean {
   return code === 'saved_failed_run_sync';
+}
+
+/**
+ * What a failed create leaves open. `unconfirmed`: the group may exist
+ * (our `create_unconfirmed`, or a code-less 5xx/408 such as a proxy's
+ * timeout page). `repeat`: the server asks before a second group of the
+ * same name. Anything else is a refusal.
+ */
+export function createFailureKind(
+  status: number,
+  code: unknown
+): 'unconfirmed' | 'repeat' | 'refused' {
+  if (code === 'create_unconfirmed') return 'unconfirmed';
+  if (code === 'create_repeat') return 'repeat';
+  const coded = typeof code === 'string' && code !== '';
+  return !coded && (status >= 500 || status === 408)
+    ? 'unconfirmed'
+    : 'refused';
 }
 
 /**
@@ -564,10 +653,13 @@ export function formatWaId(waId: string): string {
  * escaped; a phone query also matches on its digits alone.
  */
 export function contactSearchFilter(query: string): string | null {
-  const q = query.replace(/[,()*%\\"']/g, ' ').trim();
+  // As sanitizeContactSearch: a name keeps the digits it was typed with.
+  const q = (/\p{L}/u.test(query) ? query : latinDigits(query))
+    .replace(/[,()*%\\"']/g, ' ')
+    .trim();
   if (q.length < 2) return null;
   const parts = [`name.ilike.*${q}*`, `phone.ilike.*${q}*`];
-  const digits = q.replace(/\D/g, '');
+  const digits = latinDigits(q).replace(/\D/g, '');
   if (digits.length >= 3 && digits !== q) parts.push(`phone.ilike.*${digits}*`);
   return parts.join(',');
 }

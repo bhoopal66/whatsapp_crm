@@ -137,7 +137,7 @@ export function RequestsTab({
         >
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium">
-              {formatWaId(row.waId)}
+              <bdi dir="ltr">{formatWaId(row.waId)}</bdi>
             </p>
             <p className="text-muted-foreground text-xs">
               {r('requested', { when: ago(row.requestedAt, locale) })}

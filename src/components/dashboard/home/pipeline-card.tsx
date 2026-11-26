@@ -4,10 +4,12 @@ import { GitBranch } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 import { useAuth } from '@/hooks/use-auth';
-import { formatCurrencyShort } from '@/lib/currency';
+import { currencyTotalParts, currencyTotals } from '@/lib/currency-totals';
+import { donutSegments, isMixed } from '@/lib/dashboard/home/donut';
 import { loadPipelineDonut } from '@/lib/dashboard/queries';
 import type { PipelineDonutData } from '@/lib/dashboard/types';
 import { createClient } from '@/lib/supabase/client';
+import { cn } from '@/lib/utils';
 import { DashboardPanel, PanelEmpty } from './panel';
 import { useWidgetData } from './use-widget-data';
 
@@ -60,8 +62,15 @@ export function PipelineCard({ refreshKey, className }: PipelineCardProps) {
                   <span className="text-muted-foreground tabular-nums">
                     {t('dealCount', { count: s.dealCount })}
                   </span>
-                  <span className="text-muted-foreground w-20 text-end tabular-nums">
-                    {formatCurrencyShort(s.totalValue, defaultCurrency)}
+                  <span className="text-muted-foreground min-w-20 text-end tabular-nums">
+                    {currencyTotalParts(
+                      currencyTotals(s.totals, defaultCurrency),
+                      'short'
+                    ).map((part) => (
+                      <span key={part} className="block">
+                        {part}
+                      </span>
+                    ))}
                   </span>
                 </li>
               ))}
@@ -73,10 +82,8 @@ export function PipelineCard({ refreshKey, className }: PipelineCardProps) {
 }
 
 // ------------------------------------------------------------
-// SVG ring. 200×200 viewBox, 12px ring width. We draw one <path>
-// per stage using an SVG arc from startAngle → endAngle. Gaps
-// between segments are implied by a thin slate-900 stroke between
-// them for a cleaner look.
+// SVG ring. 200×200 viewBox, 18px ring width, one arc per stage
+// (`lib/dashboard/home/donut.ts`).
 // ------------------------------------------------------------
 function Donut({
   data,
@@ -91,30 +98,18 @@ function Donut({
   const ringWidth = 18;
   const cx = size / 2;
   const cy = size / 2;
-
-  // Small slices would render as slivers that disappear into stroke
-  // rounding. We give each stage a floor share purely for rendering,
-  // but keep the labels/legend honest with the actual totals.
-  const totalRaw = data.totalValue || 1;
-  const minFrac = 0.02;
-  const rawShares = data.stages.map((s) => s.totalValue / totalRaw);
-  const floored = rawShares.map((x) => Math.max(x, minFrac));
-  const floorSum = floored.reduce((a, b) => a + b, 0);
-  const shares = floored.map((x) => x / floorSum);
-
-  // Build a cumulative-offset array, then map stages → arc paths. Using
-  // a pre-computed offsets array avoids the Next 16 React Compiler's
-  // "Cannot reassign variable after render completes" rule.
-  const offsets: number[] = [0];
-  for (let i = 0; i < shares.length; i++) offsets.push(offsets[i] + shares[i]);
-  const segments = data.stages.map((s, i) => {
-    const start = offsets[i] * Math.PI * 2 - Math.PI / 2;
-    const end = offsets[i + 1] * Math.PI * 2 - Math.PI / 2;
-    return { path: arcPath(cx, cy, r, start, end), color: s.color, id: s.id };
-  });
+  const mixed = isMixed(data.stages, currency);
+  const segments = donutSegments(data.stages, mixed, cx, cy, r);
+  const total = currencyTotalParts(
+    currencyTotals(
+      data.stages.flatMap((s) => s.totals),
+      currency
+    ),
+    'short'
+  );
 
   return (
-    <div className="flex items-center justify-center">
+    <div className="flex flex-col items-center justify-center">
       <svg
         viewBox={`0 0 ${size} ${size}`}
         className="h-48 w-48"
@@ -130,49 +125,57 @@ function Donut({
           stroke="var(--muted)"
           strokeWidth={ringWidth}
         />
-        {segments.map((seg) => (
-          <path
-            key={seg.id}
-            d={seg.path}
-            fill="none"
-            stroke={seg.color}
-            strokeWidth={ringWidth}
-            strokeLinecap="butt"
-          />
-        ))}
-        {/* center label */}
+        {segments.map((seg) =>
+          seg.full ? (
+            <circle
+              key={seg.id}
+              cx={cx}
+              cy={cy}
+              r={r}
+              fill="none"
+              stroke={seg.color}
+              strokeWidth={ringWidth}
+            />
+          ) : (
+            <path
+              key={seg.id}
+              d={seg.path}
+              fill="none"
+              stroke={seg.color}
+              strokeWidth={ringWidth}
+              strokeLinecap="butt"
+            />
+          )
+        )}
+        {/* center label: one line per currency, the block centred */}
         <text
           x={cx}
-          y={cy - 6}
+          y={cy - 6 - (total.length - 1) * 8}
           textAnchor="middle"
           className="fill-muted-foreground text-xs"
         >
           {t('total')}
         </text>
-        <text
-          x={cx}
-          y={cy + 14}
-          textAnchor="middle"
-          className="fill-foreground text-[18px] font-semibold tabular-nums"
-        >
-          {formatCurrencyShort(data.totalValue, currency)}
-        </text>
+        {total.map((line, i) => (
+          <text
+            key={line}
+            x={cx}
+            y={cy + 14 - (total.length - 1) * 8 + i * 17}
+            textAnchor="middle"
+            className={cn(
+              'fill-foreground font-semibold tabular-nums',
+              mixed ? 'text-[14px]' : 'text-[18px]'
+            )}
+          >
+            {line}
+          </text>
+        ))}
       </svg>
+      {mixed && (
+        <p className="text-muted-foreground mt-2 text-center text-xs">
+          {t('mixedCurrencies')}
+        </p>
+      )}
     </div>
   );
-}
-
-function arcPath(
-  cx: number,
-  cy: number,
-  r: number,
-  startRad: number,
-  endRad: number
-): string {
-  const x1 = cx + r * Math.cos(startRad);
-  const y1 = cy + r * Math.sin(startRad);
-  const x2 = cx + r * Math.cos(endRad);
-  const y2 = cy + r * Math.sin(endRad);
-  const largeArc = endRad - startRad > Math.PI ? 1 : 0;
-  return `M ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2}`;
 }

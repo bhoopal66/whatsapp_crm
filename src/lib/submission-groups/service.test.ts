@@ -1,9 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { WhapiError } from '@/lib/whatsapp/whapi-api';
+
 import type { StaffLabel } from './rules';
 import {
   SubmissionGroupChannelError,
   SubmissionGroupSendBlockedError,
+  SubmissionGroupSendNotStoredError,
+  SubmissionGroupSendUnconfirmedError,
+  SubmissionGroupNotAttemptedError,
+  SubmissionGroupSystemNotSentError,
   SubmissionGroupSendRefusedError,
   SubmissionGroupSentNotRecordedError,
   SubmissionGroupService,
@@ -485,7 +491,7 @@ function setup(
 ) {
   const store = o.store ?? new FakeStore();
   const api = o.api ?? new FakeApi();
-  const consent: { answer: ConsentAnswer; asked: number } = {
+  const consent: { answer: ConsentAnswer; asked: number; error?: Error } = {
     answer: { allowed: true, phone: '971500000001' },
     asked: 0,
   };
@@ -494,6 +500,7 @@ function setup(
     api,
     consent: async () => {
       consent.asked++;
+      if (consent.error) throw consent.error;
       return consent.answer;
     },
     displayName: async (u) => NAMES[u] ?? null,
@@ -1146,6 +1153,27 @@ describe('SubmissionGroupService.sendMediaFromCrm', () => {
     expect(s.store.messages.map((m) => m.sendStatus)).toEqual(['blocked']);
   });
 
+  it('a lost gateway answer is unconfirmed, a refusal keeps its own error', async () => {
+    const send = async (err: Error) => {
+      const s = setup();
+      const g = await opened(s);
+      s.api.sendGroupMedia = async () => {
+        throw err;
+      };
+      const thrown = await s.svc.sendMediaFromCrm(doc(g.id)).catch((e) => e);
+      expect(s.store.messages.map((m) => m.sendStatus)).toEqual(['failed']);
+      return thrown;
+    };
+    const lost = new WhapiError('timed out', 503);
+    expect(await send(lost)).toBeInstanceOf(
+      SubmissionGroupSendUnconfirmedError
+    );
+    const refused = new WhapiError('not allowed', 403);
+    expect(await send(refused)).toBe(refused);
+    const gone = new SubmissionGroupChannelError('ch-1');
+    expect(await send(gone)).toBe(gone);
+  });
+
   it('gateway error: the row is settled failed and the error reaches the caller', async () => {
     const s = setup();
     const g = await opened(s);
@@ -1221,6 +1249,23 @@ describe('SubmissionGroupService.sendFromCrm', () => {
       ['blocked', null],
     ]);
   });
+
+  it.each(['get', 'openAccessLabel', 'beginSend'] as const)(
+    '%s breaking before the row is stored: NotStored, nothing sent',
+    async (method) => {
+      const s = setup();
+      const g = await opened(s);
+      s.store[method] = async () => {
+        throw new Error('db: connection reset');
+      };
+      const err = await s.svc
+        .sendFromCrm({ groupId: g.id, userId: 'ali', text: 'x' })
+        .catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(SubmissionGroupSendNotStoredError);
+      expect(s.store.messages).toEqual([]);
+      expect(s.api.of('sendGroupText')).toEqual([]);
+    }
+  );
 
   it('gateway error: the row is settled failed and the error reaches the caller', async () => {
     const s = setup();
@@ -1786,6 +1831,82 @@ describe('SubmissionGroupService.sendSystem (170)', () => {
       /sendGroupText failed/
     );
     expect(s.store.messages.map((m) => m.sendStatus)).toEqual(['failed']);
+  });
+
+  it.each([
+    ['a timeout', new WhapiError('timed out', 503)],
+    ['a gateway 5xx', new WhapiError('bad gateway', 500)],
+    ['a lost connection', new Error('socket hang up')],
+  ])('%s may have gone out: Unconfirmed', async (_what, cause) => {
+    const s = setup();
+    const g = await opened(s);
+    s.api.sendGroupText = async () => {
+      throw cause;
+    };
+    const err = await s.svc.sendSystem(welcome(g.id)).catch((e) => e);
+    expect(err).toBeInstanceOf(SubmissionGroupSendUnconfirmedError);
+    expect(err).toMatchObject({ messageId: s.store.messages[0].id, cause });
+  });
+
+  it.each([
+    ['a gateway 4xx', new WhapiError('not a member', 403)],
+    ['a removed number', new SubmissionGroupChannelError('ch-1')],
+    [
+      'a number that could not be read',
+      new SubmissionGroupNotAttemptedError(new Error('read failed')),
+    ],
+  ])('%s sent nothing: SystemNotSent', async (_what, cause) => {
+    const s = setup();
+    const g = await opened(s);
+    s.api.sendGroupText = async () => {
+      throw cause;
+    };
+    const err = await s.svc.sendSystem(welcome(g.id)).catch((e) => e);
+    expect(err).toBeInstanceOf(SubmissionGroupSystemNotSentError);
+    expect(err).toMatchObject({ messageId: s.store.messages[0].id, cause });
+    expect(s.store.messages[0].sendStatus).toBe('failed');
+  });
+
+  it('a failed read, or a beforeGateway that throws, stops it before the gateway: SystemNotSent', async () => {
+    const boom = new Error('read: connection reset');
+    for (const how of ['get', 'consent', 'hook'] as const) {
+      const s = setup();
+      const g = await opened(s);
+      if (how === 'get') {
+        s.store.get = async () => {
+          throw boom;
+        };
+      }
+      if (how === 'consent') s.consent.error = boom;
+      const err = await s.svc
+        .sendSystem({
+          ...welcome(g.id),
+          beforeGateway: async () => {
+            if (how === 'hook') throw boom;
+          },
+        })
+        .catch((e) => e);
+      expect(err).toBeInstanceOf(SubmissionGroupSystemNotSentError);
+      expect(err).toMatchObject({
+        messageId: s.store.messages[0].id,
+        cause: boom,
+      });
+      expect(s.store.messages[0].sendStatus).toBe('failed');
+      expect(s.api.of('sendGroupText')).toEqual([]);
+    }
+  });
+
+  it('beforeGateway is told the stored message, before the gateway is called', async () => {
+    const s = setup();
+    const g = await opened(s);
+    const seen: unknown[] = [];
+    await s.svc.sendSystem({
+      ...welcome(g.id),
+      beforeGateway: async (id) => {
+        seen.push(id, s.api.of('sendGroupText').length);
+      },
+    });
+    expect(seen).toEqual([s.store.messages[0].id, 0]);
   });
 });
 
@@ -2385,7 +2506,8 @@ describe('addNumber (211)', () => {
     const s = setup();
     s.api.addError = new Error('timeout');
     const r = await s.svc.addNumber('g-1', 'ali', '971501234567');
-    expect(r.status).toBe('failed');
+    // It may be in the group: never worded as "try again".
+    expect(r).toEqual({ status: 'unconfirmed' });
     expect(s.store.addSettles).toEqual([
       { id: 'add-1', status: 'failed', error: 'timeout' },
     ]);
@@ -2394,6 +2516,19 @@ describe('addNumber (211)', () => {
     expect(await s.svc.addNumber('g-1', 'ali', '971501234567')).toEqual({
       status: 'added',
     });
+  });
+
+  it('is failed only when the number was certainly not added', async () => {
+    const s = setup();
+    for (const err of [
+      new SubmissionGroupNotAttemptedError(new Error('not_admin')),
+      new WhapiError('no', 403),
+      new SubmissionGroupChannelError(CH),
+    ]) {
+      s.api.addError = err;
+      const r = await s.svc.addNumber('g-1', 'ali', '971501234567');
+      expect(r.status).toBe('failed');
+    }
   });
 
   it('tells the staff-number hook which group and phone were added', async () => {

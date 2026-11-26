@@ -8,6 +8,20 @@ const h = vi.hoisted(() => ({
   row: null as Record<string, unknown> | null,
   updates: [] as Record<string, unknown>[],
   eqs: [] as unknown[][],
+  /** Read/write errors to inject, by select columns or 'update'/'insert'. */
+  fail: {} as Record<string, { message: string; code?: string }>,
+  inserts: [] as Record<string, unknown>[],
+  /** Rows the sibling count sees. */
+  siblings: 0,
+  /** Customer messages still waiting for the number. */
+  waiting: 0,
+  /** Delete calls on whatsapp_config. */
+  deletes: 0,
+}));
+
+vi.mock('@/lib/whatsapp/waiting-messages', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  waitingMessages: async () => h.waiting,
 }));
 
 vi.mock('@/lib/auth/account', () => ({
@@ -37,26 +51,43 @@ function fakeDb() {
     },
     from(table: string) {
       let columns = '';
+      let head = false;
+      let updating = false;
       const builder: Record<string, unknown> = {};
-      for (const m of ['neq', 'order', 'limit', 'insert', 'delete']) {
+      for (const m of ['neq', 'order', 'limit']) {
         builder[m] = () => builder;
       }
+      builder.delete = () => {
+        if (table === 'whatsapp_config') h.deletes++;
+        return builder;
+      };
       builder.eq = (col: string, val: unknown) => {
         h.eqs.push([table, col, val]);
         return builder;
       };
-      builder.select = (cols: string) => {
+      builder.select = (cols: string, opts?: { head?: boolean }) => {
         columns = cols;
+        head = Boolean(opts?.head);
         return builder;
       };
+      builder.insert = (payload: Record<string, unknown>) => {
+        h.inserts.push(payload);
+        return builder;
+      };
+      builder.single = async () => ({
+        data: h.fail.insert ? null : { id: 'new-1' },
+        error: h.fail.insert ?? null,
+      });
       builder.update = (payload: Record<string, unknown>) => {
         if (table === 'whatsapp_config') h.updates.push(payload);
+        updating = true;
         return builder;
       };
       builder.maybeSingle = async () => {
         if (table === 'profiles') {
           return { data: { account_id: 'acct-1' }, error: null };
         }
+        if (h.fail[columns]) return { data: null, error: h.fail[columns] };
         // findWhapiRow reads the row; the duplicate/claim checks find none.
         if (
           table === 'whatsapp_config' &&
@@ -67,11 +98,20 @@ function fakeDb() {
         }
         return { data: null, error: null };
       };
-      builder.then = (resolve: (r: unknown) => unknown) =>
-        resolve({
+      builder.then = (resolve: (r: unknown) => unknown) => {
+        if (head) {
+          return resolve({
+            count: h.siblings,
+            error: h.fail.count ?? null,
+          });
+        }
+        if (h.fail[columns])
+          return resolve({ data: null, error: h.fail[columns] });
+        return resolve({
           data: table === 'profiles' ? [{ account_id: 'acct-1' }] : [],
-          error: null,
+          error: updating ? (h.fail.update ?? null) : null,
         });
+      };
       return builder;
     },
   };
@@ -110,6 +150,10 @@ beforeEach(() => {
   process.env.NEXT_PUBLIC_SITE_URL = 'https://crm.test';
   h.updates = [];
   h.eqs = [];
+  h.fail = {};
+  h.inserts = [];
+  h.siblings = 0;
+  h.deletes = 0;
   h.row = {
     id: 'cfg-1',
     verify_token: 'enc:secret',
@@ -244,5 +288,225 @@ describe('DELETE /api/whatsapp/config — default hand-over', () => {
     );
     expect(res.status).toBe(200);
     expect(h.eqs).toContainEqual(['whatsapp_config', 'is_personal', false]);
+  });
+});
+
+describe('DELETE /api/whatsapp/config — waiting customer messages', () => {
+  const del = (q = '') =>
+    DELETE(
+      new Request(`https://crm.test/api/whatsapp/config?config_id=cfg-1${q}`, {
+        method: 'DELETE',
+      })
+    );
+
+  it('answers 409 messages_waiting and deletes nothing', async () => {
+    h.waiting = 3;
+    const res = await del();
+    h.waiting = 0;
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({
+      code: 'messages_waiting',
+      count: 3,
+    });
+    expect(h.deletes).toBe(0);
+  });
+
+  it('removes the number when the request says force', async () => {
+    h.waiting = 3;
+    const res = await del('&force=1');
+    h.waiting = 0;
+    expect(res.status).toBe(200);
+    expect(h.deletes).toBe(1);
+  });
+});
+
+describe('DELETE /api/whatsapp/config — a failed read', () => {
+  it('answers 500 and removes nothing, not success', async () => {
+    h.fail['id'] = { message: 'connection reset' };
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await DELETE(
+      new Request('https://crm.test/api/whatsapp/config?config_id=cfg-1', {
+        method: 'DELETE',
+      })
+    );
+    error.mockRestore();
+    expect(res.status).toBe(500);
+    expect(await res.json()).toHaveProperty('error');
+  });
+});
+
+describe('POST /api/whatsapp/config — failed reads and a failed save', () => {
+  const save = (extra: Record<string, unknown> = {}) =>
+    POST(
+      post({
+        token: 'tok',
+        channel_id: 'NIGHTW-JJC9J',
+        config_id: 'cfg-1',
+        ...extra,
+      })
+    );
+
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    h.getChannelInfo.mockResolvedValue(channelInfo('AUTH', '971500001234'));
+  });
+
+  it.each([
+    ['the duplicate-channel read', 'id, label, waba_id'],
+    ['the same-phone read', 'id, account_id, label'],
+    ['the row read', 'id, waba_id, status'],
+  ])('answers 500 and writes nothing when %s fails', async (_n, columns) => {
+    h.fail[columns] = { message: 'connection reset' };
+    const res = await save();
+    expect(res.status).toBe(500);
+    expect(h.updates).toHaveLength(0);
+    expect(h.registerWebhook).not.toHaveBeenCalled();
+  });
+
+  it('points the channel back at the old secret when the row write fails', async () => {
+    h.fail.update = { message: 'write failed' };
+    const res = await save({ rotate_secret: true });
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({
+      error: 'Failed to update configuration',
+    });
+    expect(h.registerWebhook).toHaveBeenCalledTimes(2);
+    const first = h.registerWebhook.mock.calls[0][0].webhookUrl as string;
+    const second = h.registerWebhook.mock.calls[1][0].webhookUrl as string;
+    expect(first).not.toContain('secret=secret');
+    expect(second).toContain('secret=secret');
+  });
+
+  it('the webhook looks a saved secret up afresh, and not after a failed save', async () => {
+    const lookup = await import('@/lib/whatsapp/webhook-secret-lookup');
+    const changed = vi.spyOn(lookup, 'webhookSecretsChanged');
+    h.fail.update = { message: 'write failed' };
+    await save({ rotate_secret: true });
+    expect(changed).not.toHaveBeenCalled();
+    delete (h.fail as Record<string, unknown>).update;
+    await save({ rotate_secret: true });
+    expect(changed).toHaveBeenCalledWith('whapi');
+  });
+
+  it('does not restore when the secret was kept', async () => {
+    h.fail.update = { message: 'write failed' };
+    await save();
+    expect(h.registerWebhook).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not restore onto a channel of another phone', async () => {
+    h.fail.update = { message: 'write failed' };
+    h.getChannelInfo.mockResolvedValue(channelInfo('AUTH', '971599999999'));
+    await save({ rotate_secret: true });
+    expect(h.registerWebhook).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the row-write error when the restore fails too', async () => {
+    h.fail.update = { message: 'write failed' };
+    h.registerWebhook
+      .mockResolvedValueOnce({ success: true })
+      .mockRejectedValueOnce(new Error('gateway down'));
+    const res = await save({ rotate_secret: true });
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({
+      error: 'Failed to update configuration',
+    });
+  });
+
+  it('refuses a rotation whose registration fails, keeping the stored secret', async () => {
+    // The gateway times out after applying the new address, then answers.
+    h.registerWebhook
+      .mockRejectedValueOnce(new Error('gateway timeout'))
+      .mockResolvedValueOnce({ success: true });
+    const res = await save({ rotate_secret: true });
+    expect(res.status).toBe(502);
+    const { error } = (await res.json()) as { error: string };
+    expect(error).toContain('secret was not changed');
+    expect(error).toContain('keeps receiving');
+    expect(h.updates).toHaveLength(0);
+    expect(h.registerWebhook).toHaveBeenCalledTimes(2);
+    expect(h.registerWebhook.mock.calls[1][0].webhookUrl).toContain(
+      'secret=secret'
+    );
+  });
+
+  it('refuses the rotation when the callback cannot be put back either', async () => {
+    h.registerWebhook
+      .mockRejectedValueOnce(new Error('gateway down'))
+      .mockRejectedValueOnce(new Error('gateway down'));
+    const res = await save({ rotate_secret: true });
+    expect(res.status).toBe(502);
+    expect(((await res.json()) as { error: string }).error).toContain(
+      'if messages stop arriving'
+    );
+    expect(h.updates).toHaveLength(0);
+  });
+
+  it('does not put the old callback on a channel of another phone', async () => {
+    h.registerWebhook.mockRejectedValueOnce(new Error('gateway down'));
+    h.getChannelInfo.mockResolvedValue(channelInfo('AUTH', '971599999999'));
+    const res = await save({ rotate_secret: true });
+    expect(res.status).toBe(502);
+    expect(h.updates).toHaveLength(0);
+    expect(h.registerWebhook).toHaveBeenCalledTimes(1);
+  });
+
+  it('still saves a re-save and a first connection whose registration fails', async () => {
+    h.registerWebhook.mockRejectedValueOnce(new Error('gateway down'));
+    const again = await save();
+    expect(again.status).toBe(200);
+    expect(h.updates[0].verify_token).toBe('enc:secret');
+
+    h.registerWebhook.mockRejectedValueOnce(new Error('gateway down'));
+    const first = await POST(
+      post({
+        token: 'tok',
+        channel_id: 'NEW-CHANNEL',
+        create: true,
+        rotate_secret: true,
+      })
+    );
+    expect(first.status).toBe(200);
+    expect(h.inserts).toHaveLength(1);
+  });
+
+  it('has nothing to restore when a new number fails to insert', async () => {
+    h.fail.insert = { message: 'insert failed' };
+    const res = await POST(
+      post({ token: 'tok', channel_id: 'NEW-CHANNEL', create: true })
+    );
+    expect(res.status).toBe(500);
+    expect(h.registerWebhook).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('POST /api/whatsapp/config — the first shared number is the default', () => {
+  const connect = () =>
+    POST(post({ token: 'tok', channel_id: 'NEW-CHANNEL', create: true }));
+
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    h.getChannelInfo.mockResolvedValue(channelInfo('AUTH', '971500001234'));
+  });
+
+  it('counts only shared rows, so a personal number does not take the default', async () => {
+    h.siblings = 0;
+    const res = await connect();
+    expect(res.status).toBe(200);
+    expect(h.eqs).toContainEqual(['whatsapp_config', 'is_personal', false]);
+    expect(h.inserts[0]).toMatchObject({ is_primary: true });
+  });
+
+  it('is not the default when a shared number already exists', async () => {
+    h.siblings = 1;
+    await connect();
+    expect(h.inserts[0]).toMatchObject({ is_primary: false });
+  });
+
+  it('answers 500 when the sibling count fails, and inserts nothing', async () => {
+    h.fail.count = { message: 'connection reset' };
+    const res = await connect();
+    expect(res.status).toBe(500);
+    expect(h.inserts).toHaveLength(0);
   });
 });

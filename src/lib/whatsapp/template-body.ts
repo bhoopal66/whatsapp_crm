@@ -62,9 +62,135 @@ export function templateBodyParams(
   return Array.isArray(templateParams) ? templateParams : [];
 }
 
+/** A non-empty string, or undefined: what a structured param may hold. */
+function textParam(messageParams: unknown, key: string): string | undefined {
+  const value =
+    messageParams && typeof messageParams === 'object'
+      ? (messageParams as Record<string, unknown>)[key]
+      : undefined;
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+/**
+ * The row a linked-device number (Whapi, OpenWA) renders and sends as an
+ * ordinary message: its header text with the header's own value filled in,
+ * and its header picture or file where the editor stores it. The composer
+ * asks for the header's value and it was then dropped, so the customer
+ * read a literal `{{1}}`; and the stored link was never looked at, so a
+ * template with a picture went out without it.
+ */
+export function renderedForLinkedDevice(
+  template: MessageTemplate,
+  messageParams?: unknown
+): MessageTemplate {
+  if (template.header_type === 'text') {
+    const value = textParam(messageParams, 'headerText');
+    return value && template.header_content
+      ? {
+          ...template,
+          header_content: renderTemplateBody(template.header_content, [value]),
+        }
+      : template;
+  }
+  const link =
+    textParam(messageParams, 'headerMediaUrl') ?? template.header_media_url;
+  return link && !template.header_content
+    ? { ...template, header_content: link }
+    : template;
+}
+
 /** `en_US` → `en`; used to match a request against a synced row. */
 function baseLanguage(language: string): string {
   return language.toLowerCase().split(/[_-]/)[0];
+}
+
+export interface TemplateCandidate {
+  id?: string;
+  language?: string | null;
+  status?: string | null;
+  meta_template_id?: string | null;
+  submission_error?: string | null;
+  created_at?: string | null;
+}
+
+/**
+ * Which of two rows with the same name and language is the template: the
+ * unique key is per user, so two teammates can each hold one. Meta's own
+ * approved one first, then one marked approved (a refusal of Meta's last,
+ * a save marks those approved too), then the newest.
+ */
+function templateRank(row: TemplateCandidate): number {
+  if (row.status !== 'APPROVED') return 3;
+  if (row.meta_template_id) return 0;
+  return row.submission_error ? 2 : 1;
+}
+
+function byPreference(a: TemplateCandidate, b: TemplateCandidate): number {
+  return (
+    templateRank(a) - templateRank(b) ||
+    Date.parse(b.created_at ?? '') - Date.parse(a.created_at ?? '') ||
+    0
+  );
+}
+
+/**
+ * Which of one name's rows a send uses: the row a person chose
+ * (`templateId`) when it is among them; else the requested language,
+ * exact then same base, or en_US, en and the first by language when none
+ * is asked for; `byPreference` among rows of one language. Undefined when
+ * the rows have no such language.
+ *
+ * Screens pick with this too, so they show the row the send will use.
+ */
+export function pickTemplateRow<T extends TemplateCandidate>(
+  rows: readonly T[],
+  requestedLanguage?: string | null,
+  templateId?: string | null
+): T | undefined {
+  const byId = templateId ? rows.find((r) => r.id === templateId) : undefined;
+  if (byId) return byId;
+  const sorted = rows
+    .slice()
+    .sort(
+      (a, b) =>
+        (a.language ?? '').localeCompare(b.language ?? '') || byPreference(a, b)
+    );
+  if (requestedLanguage) {
+    const wanted = requestedLanguage.toLowerCase();
+    const exact = sorted.find((r) => r.language?.toLowerCase() === wanted);
+    if (exact) return exact;
+    const wantedBase = baseLanguage(requestedLanguage);
+    return sorted.find(
+      (r) => r.language && baseLanguage(r.language) === wantedBase
+    );
+  }
+  // No language asked for: prefer the historical default, then the
+  // bare form, then whatever exists.
+  return (
+    sorted.find((r) => r.language === 'en_US') ??
+    sorted.find((r) => r.language === 'en') ??
+    sorted[0]
+  );
+}
+
+/**
+ * One row per name and language, the one a send of that pair uses, in the
+ * order each pair first appears. A row without a language counts as en_US,
+ * as a picker shows it.
+ */
+export function onePerTemplate<T extends TemplateCandidate & { name: string }>(
+  rows: readonly T[]
+): T[] {
+  const groups = new Map<string, T[]>();
+  for (const row of rows) {
+    const key = JSON.stringify([row.name, row.language ?? 'en_US']);
+    groups.set(key, [...(groups.get(key) ?? []), row]);
+  }
+  return [...groups.values()].map(
+    (group) =>
+      pickTemplateRow(group, group[0].language ?? 'en_US') ??
+      pickTemplateRow(group)!
+  );
 }
 
 export interface ResolvedTemplate {
@@ -83,6 +209,8 @@ export interface ResolvedTemplate {
    * all — Meta rejects the pair as a missing translation.
    */
   language: string;
+  /** Set when the read failed: no row is then not "there is none". */
+  readFailed?: true;
 }
 
 /**
@@ -93,52 +221,39 @@ export interface ResolvedTemplate {
  * synced from Meta commonly carry the bare `en`, so a caller that
  * omitted the language matched no row: no header components, and no
  * body to persist. Matching falls back through
- * exact → same base language → a sensible default.
+ * exact → same base language → a sensible default (`pickTemplateRow`).
+ * `templateId` is the row a person chose: when it is this account's and
+ * has this name, it is the one, in its own language.
  */
 export async function resolveTemplateRow(
   db: SupabaseClient,
   accountId: string,
   templateName: string,
-  requestedLanguage?: string | null
+  requestedLanguage?: string | null,
+  templateId?: string | null
 ): Promise<ResolvedTemplate> {
-  const { data } = await db
+  const { data, error } = await db
     .from('message_templates')
     .select('*')
     .eq('account_id', accountId)
     .eq('name', templateName);
 
-  // Sorted here rather than with `.order()` so the only query-builder
+  // Sorted in `pickTemplateRow` rather than with `.order()` so the only query-builder
   // surface this helper depends on is select + eq — the same shape the
   // callers' existing fakes implement.
-  const rows = ((Array.isArray(data) ? data : []) as { language?: string }[])
-    .slice()
-    .sort((a, b) => (a.language ?? '').localeCompare(b.language ?? ''));
+  const rows = (Array.isArray(data) ? data : []) as TemplateCandidate[];
   const fallbackLanguage = requestedLanguage || 'en_US';
 
   if (rows.length === 0) {
-    return { row: null, malformed: false, language: fallbackLanguage };
+    return {
+      row: null,
+      malformed: false,
+      language: fallbackLanguage,
+      ...(error ? { readFailed: true as const } : {}),
+    };
   }
 
-  const pick = (): { language?: string } | undefined => {
-    if (requestedLanguage) {
-      const wanted = requestedLanguage.toLowerCase();
-      const exact = rows.find((r) => r.language?.toLowerCase() === wanted);
-      if (exact) return exact;
-      const wantedBase = baseLanguage(requestedLanguage);
-      return rows.find(
-        (r) => r.language && baseLanguage(r.language) === wantedBase
-      );
-    }
-    // No language asked for: prefer the historical default, then the
-    // bare form, then whatever exists.
-    return (
-      rows.find((r) => r.language === 'en_US') ??
-      rows.find((r) => r.language === 'en') ??
-      rows[0]
-    );
-  };
-
-  const chosen = pick();
+  const chosen = pickTemplateRow(rows, requestedLanguage, templateId);
   if (!chosen) {
     // Rows exist but none in the requested language — the caller pinned
     // a translation this account doesn't have. Report no row; under
@@ -153,7 +268,11 @@ export async function resolveTemplateRow(
   return {
     row: chosen,
     malformed: false,
-    language: requestedLanguage || chosen.language || 'en_US',
+    language:
+      (templateId && chosen.id === templateId ? chosen.language : null) ||
+      requestedLanguage ||
+      chosen.language ||
+      'en_US',
   };
 }
 

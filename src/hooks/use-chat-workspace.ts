@@ -24,12 +24,22 @@ import {
   type VoicePlay,
 } from '@/lib/chat';
 import type { TypingChange } from '@/lib/chat/typing-flow';
-import { droppedChannelIds, timelineCacheKey } from '@/lib/chat/timeline-cache';
-import { chatErrorKey, inboxHasAssigneeFilter } from '@/lib/chat/view';
+import {
+  droppedChannelIds,
+  timelineCacheKey,
+  timelineMark,
+} from '@/lib/chat/timeline-cache';
+import {
+  chatErrorKey,
+  inboxHasAssigneeFilter,
+  inboxTagCounts,
+} from '@/lib/chat/view';
 import { INBOX_FILTER } from '@/lib/inbox/campaign-inbox';
 import { assigneeGroup, combineOrGroups } from '@/lib/inbox/pagination';
+import { timelineGap } from '@/hooks/use-channel-timeline';
 import { startCatchUp } from '@/lib/realtime/catch-up';
 import { createClient } from '@/lib/supabase/client';
+import { visibleInterval } from '@/lib/visible-interval';
 import { sessionCache, sessionKey } from '@/lib/session-cache';
 import { useSessionQuery } from '@/hooks/use-session-query';
 import {
@@ -43,6 +53,15 @@ import {
   loadPeopleWithRetries,
   unknownPersonName,
 } from '@/lib/chat/people-load';
+
+/** When each answer of the unread counts was asked for (`timelineMark`). */
+const unreadMarks = new WeakMap<readonly UnreadCount[], number>();
+async function readUnread(read: () => Promise<UnreadCount[]>) {
+  const mark = timelineMark();
+  const counts = await read();
+  unreadMarks.set(counts, mark);
+  return counts;
+}
 
 export type ChatEvent =
   | { kind: 'message'; event: MessageEvent }
@@ -78,7 +97,7 @@ export function useChatWorkspace() {
   const { user, accountId } = useAuth();
   const userId = user?.id ?? null;
   const sb = useMemo<SupabaseClient>(() => createClient(), []);
-  const listeners = useRef(new Set<(e: ChatEvent) => void>());
+  const listeners = useRef(new Set<(e: ChatEvent) => unknown>());
   const phonePresence = usePhonePresence();
 
   const fail = useCallback(
@@ -97,7 +116,7 @@ export function useChatWorkspace() {
     listChannels(sb, accountId!, userId!, { includeArchived: true })
   );
   const unreadQuery = useSessionQuery(unreadKey, () =>
-    unreadCounts(sb, accountId!)
+    readUnread(() => unreadCounts(sb, accountId!))
   );
   const channelsError = channelsQuery.error;
   useEffect(() => {
@@ -109,6 +128,15 @@ export function useChatWorkspace() {
     channelsQuery.data ?? (channelsError ? [] : null);
   const channelsFailed = !channelsQuery.data && !!channelsError;
   const unread: UnreadCount[] = unreadQuery.data ?? EMPTY_UNREAD;
+  // The mark of this visit to the chat, or of the last gap in realtime or
+  // message since: counts read before it (cached, in flight) may be short.
+  const [opened] = useState(timelineMark);
+  const countsSince = useRef(opened);
+  /** Whether `unread` was read since. Asked when it matters. */
+  const isUnreadFresh = useCallback(
+    () => (unreadMarks.get(unread) ?? 0) > countsSince.current,
+    [unread]
+  );
   const loadChannels = channelsQuery.refresh;
   // A channel that leaves the list (removed, a 159 audience, a guest's
   // bank switched off) loses its cached timeline: RLS answers it with no
@@ -130,6 +158,8 @@ export function useChatWorkspace() {
   }, [channelList, channelsKey, accountId, userId]);
   // Counts catch up on the next event when a refresh fails.
   const refreshUnread = unreadQuery.refresh;
+  const rereadChannels = channelsQuery.reread;
+  const rereadUnread = unreadQuery.reread;
   // Every name on the screen comes from this list, so it is kept in the
   // session cache too: entering /chat again shows names at once, and a
   // failed refresh leaves the last good list in place.
@@ -146,14 +176,20 @@ export function useChatWorkspace() {
   useEffect(() => {
     if (!peopleKey) return;
     // Presence rides on this list; the first read is useSessionQuery's.
-    const id = setInterval(() => void refreshPeople(), PEOPLE_REFRESH_MS);
-    return () => clearInterval(id);
+    return visibleInterval(refreshPeople, PEOPLE_REFRESH_MS);
   }, [peopleKey, refreshPeople]);
 
   // Handlers through a ref: the subscription is made once per account.
-  const handlers = useRef({ loadChannels, refreshUnread, channelsKey });
+  const latest = {
+    loadChannels,
+    refreshUnread,
+    rereadChannels,
+    rereadUnread,
+    channelsKey,
+  };
+  const handlers = useRef(latest);
   useEffect(() => {
-    handlers.current = { loadChannels, refreshUnread, channelsKey };
+    handlers.current = latest;
   });
   useEffect(() => {
     if (!accountId || !userId) return;
@@ -162,18 +198,25 @@ export function useChatWorkspace() {
       clearTimeout(timers[key]);
       timers[key] = setTimeout(() => void handlers.current[key](), DEBOUNCE_MS);
     };
-    const emit = (e: ChatEvent) => listeners.current.forEach((fn) => fn(e));
-    // Nothing sent while the channel was down is replayed.
+    const emit = (e: ChatEvent) => [...listeners.current].map((fn) => fn(e));
+    // Nothing sent while the channel was down is replayed. A read that
+    // failed rejects, so that the whole catch-up is tried again.
     const live = startCatchUp(() => {
-      emit({ kind: 'resync' });
-      void handlers.current.loadChannels();
-      void handlers.current.refreshUnread();
+      timelineGap();
+      countsSince.current = timelineMark();
+      return Promise.all([
+        ...emit({ kind: 'resync' }),
+        handlers.current.rereadChannels(),
+        handlers.current.rereadUnread(),
+      ]);
     });
     const off = subscribeChat(sb, {
       accountId,
       userId,
       onMessage: (event) => {
         emit({ kind: 'message', event });
+        // Counts read before it may lack it.
+        countsSince.current = timelineMark();
         later('refreshUnread');
       },
       onReaction: (event) => emit({ kind: 'reaction', event }),
@@ -204,12 +247,14 @@ export function useChatWorkspace() {
     });
     return () => {
       live.stop();
+      timelineGap();
       Object.values(timers).forEach(clearTimeout);
       off();
     };
   }, [sb, accountId, userId]);
 
-  const listen = useCallback((fn: (e: ChatEvent) => void) => {
+  /** A `resync` listener returns its read: a rejection is retried. */
+  const listen = useCallback((fn: (e: ChatEvent) => unknown) => {
     listeners.current.add(fn);
     return () => {
       listeners.current.delete(fn);
@@ -232,6 +277,7 @@ export function useChatWorkspace() {
     unknownName,
     phonePresence,
     unread,
+    isUnreadFresh,
     refreshUnread,
     reloadChannels: loadChannels,
     listen,
@@ -256,7 +302,7 @@ export function useInboxCounts(enabled: boolean) {
   const [counts, setCounts] = useState<{
     unassigned: number | null;
     mine: number | null;
-    tags: { id: string; name: string; count: number }[];
+    tags: { id: string; name: string; count: number | null }[];
   }>({ unassigned: null, mine: null, tags: [] });
 
   useEffect(() => {
@@ -280,6 +326,12 @@ export function useInboxCounts(enabled: boolean) {
       return error ? null : (c ?? 0);
     };
     const filtered = inboxHasAssigneeFilter(accountRole);
+    // This question's last good figures: a failed count keeps its own.
+    const good = new Map<string, number>();
+    const kept = (key: string, n: number | null) => {
+      if (n !== null) good.set(key, n);
+      return good.get(key) ?? null;
+    };
     const load = async () => {
       const [unassigned, mine, ...perTag] = await Promise.all([
         count({ unassigned: true }),
@@ -288,20 +340,19 @@ export function useInboxCounts(enabled: boolean) {
       ]);
       if (cancelled) return;
       setCounts({
-        unassigned,
-        mine,
-        tags: mains.map((tag, i) => ({
-          id: tag.id,
-          name: tag.name,
-          count: perTag[i] ?? 0,
-        })),
+        unassigned: kept('unassigned', unassigned),
+        mine: kept('mine', mine),
+        tags: inboxTagCounts(
+          mains,
+          perTag.map((n, i) => kept(mains[i].id, n))
+        ),
       });
     };
     void load();
-    const id = setInterval(() => void load(), 60_000);
+    const stop = visibleInterval(load, 60_000);
     return () => {
       cancelled = true;
-      clearInterval(id);
+      stop();
     };
   }, [enabled, userId, accountRole, aiLive, mains]);
 

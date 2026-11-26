@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 
@@ -8,15 +8,14 @@ import { useAuth } from '@/hooks/use-auth';
 import { isChannelModerator } from '@/lib/chat/moderation';
 import { useChannelMembers } from '@/hooks/use-channel-members';
 import { useChannelTimeline } from '@/hooks/use-channel-timeline';
+import { useMarkRead } from '@/hooks/use-mark-read';
 import {
   firstUnreadId,
   lastOwnTopLevelId,
-  markRead,
   showsReceipts,
   unreadSince,
 } from '@/lib/chat';
 import { offersBroadcasts } from '@/lib/chat/composer-input';
-import { shouldMarkRead, type ReadMark } from '@/lib/chat/read-mark';
 import { channelDisplayName } from '@/lib/chat/view';
 
 import { ChannelHeader } from './channel-header';
@@ -31,8 +30,6 @@ import { ReplyTargetProvider } from './reply-target';
 import { SeenBy } from './seen-by';
 import { TypingIndicator } from './typing-indicator';
 import { useWriteBlock } from './use-write-block';
-
-const MARK_READ_DEBOUNCE_MS = 800;
 
 /**
  * This visit's "New messages" baseline: the viewer's read mark as it was
@@ -86,7 +83,7 @@ export function ChannelView({
     channel?.kind ?? null,
     members
   );
-  const { sb, refreshUnread, userId } = ws;
+  const { userId } = ws;
   const { canManageMembers, isBankGuest } = useAuth();
   const marks = useMessageMarks();
   const block = useWriteBlock(channel);
@@ -129,7 +126,7 @@ export function ChannelView({
 
   // Frozen per visit (derived state, set during render): captured from
   // the channel list's own membership row the moment the channel is
-  // known, which is before markRead below can run.
+  // known, which is before useMarkRead below can run.
   const [visit, setVisit] = useState<Visit | null>(null);
   if (channel && visit?.channelId !== channelId)
     setVisit({ channelId, since: unreadSince(channel.membership) });
@@ -153,45 +150,15 @@ export function ChannelView({
     [visit, channelId, tl.messages, userId]
   );
 
-  // Read up to now whenever the visible timeline changes, and again when
-  // the tab comes back into view.
-  const [shownTick, setShownTick] = useState(0);
-  useEffect(() => {
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') setShownTick((n) => n + 1);
-    };
-    document.addEventListener('visibilitychange', onVisible);
-    return () => document.removeEventListener('visibilitychange', onVisible);
-  }, []);
-  const newest = tl.messages[tl.messages.length - 1]?.id ?? null;
-  // Keyed on whether a member row exists, never on the row itself: each
-  // mark's own echo reloads the list with a new row object, which marked
-  // an idle channel every couple of seconds (shouldMarkRead).
-  const member = !!channel?.membership;
-  const lastMark = useRef<ReadMark | null>(null);
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      const mark: ReadMark = { channelId, newestId: newest };
-      if (
-        !shouldMarkRead({
-          ...mark,
-          loading: tl.loading,
-          member,
-          visible: document.visibilityState === 'visible',
-          last: lastMark.current,
-        })
-      )
-        return;
-      lastMark.current = mark;
-      markRead(sb, channelId)
-        .then(refreshUnread)
-        .catch(() => {
-          // Let the next change or visit try again.
-          if (lastMark.current === mark) lastMark.current = null;
-        });
-    }, MARK_READ_DEBOUNCE_MS);
-    return () => clearTimeout(timer);
-  }, [sb, channelId, newest, shownTick, tl.loading, member, refreshUnread]);
+  // Read up to the newest message shown, once this visit's refresh landed.
+  useMarkRead(ws, {
+    channelId,
+    membership: channel?.membership,
+    at: tl.messages[tl.messages.length - 1]?.createdAt ?? null,
+    ready: !tl.loading,
+    mayMark: tl.isFresh,
+    version: tl.pageMark,
+  });
 
   // "Seen by" under the viewer's last own top-level message.
   const seenId = useMemo(
@@ -264,6 +231,8 @@ export function ChannelView({
           <QuoteProvider value={quoteLookup}>
             <VoicePlaysProvider value={voicePlays}>
               <MessageTimeline
+                missingFiles={tl.missingFiles}
+                onRetryFiles={tl.retryFiles}
                 messages={tl.messages}
                 cards={tl.cards}
                 callCards={tl.callCards}

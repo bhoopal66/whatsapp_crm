@@ -336,6 +336,13 @@ named on the list and holders of the case's bank, with at most one unread
 bell per person per group, so a run of messages rings once. The bell shows
 the customer's name, never the message text.
 
+While an ended group is still open on WhatsApp, a customer's message rings
+those on its list who may read its archive, or the owner and admins when
+none of them may. An agent, who cannot open an ended group, is sent to the
+customer's page instead, if they may see the customer. Such groups are listed
+above the active ones ("Ended, new messages"); opening the archive clears
+your count and bell.
+
 ## Ending
 
 A group ends when its submission reaches a **final status** (`APPROVED`,
@@ -371,9 +378,10 @@ are checked.
 
 ## Removing a number or a contact
 
-Removing the hosting number, or deleting the customer's contact, does not
-block the delete. The group is detached (its number or contact becomes
-empty): the archive and its audit survive, but sends are refused
+A person cannot delete a customer whose group is still active (migration
+280): close it first. Removing the hosting number, or deleting the customer
+of a closed group, goes through. The group is detached (its number or
+contact becomes empty): the archive and its audit survive, but sends are refused
 (`NUMBER_REMOVED` / `CONTACT_REMOVED`), a pending create is not retried
 and the WhatsApp close is not attempted.
 

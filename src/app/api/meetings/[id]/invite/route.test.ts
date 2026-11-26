@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   meeting: null as unknown,
   meetingError: null as unknown,
   invitees: { data: [] as unknown, error: null as unknown },
+  removed: { data: [] as unknown, error: null as unknown },
   written: { error: null as unknown },
 }));
 
@@ -30,12 +31,15 @@ function from(table: string) {
   const q: Record<string, unknown> = {};
   q.select = () => q;
   q.eq = () => q;
+  q.in = () => q;
   q.maybeSingle = async () => ({
     data: mocks.meeting,
     error: mocks.meetingError,
   });
   q.then = (ok: (v: unknown) => unknown) =>
-    Promise.resolve(mocks.invitees).then(ok);
+    Promise.resolve(
+      table === 'meeting_removed_users' ? mocks.removed : mocks.invitees
+    ).then(ok);
   if (table === 'meeting_invitees') {
     q.upsert = async (rows: unknown, opts: unknown) => {
       mocks.upsert(rows, opts);
@@ -69,13 +73,14 @@ describe('POST /api/meetings/[id]/invite', () => {
     };
     mocks.meetingError = null;
     mocks.invitees = { data: [], error: null };
+    mocks.removed = { data: [], error: null };
     mocks.written = { error: null };
   });
 
   it('adds the people through the caller’s client, in one write', async () => {
     const res = await invite({ userIds: [U1, U2] });
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ invited: [U1, U2] });
+    expect(await res.json()).toEqual({ invited: [U1, U2], needs_readmit: [] });
     expect(mocks.upsert).toHaveBeenCalledTimes(1);
     expect(mocks.upsert).toHaveBeenCalledWith(
       [
@@ -89,7 +94,7 @@ describe('POST /api/meetings/[id]/invite', () => {
   it('skips someone already invited and the host, silently', async () => {
     mocks.invitees = { data: [{ user_id: U1.toUpperCase() }], error: null };
     const res = await invite({ userIds: [U1, U2, HOST] });
-    expect(await res.json()).toEqual({ invited: [U2] });
+    expect(await res.json()).toEqual({ invited: [U2], needs_readmit: [] });
     expect(mocks.upsert.mock.calls[0][0]).toEqual([
       { meeting_id: M, account_id: 'acct-1', user_id: U2 },
     ]);
@@ -99,7 +104,28 @@ describe('POST /api/meetings/[id]/invite', () => {
     mocks.invitees = { data: [{ user_id: U1 }], error: null };
     const res = await invite({ userIds: [U1, HOST] });
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ invited: [] });
+    expect(await res.json()).toEqual({ invited: [], needs_readmit: [] });
+    expect(mocks.upsert).not.toHaveBeenCalled();
+  });
+
+  it('names someone the host removed instead of inviting them', async () => {
+    mocks.removed = { data: [{ user_id: U1 }], error: null };
+    let res = await invite({ userIds: [U1, U2] });
+    expect(await res.json()).toEqual({ invited: [U2], needs_readmit: [U1] });
+    expect(mocks.upsert.mock.calls[0][0]).toEqual([
+      { meeting_id: M, account_id: 'acct-1', user_id: U2 },
+    ]);
+    // Still on the invitee list from before, as a removal leaves them.
+    mocks.upsert.mockClear();
+    mocks.invitees = { data: [{ user_id: U1 }], error: null };
+    res = await invite({ userIds: [U1] });
+    expect(await res.json()).toEqual({ invited: [], needs_readmit: [U1] });
+    expect(mocks.upsert).not.toHaveBeenCalled();
+  });
+
+  it('invites nobody when the removals cannot be read', async () => {
+    mocks.removed = { data: null, error: { message: 'boom' } };
+    expect((await invite({ userIds: [U1] })).status).toBe(503);
     expect(mocks.upsert).not.toHaveBeenCalled();
   });
 

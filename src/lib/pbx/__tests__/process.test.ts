@@ -213,6 +213,57 @@ describe('ingestPbxEvent', () => {
     ]);
   });
 
+  describe('a call staff linked after its first frame', () => {
+    beforeEach(async () => {
+      fake.tables.contacts.push({
+        id: 'k2',
+        account_id: A2,
+        name: 'Dup',
+        phone: '9710501234567',
+        phone_normalized: '9710501234567',
+        user_id: null,
+      });
+      await ingest(ring('call-1', [inbound('ALERT'), ext('1001', 'RING')]));
+    });
+
+    it('keeps no candidates from a later frame', async () => {
+      // Linked by an older build, which left them.
+      fake.tables.calls[0].contact_id = 'k2';
+      await ingest(ring('call-1', [inbound('ANSWER'), ext('1001', 'ANSWER')]));
+      const call = fake.tables.calls[0];
+      expect(call.status).toBe('in_progress');
+      expect((call.meta as Row).answered_user_ids).toBeTruthy();
+      expect(call.meta).not.toHaveProperty('contact_candidates');
+      const legs = fake.tables.call_live[0].members as Row[];
+      expect(legs.some((m) => 'contactCandidates' in m)).toBe(false);
+    });
+
+    it('gets none back when linked while a frame is being handled', async () => {
+      const from = fake.db.from.bind(fake.db);
+      const spy = vi.spyOn(fake.db, 'from').mockImplementation(((t: string) => {
+        // Between the frame's read of the row and its write.
+        if (t === 'call_live') {
+          fake.tables.calls[0].contact_id = 'k2';
+          fake.tables.calls[0].meta = { rang_user_ids: ['x'] };
+        }
+        return from(t);
+      }) as never);
+      await ingest(ring('call-1', [inbound('ANSWER'), ext('1001', 'ANSWER')]));
+      spy.mockRestore();
+      const call = fake.tables.calls[0];
+      expect(call).toMatchObject({ contact_id: 'k2', status: 'in_progress' });
+      expect((call.meta as Row).answered_user_ids).toBeTruthy();
+      expect(call.meta).not.toHaveProperty('contact_candidates');
+    });
+
+    it('not linked, keeps them', async () => {
+      await ingest(ring('call-1', [inbound('ANSWER'), ext('1001', 'ANSWER')]));
+      const call = fake.tables.calls[0];
+      expect(call.status).toBe('in_progress');
+      expect((call.meta as Row).contact_candidates).toEqual(['k1', 'k2']);
+    });
+  });
+
   it('never matches another country sharing the last 8 digits', async () => {
     Object.assign(fake.tables.contacts[0], {
       phone: '966501234567',
@@ -661,6 +712,47 @@ describe('ingestPbxEvent', () => {
       });
     });
 
+    describe('a caller saved as a contact between two calls', () => {
+      const saveBetween = async (firstCall: Row = {}) => {
+        const saved = fake.tables.contacts;
+        fake.tables.contacts = [];
+        await ingest(ring('call-1', [inbound('ALERT'), ext('1001', 'RING')]));
+        await ingest(end('call-1', 'NO ANSWER'));
+        expect(fake.tables.tasks[0].contact_id).toBeNull();
+        Object.assign(fake.tables.calls[0], firstCall);
+        fake.tables.contacts = saved;
+        await ingest(end('call-2', 'NO ANSWER'));
+      };
+
+      it('folds into the task of their number, which is now theirs', async () => {
+        await saveBetween();
+        expect(fake.tables.tasks).toHaveLength(1);
+        expect(fake.tables.tasks[0]).toMatchObject({
+          contact_id: 'k1',
+          conversation_id: 'cv1',
+          assigned_to: 'u1',
+          meta: { missed_count: 2 },
+        });
+        expect(fake.tables.notifications).toHaveLength(1);
+      });
+
+      it('leaves one whose call is, or may be, another contact’s', async () => {
+        await saveBetween({ contact_id: 'k2' });
+        expect(fake.tables.tasks.map((t) => t.contact_id)).toEqual([
+          null,
+          'k1',
+        ]);
+        fake.tables.tasks = [];
+        fake.tables.calls = [];
+        fake.tables.pbx_events_raw = [];
+        await saveBetween({ meta: { contact_candidates: ['k1', 'k2'] } });
+        expect(fake.tables.tasks.map((t) => t.contact_id)).toEqual([
+          null,
+          'k1',
+        ]);
+      });
+    });
+
     it("with no contact, fold on the caller's number only", async () => {
       fake.tables.contacts = [];
       await ingest(end('call-1', 'NO ANSWER'));
@@ -998,6 +1090,90 @@ describe('ingestPbxEvent', () => {
       }
     );
 
+    it('keeps everyone who answered, live and after the end; a ring answers nothing', async () => {
+      const answeredIds = () =>
+        (callRow('call-1').meta as Row).answered_user_ids;
+      await ingest(
+        ring('call-1', [
+          inbound('ALERT'),
+          ext('1001', 'RING'),
+          ext('1002', 'RING'),
+        ])
+      );
+      expect(answeredIds()).toBeUndefined();
+      await ingest(
+        ring('call-1', [inbound('ANSWERED'), ext('1001', 'ANSWERED')])
+      );
+      expect(answeredIds()).toEqual(['u1']);
+      // Transferred: the frame names only the new person, and so does
+      // user_id; the first one stays on the list.
+      await ingest(
+        ring('call-1', [inbound('ANSWERED'), ext('1002', 'ANSWERED')])
+      );
+      expect(callRow('call-1').user_id).toBe('u2');
+      expect(answeredIds()).toEqual(['u1', 'u2']);
+      // A row an older build wrote has no list: its person is kept.
+      const old = { ...(callRow('call-1').meta as Row) };
+      delete old.answered_user_ids;
+      callRow('call-1').meta = old;
+      await ingest(
+        leg('call-1', 'call-1-c', 'ANSWERED', { to: '1001', dur: 25, talk: 20 })
+      );
+      expect(callRow('call-1').user_id).toBe('u1');
+      expect(answeredIds()).toEqual(['u2', 'u1']);
+    });
+
+    it('a colleague who was only consulted is not on the list, live or after', async () => {
+      const answeredIds = () =>
+        (callRow('call-1').meta as Row).answered_user_ids;
+      await ingest(
+        ring('call-1', [inbound('ANSWERED'), ext('1001', 'ANSWERED')])
+      );
+      // 1001 asks 1002, the customer holding; then takes the call back.
+      await ingest(
+        ring('call-1', [
+          inbound('ANSWERED'),
+          ext('1002', 'ANSWERED'),
+          ext('1001', 'ANSWERED'),
+        ])
+      );
+      await ingest(
+        ring('call-1', [
+          inbound('HOLD'),
+          ext('1001', 'HOLD'),
+          ext('1002', 'ANSWERED'),
+        ])
+      );
+      expect(answeredIds()).toEqual(['u1']);
+      await ingest(
+        leg('call-1', 'call-1-t', 'ANSWERED', {
+          type: 'Internal',
+          from: '1001',
+          to: '1002',
+          start: '2026-10-12 14:00:20',
+          dur: 10,
+          talk: 8,
+        })
+      );
+      await ingest(
+        leg('call-1', 'call-1-c', 'ANSWERED', { to: '1001', dur: 60, talk: 55 })
+      );
+      expect(answeredIds()).toEqual(['u1']);
+    });
+
+    it('a call between colleagues keeps no such list', async () => {
+      await ingest(
+        leg('call-1', 'call-1-i', 'ANSWERED', {
+          type: 'Internal',
+          from: '1001',
+          to: '1002',
+          dur: 25,
+          talk: 20,
+        })
+      );
+      expect((callRow('call-1').meta as Row).answered_user_ids).toBeUndefined();
+    });
+
     it.each([
       ['the transfer leg first', true],
       ['the customer leg first', false],
@@ -1037,6 +1213,12 @@ describe('ingestPbxEvent', () => {
           status: 'answered',
         });
         expect((callRow('call-1').meta as Row).cdr_legs).toHaveLength(2);
+        // Both people answered a leg: each may write the note (294).
+        expect(
+          [
+            ...((callRow('call-1').meta as Row).answered_user_ids as string[]),
+          ].sort()
+        ).toEqual(['u1', 'u2']);
       }
     );
 

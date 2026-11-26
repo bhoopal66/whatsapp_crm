@@ -1,4 +1,5 @@
 import type { WhatsAppProvider } from "@/lib/whatsapp/channels";
+import type { SalesChatCheck } from "@/lib/ai/not-sales-chat";
 import type { IntentTriggerConfig } from "@/lib/insights/meaning-config";
 
 export type { IntentTriggerConfig };
@@ -262,6 +263,10 @@ export interface FlowRow {
   last_executed_at: string | null;
   created_at: string;
   updated_at: string;
+  /** The last save of the content (`flow_save`, 300); null before the
+   *  first one, absent before 300. Counted runs do not move it. */
+  edited_at?: string | null;
+  edited_by?: string | null;
 }
 
 export interface FlowNodeRow {
@@ -391,6 +396,9 @@ export interface DispatchInboundInput {
   inboundProvider?: WhatsAppProvider;
   /** The exact number the inbound arrived on (migration 060). */
   inboundChannelId?: string | null;
+  /** Whether the chat is a sales chat: no flow answers in one that is
+   *  not (HR, another department, or a check that could not be read). */
+  salesChat?: SalesChatCheck | null;
 }
 
 export interface DispatchInboundResult {
@@ -418,6 +426,8 @@ export interface DispatchInboundResult {
      */
     | "failed"
     | "no_match";
+  /** What the AI fallback did with this message, when it took it. */
+  ai_outcome?: "replied" | "handed_off" | "superseded";
 }
 
 // ============================================================

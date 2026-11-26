@@ -3,6 +3,14 @@ import type { ParticipantRow } from './types';
 /** Clients heartbeat this often (POST /api/meetings/[id]/heartbeat). */
 export const HEARTBEAT_INTERVAL_MS = 20_000;
 
+/**
+ * A 401/403 ends the call only if the server still refuses this long
+ * after the first one. One heartbeat apart is more, so a token that
+ * renews itself in between throws nobody out, nor does one refusal either
+ * side of any other answer (no answer and a server fault included); a burst of mute toggles in one such moment is less.
+ */
+export const REFUSED_FOR_MS = 10_000;
+
 /** A row whose last heartbeat is older than this is not in the room. */
 export const PRESENCE_WINDOW_MS = 60_000;
 

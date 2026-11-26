@@ -70,13 +70,13 @@ const message = (id: string, channelId: string) => ({
 import type { ChatEvent } from './use-chat-workspace';
 import { useThread } from './use-thread';
 
-const listeners = new Set<(e: ChatEvent) => void>();
-const emit = (e: ChatEvent) => listeners.forEach((fn) => fn(e));
+const listeners = new Set<(e: ChatEvent) => unknown>();
+const emit = (e: ChatEvent) => [...listeners].map((fn) => fn(e));
 const fail = vi.fn();
 const ws = {
   sb: {} as never,
   fail: fail as never,
-  listen: (fn: (e: ChatEvent) => void) => {
+  listen: (fn: (e: ChatEvent) => unknown) => {
     listeners.add(fn);
     return () => {
       listeners.delete(fn);
@@ -113,6 +113,34 @@ describe('useThread', () => {
     reads[1].answer(['one', 'two']);
     await settle();
     expect(bodies('A')).toEqual(['one', 'two']);
+  });
+
+  it('tells the catch-up whether the thread was read again', async () => {
+    Panel('A');
+    reads[0].answer(['one']);
+    await settle();
+    const [failed] = emit({ kind: 'resync' });
+    reads[1].fail();
+    await expect(failed).rejects.toThrow();
+    expect(bodies('A')).toEqual(['one']);
+    expect(fail).not.toHaveBeenCalled();
+
+    const [read] = emit({ kind: 'resync' });
+    reads[2].answer(['one', 'two']);
+    await expect(read).resolves.toBeUndefined();
+    expect(bodies('A')).toEqual(['one', 'two']);
+  });
+
+  it('a read overtaken by a newer one is not tried again', async () => {
+    Panel('A');
+    reads[0].answer(['one']);
+    await settle();
+    const [older] = emit({ kind: 'resync' });
+    const [newer] = emit({ kind: 'resync' });
+    reads[2].answer(['one', 'two']);
+    await expect(newer).resolves.toBeUndefined();
+    reads[1].fail();
+    await expect(older).resolves.toBeUndefined();
   });
 
   it('applies messages and reactions as they come', async () => {

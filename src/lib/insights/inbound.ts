@@ -18,12 +18,13 @@
 // of migrations 147 and 153, and one conversation_insight_events row per
 // judged message, service role only), plus the attention pin and its
 // bell (./attention.ts). Nothing here sends, tags, assigns or opts
-// anyone out. Never throws.
+// anyone out. Only in a sales chat (lib/ai/not-sales-chat.ts). Never throws.
 // ============================================================
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { supabaseAdmin } from '@/lib/ai/admin-client';
 import { buildConversationContext } from '@/lib/ai/context';
+import { salesAnswersOff, type SalesChatCheck } from '@/lib/ai/not-sales-chat';
 import { turnsBefore } from '@/lib/ai/typesafe-gates';
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 import {
@@ -76,7 +77,14 @@ export interface StoredSuggestion {
 export interface InboundInsightsOutcome {
   /** Why nothing ran, or null when it did. `error` covers a thrown
    *  failure part-way (logged); whatever was written before it stays. */
-  skipped: 'blank' | 'unavailable' | 'off' | 'rate_limited' | 'error' | null;
+  skipped:
+    | 'blank'
+    | 'unavailable'
+    | 'off'
+    | 'not_sales'
+    | 'rate_limited'
+    | 'error'
+    | null;
   /** The settings this run used (null when it stopped before reading). */
   settings: InsightSettings | null;
   /** The signals came from the logged triage row, not a new request. */
@@ -120,6 +128,10 @@ export interface InboundInsightsArgs {
   text: string;
   /** created_at of the persisted inbound message: insight_at's value. */
   messageAt: string;
+  /** The message's one decision whether this is a sales chat. In any other
+   *  (HR, another department, personal, or a check that could not be read)
+   *  nothing is judged, stored, pinned or tagged, and no text leaves. */
+  salesChat?: SalesChatCheck | null;
 }
 
 const isNum = (x: unknown): x is number =>
@@ -313,6 +325,8 @@ export async function runInboundInsights(
     const signalsOn = settings.signalsEnabled;
     const tagsOn = settings.tagSuggestMode !== 'off';
     if (!signalsOn && !tagsOn) return { ...out, skipped: 'off' };
+    if (await salesAnswersOff(args.salesChat))
+      return { ...out, skipped: 'not_sales' };
     if (
       !checkRateLimit(`insights:${accountId}`, RATE_LIMITS.insightsAccount)
         .success

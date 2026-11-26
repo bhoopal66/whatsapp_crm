@@ -151,12 +151,12 @@ export function banksChanged(
   return false;
 }
 
-/** Saved WhatsApp numbers (142) by person, from the coordinator list. */
+/** Saved WhatsApp numbers (142) by person. */
 export function phonesByUser(
-  coordinators: readonly CoordinatorRow[]
+  rows: readonly (Partial<CoordinatorRow> & { user_id: string })[]
 ): Map<string, string> {
   const out = new Map<string, string>();
-  for (const c of coordinators) {
+  for (const c of rows) {
     if (c.whatsapp_phone) out.set(c.user_id, c.whatsapp_phone);
   }
   return out;

@@ -311,7 +311,7 @@ export interface Heading {
 export type CallTone = 'missed' | 'ok';
 
 export function callTone(call: TimelineCall): CallTone {
-  return isMissedCall(call) && !call.answeredAt ? 'missed' : 'ok';
+  return isMissedCall(call) ? 'missed' : 'ok';
 }
 
 /** 'rang Sara and Faisal for 24 s' (whoever is known of it). */
@@ -357,6 +357,7 @@ export function callHeading(
 ): Heading {
   const at = clock(call.startedAt, ctx.timeZone);
   const name = call.userName?.trim() || null;
+  const disposition = call.disposition && DISPOSITION_KEYS[call.disposition];
   if (callTone(call) === 'missed') {
     // A call from before the ring list was kept names its one person.
     const rang = rangPart(
@@ -364,13 +365,20 @@ export function callHeading(
       call.ringSeconds,
       ctx.locale
     );
+    // Passed on and missed at the end, as the reports count it; what was
+    // said before that is still shown.
+    const spoke: Part[] = call.answeredAt
+      ? [
+          duration(call.talkSeconds),
+          ...(disposition ? [{ key: disposition }] : []),
+        ]
+      : [];
     return {
       label: { key: 'missedCall' },
-      details: [{ key: 'incoming' }, at, ...(rang ? [rang] : [])],
+      details: [{ key: 'incoming' }, at, ...(rang ? [rang] : []), ...spoke],
     };
   }
   const answered = call.status === 'answered' || !!call.answeredAt;
-  const disposition = call.disposition && DISPOSITION_KEYS[call.disposition];
   const tail: Part[] = [
     at,
     answered

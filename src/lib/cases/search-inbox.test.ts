@@ -92,3 +92,15 @@ describe('searchInbox', () => {
     expect(out.rows).toHaveLength(1);
   });
 });
+
+describe('searchInbox and snoozed cases', () => {
+  it.each([
+    [{}, 'all'],
+    [{ snoozed: 'hide' as const }, 'hide'],
+    [{ snoozed: 'only' as const }, 'only'],
+  ])('%o is read with snoozed %s', async (filters, snoozed) => {
+    const list = vi.fn(async () => ({ rows: [], nextCursor: null }));
+    await searchInbox(fakeDb({}), { list }, ctx, 'x', filters, {});
+    expect(list).toHaveBeenCalledWith('u', 'a', { snoozed }, expect.anything());
+  });
+});

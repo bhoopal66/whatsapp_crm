@@ -119,8 +119,8 @@ export type MyWhatsAppView =
   | { kind: 'connected'; number: PersonalNumber };
 
 /**
- * `info` is null when the read failed or was refused (a bank guest's
- * 403): the card stays hidden rather than offer something that cannot
+ * `info` is null until it is read, or when it was refused (a bank guest's
+ * 403; the card itself shows a failed read): the card stays hidden rather than offer something that cannot
  * work. A number is always shown, even after the admin withdrew the
  * permission, so its owner can still disconnect it.
  */

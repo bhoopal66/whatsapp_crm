@@ -69,6 +69,8 @@ import type {
   QueueItem,
 } from '@/lib/desk/store';
 
+import { replayDropsChange, uploadSignature } from '@/lib/desk/upload-replay';
+
 import { CaseRefStatus } from './case-ref-status';
 import { CompaniesTab } from './companies-tab';
 import { CoverCard } from './cover-card';
@@ -78,6 +80,7 @@ import { deskApi } from './desk-api';
 import { DeskFilePicker } from './desk-file-picker';
 import { DeskSelect } from './desk-select';
 import { DisabledHint } from './disabled-hint';
+import { LoadFailed } from './load-failed';
 import { useCaseLookup } from './use-case-lookup';
 import { useDocTypes } from './use-doc-types';
 import {
@@ -154,7 +157,7 @@ export function DeskView() {
     <div className="mx-auto w-full max-w-5xl space-y-4 p-4 sm:p-6">
       <p className="text-muted-foreground text-sm">{t('subtitle')}</p>
       <Tabs value={tab} onValueChange={changeTab}>
-        <div className="-mx-1 overflow-x-auto px-1 pb-1">
+        <div className="relative -mx-1 overflow-x-auto px-1 pb-1">
           <TabsList aria-label={t('title')}>
             {tabs.map((id) => {
               const count =
@@ -247,6 +250,10 @@ function UploadTab({ banks }: { banks: readonly DeskBank[] }) {
   // One key per upload attempt, reused on retry, so a resend after a
   // timeout returns the first result instead of a second item.
   const idem = useRef(newIdemKey());
+  // What the first attempt under this key carried; a replayed answer is
+  // that first item, so a different draft now has not been applied.
+  const firstSent = useRef<{ sig: string; what: string } | null>(null);
+  const [dropped, setDropped] = useState<string | null>(null);
   const blocked = uploadBlock({ kind: draft.kind, hasFile: file !== null });
 
   const submit = async () => {
@@ -257,12 +264,42 @@ function UploadTab({ banks }: { banks: readonly DeskBank[] }) {
     for (const [k, v] of Object.entries(draftToTags(draft)))
       if (v !== null) form.set(k, v);
     if (file) form.set('file', file);
+    const tags = draftToTags(draft);
+    const sig = uploadSignature({
+      tags,
+      caption,
+      file: file ? { name: file.name, size: file.size } : null,
+    });
+    firstSent.current ??= {
+      sig,
+      what:
+        [
+          tags.kind ? t(`kind.${tags.kind}`) : null,
+          tags.bankCode ? bankName(banks, tags.bankCode) : null,
+          caption.trim() || null,
+        ]
+          .filter(Boolean)
+          .join(' · ') || t('result.noDetails'),
+    };
     const r = await deskApi.submit(form);
     setBusy(false);
     if (!r.ok) {
       toast.error(r.error);
       return;
     }
+    const { what } = firstSent.current;
+    if (replayDropsChange(r.data.replayed, firstSent.current.sig, sig)) {
+      // Keep the draft: the server did not take it. The first attempt is
+      // known to be stored, so sending again is a second upload of its own
+      // (the only way out for a note without a file).
+      idem.current = newIdemKey();
+      firstSent.current = null;
+      setLast(null);
+      setDropped(what);
+      return;
+    }
+    setDropped(null);
+    firstSent.current = null;
     setLast(r.data);
     idem.current = newIdemKey();
     setDraft(EMPTY_DRAFT);
@@ -282,6 +319,8 @@ function UploadTab({ banks }: { banks: readonly DeskBank[] }) {
             onChange={(f) => {
               setFile(f);
               idem.current = newIdemKey();
+              firstSent.current = null;
+              setDropped(null);
             }}
           />
           <p className="text-muted-foreground text-xs">
@@ -315,6 +354,11 @@ function UploadTab({ banks }: { banks: readonly DeskBank[] }) {
             </DisabledHint>
           )}
         </div>
+        {dropped && (
+          <p role="alert" className="text-warning text-sm">
+            {t('result.replayedDifferent', { what: dropped })}
+          </p>
+        )}
         {last && <ResultLine item={last} />}
       </CardContent>
     </Card>
@@ -330,12 +374,18 @@ function MineTab({ banks }: { banks: readonly DeskBank[] }) {
   const [items, setItems] = useState<MyItem[] | null>(null);
   const [filter, setFilter] = useState<MineFilter>('all');
   const [editing, setEditing] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
 
   const load = useCallback(
     () =>
       deskApi.mine().then((r) => {
-        if (r.ok) setItems(r.data);
-        else toast.error(r.error);
+        if (r.ok) {
+          setItems(r.data);
+          setFailed(false);
+        } else {
+          setFailed(true);
+          toast.error(r.error);
+        }
       }),
     []
   );
@@ -369,8 +419,11 @@ function MineTab({ banks }: { banks: readonly DeskBank[] }) {
           </Button>
         ))}
       </div>
+      {failed && <LoadFailed onRetry={load} />}
       {items === null ? (
-        <p className="text-muted-foreground text-sm">{t('loading')}</p>
+        failed ? null : (
+          <p className="text-muted-foreground text-sm">{t('loading')}</p>
+        )
       ) : shown.length === 0 ? (
         <p className="text-muted-foreground text-sm">{t('empty.mine')}</p>
       ) : (
@@ -491,6 +544,7 @@ function QueueTab({ banks }: { banks: readonly DeskBank[] }) {
   const [items, setItems] = useState<QueueItem[] | null>(null);
   const [denied, setDenied] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
 
   const load = useCallback(
     () =>
@@ -498,10 +552,15 @@ function QueueTab({ banks }: { banks: readonly DeskBank[] }) {
         if (r.ok) {
           setItems(r.data);
           setDenied(false);
+          setFailed(false);
         } else if (r.code === 'NOT_ALLOWED') {
           setDenied(true);
           setItems([]);
-        } else toast.error(r.error);
+          setFailed(false);
+        } else {
+          setFailed(true);
+          toast.error(r.error);
+        }
       }),
     []
   );
@@ -514,12 +573,17 @@ function QueueTab({ banks }: { banks: readonly DeskBank[] }) {
       <p className="text-muted-foreground text-sm">{t('empty.notSorter')}</p>
     );
   if (items === null)
-    return <p className="text-muted-foreground text-sm">{t('loading')}</p>;
-  if (items.length === 0)
+    return failed ? (
+      <LoadFailed onRetry={load} />
+    ) : (
+      <p className="text-muted-foreground text-sm">{t('loading')}</p>
+    );
+  if (items.length === 0 && !failed)
     return <p className="text-muted-foreground text-sm">{t('empty.queue')}</p>;
 
   return (
     <div className="space-y-2">
+      {failed && <LoadFailed onRetry={load} />}
       {items.map((i) => (
         <Card key={i.itemId}>
           <CardContent className="space-y-2 py-3 text-sm">
@@ -917,14 +981,29 @@ function OverviewTab() {
   const locale = useLocale();
   const t = useTranslations('Desk');
   const [rows, setRows] = useState<OverviewRow[] | null>(null);
+  const [failed, setFailed] = useState(false);
+  const load = useCallback(
+    () =>
+      deskApi.overview().then((r) => {
+        if (r.ok) {
+          setRows(r.data);
+          setFailed(false);
+        } else {
+          setFailed(true);
+          toast.error(r.error);
+        }
+      }),
+    []
+  );
   useEffect(() => {
-    void deskApi.overview().then((r) => {
-      if (r.ok) setRows(r.data);
-      else toast.error(r.error);
-    });
-  }, []);
+    void load();
+  }, [load]);
   if (rows === null)
-    return <p className="text-muted-foreground text-sm">{t('loading')}</p>;
+    return failed ? (
+      <LoadFailed onRetry={load} />
+    ) : (
+      <p className="text-muted-foreground text-sm">{t('loading')}</p>
+    );
   const alertClass: Record<OverviewRow['alert'], string> = {
     none: 'text-muted-foreground',
     second: 'text-warning',
@@ -933,7 +1012,8 @@ function OverviewTab() {
   };
   return (
     <Card>
-      <CardContent className="overflow-x-auto">
+      <CardContent className="relative overflow-x-auto">
+        {failed && <LoadFailed onRetry={load} />}
         <Table>
           <TableHeader>
             <TableRow>

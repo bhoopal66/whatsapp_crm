@@ -4,13 +4,28 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+import { SEND_UNCONFIRMED_REASON } from '@/lib/broadcasts/unconfirmed-send';
+
 export type Row = Record<string, unknown>;
 
 const MAX_ROWS = 1000;
 
-/** One `col.op.value` term of an `or=` filter. */
+/** Split on the commas outside parentheses and quotes. */
+function splitTerms(expr: string): string[] {
+  return expr.match(/(?:"[^"]*"|\((?:"[^"]*"|[^()"])*\)|[^,"()])+/g) ?? [];
+}
+
+/** One `col.op.value` or `and(...)` term of an `or=` filter. */
 function orTerm(term: string): (r: Row) => boolean {
-  const [, col, op, value] = /^(\w+)\.(is|lt|not\.in)\.(.*)$/.exec(term) ?? [];
+  const and = /^and\((.*)\)$/.exec(term);
+  if (and) {
+    const all = splitTerms(and[1]).map(orTerm);
+    return (r) => all.every((t) => t(r));
+  }
+  const [, col, op, value] =
+    /^(\w+)\.(is|lt|lte|gte|not\.in)\.(.*)$/.exec(term) ?? [];
+  if (op === 'lte') return (r) => r[col] != null && String(r[col]) <= value;
+  if (op === 'gte') return (r) => r[col] != null && String(r[col]) >= value;
   if (op === 'is') return (r) => (r[col] ?? null) === null;
   if (op === 'lt') return (r) => r[col] != null && String(r[col]) < value;
   if (op === 'not.in') {
@@ -23,6 +38,11 @@ function orTerm(term: string): (r: Row) => boolean {
 export interface FakeOptions {
   /** Return a message to fail this request. */
   fail?: (q: { table: string; patch: Row | null }) => string | null;
+  /** Return an error to refuse this insert. */
+  refuseInsert?: (
+    table: string,
+    rows: Row[]
+  ) => { code: string; message: string } | null;
   /** Called with every update that matched rows. */
   onUpdate?: (table: string, patch: Row, rows: Row[]) => void;
 }
@@ -36,6 +56,7 @@ export function fakeDb(
       const filters: ((r: Row) => boolean)[] = [];
       const orders: string[] = [];
       let patch: Row | null = null;
+      let inserted: Row[] | null = null;
       let start = 0;
       let limit = MAX_ROWS;
       let head = false;
@@ -47,9 +68,29 @@ export function fakeDb(
         if (message) {
           return (memo = { data: null, count: null, error: { message } });
         }
+        if (inserted) {
+          const error = opts.refuseInsert?.(table, inserted) ?? null;
+          if (!error) (tables[table] ??= []).push(...inserted);
+          return (memo = {
+            data: error ? null : inserted,
+            count: null,
+            error,
+          });
+        }
         let rows = (tables[table] ?? []).filter((r) =>
           filters.every((f) => f(r))
         );
+        // broadcast_recipients_stopped_guard (migration 301).
+        if (patch?.error_message === SEND_UNCONFIRMED_REASON && !patch.status) {
+          rows = rows.filter((r) =>
+            (tables.broadcasts ?? []).every(
+              (b) =>
+                b.id !== r.broadcast_id ||
+                b.status === undefined ||
+                b.status === 'sending'
+            )
+          );
+        }
         if (patch) {
           for (const r of rows) Object.assign(r, patch);
           if (rows.length) opts.onUpdate?.(table, patch, rows);
@@ -82,8 +123,20 @@ export function fakeDb(
           patch = p;
           return b;
         },
+        insert: (p: Row | Row[]) => {
+          inserted = [p].flat().map((r, i) => ({ id: `new-${i}`, ...r }));
+          return b;
+        },
         eq: (c: string, v: unknown) => where((r) => r[c] === v),
-        in: (c: string, v: unknown[]) => where((r) => v.includes(r[c])),
+        neq: (c: string, v: unknown) =>
+          where((r) => r[c] != null && r[c] !== v),
+        in: (c: string, v: unknown[]) => {
+          // `table.col` filters on an embedded row.
+          const [col, nested] = c.split('.');
+          return where((r) =>
+            v.includes(nested ? (r[col] as Row | null)?.[nested] : r[col])
+          );
+        },
         lte: (c: string, v: string) =>
           where((r) => r[c] != null && String(r[c]) <= v),
         gte: (c: string, v: string) =>
@@ -93,7 +146,7 @@ export function fakeDb(
           return where((r) => (r[c] ?? null) !== null);
         },
         or: (expr: string) => {
-          const terms = expr.split(/,(?=\w+\.(?:is|lt|not)\b)/).map(orTerm);
+          const terms = splitTerms(expr).map(orTerm);
           return where((r) => terms.some((t) => t(r)));
         },
         order: (c: string) => {
@@ -108,6 +161,10 @@ export function fakeDb(
           start = from;
           limit = to - from + 1;
           return b;
+        },
+        single: async () => {
+          const res = run();
+          return { data: res.data?.[0] ?? null, error: res.error };
         },
         maybeSingle: async () => {
           const res = run();

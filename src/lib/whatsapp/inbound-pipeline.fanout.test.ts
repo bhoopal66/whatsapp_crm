@@ -21,6 +21,8 @@ type Result = { data: unknown; error: unknown };
 /** The customer_documents row the recording of message 'row-1' made. */
 const DOC_ROW_ID = '22222222-2222-4222-8222-222222222222';
 
+const noteTaken = vi.hoisted(() => vi.fn());
+const closesBurst = vi.hoisted(() => ({ value: false }));
 const h = vi.hoisted(() => ({
   // The workspace's "understand meaning" switch (Smart insights).
   meaningOn: true,
@@ -45,6 +47,7 @@ const h = vi.hoisted(() => ({
   insights: vi.fn(),
   reminder: vi.fn(),
   hrAgents: vi.fn(),
+  hrStop: vi.fn(),
   autoOpen: vi.fn(),
   autoTag: vi.fn(),
   reopen: vi.fn(),
@@ -61,6 +64,8 @@ const h = vi.hoisted(() => ({
   csatRpc: vi.fn(),
   // The contact's open cases without a group.
   caseRows: null as Record<string, unknown>[] | null,
+  // hr_conversations: the chat is a candidate's.
+  hrRow: null as Record<string, unknown> | null,
   // case_sla_event_system (migration 124).
   slaRpc: vi.fn(),
 }));
@@ -96,6 +101,9 @@ function respond(call: Call): Result {
   if (call.table === 'cases' && call.op === 'select') {
     return { data: h.caseRows, error: null };
   }
+  if (call.table === 'hr_conversations') {
+    return { data: h.hrRow, error: null };
+  }
   if (call.table === 'broadcast_recipients' && call.op === 'select') {
     return { data: h.recipientRows, error: null };
   }
@@ -119,6 +127,10 @@ function fakeDb() {
       if (fn === 'customer_documents_record') return h.docRpc(args);
       if (fn === 'case_csat_capture') return h.csatRpc(args);
       if (fn === 'case_sla_event_system') return h.slaRpc(args);
+      // The router always answers a row; with routing off it says so.
+      if (fn === 'desk_route_customer_document') {
+        return Promise.resolve({ data: [{ action: 'off' }], error: null });
+      }
       return Promise.resolve({ data: null, error: null });
     },
     from(table: string) {
@@ -155,6 +167,10 @@ function fakeDb() {
   };
 }
 
+vi.mock('@/lib/ai/stranded', () => ({
+  noteTaken,
+  closesBurst: async () => closesBurst.value,
+}));
 vi.mock('@/lib/flows/admin-client', () => ({ supabaseAdmin: () => fakeDb() }));
 vi.mock('@/lib/contacts/dedupe', () => ({
   findExistingContact: async () => ({
@@ -194,6 +210,9 @@ vi.mock('@/lib/reminders/suggest', () => ({
 vi.mock('@/lib/hr/agents/inbound', () => ({
   handleHrInboundMessage: (...args: unknown[]) => h.hrAgents(...args),
 }));
+vi.mock('@/lib/hr/agents/stop', () => ({
+  recordHrStop: (...args: unknown[]) => h.hrStop(...args),
+}));
 vi.mock('@/lib/hr/auto-open', () => ({
   autoOpenRecruiterChat: (...args: unknown[]) => h.autoOpen(...args),
 }));
@@ -228,6 +247,7 @@ vi.mock('@/lib/whatsapp/mirror-inbound-media', () => ({
 }));
 vi.mock('@/lib/whatsapp/broadcast-core', () => ({
   settleBroadcastAfterLateFailure: vi.fn(),
+  settleBroadcastAfterCorrection: vi.fn(),
 }));
 
 import { mirrorInboundMedia } from '@/lib/whatsapp/mirror-inbound-media';
@@ -300,6 +320,7 @@ beforeEach(() => {
   h.insights.mockReset().mockResolvedValue({ skipped: 'off' });
   h.reminder.mockReset().mockResolvedValue({ status: 'off' });
   h.hrAgents.mockReset().mockResolvedValue(undefined);
+  h.hrStop.mockReset().mockResolvedValue(true);
   h.autoOpen.mockReset().mockResolvedValue('off');
   h.autoTag.mockReset().mockResolvedValue('not_auto');
   h.reopen.mockReset().mockResolvedValue(undefined);
@@ -320,6 +341,7 @@ beforeEach(() => {
     .mockResolvedValue({ assignedTo: 'agent-2', reason: 'assigned' });
   h.csatRpc.mockReset().mockResolvedValue({ data: false, error: null });
   h.caseRows = null;
+  h.hrRow = null;
   h.slaRpc.mockReset().mockResolvedValue({ data: null, error: null });
 });
 
@@ -377,6 +399,23 @@ describe('processMessage — broadcast first-reply rotation', () => {
     });
     // The customer's last caller is asked first; the flow sees the result.
     expect(h.order).toEqual(['calls', 'rotate', 'flows']);
+  });
+
+  it("leaves a candidate's chat, and one it cannot check, alone", async () => {
+    rotationOn();
+    h.hrRow = { conversation_id: 'conv-1' };
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+    h.hrRow = null;
+    h.refuse = 'hr_conversations:select';
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    await processMessage(
+      { ...message, id: 'wamid.unchecked' },
+      'acct-1',
+      'owner-1',
+      channel
+    );
+    h.refuse = null;
+    expect(h.rotate).not.toHaveBeenCalled();
   });
 
   it('is not asked when the message answers no campaign', async () => {
@@ -677,6 +716,94 @@ describe('processMessage — recruiter agents hook', () => {
   });
 });
 
+// A candidate's STOP (hr/agents/stop.ts): recorded before anything reacts
+// to the message; one that could not be recorded fails the event, and the
+// durable retry repeats that stamp and nothing else.
+describe('processMessage — recording a STOP', () => {
+  const run = (
+    ch = channel,
+    opts?: Parameters<typeof processMessage>[5]
+  ): Promise<void> =>
+    processMessage(
+      { ...message, text: 'STOP' },
+      'acct-1',
+      'owner-1',
+      ch,
+      undefined,
+      opts
+    );
+  const asked = {
+    accountId: 'acct-1',
+    conversationId: 'conv-1',
+    contactId: 'contact-1',
+    channelId: 'ch-1',
+    text: 'STOP',
+  };
+  const THROW = { onPersistFailure: 'throw' } as const;
+
+  beforeEach(() => {
+    vi.spyOn(console, 'info').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it.each([
+    ['a company chat', channel, undefined],
+    [
+      'a personal chat',
+      { ...channel, isPersonal: true, personalUserId: 'owner-1' },
+      undefined,
+    ],
+    ['a sender over the rate limit', channel, { fanOut: false }],
+  ] as const)('%s: before the unread bump and the reactions', async (...c) => {
+    h.hrStop.mockImplementation(async () => {
+      expect(h.rpcs).toEqual([]);
+      expect(h.flows).not.toHaveBeenCalled();
+      return true;
+    });
+    await run(c[1], c[2]);
+    expect(h.hrStop).toHaveBeenCalledTimes(1);
+    expect(h.hrStop.mock.calls[0][1]).toEqual({ ...asked, retry: false });
+    expect(h.rpcs).toContain('bump_conversation_on_inbound');
+  });
+
+  it('one that was not recorded fails the event once everything else ran', async () => {
+    h.hrStop.mockResolvedValue(false);
+    await expect(run(channel, THROW)).rejects.toMatchObject({
+      name: 'InboundPersistError',
+      stage: 'opt_out',
+    });
+    expect(h.flows).toHaveBeenCalledTimes(1);
+    expect(h.webhook).toHaveBeenCalledTimes(1);
+    expect(h.hrAgents).toHaveBeenCalledTimes(1);
+    // Without a queue behind it nothing throws.
+    await expect(run()).resolves.toBeUndefined();
+  });
+
+  it('the retry repeats the stamp and nothing else, until it lands', async () => {
+    h.upsertRows = [];
+    h.hrStop.mockResolvedValueOnce(false);
+    const retry = { ...THROW, retry: true };
+    await expect(run(channel, retry)).rejects.toMatchObject({
+      stage: 'opt_out',
+    });
+    await expect(run(channel, retry)).resolves.toBeUndefined();
+    expect(h.hrStop).toHaveBeenCalledTimes(2);
+    expect(h.hrStop.mock.calls[1][1]).toEqual({ ...asked, retry: true });
+    expect(h.rpcs).toEqual([]);
+    for (const fn of [h.flows, h.automations, h.ai, h.webhook, h.hrAgents]) {
+      expect(fn).not.toHaveBeenCalled();
+    }
+  });
+
+  it('a gateway replay records nothing', async () => {
+    h.upsertRows = [];
+    await run(channel, THROW);
+    expect(h.hrStop).not.toHaveBeenCalled();
+  });
+});
+
 // The journey bot (module 016) runs after Flows, only when no Flow took
 // the message; when it consumes, content automations and the AI reply
 // stand down as they do for a Flow.
@@ -737,6 +864,22 @@ describe('processMessage — journey bot', () => {
     expect(triggers()).toEqual(['new_message_received', 'keyword_match']);
   });
 
+  it.each([
+    ['intent_match', true],
+    ['first_inbound_message', false],
+  ])(
+    'tells the AI reply that %s acted: meaning trigger %s',
+    async (trigger, acted) => {
+      h.automations.mockImplementation(
+        async (input: { triggerType: string }) => input.triggerType === trigger
+      );
+      await processMessage(message, 'acct-1', 'owner-1', channel);
+      expect(h.ai).toHaveBeenCalledWith(
+        expect.objectContaining({ meaningTriggerActed: acted })
+      );
+    }
+  );
+
   it('a journey that consumes suppresses content automations and the AI reply', async () => {
     h.journey.mockResolvedValue({ consumed: true });
     await processMessage(message, 'acct-1', 'owner-1', channel);
@@ -783,7 +926,7 @@ describe('processMessage — case CSAT reply', () => {
     h.automations.mock.calls.map(
       (c) => (c[0] as { triggerType: string }).triggerType
     );
-  const rating = { ...message, id: 'wamid.csat', text: '5, great' };
+  const rating = { ...message, id: 'wamid.csat', text: '5' };
 
   it('asks nothing of the database for a message that is not a rating', async () => {
     await processMessage(message, 'acct-1', 'owner-1', channel);
@@ -797,13 +940,28 @@ describe('processMessage — case CSAT reply', () => {
     expect(h.rpcArgs[i]).toEqual({
       p_account: 'acct-1',
       p_contact: 'contact-1',
+      p_conversation: 'conv-1',
       p_message: 'row-1',
+      p_quoted: null,
       p_score: 5,
-      p_comment: 'great',
+      p_comment: null,
     });
     expect(h.journey).not.toHaveBeenCalled();
     expect(triggers()).toEqual([]);
     expect(h.ai).not.toHaveBeenCalled();
+  });
+
+  it('a captured rating with a comment still reaches the journey and the AI', async () => {
+    h.csatRpc.mockResolvedValue({ data: true, error: null });
+    await processMessage(
+      { ...rating, text: '1, please call me' },
+      'acct-1',
+      'owner-1',
+      channel
+    );
+    expect(h.rpcs).toContain('case_csat_capture');
+    expect(h.journey).toHaveBeenCalledTimes(1);
+    expect(h.ai).toHaveBeenCalledTimes(1);
   });
 
   it('a rating no request was open for fans out as usual', async () => {
@@ -857,6 +1015,7 @@ describe('processMessage — Smart insights', () => {
       text: 'hello',
       // The stored row's created_at.
       messageAt: '2025-10-09T08:53:20.000Z',
+      salesChat: expect.any(Function),
     });
     const upsert = h.calls.find(
       (c) => c.table === 'messages' && c.op === 'upsert'
@@ -890,7 +1049,12 @@ describe('processMessage — Smart insights', () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(h.autoTag).toHaveBeenCalledTimes(1);
     expect(h.autoTag.mock.calls[0]).toEqual([
-      { accountId: 'acct-1', conversationId: 'conv-1', contactId: 'contact-1' },
+      {
+        accountId: 'acct-1',
+        conversationId: 'conv-1',
+        contactId: 'contact-1',
+        salesChat: expect.any(Function),
+      },
       { skipped: 'off' },
     ]);
     // `later` waits for the automatic tag too, so after() keeps it alive.
@@ -941,6 +1105,7 @@ describe('processMessage — campaign reply sorting', () => {
       // The first-reply-since-the-send check runs on this message.
       inboundMessageId: 'row-1',
       conversationId: 'conv-1',
+      salesChat: expect.any(Function),
     });
     expect(h.flows.mock.calls[0]![0]).toMatchObject({
       campaign: {
@@ -953,6 +1118,7 @@ describe('processMessage — campaign reply sorting', () => {
       accountId: 'acct-1',
       conversationId: 'conv-1',
       replyClass: { cls: 'interested', p: 0.91 },
+      salesChat: expect.any(Function),
     });
     // The flow's first message goes out before the tag; the tag lands
     // before automations (relationship triggers still run here).
@@ -1638,5 +1804,79 @@ describe('processMessage — an open case without a group hears the customer', (
       error.mock.calls.filter(([m]) => String(m).startsWith('[cases]'))
     ).toHaveLength(2);
     error.mockRestore();
+  });
+});
+
+describe('the sales-chat decision', () => {
+  it('flows, the journey, every automation and the bot share the same sales-chat check', async () => {
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+    const check = h.flows.mock.calls[0][0].salesChat;
+    expect(check).toBeTypeOf('function');
+    expect(h.journey.mock.calls[0][0].salesChat).toBe(check);
+    expect(h.automations.mock.calls.length).toBeGreaterThan(0);
+    for (const [args] of h.automations.mock.calls) {
+      expect(args.salesChat).toBe(check);
+    }
+    expect(h.ai.mock.calls[0][0].salesChat).toBe(check);
+  });
+
+  it('smart insights, automatic tagging and campaign sorting share it too', async () => {
+    h.recipientRows = [
+      {
+        id: 'rec-1',
+        status: 'read',
+        broadcast_id: 'bc-1',
+        broadcasts: { account_id: 'acct-1', follow_up_flow_id: null },
+      },
+    ];
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+    const check = h.flows.mock.calls[0][0].salesChat;
+    expect(check).toBeTypeOf('function');
+    expect(h.insights.mock.calls[0][0].salesChat).toBe(check);
+    expect(h.autoTag.mock.calls[0][0].salesChat).toBe(check);
+    expect(h.classify.mock.calls[0][0].salesChat).toBe(check);
+    expect(h.tagInterested.mock.calls[0][0].salesChat).toBe(check);
+    h.recipientRows = [];
+  });
+});
+
+describe('a consumed message and the bot', () => {
+  beforeEach(() => {
+    noteTaken.mockClear();
+    closesBurst.value = true;
+  });
+  afterEach(() => {
+    closesBurst.value = false;
+  });
+
+  it.each([
+    ['an earlier question', true, 1],
+    ['nothing before it', false, 0],
+  ])('goes to the bot as consumed: %s', async (_name, closes, calls) => {
+    closesBurst.value = closes;
+    h.flows.mockResolvedValue({ consumed: true, outcome: 'advanced' });
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+    expect(h.ai).toHaveBeenCalledTimes(calls);
+    if (calls) expect(h.ai.mock.calls[0][0].consumedBy).toBe('A flow');
+    expect(noteTaken).toHaveBeenCalledExactlyOnceWith(message.id);
+  });
+
+  it.each([
+    ['replied', 'fallback_fired', true],
+    ['handed_off', 'handed_off', true],
+    ['superseded', 'fallback_fired', false],
+  ])(
+    "does not when the flow's own AI fallback took it: %s",
+    async (ai_outcome, outcome, taken) => {
+      h.flows.mockResolvedValue({ consumed: true, outcome, ai_outcome });
+      await processMessage(message, 'acct-1', 'owner-1', channel);
+      expect(h.ai).not.toHaveBeenCalled();
+      expect(noteTaken).toHaveBeenCalledTimes(taken ? 1 : 0);
+    }
+  );
+
+  it('an unconsumed message is nobody else’s', async () => {
+    await processMessage(message, 'acct-1', 'owner-1', channel);
+    expect(noteTaken).not.toHaveBeenCalled();
   });
 });

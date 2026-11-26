@@ -37,6 +37,7 @@
 //     from the same `message_templates` row. OpenWA is Whapi's case.
 // ============================================================
 
+import { streamCapped, streamDeadline } from '@/lib/media/capped-body';
 import type { MessageTemplate } from '@/types';
 
 import {
@@ -49,6 +50,7 @@ import * as openwa from './openwa-api';
 import { neverConnected } from './never-connected';
 import { TemplateParamError } from './template-send-builder';
 import * as whapi from './whapi-api';
+import { renderedForLinkedDevice } from './template-body';
 
 export interface ProviderSendResult {
   /** The gateway's message id — persisted as `messages.message_id`. */
@@ -248,7 +250,7 @@ export async function sendTemplate(
       const res = await whapi.sendTemplateMessage({
         token: channel.accessToken,
         to,
-        template,
+        template: renderedForLinkedDevice(template, messageParams),
         bodyParams,
         headerMediaUrl,
         quotedMessageId,
@@ -285,12 +287,12 @@ export async function sendTemplate(
       return { messageId: res.messageId, provider: 'meta' };
     }
     case 'openwa': {
-      // Rendered locally like Whapi; `messageParams` is Meta's registry
-      // shape and has nothing to address here.
+      // Rendered locally like Whapi; of `messageParams` (Meta's registry
+      // shape) only the header's value has a place here.
       const res = await openwa.sendTemplateMessage({
         ...openwaCredentials(channel),
         to,
-        template,
+        template: renderedForLinkedDevice(template, messageParams),
         bodyParams,
         headerMediaUrl,
         quotedMessageId,
@@ -556,24 +558,78 @@ export async function getMediaUrl(args: {
 export async function downloadMedia(args: {
   channel: WhatsAppChannel;
   downloadUrl: string;
+  /** The caller's own limit: past it, `BodyTooLargeError`. */
+  maxBytes: number;
 }): Promise<{ buffer: Buffer; contentType: string }> {
-  const { channel, downloadUrl } = args;
+  const { channel, downloadUrl, maxBytes } = args;
 
   switch (channel.provider) {
     case 'whapi':
-      return whapi.downloadMedia({ downloadUrl, token: channel.accessToken });
+      return whapi.downloadMedia({
+        downloadUrl,
+        token: channel.accessToken,
+        maxBytes,
+      });
     case 'meta':
       return meta.downloadMedia({
         downloadUrl,
         accessToken: channel.accessToken,
+        maxBytes,
       });
     case 'openwa':
       return openwa.downloadMedia({
         ...openwaCredentials(channel),
         downloadUrl,
+        maxBytes,
       });
     default:
       return unknownProvider(channel.provider);
+  }
+}
+
+/** How long a streamed attachment may take, start to end. */
+const STREAM_HEADERS_MS = 30_000;
+const STREAM_TOTAL_MS = 5 * 60_000;
+
+/**
+ * `downloadMedia` for bytes that are passed straight on: nothing is held
+ * in memory, and the stream errors past `maxBytes`.
+ */
+export async function streamMedia(args: {
+  channel: WhatsAppChannel;
+  downloadUrl: string;
+  maxBytes: number;
+}): Promise<{
+  body: ReadableStream<Uint8Array> | null;
+  contentType: string | null;
+  contentLength: number | null;
+}> {
+  const { channel, downloadUrl, maxBytes } = args;
+  const { signal, started } = streamDeadline(
+    STREAM_HEADERS_MS,
+    STREAM_TOTAL_MS
+  );
+  const common = { downloadUrl, maxBytes, signal };
+  const open = (): Promise<Response> => {
+    switch (channel.provider) {
+      case 'whapi':
+        return whapi.openMedia({ ...common, token: channel.accessToken });
+      case 'meta':
+        return meta.openMedia({ ...common, accessToken: channel.accessToken });
+      case 'openwa':
+        return openwa.openMedia({ ...common, ...openwaCredentials(channel) });
+      default:
+        return unknownProvider(channel.provider);
+    }
+  };
+  try {
+    const response = await open();
+    return {
+      ...(await streamCapped(response, maxBytes)),
+      contentType: response.headers.get('content-type'),
+    };
+  } finally {
+    started();
   }
 }
 
@@ -729,19 +785,44 @@ export async function getNumberSafetyRating(
  * A fan-out loop uses this to stop instead of burning one gateway call
  * — and one permanently "failed" recipient — per remaining row. Read
  * off the raw error, never the `describeSendFailure` wording.
+ *
+ * True only of failures `isDefiniteSendRefusal` agrees on: the caller
+ * leaves the recipient to be sent to again.
  */
 export function isChannelLevelFailure(err: unknown): boolean {
+  // Whoever the recipient is, the gateway cannot be reached.
+  if (neverConnected(err)) return true;
   if (err instanceof whapi.WhapiError) {
     return err.isAuthError || err.isUnknownChannel || err.isBillingError;
   }
   if (err instanceof meta.MetaError) {
-    return err.isAuthError;
+    return err.isAuthError || err.isNumberUnavailable;
   }
   if (err instanceof openwa.OpenWAError) {
     // The pacing governor is per number, so the next send refuses too.
-    return err.isAuthError || err.isSessionNotFound || err.isPacingLimited;
+    return (
+      err.isAuthError ||
+      err.isSessionNotFound ||
+      err.isSessionNotConnected ||
+      err.isPacingLimited
+    );
   }
   return false;
+}
+
+/**
+ * True when the gateway itself answered 503: the number cannot send right
+ * now, but whether this one message went out is not known. A fan-out stops
+ * here too, without ever repeating the recipient it was at. Not our own
+ * 503 for a missing answer (it has a `cause`): one slow media link makes
+ * that timeout.
+ */
+export function isGatewayUnavailable(err: unknown): boolean {
+  return (
+    (err instanceof whapi.WhapiError || err instanceof openwa.OpenWAError) &&
+    err.status === 503 &&
+    err.cause === undefined
+  );
 }
 
 /**
@@ -774,13 +855,15 @@ export function isChannelLevelFailure(err: unknown): boolean {
  *
  * OpenWA follows the same rule: its 409 ("engine not ready") and 429
  * (pacing) are refusals before anything was sent, while its synthetic
- * 503 (lost connection, timeout) and 502 (no message id) are not.
+ * 503 (lost connection, timeout) and 502 (no message id) are not, nor is
+ * the 409 of a send cut short, which says it may have been sent.
  *
  * A retry decision reads this. Read off the raw error, never the
  * `describeSendFailure` wording.
  */
 export function isDefiniteSendRefusal(err: unknown): boolean {
   if (neverConnected(err)) return true;
+  if (err instanceof openwa.OpenWAError && err.mayHaveBeenSent) return false;
   if (
     err instanceof whapi.WhapiError ||
     err instanceof meta.MetaError ||
@@ -871,7 +954,7 @@ export function describeSendFailure(error: unknown): string {
         (minutes ? `retry in about ${minutes} minutes.` : 'retry later.')
       );
     }
-    if (error.isNotReady) {
+    if (error.isNotReady || error.isSessionNotConnected) {
       return (
         'The OpenWA number is not connected to WhatsApp right now (starting, ' +
         'or logged out on the phone); an admin should check Settings → WhatsApp.'

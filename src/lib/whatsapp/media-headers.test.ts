@@ -15,6 +15,8 @@ describe('mediaResponseHeaders', () => {
     for (const type of [
       'text/html',
       'image/svg+xml',
+      'image/x-anything+xml',
+      'audio/x+xml',
       'application/pdf',
       'application/xhtml+xml',
       'text/html; charset=utf-8',
@@ -27,9 +29,34 @@ describe('mediaResponseHeaders', () => {
     }
   });
 
+  it('names only types that cannot run; the rest is plain bytes', () => {
+    const typeOf = (t: string) => mediaResponseHeaders(t)['Content-Type'];
+    for (const type of [
+      'application/pdf',
+      'text/csv',
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    ])
+      expect(typeOf(type)).toBe(type);
+    for (const type of ['text/html', 'image/svg+xml', 'application/xhtml+xml'])
+      expect(typeOf(type)).toBe('application/octet-stream');
+    expect(typeOf('audio/ogg; codecs=opus')).toBe('audio/ogg');
+  });
+
   it('never lets a shared cache store it', () => {
     expect(mediaResponseHeaders('image/png')['Cache-Control']).toBe(
       'private, max-age=86400'
     );
+  });
+});
+
+describe('inlineImageType', () => {
+  it('passes raster images only, never SVG', async () => {
+    const { inlineImageType } = await import('./media-headers');
+    expect(inlineImageType('image/JPEG; charset=x')).toBe('image/jpeg');
+    expect(inlineImageType('image/png')).toBe('image/png');
+    expect(inlineImageType('image/svg+xml')).toBeNull();
+    expect(inlineImageType('text/html')).toBeNull();
+    expect(inlineImageType(null)).toBeNull();
   });
 });

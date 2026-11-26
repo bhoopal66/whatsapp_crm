@@ -94,6 +94,9 @@ describe('sendRoomInvites', () => {
       sent: 1,
       failed: 0,
       skipped: 0,
+      alreadyInvited: 0,
+      waiting: 0,
+      blocked: [],
       notOpen: false,
       templateMissing: false,
     });
@@ -124,6 +127,8 @@ describe('sendRoomInvites', () => {
     });
     const summary = await sendRoomInvites(mem.db, 'room-1');
     expect(summary).toMatchObject({ sent: 0, failed: 0, skipped: 3 });
+    // Why, for the screen: not a green "0 sent".
+    expect(summary).toMatchObject({ alreadyInvited: 1, waiting: 1 });
     expect(h.sendGroupInviteTemplate).not.toHaveBeenCalled();
     // Not even claimed: nothing writes to these rows.
     expect(mem.log.filter((q) => q.op === 'update')).toEqual([]);
@@ -189,7 +194,12 @@ describe('sendRoomInvites', () => {
           : null,
     });
     const summary = await sendRoomInvites(mem.db, 'room-1');
-    expect(summary).toMatchObject({ sent: 1, failed: 0, skipped: 1 });
+    expect(summary).toMatchObject({
+      sent: 1,
+      failed: 0,
+      skipped: 1,
+      blocked: ['opted_out'],
+    });
     expect(mem.rpcCalls).toEqual([
       ['deal_room_admit_block', { p_participant: 'p1' }],
       ['deal_room_admit_block', { p_participant: 'p2' }],

@@ -161,6 +161,33 @@ describe('sendTemplate', () => {
     expect(metaSend.mock.calls[0][0].messageParams).toEqual({});
   });
 
+  it("gives Whapi the header's value and the stored picture", async () => {
+    await sendTemplate({
+      channel: channel('whapi'),
+      to: '+14155550123',
+      template: {
+        ...template,
+        header_type: 'text',
+        header_content: 'Re {{1}}',
+      } as MessageTemplate,
+      messageParams: { headerText: 'TC-1' },
+    });
+    expect(whapiSend.mock.calls[0][0].template.header_content).toBe('Re TC-1');
+
+    await sendTemplate({
+      channel: channel('whapi'),
+      to: '+14155550123',
+      template: {
+        ...template,
+        header_type: 'image',
+        header_media_url: 'https://cdn.example.com/a.png',
+      } as MessageTemplate,
+    });
+    expect(whapiSend.mock.calls[1][0].template.header_content).toBe(
+      'https://cdn.example.com/a.png'
+    );
+  });
+
   it('forwards headerMediaUrl to Whapi unchanged', async () => {
     await sendTemplate({
       channel: channel('whapi'),
@@ -670,6 +697,24 @@ describe('OpenWA channels use the OpenWA client', () => {
     expect(res).toEqual({ messageId: 'owa.1', provider: 'openwa' });
   });
 
+  it("sendTemplate fills a text header with the header's own value", async () => {
+    await sendTemplate({
+      channel: openwaChannel(),
+      to: '+971501111111',
+      template: {
+        ...template,
+        header_type: 'text',
+        header_content: 'Re {{1}}',
+      },
+      bodyParams: ['Jane'],
+      messageParams: { headerText: 'TC-1' },
+    });
+    expect(
+      openwaMock.sendTemplateMessage.mock.calls.at(-1)![0].template
+        .header_content
+    ).toBe('Re TC-1');
+  });
+
   it('sendTemplate renders the row locally, with no Meta messageParams', async () => {
     const res = await sendTemplate({
       channel: openwaChannel(),
@@ -765,10 +810,12 @@ describe('OpenWA channels use the OpenWA client', () => {
     const res = await downloadMedia({
       channel: openwaChannel(),
       downloadUrl: 'http://openwa.local/x/media',
+      maxBytes: 1024,
     });
     expect(openwaMock.downloadMedia).toHaveBeenCalledWith({
       ...owaCreds,
       downloadUrl: 'http://openwa.local/x/media',
+      maxBytes: 1024,
     });
     expect(res.contentType).toBe('image/jpeg');
   });
@@ -870,7 +917,12 @@ describe('an OpenWA channel never reaches the Whapi or Meta client', () => {
       ['getMediaUrl', () => getMediaUrl({ channel: ch, mediaId: 'c/m' })],
       [
         'downloadMedia',
-        () => downloadMedia({ channel: ch, downloadUrl: 'http://x/media' }),
+        () =>
+          downloadMedia({
+            channel: ch,
+            downloadUrl: 'http://x/media',
+            maxBytes: 1024,
+          }),
       ],
       ['getContactProfilePicture', () => getContactProfilePicture(ch, to)],
       ['probeChannel', () => probeChannel(ch)],

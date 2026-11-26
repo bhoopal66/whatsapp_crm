@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { holdThread, threadScrollBy } from '../thread-scroll';
+import { holdThread, isAtBottom, threadScrollBy } from '../thread-scroll';
 
 const ROOT = 'root';
 const row = (id: string, top: number, height = 50) => ({
@@ -13,6 +13,18 @@ const list = (scrollTop: number) => ({
   scrollTop,
   scrollHeight: 1000,
   clientHeight: 400,
+});
+
+describe('the end of a thread', () => {
+  it('is in view within a little of the bottom, and when it all fits', () => {
+    expect(isAtBottom(list(600))).toBe(true);
+    expect(isAtBottom(list(521))).toBe(true);
+    expect(isAtBottom(list(520))).toBe(false);
+    expect(isAtBottom(list(0))).toBe(false);
+    expect(
+      isAtBottom({ scrollTop: 0, scrollHeight: 300, clientHeight: 300 })
+    ).toBe(true);
+  });
 });
 
 describe('a thread that changes while someone reads it', () => {

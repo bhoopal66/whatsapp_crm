@@ -4,12 +4,9 @@ import { Phone } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 import { useAuth } from '@/hooks/use-auth';
-import {
-  browserTimeZone,
-  callOutcomes,
-  callsToday,
-} from '@/lib/dashboard/home/calls';
+import { callOutcomes, callsToday } from '@/lib/dashboard/home/calls';
 import type { CallStats } from '@/lib/pbx/call-stats';
+import { DEFAULT_TIME_ZONE } from '@/lib/pbx/call-status';
 import { DashboardPanel } from './panel';
 import { Stat } from './stat';
 import { useWidgetData } from './use-widget-data';
@@ -20,7 +17,7 @@ export interface CallsCardProps {
 }
 
 async function loadCallsToday(): Promise<CallStats> {
-  const tz = encodeURIComponent(browserTimeZone());
+  const tz = encodeURIComponent(DEFAULT_TIME_ZONE);
   const res = await fetch(`/api/pbx/calls/stats?period=today&tz=${tz}`, {
     cache: 'no-store',
   });

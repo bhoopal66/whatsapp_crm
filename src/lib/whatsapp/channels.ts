@@ -25,6 +25,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+import { withChannelSecrets } from '@/lib/whatsapp/channel-secrets';
 import { decrypt } from '@/lib/whatsapp/encryption';
 
 export type WhatsAppProvider = 'whapi' | 'meta' | 'openwa';
@@ -124,6 +125,8 @@ export interface WhatsAppChannel {
    * admin, its owner or the owner's leader may send from it.
    */
   isPersonal: boolean;
+  /** Limited by an admin (314): with nobody allocated, owners and admins only. */
+  accessRestricted?: boolean;
   /** The owner's auth user id when `isPersonal`, else null. */
   personalUserId: string | null;
 }
@@ -156,11 +159,17 @@ export interface ChannelRow {
   created_at?: string | null;
   connected_at?: string | null;
   is_personal?: boolean | null;
+  access_restricted?: boolean | null;
   user_id?: string | null;
 }
 
+/** What a channel needs, secrets apart (`withChannelSecrets` adds those). */
+const CHANNEL_VISIBLE_COLUMNS =
+  'id, account_id, provider, label, phone_number_id, waba_id, is_primary, mirror_inbound_media, status, created_at, is_personal, user_id, access_restricted';
+
+/** The whole row, for a service-role read: a session may not (285). */
 export const CHANNEL_COLUMNS =
-  'id, account_id, provider, label, phone_number_id, waba_id, access_token, app_secret, is_primary, mirror_inbound_media, status, created_at, is_personal, user_id';
+  'id, account_id, provider, label, phone_number_id, waba_id, access_token, app_secret, is_primary, mirror_inbound_media, status, created_at, is_personal, user_id, access_restricted';
 
 /**
  * Decrypt a row into a usable channel.
@@ -212,6 +221,7 @@ export function toChannel(row: ChannelRow): WhatsAppChannel {
     status: row.status,
     createdAt: row.created_at ?? null,
     isPersonal: row.is_personal === true,
+    accessRestricted: row.access_restricted === true,
     personalUserId: row.is_personal === true ? (row.user_id ?? null) : null,
   };
 }
@@ -244,7 +254,7 @@ export async function loadChannels(
 ): Promise<WhatsAppChannel[]> {
   const { data, error } = await db
     .from('whatsapp_config')
-    .select(CHANNEL_COLUMNS)
+    .select(CHANNEL_VISIBLE_COLUMNS)
     .eq('account_id', accountId)
     .order('provider', { ascending: true });
 
@@ -259,9 +269,26 @@ export async function loadChannels(
     );
   }
 
+  let rows: ChannelRow[];
+  try {
+    rows = (await withChannelSecrets(
+      (data ?? []) as unknown as Array<
+        Omit<ChannelRow, 'access_token' | 'app_secret'>
+      >,
+      ['access_token', 'app_secret']
+    )) as ChannelRow[];
+  } catch (err) {
+    console.error('[channels] could not load channel credentials:', err);
+    throw new ChannelError(
+      'channel_lookup_failed',
+      'Could not load WhatsApp channels.',
+      500
+    );
+  }
+
   const channels: WhatsAppChannel[] = [];
   let unreadable: ChannelError | null = null;
-  for (const row of (data ?? []) as unknown as ChannelRow[]) {
+  for (const row of rows) {
     try {
       channels.push(toChannel(row));
     } catch (err) {
@@ -613,14 +640,16 @@ async function startFor(
     .select('config_id, user_id')
     .eq('account_id', accountId);
   const rows = (data ?? []) as Array<{ config_id: string; user_id: string }>;
-  if (rows.length === 0) return routed; // nobody allocated anywhere
-
   const mine = rows
     .filter((r) => r.user_id === senderUserId)
     .map((r) => r.config_id);
   if (mine.length > 0) return pickChannelForUser(channels, mine, routed);
 
-  const restricted = new Set(rows.map((r) => r.config_id));
+  // 314: a limited number nobody is left on is not shared.
+  const restricted = new Set([
+    ...rows.map((r) => r.config_id),
+    ...channels.filter((c) => c.accessRestricted).map((c) => c.id),
+  ]);
   if (!restricted.has(routed.id)) return routed;
 
   const { data: profile } = await db
@@ -660,7 +689,9 @@ export async function newChatProvider(
   try {
     const { data, error } = await db
       .from('whatsapp_config')
-      .select('id, provider, is_primary, created_at, is_personal, user_id')
+      .select(
+        'id, provider, is_primary, created_at, is_personal, user_id, access_restricted'
+      )
       .eq('account_id', accountId)
       .order('provider', { ascending: true });
     if (error || !data?.length) return null;
@@ -670,6 +701,7 @@ export async function newChatProvider(
       is_primary: boolean | null;
       created_at: string | null;
       is_personal: boolean | null;
+      access_restricted: boolean | null;
       user_id: string | null;
     }>;
     // Only id, provider, isPrimary and createdAt steer the choice; the
@@ -692,6 +724,7 @@ export async function newChatProvider(
           status: '',
           createdAt: r.created_at ?? null,
           isPersonal: r.is_personal === true,
+          accessRestricted: r.access_restricted === true,
           personalUserId: r.is_personal === true ? (r.user_id ?? null) : null,
         }))
     );

@@ -4,6 +4,7 @@ import { fakeDb, type Row } from '@/lib/whatsapp/broadcast.fake';
 
 const h = vi.hoisted(() => ({
   db: null as unknown,
+  tables: {} as Record<string, Record<string, unknown>[]>,
   afterCallbacks: [] as (() => Promise<void>)[],
 }));
 
@@ -48,6 +49,7 @@ function world(status: string, recipients: Row[]) {
       ...r,
     })),
   };
+  h.tables = tables;
   h.db = fakeDb(tables);
   return tables.broadcasts[0];
 }
@@ -86,4 +88,55 @@ describe('nothing left to resume', () => {
     expect((await resume()).status).toBe(400);
     expect(broadcast.status).toBe('draft');
   });
+});
+
+it('a template Meta refused fails the campaign, with the reason', async () => {
+  const broadcast = world('sending', [
+    { status: 'pending', contact: { phone: '971500000001' } },
+  ]);
+  Object.assign(broadcast, { template_name: 'promo', template_language: 'en' });
+  Object.assign(h.tables, {
+    whatsapp_config: [
+      {
+        id: 'cfg-1',
+        account_id: 'acct-1',
+        provider: 'meta',
+        phone_number_id: 'pn-1',
+        access_token: 'tok',
+        is_primary: true,
+        status: 'connected',
+      },
+    ],
+    message_templates: [
+      {
+        id: 't-1',
+        account_id: 'acct-1',
+        user_id: 'u-1',
+        name: 'promo',
+        language: 'en',
+        category: 'Marketing',
+        body_text: 'Hi',
+        status: 'APPROVED',
+        meta_template_id: null,
+        submission_error: 'Bad footer',
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+      },
+    ],
+  });
+
+  const res = await resume();
+
+  // Not a 409: the wizard waits for a running pass on one.
+  expect(res.status).toBe(400);
+  expect(await res.json()).toMatchObject({ code: 'template_refused' });
+  expect(broadcast).toMatchObject({
+    status: 'failed',
+    delivery_locked_at: null,
+  });
+  expect(h.tables.broadcast_recipients[0]).toMatchObject({
+    status: 'pending',
+    error_message: expect.stringContaining('Bad footer'),
+  });
+  expect(h.afterCallbacks).toEqual([]);
 });

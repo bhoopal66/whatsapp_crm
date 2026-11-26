@@ -5,7 +5,7 @@ import {
   foldPipelineSlices,
   foldResponseTime,
   type MessageSeriesRow,
-  type OpenDealsByStageRow,
+  type OpenDealValueRow,
   type ResponseTimeRow,
 } from './aggregate'
 import type {
@@ -35,16 +35,16 @@ function browserTimeZone(): string {
 
 type DB = SupabaseClient
 
-/** The open-deals-by-stage RPC's settled result. */
+/** The open-deal-values RPC's settled result. */
 export type OpenDealsResult = { data: unknown; error: unknown }
 
 /**
- * Open deals per stage, under the viewer's RLS. Settled here rather than
+ * Open deals per stage and currency, under the viewer's RLS. Settled here rather than
  * handed back as a builder: a Supabase builder re-sends its request
  * every time it is awaited.
  */
 export async function fetchOpenDeals(db: DB): Promise<OpenDealsResult> {
-  return await db.rpc('dashboard_open_deals_by_stage')
+  return await db.rpc('dashboard_open_deal_values')
 }
 
 // --- Conversations over time ---------------------------------------
@@ -79,13 +79,10 @@ export async function loadPipelineDonut(
     (stagesRes.data ?? []) as { id: string; name: string; color: string }[]
   const slices = foldPipelineSlices(
     stages,
-    (dealsRes.data ?? []) as OpenDealsByStageRow[],
+    (dealsRes.data ?? []) as OpenDealValueRow[],
   )
 
-  return {
-    stages: slices,
-    totalValue: slices.reduce((sum, s) => sum + s.totalValue, 0),
-  }
+  return { stages: slices }
 }
 
 // --- Response time by day of week ----------------------------------

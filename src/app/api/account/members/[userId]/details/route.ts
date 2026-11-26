@@ -1,5 +1,6 @@
 // ============================================================
-// PATCH /api/account/members/[userId]/details  { full_name, email }
+// PATCH /api/account/members/[userId]/details
+//   { full_name?, expected_full_name?, email?, expected_email? }
 //
 // An owner or admin edits another member's name and login email
 // (migration 167). The email is how the person signs in, and both are
@@ -10,13 +11,12 @@
 //      decides: 140's password rule (a live owner / admin of the active
 //      workspace who strictly outranks the person there and in every
 //      other workspace the person belongs to; never their own details).
-//   2. Read the roster row and the login. They can disagree: a person
-//      changing their own email in Settings → Profile changes only the
-//      login. The login's email is what a rollback restores, and either
+//   2. Read the roster row and the login. They can disagree: before 288 a
+//      person could change their own login's email. The login's email is what a rollback restores, and either
 //      differing from the new one counts as a change. If nothing
 //      changed, answer ok and write nothing.
-//   3. A new email goes to GoTrue first (service role), confirmed at
-//      once: this install sends no mail. A taken address is a 409, and
+//   3. A new email goes to GoTrue first (service role, with a permit:
+//      288), confirmed at once: this install sends no mail. A taken address is a 409, and
 //      nothing else has been written yet.
 //   4. Then the profiles rows (service role; 135's guard refuses only
 //      'authenticated'), writing only the fields that changed. The email
@@ -27,6 +27,13 @@
 //   5. log_member_details_change writes the audit row in every
 //      workspace the person belongs to. It cannot undo steps 3-4, so a
 //      failure there is logged and the answer is still ok.
+//
+// Only the fields sent are looked at, and a field is an edit only when it
+// differs from its `expected_*` (what the form showed). If the stored
+// value is no longer the expected one, nothing is written: 409. A tab
+// from before `expected_*` sends both fields untouched or not: its email
+// is ignored when it is the roster's, else 409 (an old roster must never
+// put back an old login); its name is still taken.
 //
 // GoTrue's error text is never echoed, and the request body is never
 // logged.
@@ -41,7 +48,8 @@ import {
 import {
   MAX_MEMBER_EMAIL_LENGTH,
   MAX_MEMBER_NAME_LENGTH,
-  memberDetailsProblem,
+  memberEmailProblem,
+  memberNameProblem,
   normalizeMemberDetails,
   type MemberDetailsProblem,
 } from '@/lib/account/member-details';
@@ -52,6 +60,25 @@ import {
   RATE_LIMITS,
 } from '@/lib/rate-limit';
 import { serverSupabaseUrl } from '@/lib/supabase/urls';
+import { isMissingFunction } from '@/lib/team-activity/db-errors';
+
+/**
+ * A login's email changes only with a permit (288), for this address and
+ * two minutes. Before 288 there is none to ask for; any other failure
+ * leaves the change to be refused by the database.
+ */
+async function permitLoginEmail(userId: string, email: string) {
+  const { error } = await supabaseAdmin().rpc('permit_login_email', {
+    p_user: userId,
+    p_email: email,
+  });
+  if (error && !isMissingFunction(error)) {
+    console.error(
+      `[member details route] no permit for the login email of ${userId}:`,
+      { code: error.code }
+    );
+  }
+}
 
 /** Service-role client for the Auth admin API, the profiles write and
  *  the audit row. Only reached after the RPC has authorised the caller. */
@@ -78,6 +105,9 @@ const NOT_CHANGED =
 
 const RACED =
   'Someone else changed these details at the same time. Close this, reopen it and try again.';
+
+const OUT_OF_DATE =
+  'This page is out of date. Nothing was changed; reload it and try again.';
 
 type Field = 'full_name' | 'email';
 
@@ -130,25 +160,42 @@ export async function PATCH(
 
     const body = (await request.json().catch(() => null)) as {
       full_name?: unknown;
+      expected_full_name?: unknown;
       email?: unknown;
+      expected_email?: unknown;
     } | null;
-    if (typeof body?.full_name !== 'string') {
+    const hasName = body?.full_name !== undefined;
+    const hasEmail = body?.email !== undefined;
+    if (
+      !body ||
+      !(hasName || hasEmail) ||
+      (hasName && typeof body.full_name !== 'string')
+    ) {
       return NextResponse.json(
         { error: PROBLEM_MESSAGES.nameRequired },
         { status: 400 }
       );
     }
-    if (typeof body.email !== 'string') {
+    if (hasEmail && typeof body.email !== 'string') {
       return NextResponse.json(
         { error: PROBLEM_MESSAGES.emailRequired },
         { status: 400 }
       );
     }
+    const text = (v: unknown) => (typeof v === 'string' ? v : '');
     const next = normalizeMemberDetails({
-      full_name: body.full_name,
-      email: body.email,
+      full_name: text(body.full_name),
+      email: text(body.email),
     });
-    const problem = memberDetailsProblem(next);
+    const shown = normalizeMemberDetails({
+      full_name: text(body.expected_full_name),
+      email: text(body.expected_email),
+    });
+    const knowsName = typeof body.expected_full_name === 'string';
+    const knowsEmail = typeof body.expected_email === 'string';
+    const problem =
+      (hasName ? memberNameProblem(next.full_name) : null) ??
+      (hasEmail ? memberEmailProblem(next.email) : null);
     if (problem) {
       return NextResponse.json(
         { error: PROBLEM_MESSAGES[problem] },
@@ -177,27 +224,56 @@ export async function PATCH(
       return NextResponse.json({ error: NOT_CHANGED }, { status: 502 });
     }
 
-    const { data: login, error: loginError } =
-      await admin.auth.admin.getUserById(userId);
-    if (loginError || !login?.user) {
-      console.error(
-        `[member details route] could not read the login of ${userId}:`,
-        loginError
-          ? { status: loginError.status, code: loginError.code }
-          : 'no user'
-      );
-      return NextResponse.json({ error: NOT_CHANGED }, { status: 502 });
-    }
-    const loginEmail = login.user.email ?? '';
+    const rosterName = current.full_name ?? '';
     const rosterEmail = current.email ?? '';
+    const stored = normalizeMemberDetails({
+      full_name: rosterName,
+      email: rosterEmail,
+    });
 
-    const loginChanged = next.email !== loginEmail.toLowerCase();
+    const nameEdited =
+      hasName &&
+      next.full_name !== (knowsName ? shown.full_name : rosterName) &&
+      next.full_name !== rosterName;
+    const emailEdited =
+      hasEmail && next.email !== (knowsEmail ? shown.email : stored.email);
+    if (emailEdited && !knowsEmail) {
+      return NextResponse.json({ error: OUT_OF_DATE }, { status: 409 });
+    }
+
+    let loginEmail = '';
+    if (emailEdited) {
+      const { data: login, error: loginError } =
+        await admin.auth.admin.getUserById(userId);
+      if (loginError || !login?.user) {
+        console.error(
+          `[member details route] could not read the login of ${userId}:`,
+          loginError
+            ? { status: loginError.status, code: loginError.code }
+            : 'no user'
+        );
+        return NextResponse.json({ error: NOT_CHANGED }, { status: 502 });
+      }
+      loginEmail = login.user.email ?? '';
+    }
+
+    const loginChanged = emailEdited && next.email !== loginEmail.toLowerCase();
     const changed: Field[] = [];
-    if (next.full_name !== (current.full_name ?? '')) changed.push('full_name');
-    if (loginChanged || next.email !== rosterEmail.toLowerCase()) {
+    if (nameEdited) changed.push('full_name');
+    if (emailEdited && (loginChanged || next.email !== stored.email)) {
       changed.push('email');
     }
-    const member = { user_id: userId, ...next };
+    if (
+      (nameEdited && knowsName && shown.full_name !== stored.full_name) ||
+      (changed.includes('email') && shown.email !== stored.email)
+    ) {
+      return NextResponse.json({ error: RACED }, { status: 409 });
+    }
+    const member = {
+      user_id: userId,
+      full_name: nameEdited ? next.full_name : rosterName,
+      email: changed.includes('email') ? next.email : rosterEmail,
+    };
     if (changed.length === 0) {
       return NextResponse.json({ ok: true, member, changed });
     }
@@ -205,6 +281,7 @@ export async function PATCH(
     const emailChanged = changed.includes('email');
     /** Put the login email back; only after a GoTrue change succeeded. */
     async function restoreLogin(email: string) {
+      await permitLoginEmail(userId, email);
       const { error: revertError } = await admin.auth.admin.updateUserById(
         userId,
         { email, email_confirm: true }
@@ -218,6 +295,7 @@ export async function PATCH(
     }
 
     if (loginChanged) {
+      await permitLoginEmail(userId, next.email);
       const { error: authError } = await admin.auth.admin.updateUserById(
         userId,
         { email: next.email, email_confirm: true }

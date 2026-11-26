@@ -283,6 +283,10 @@ describe('endedNotice', () => {
       key: 'elsewhere',
       rejoin: false,
     });
+    expect(of('left', 'access_lost')).toEqual({
+      key: 'noAccess',
+      rejoin: false,
+    });
     expect(of('error', 'meeting_closed').key).toBe('ended');
     expect(of('error', 'connection_failed')).toEqual({
       key: 'lost',

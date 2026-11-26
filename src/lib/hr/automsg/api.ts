@@ -116,6 +116,8 @@ export interface AutoMsgTemplateInput {
   category: TemplateCategory;
   /** Left out = 'whatsapp'. */
   channel?: AutomsgChannel;
+  /** The stored row's `updatedAt` the editor was filled from, or null. */
+  expectedUpdatedAt: string | null;
 }
 
 export interface AutoMsgRcsStatus {
@@ -350,6 +352,8 @@ export function automsgSaveTemplate(
       p_approval_status: t.approvalStatus,
       p_category: t.category,
       p_channel: t.channel ?? 'whatsapp',
+      // 317: the version the editor was filled from; null = none stored.
+      p_expected: t.expectedUpdatedAt,
     },
     mapConfig
   );

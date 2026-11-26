@@ -14,12 +14,23 @@ import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/use-auth';
 import { useChannelMembers } from '@/hooks/use-channel-members';
+import { useMarkRead } from '@/hooks/use-mark-read';
 import { useThread } from '@/hooks/use-thread';
 import { isChannelModerator } from '@/lib/chat/moderation';
+import {
+  newestSeen,
+  noteSeenMentions,
+  nothingElseUnread,
+  unreadMentions,
+  withSeenMentions,
+} from '@/lib/chat/read-mark';
+import { unreadSince } from '@/lib/chat/receipts';
+import { missingFiles } from '@/lib/chat/timeline-cache';
 import { isGroupedWithPrevious, toggleReaction } from '@/lib/chat';
 import { offersBroadcasts } from '@/lib/chat/composer-input';
 import {
   holdThread,
+  isAtBottom,
   threadScrollBy,
   type RowBox,
   type ThreadScroll,
@@ -74,6 +85,7 @@ export function ThreadPanel({ channelId, rootId, onClose }: ThreadPanelProps) {
   const block = useWriteBlock(channel);
   const { store, view } = useThread(ws, channelId, rootId);
   const replies = view.replies.timeline;
+  const lostFiles = missingFiles(view.replies);
   const card = view.root.cards[rootId] ?? null;
   const callCard = view.root.callCards[rootId] ?? null;
 
@@ -111,6 +123,37 @@ export function ThreadPanel({ channelId, rootId, onClose }: ThreadPanelProps) {
     const topOf = (id: string) => rows.find((r) => r.id === id)?.top ?? null;
     el.scrollTop += threadScrollBy(held, topOf, el);
   }, [view]);
+
+  // The channel's read mark, moved on to the newest reply once it is in
+  // view and nothing else in the channel is unread: a mention in a thread
+  // counts until then. A thread opens at its root, so where it is scrolled
+  // to is measured as the mark falls due.
+  const { userId, unread, isUnreadFresh } = ws;
+  const since = unreadSince(channel?.membership);
+  const mentions = useMemo(
+    () => unreadMentions(replies.messages, userId, since),
+    [replies.messages, userId, since]
+  );
+  const seenKey = `${userId}:${channelId}`;
+  const mayMark = useCallback(() => {
+    const el = scrollerRef.current;
+    if (!el || !isAtBottom(el) || !store.isFresh()) return false;
+    noteSeenMentions(seenKey, mentions, since);
+    const seen = withSeenMentions(seenKey, mentions, since);
+    return isUnreadFresh() && nothingElseUnread(unread, channelId, seen);
+  }, [store, seenKey, mentions, since, unread, isUnreadFresh, channelId]);
+  const recheckRead = useMarkRead(ws, {
+    channelId,
+    membership: channel?.membership,
+    at: newestSeen(
+      replies.messages[replies.messages.length - 1]?.createdAt ?? null,
+      withSeenMentions(seenKey, mentions, since)
+    ),
+    ready: view.phase === 'ready',
+    mayMark,
+    version: view.replies.pageMark,
+  });
+
   const [highlightId, setHighlightId] = useState<string | null>(null);
   useEffect(() => {
     if (!highlightId) return;
@@ -189,6 +232,9 @@ export function ThreadPanel({ channelId, rootId, onClose }: ThreadPanelProps) {
           <VoicePlaysProvider value={voicePlays}>
             <div
               ref={scrollerRef}
+              onScroll={(e) => {
+                if (isAtBottom(e.currentTarget)) recheckRead();
+              }}
               data-inbox-scroll-root=""
               className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto pb-3"
             >
@@ -246,6 +292,9 @@ export function ThreadPanel({ channelId, rootId, onClose }: ThreadPanelProps) {
                       )}
                       actions={actions}
                       onToggleReaction={toggle}
+                      onRetryFiles={
+                        lostFiles.has(m.id) ? store.retryFiles : undefined
+                      }
                       highlighted={m.id === highlightId}
                     />
                   ))}

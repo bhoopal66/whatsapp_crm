@@ -102,6 +102,7 @@ describe('member-requests parsers', () => {
     expect(code(() => parseGroupText({ text: '' }))).toBe(400);
     expect(parseMessagePage(new URLSearchParams(''))).toEqual({
       before: null,
+      beforeId: null,
       limit: 50,
     });
     expect(code(() => parseMessagePage(new URLSearchParams('limit=500')))).toBe(
@@ -110,6 +111,22 @@ describe('member-requests parsers', () => {
     expect(code(() => parseMessagePage(new URLSearchParams('before=x')))).toBe(
       400
     );
+    // A row's own time keeps its microseconds; a bare time is as before.
+    const at = '2026-11-24T10:00:00.123456+00:00';
+    expect(
+      parseMessagePage(new URLSearchParams({ before: at, before_id: U }))
+    ).toEqual({ before: at, beforeId: U, limit: 50 });
+    expect(parseMessagePage(new URLSearchParams({ before: at })).before).toBe(
+      '2026-11-24T10:00:00.123Z'
+    );
+    for (const q of [
+      { before_id: U },
+      { before: at, before_id: 'm1' },
+      { before: '2026', before_id: U },
+      { before: `${at}",id.gt.x`, before_id: U },
+    ] as Record<string, string>[]) {
+      expect(code(() => parseMessagePage(new URLSearchParams(q)))).toBe(400);
+    }
   });
 
   it('checks an icon upload', () => {

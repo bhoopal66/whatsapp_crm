@@ -24,6 +24,7 @@ import {
   type NotesEvent,
   type NotesState,
 } from '@/lib/meetings/room-ui/notes';
+import { keptKey, keptNotes as kept } from '@/lib/meetings/room-ui/kept';
 import { cn } from '@/lib/utils';
 
 import { useWorkspaceMembers } from '../use-workspace-members';
@@ -55,13 +56,6 @@ export function useNotesAvailable(meetingId: string | null): boolean | null {
   return available;
 }
 
-/**
- * The panel unmounts on every tab switch. Unsaved text, an open conflict
- * and a save still in flight live here meanwhile, so nothing typed goes
- * with it. Keyed per person: two logins can share a tab.
- */
-const kept = new Map<string, NotesState>();
-
 /** Shared minutes: autosaved, and never overwritten without being asked. */
 export function RoomNotesPanel({
   meetingId,
@@ -75,7 +69,8 @@ export function RoomNotesPanel({
   const { nameOf } = useWorkspaceMembers();
   const { user } = useAuth();
   const selfId = user?.id ?? null;
-  const key = `${selfId}:${meetingId}`;
+  // `kept` (room-ui/kept.ts) holds what an unmounted panel leaves behind.
+  const key = keptKey(selfId, meetingId);
   const url = notesUrl(meetingId);
 
   const [state, setState] = useState<NotesState>(() => {

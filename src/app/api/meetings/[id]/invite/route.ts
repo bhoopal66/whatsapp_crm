@@ -1,9 +1,12 @@
 // ============================================================
-// POST /api/meetings/[id]/invite — `{ userIds }` → `{ invited }`.
+// POST /api/meetings/[id]/invite — `{ userIds }` →
+// `{ invited, needs_readmit }`.
 // Adds people to a meeting already scheduled, through the caller's
 // client: 110's INSERT policy (`meeting_is_host`) is what lets it
 // happen, and 106's triggers refuse anyone but live staff and ring the
 // bell. Someone already invited, and the host, are left out silently.
+// Someone the host removed (110) is not invited: an invite would not let
+// them in, so they are named in `needs_readmit` instead.
 // ============================================================
 
 import { NextResponse } from 'next/server';
@@ -47,18 +50,28 @@ export async function POST(request: Request, { params }: Params) {
       return jsonError('This meeting has ended or was cancelled', 409);
     }
 
-    const { data: rows, error: inviteesErr } = await supabase
-      .from('meeting_invitees')
-      .select('user_id')
-      .eq('meeting_id', id);
+    const [{ data: rows, error: inviteesErr }, removed] = await Promise.all([
+      supabase.from('meeting_invitees').select('user_id').eq('meeting_id', id),
+      supabase
+        .from('meeting_removed_users')
+        .select('user_id')
+        .eq('meeting_id', id)
+        .in('user_id', parsed.values.userIds),
+    ]);
     if (inviteesErr) return readErrorResponse(inviteesErr);
+    if (removed.error) return readErrorResponse(removed.error);
+    const needs_readmit = (removed.data ?? []).map((r) => r.user_id as string);
     const invitees = (rows ?? []).map((r) => r.user_id as string);
 
     const skip = new Set(
-      [...invitees, meeting.host_user_id].map((v) => v.toLowerCase())
+      [...invitees, ...needs_readmit, meeting.host_user_id].map((v) =>
+        v.toLowerCase()
+      )
     );
     const invited = parsed.values.userIds.filter((v) => !skip.has(v));
-    if (invited.length === 0) return NextResponse.json({ invited });
+    if (invited.length === 0) {
+      return NextResponse.json({ invited, needs_readmit });
+    }
     if (invitees.length + invited.length > INVITEES_MAX) {
       return jsonError(`At most ${INVITEES_MAX} invitees`, 400);
     }
@@ -79,7 +92,7 @@ export async function POST(request: Request, { params }: Params) {
         ? jsonError(ONLY_THE_HOST, 403)
         : meetingDbErrorResponse(error, 'Failed to invite people');
     }
-    return NextResponse.json({ invited });
+    return NextResponse.json({ invited, needs_readmit });
   } catch (err) {
     return toErrorResponse(err);
   }

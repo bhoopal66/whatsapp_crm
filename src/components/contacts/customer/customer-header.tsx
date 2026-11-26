@@ -38,6 +38,7 @@ import {
   useContextMenuItems,
   type ContextMenuEntry,
 } from '@/components/context-menu/registry';
+import { DeleteContactsDialog } from '@/components/contacts/delete-contacts-dialog';
 import { CallButton } from '@/components/pbx/call-button';
 import { Button, buttonVariants } from '@/components/ui/button';
 import {
@@ -46,9 +47,10 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { ConfirmDialog } from '@/components/ui-ext/confirm-dialog';
 import type { AccountNumber } from '@/hooks/use-whatsapp-numbers';
 import type { CustomerAccess } from '@/lib/contacts/customer-access';
+import { deleteContacts } from '@/lib/contacts/delete-contacts';
+import { reasonsText } from '@/lib/contacts/delete-preview';
 import {
   headerActions,
   type HeaderAction,
@@ -56,7 +58,6 @@ import {
 import type { SendChannelPrediction } from '@/lib/contacts/predict-send-channels';
 import type { ConsentFields } from '@/lib/pbx/call-ui';
 import { initials } from '@/lib/pbx/timeline';
-import { deleteRows } from '@/lib/supabase/changed-rows';
 import { createClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
 
@@ -101,6 +102,7 @@ export function CustomerHeader({
   const tl = useTranslations('CustomerTimeline');
   const t = useTranslations('Contacts.detailView');
   const tp = useTranslations('Contacts.page');
+  const td = useTranslations('Contacts.deleteDialog');
   const tj = useTranslations('Journeys.consent');
   const locale = useLocale();
   const router = useRouter();
@@ -126,19 +128,23 @@ export function CustomerHeader({
       year: 'numeric',
     });
 
-  const remove = async () => {
+  const remove = async (ids: string[]) => {
     setDeleting(true);
-    const res = await deleteRows(createClient(), 'contacts', [contact.id]);
+    const res = await deleteContacts(createClient(), ids);
     setDeleting(false);
-    if (res.kind === 'failed')
+    const refused = res.refused[0];
+    if (refused)
       return void toast.error(
-        tp(
-          res.error.hint === 'LEGAL_HOLD'
-            ? 'toastLegalHold'
-            : 'toastFailedDelete'
-        )
+        refused.legalHold
+          ? tp('toastLegalHold')
+          : td('toastRefused', {
+              name: title,
+              reason: reasonsText(refused, td, locale),
+            })
       );
-    if (res.kind === 'none') return void toast.error(tp('toastNotDeleted'));
+    if (res.failed.length > 0) return void toast.error(tp('toastFailedDelete'));
+    if (res.deleted.length === 0)
+      return void toast.error(tp('toastNotDeleted'));
     toast.success(tp('toastDeleted'));
     setConfirm(false);
     onDeleted?.();
@@ -417,15 +423,12 @@ export function CustomerHeader({
       {access.send && (
         <ContactChannelHint channels={channels} prediction={prediction} />
       )}
-      <ConfirmDialog
+      <DeleteContactsDialog
         open={confirm}
-        onOpenChange={(o) => !deleting && setConfirm(o)}
-        title={tp('deleteContactTitle')}
-        description={tp('deleteContactDesc', { name: title })}
-        cancelLabel={t('messageDialog.cancel')}
-        confirmLabel={tp('deleteBtn')}
-        onConfirm={() => void remove()}
-        destructive
+        targets={[{ id: contact.id, name: title }]}
+        deleting={deleting}
+        onCancel={() => setConfirm(false)}
+        onDelete={(ids) => void remove(ids)}
       />
     </header>
   );

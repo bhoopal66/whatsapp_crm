@@ -247,38 +247,70 @@ replaced the identifier.
 It counts against the reply cap. Empty means off. The outcome is
 recorded as `replied`, "Sensitive-data warning sent".
 
-### Learn from team answers (migration 278)
+### Learn from team answers (migrations 290, 318)
 
 Off by default. An owner or admin switches it on under the
 **Unanswered questions** card (Knowledge tab): **Learn from team
-answers**.
+answers**. It runs only while the AI assistant's own switch is on.
 
 Once a week per workspace (checked hourly by the automations cron, and
 `kb_learn_claim_run` stamps the account first, so two crons never both
 run it), up to 10 open gap topics that no approved answer covers and
 that have no learned draft yet are looked at. For each:
 
-1. The team's answer to each question in the topic is the first message
-   a **person** wrote in that chat after the question, within 48 hours
-   (`sender_type` `agent` with a sender, plain text, not a template).
-   The bot, automations and templates do not count. Personal chats and
-   opted-out or do-not-contact customers are skipped. Up to 5 answers.
+1. The team's answer to each question in the topic is the first real
+   message a **person** wrote in that chat after the question, within
+   48 hours (`sender_type` `agent` with a sender, plain text, not a
+   template). The bot, automations, templates and holding or courtesy
+   lines ("let me check", "one moment", "Hi Sara,", "شكرا"), deferrals
+   ("I will call you") and replies that only ask something back do not
+   count. An answer split over bubbles is joined: the same person's next
+   messages, each within 10 minutes, until the customer writes again (at
+   most 4). Personal chats, HR, IT and accounts chats (the bot's own
+   rule, `lib/ai/not-sales-chat.ts`), chats with a message on an HR line
+   in that window, and opted-out or do-not-contact customers are
+   skipped, questions included; so is a reply whose sender has no name.
+   A check that cannot be read skips the topic. Up to 5 answers; a topic needs **at least 2**, from
+   different chats, or it waits for more.
 2. Every question and answer is redacted (the second-brain redactor:
-   e-mail, IBAN, Emirates ID, card, OTP, account, passport, phone, any
-   run of 9+ digits) and every customer and team-member name known in
-   those chats is masked. If any text cannot be screened, the topic is
-   skipped: nothing is sent.
+   e-mail, IBAN, Emirates ID, card, OTP, account, passport, phone; a
+   phone keeps its last 3 digits), then links, spelled-out e-mails, PO
+   boxes, case numbers (`TC-…` and caption codes), IBAN-like strings,
+   tokens mixing letters and digits, any run of 5+ digits in any script
+   (up to two separators between them; an amount survives only with
+   thousands commas) and five or more digits in words, then the
+   account's names, read once per run in full: contacts and their
+   companies, every member, submission-group customers, case-desk
+   companies and bank contacts. Names match as whole words in any case,
+   Arabic folded and behind و ف ب ل ك س ال, joined or split, in close
+   spellings and across Latin and Arabic script; a company also without
+   its legal suffix; a name's words also match alone unless they are
+   common business words (two brand words together still match). A name
+   saved nowhere in the CRM, a nickname or a spelling too far off is not
+   recognised. If a list cannot
+   be read or a text screened, nothing is sent. The topic's label is a
+   customer's message: it is never sent or stored.
 3. The workspace's own AI key (`model_small` if set, else `model`) is
-   asked for ONE short, general answer in English, and in Arabic too
+   asked for ONE short, general question, and its answer in English, and in Arabic too
    when the team answered in Arabic. The prompt forbids names, numbers
-   and amounts that belong to one customer. The call passes the AI
+   and amounts that belong to one customer. The chat text is fenced as
+   evidence the model must not take instructions from, and the model may
+   decline when the replies do not answer the topic (nothing is
+   drafted). The call passes the AI
    transfer register (224) as purpose `kb_learn` and is logged in usage
    as **Learned answers** (`ai_usage_log.mode` `kb_learn`).
-4. An answer that still carries an identifier or a mask is thrown away.
+4. A question or answer that carries a known name, one of those shapes
+   or a mask is thrown away; the topic is noted as discarded and not
+   tried again for 28 days.
    Otherwise `kb_learn_record_draft` stores a `kb_entries` row: status
    **draft**, source `learned`, ref `LRN-XXXXXXXX`, audience
-   prospective client, the topic as the question, and a reviewer note
+   prospective client, the general question, and a reviewer note
    "Drafted from N team replies, <dates>. Check before approving."
+
+**Masking is not perfect: an admin must read every draft before approving
+it.** A name nobody saved (in contacts, members, cases or submission
+groups), a nickname, or a customer described without a name can still
+reach the AI provider and the draft.
 
 The draft shows in **Approved answers** with a **Learned** badge, and
 the **Learned only** filter lists them. Edit it and approve it the usual
@@ -286,9 +318,78 @@ way; until then the bot never uses it (`kb_shortlist` returns approved
 rows only). The model may write `[TO CONFIRM: …]` where the replies
 disagree; 081's check refuses to approve an answer that still has one.
 
+Under the switch, **Last run** shows when the weekly run last started
+and how many new drafts it wrote. A run that did not finish (AI off or
+no key, a failed read, the AI service failing three times in a row or at
+the end, out of time, a crash) does not cost the week: it is tried again
+within the hour, three times in 24 hours at most, and the line says why
+and when. The topics asked in the last 7 days (drafted, discarded and
+backed off) count toward the ten, so retries never ask more than ten a
+week. Switching it off and on forgets the last run and starts again
+within the hour.
+
+**What it has learned (the skill library, migration 318; re-run it after
+290).** The learner also learns
+from your review, the idea of SkillRL (aiming-lab/SkillRL) applied at
+prompt level, with no model training. Each run first looks at how admins
+treated earlier learned drafts: approved as drafted, approved after
+editing, set to Remove, or deleted. When 5 new reviews have come in, or
+the approval rate of the latest 20 is below 40%, the AI is shown the
+drafts, the edited versions and the rejections, identifiers and known
+names masked, and proposes at most 3 new rules, once a week at most (24
+active in all; at 24 it waits until one is retired):
+
+- **Every answer** rules (tone, length, what to always include);
+- **Category** rules (account opening, documents, fees, POS, loans,
+  cards, transfers, timelines), used only for topics of that category;
+- **Mistakes to avoid**, learned from rejected drafts.
+
+The next drafts get the general rules, their category's rules and the
+closest mistakes in the prompt. The topic's label picks them here; it is
+never sent. Every rule is listed under the switch
+(**What it has learned**); **Retire** stops a wrong rule being used,
+and the learner never adds that title again. A database CHECK refuses a
+rule with an e-mail address (any `@`), 9 or more digits in any script
+(up to two other characters between them), 5 digits in a row, a link or a
+mask; the app checks the same, and known names too, when a rule comes in
+and each time it is used. Rules only shape drafts: nothing is approved
+or sent because of them.
+
+**Evaluation harness.** `src/lib/kb/learn-eval/` runs a corpus of
+realistic chats (English, Arabic, holding replies, split bubbles,
+ineligible chats, every kind of identifier, injection attempts) through
+the real pipeline with scripted models (faithful, echoing, leaking,
+declining). It scores leaks (must be 0), database ids sent (0), outcome,
+answer picking, the evidence fence and draft safety (all 100%), runs
+the skill library's cycle against the same bar (no identifier sent or
+stored, at most three rules, none unsafe), and
+reports documented gaps (a name the workspace does not know) without
+failing. Test code only: the app never loads it. It runs with `npm test`, so CI fails on a regression;
+`npm run eval:kb-learn` also writes the report to `kb-learn-eval.md`. A
+new failure seen in production becomes a new case in `corpus.ts`.
+
 A topic is drafted once (`kb_learned_drafts`): the same gaps (half or
-more) or the same label under a new topic id count as the same topic.
+more) or the same label (kept only as an HMAC with
+`ENCRYPTION_KEY`, which the database does not hold) under a new topic id
+count as the same topic.
 It is drafted again only if its draft was deleted or set to **Remove**.
+A topic the AI declined, answered malformed or was cut off on is left for
+28 days, like a discarded one; covered, drafted and waiting topics are not
+read at all. The newest 25 questions of a topic are looked at. Topics
+never looked at come first, then those looked at longest ago; one the AI
+service failed on three times in a row waits 28 days.
+
+Erasing a customer deletes their questions: the ids leave the ledger, and
+an unapproved draft left with fewer than two chats is deleted. An approved
+entry stays.
+
+A message the AI wrote, a forwarded one and one that is not sent,
+delivered or read are not answers, nor is a reply that quotes another
+message. Once the customer asks something else or sends an image,
+document or video, only a reply that quotes the original question counts
+("hello?" or "any update?" is not a new question). A holding line is a short message
+made of nothing but holding words ("please wait 3 working days" is an
+answer).
 
 ## Translate (migration 154)
 

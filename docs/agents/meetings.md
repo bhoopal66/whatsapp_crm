@@ -19,6 +19,13 @@ Staff-only video meetings on Cloudflare Realtime SFU, at `/meetings`.
 - **Participants are service-role writes.** `meeting_participants` has no client
   write grant; the routes check `meeting_can_view` through the caller's RLS
   client first, then write on `supabaseAdmin()`.
+- **A seat needs a live staff profile of the meeting's account.** Cloudflare
+  knows no members: deactivating or removing one closes and cuts their seats
+  (`cutMemberSeats`), `runSeatAccessSweep` (automations cron, every minute)
+  catches the rest, and the room ends itself when heartbeat/state still answer
+  401/403 ten seconds on (`REFUSED_FOR_MS`).
+  `sfu/tracks` and `sfu/renegotiate` read the seat again after Cloudflare
+  answers (`seatClosedMeanwhile`): a cut only closes the tracks it can list.
 - **The SFU secret is server-only.** `CLOUDFLARE_CALLS_APP_ID` / `_SECRET` are
   read at request time in `sfu.ts`; unset means meeting CRUD works and join and
   the `sfu/*` routes answer 503 `meetings_not_configured`. The browser only
@@ -34,8 +41,13 @@ Staff-only video meetings on Cloudflare Realtime SFU, at `/meetings`.
   `cancelled` never reopen, `ended_at` is trigger-owned, and entering either
   closes every open participant row. `account_id` and `host_user_id` are
   frozen.
-- **Bell.** An invite inserts a `meeting_invite` notification
-  (`meeting_invitees_notify`, not for yourself); 106 rewrites
+- **Bells.** An invite inserts a `meeting_invite` notification
+  (`meeting_invitees_notify`, 278's body, not for yourself). A scheduled
+  meeting's new time inserts `meeting_update` and its cancellation
+  `meeting_cancelled` (278's `meetings_notify`): to its live invitees, not
+  the actor and not a removed person, and nothing once it has started (an
+  update) or is over (a cancellation). Times are the account's
+  (`calendar_time_label`). 106 rewrites
   `notifications_type_check`, so a later type edits that list from 106.
 - **Network.** STUN only (`MEETING_ICE_SERVERS`); `Permissions-Policy` and the
   CSP `connect-src` (`rtc.live.cloudflare.com`) carry the camera, microphone,
@@ -70,11 +82,12 @@ Staff-only video meetings on Cloudflare Realtime SFU, at `/meetings`.
 - **Pre-176 tolerance.** Without migration 176 the room still works; lock,
   recording and notes answer as unavailable and the UI says so. Keep that
   fallback when touching those routes. `verify-meeting-host-tools.sql`.
-- **Instant meetings lapse** after 10 minutes empty
-  (`lib/meetings/lapse.ts`, the automations cron).
+- **Instant meetings lapse** after 10 minutes empty, seen empty by two passes
+  in a row (`lib/meetings/lapse.ts`, the automations cron): after an outage
+  every live meeting looks empty until its first heartbeat.
 - **Invite pop-up.** `InviteRinger` (`lib/meetings/invite-ring.ts`, pure)
   turns a realtime `meeting_invite` row into the shell's ringing card
-  (`meeting-invite-card.tsx`): instant meetings (106's "Starting now"
+  (`meeting-invite-card.tsx`): instant meetings ("Starting now", 278's
   body, pinned by a test) and meetings someone is in, nothing else. The
   tone is laid on the audio clock up front and is finite, so a frozen tab
   can't ring on. Not now marks the row read, which is what closes the

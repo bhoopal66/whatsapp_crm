@@ -23,6 +23,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -81,6 +82,7 @@ import {
   NumberChip,
   RoleChip,
 } from './teams/people';
+import { NumbersLeftToAdmins } from './numbers-left-to-admins';
 import { TeamEditorSheet } from './teams/team-editor-sheet';
 
 /** Team membership and number allocation feed several caches. */
@@ -108,13 +110,23 @@ export function TeamsTab() {
   const numbers = useAccountNumbers(true, numbersKey);
 
   const [editing, setEditing] = useState<Team | null>(null);
+  // Another admin saved meanwhile: the team as stored now, null when it
+  // could not be read. The editor keeps its draft until Reload.
+  const [changed, setChanged] = useState<{ stored: Team | null } | null>(null);
+  // The team whose editor is open, for a save that ends after it closed.
+  const editingId = useRef<string | null>(null);
+  function edit(team: Team | null) {
+    editingId.current = team?.id ?? null;
+    setEditing(team);
+    setChanged(null);
+  }
   const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState('');
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<Team | null>(null);
   const [deletingBusy, setDeletingBusy] = useState(false);
 
-  const load = useCallback(async (quiet = false) => {
+  const load = useCallback(async (quiet = false): Promise<Team[] | null> => {
     if (!quiet) setState('loading');
     try {
       const [teamsRes, membersRes] = await Promise.all([
@@ -124,19 +136,18 @@ export function TeamsTab() {
       if (!teamsRes.ok || !membersRes.ok) throw new Error('load failed');
       const teamsBody = await teamsRes.json();
       const membersBody = await membersRes.json();
-      setTeams(
-        ((teamsBody?.teams ?? []) as Team[]).map((x) => ({
-          ...x,
-          member_ids: x.member_ids ?? [],
-          channel_ids: x.channel_ids ?? [],
-        }))
-      );
-      setMembers(
-        staffOnly((membersBody?.members ?? []) as AccountMember[])
-      );
+      const next = ((teamsBody?.teams ?? []) as Team[]).map((x) => ({
+        ...x,
+        member_ids: x.member_ids ?? [],
+        channel_ids: x.channel_ids ?? [],
+      }));
+      setTeams(next);
+      setMembers(staffOnly((membersBody?.members ?? []) as AccountMember[]));
       setState('ready');
+      return next;
     } catch {
       if (!quiet) setState('error');
+      return null;
     }
   }, []);
 
@@ -187,12 +198,26 @@ export function TeamsTab() {
       setCreateOpen(false);
       toast.success(t('created', { name }));
       // Straight on to leader, members and numbers.
-      setEditing(created);
+      edit(created);
     } catch {
       toast.error(t('createFailed'));
     } finally {
       setCreating(false);
     }
+  }
+
+  /** What is stored, into the open editor; false when it was closed. */
+  async function readStored(team: Team): Promise<boolean> {
+    const next = await load(true);
+    if (editingId.current !== team.id) return false;
+    const stored = next?.find((x) => x.id === team.id);
+    if (next && !stored) {
+      toast.error(t('teamGone', { name: team.name }));
+      edit(null);
+      return true;
+    }
+    setChanged({ stored: stored ?? null });
+    return true;
   }
 
   async function handleSave(team: Team, patch: TeamPatch): Promise<boolean> {
@@ -203,17 +228,30 @@ export function TeamsTab() {
         body: JSON.stringify(patch),
       });
       if (!res.ok) {
+        if (res.status === 409) {
+          const body = await res
+            .clone()
+            .json()
+            .catch(() => ({}));
+          if (body?.code === 'members_changed') {
+            if (!(await readStored(team))) {
+              toast.error(t('membersChanged', { name: team.name }));
+            }
+            return false;
+          }
+        }
         toast.error((await readError(res)) || t('saveFailed'));
         // The save is one transaction, so nothing changed — but another
         // admin may have; re-read so the overview tells the truth.
         void load(true);
         return false;
       }
-      const updated = { ...team, ...patch };
+      const { expected_member_ids: _expected, ...saved } = patch;
+      const updated = { ...team, ...saved };
       setTeams((prev) => prev.map((x) => (x.id === team.id ? updated : x)));
       invalidateTeamCaches();
       setNumbersKey((k) => k + 1);
-      setEditing(null);
+      if (editingId.current === team.id) edit(null);
       toast.success(t('saved', { name: updated.name }));
       return true;
     } catch {
@@ -327,7 +365,7 @@ export function TeamsTab() {
                   byId={byId}
                   numberById={numberById}
                   numbersLoaded={numbers !== null}
-                  onEdit={() => setEditing(team)}
+                  onEdit={() => edit(team)}
                   onDelete={() => setDeleting(team)}
                 />
               ))}
@@ -378,7 +416,12 @@ export function TeamsTab() {
         teams={teams}
         members={members}
         numbers={numbers}
-        onClose={() => setEditing(null)}
+        changed={changed}
+        onReload={() => edit(changed?.stored ?? editing)}
+        onRetry={async () => {
+          if (editing) await readStored(editing);
+        }}
+        onClose={() => edit(null)}
         onSave={handleSave}
       />
 
@@ -442,6 +485,10 @@ export function TeamsTab() {
               })}
             </li>
             <li>{t('deleteNumbers')}</li>
+            <NumbersLeftToAdmins
+              as="li"
+              leaving={deleting ? { teamId: deleting.id } : null}
+            />
             <li>{t('deleteKeeps')}</li>
           </ul>
           <DialogFooter>

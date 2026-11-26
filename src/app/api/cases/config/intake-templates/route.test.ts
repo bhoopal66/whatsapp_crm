@@ -32,6 +32,7 @@ let admin: FakeClient;
 let setResult: { data?: unknown; error?: unknown };
 let approveResult: { data?: unknown; error?: unknown };
 let rows: Record<string, unknown>[];
+let stored: Record<string, unknown>[];
 
 const as = (role: string) => {
   m.ctx = { userId: 'u-1', accountId: 'acct-1', role, supabase: rls.client };
@@ -42,12 +43,19 @@ const put = (kind: string, body: unknown) =>
     new Request('http://x', { method: 'PUT', body: JSON.stringify(body) }),
     params(kind)
   );
-const post = (kind: string) =>
-  approve(new Request('http://x', { method: 'POST' }), params(kind));
+const post = (kind: string, body?: unknown) =>
+  approve(
+    new Request('http://x', {
+      method: 'POST',
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    }),
+    params(kind)
+  );
 
 beforeEach(() => {
   vi.spyOn(console, 'error').mockImplementation(() => {});
   rows = [];
+  stored = [];
   setResult = { data: false };
   approveResult = { data: true };
   rls = new FakeClient(
@@ -56,10 +64,15 @@ beforeEach(() => {
     {},
     { case_intake_templates: () => ({ data: rows }) }
   );
-  admin = new FakeClient('admin', [], {
-    case_intake_template_set: () => setResult as never,
-    case_intake_template_approve: () => approveResult as never,
-  });
+  admin = new FakeClient(
+    'admin',
+    [],
+    {
+      case_intake_template_set: () => setResult as never,
+      case_intake_template_approve: () => approveResult as never,
+    },
+    { case_intake_templates: () => ({ data: stored }) }
+  );
   m.admin = admin.client;
   as('admin');
 });
@@ -132,6 +145,31 @@ describe('PUT intake template', () => {
     ]);
   });
 
+  it('refuses a wording saved over one the screen never showed', async () => {
+    const at = '2026-11-24T10:00:00.123456+00:00';
+    stored = [{ updated_at: at }];
+    const stale = await put('document_classify', {
+      body: 'Mine',
+      updatedAt: '2026-11-23T10:00:00+00:00',
+    });
+    expect(stale.status).toBe(409);
+    expect((await stale.json()).code).toBe('TEMPLATE_CHANGED');
+    const none = await put('document_classify', {
+      body: 'Mine',
+      updatedAt: null,
+    });
+    expect(none.status).toBe(409);
+    expect(admin.rpcs).toHaveLength(0);
+    const ok = await put('document_classify', { body: 'Mine', updatedAt: at });
+    expect(ok.status).toBe(200);
+    stored = [];
+    const first = await put('document_classify', {
+      body: 'Mine',
+      updatedAt: null,
+    });
+    expect(first.status).toBe(200);
+  });
+
   it('refuses an agent', async () => {
     as('agent');
     expect((await put('document_classify', { body: 'x' })).status).toBe(403);
@@ -198,6 +236,46 @@ describe('POST approve intake template', () => {
   it('404s an unknown kind', async () => {
     as('owner');
     expect((await post('nope')).status).toBe(404);
+    expect(admin.rpcs).toHaveLength(0);
+  });
+
+  it('approves the wording the owner was shown and answers its row', async () => {
+    as('owner');
+    const updatedAt = '2026-11-24T10:00:00.123456+00:00';
+    approveResult = {
+      data: {
+        kind: 'document_rejected',
+        body: 'Text',
+        approved: true,
+        updated_at: '2026-11-24T10:05:00.5+00:00',
+      },
+    };
+    const res = await post('document_rejected', { updatedAt });
+    expect(await res.json()).toEqual({
+      kind: 'document_rejected',
+      body: 'Text',
+      approved: true,
+      updatedAt: '2026-11-24T10:05:00.5+00:00',
+    });
+    expect(admin.rpcs[0].args).toMatchObject({
+      p_expected_updated_at: updatedAt,
+    });
+  });
+
+  it('answers 409 TEMPLATE_CHANGED', async () => {
+    as('owner');
+    approveResult = { error: { code: '23514', hint: 'TEMPLATE_CHANGED' } };
+    const res = await post('document_rejected', {
+      updatedAt: '2026-11-24T10:00:00Z',
+    });
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe('TEMPLATE_CHANGED');
+  });
+
+  it('400s a version that is no date', async () => {
+    as('owner');
+    for (const updatedAt of ['yesterday', 5, '2026-99-99T00:00:00Z'])
+      expect((await post('document_rejected', { updatedAt })).status).toBe(400);
     expect(admin.rpcs).toHaveLength(0);
   });
 

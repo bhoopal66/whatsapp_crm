@@ -6,7 +6,8 @@
 // parseOwnGroupMedia; the gateway gets a link rebuilt on the public
 // origin). The service decides who may send (the
 // open access row) and stores the row pending before the gateway call,
-// so a gateway failure leaves it failed and answers a generic 502. A
+// so a gateway failure leaves it failed and answers a generic 502; what
+// breaks before the row is stored answers 503 `not_stored`. A
 // send WhatsApp accepted but whose row could not be settled answers 202
 // `{ error, sent: true }`: the text is gone, so nobody resends it.
 // At most GROUP_SEND_LIMIT sends per window per person per group
@@ -34,6 +35,7 @@ import {
   sendWindowStart,
   SgHttpError,
 } from '@/lib/submission-groups/http';
+import { SEND_NOT_STORED } from '@/lib/submission-groups/rules';
 import {
   submissionGroupService,
   submissionGroupStore,
@@ -73,7 +75,9 @@ export async function POST(request: Request, { params }: Params) {
       .gte('created_at', sendWindowStart());
     if (error) {
       console.error('[submission-groups] send count failed', error);
-      throw new SgHttpError(503, 'Could not check the send limit');
+      throw new SgHttpError(503, 'Could not check the send limit', {
+        code: SEND_NOT_STORED,
+      });
     }
     if (isOverSendLimit(count ?? 0))
       throw new SgHttpError(
@@ -103,7 +107,7 @@ export async function POST(request: Request, { params }: Params) {
             });
     } catch (err) {
       const mapped = sendErrorFor(err);
-      if (mapped.status === 502 || mapped.status === 202)
+      if (mapped.status >= 502 || mapped.status === 202)
         console.error('[submission-groups] send failed', err);
       throw mapped;
     }

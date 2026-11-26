@@ -10,6 +10,7 @@ import type { ConversationsSeriesPoint } from '@/lib/dashboard/types';
 import { cn } from '@/lib/utils';
 import { DashboardPanel, PanelEmpty } from './panel';
 import { useWidgetData } from './use-widget-data';
+import { uiLocale } from '@/i18n/ui-locale';
 
 type RangeDays = 7 | 30 | 90;
 const RANGES: RangeDays[] = [7, 30, 90];
@@ -365,13 +366,13 @@ function shortDayLabel(key: string): string {
   // appended time avoids timezone-shift surprises across midnight.
   const [y, m, d] = key.split('-').map(Number);
   const date = new Date(y, m - 1, d);
-  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  return date.toLocaleDateString(uiLocale(), { month: 'short', day: 'numeric' });
 }
 
 function longDayLabel(key: string): string {
   const [y, m, d] = key.split('-').map(Number);
   const date = new Date(y, m - 1, d);
-  return date.toLocaleDateString(undefined, {
+  return date.toLocaleDateString(uiLocale(), {
     weekday: 'short',
     month: 'short',
     day: 'numeric',

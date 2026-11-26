@@ -81,8 +81,25 @@ describe('POST documents/request', () => {
     expect(m.service).toHaveBeenCalledWith('acct-1', admin);
     expect(m.request).toHaveBeenCalledWith(
       { tools: m.tools, sender: m.sender },
-      { caseId: C, actor: 'u-1' }
+      { caseId: C, actor: 'u-1', force: false }
     );
+  });
+
+  it.each([
+    [{ force: true }, true],
+    [{ force: 'true' }, false],
+    [{ force: 1 }, false],
+    [[true], false],
+  ])('body %o: force is %s (only a literal true)', async (body, force) => {
+    await POST(
+      new Request('http://x', { method: 'POST', body: JSON.stringify(body) }),
+      { params: Promise.resolve({ id: C }) }
+    );
+    expect(m.request).toHaveBeenCalledWith(expect.anything(), {
+      caseId: C,
+      actor: 'u-1',
+      force,
+    });
   });
 
   it.each([
@@ -103,6 +120,13 @@ describe('POST documents/request', () => {
     expect(await res.json()).toEqual(
       expect.objectContaining({ code: result.reason, ...extra })
     );
+  });
+
+  it('answers 502 UNCONFIRMED when the outcome is unknown', async () => {
+    m.request.mockResolvedValue({ sent: false, reason: 'UNCONFIRMED' });
+    const res = await post();
+    expect(res.status).toBe(502);
+    expect((await res.json()).code).toBe('UNCONFIRMED');
   });
 
   it("answers 404 for another account's case and sends nothing", async () => {

@@ -7,7 +7,7 @@ import {
   everyInterval,
   runChannelHealthCheck,
 } from '@/lib/whatsapp/channel-health'
-import { runMeetingLapseSweep } from '@/lib/meetings/lapse'
+import { runMeetingLapseSweep, runSeatAccessSweep } from '@/lib/meetings/lapse'
 import { runHrSweep } from '@/lib/hr/sweep'
 import { runDeskDigests } from '@/lib/desk/digest'
 import { sendDeskDigest } from '@/lib/desk/digest-send'
@@ -31,12 +31,13 @@ import { memoryStore } from '@/lib/memory/server'
 import { runKbGapRecomputePass } from '@/lib/kb/gap-recompute'
 import { runKbLearning } from '@/lib/kb/learn-run'
 import { drainWebhookOutbox, purgeWebhookOutbox } from '@/lib/webhooks/outbox'
+import { purgeMessageKeys } from '@/lib/api/v1/message-keys'
 import { runInboundQueueTick } from '@/lib/whatsapp/inbound-drain'
 import { runPbxCron } from '@/lib/pbx/housekeeping'
 import { runChatFileSweep } from '@/lib/chat/file-cleanup'
 import { runPersonalHistoryImportTick } from '@/lib/whatsapp/personal-history-import'
 import { runStagedMediaSweep } from '@/lib/storage/staged-media-sweep'
-import { runRetentionSweeps } from '@/lib/privacy/retention'
+import { retentionRunner } from '@/lib/privacy/retention'
 import { runCaseReviewTick } from '@/lib/case-review/review'
 import { dispatchPush } from '@/lib/push/dispatch'
 import { runRecurringReminders } from '@/lib/calendar/reminders'
@@ -109,6 +110,37 @@ function scheduleMeetingLapseSweep() {
   } catch (err) {
     console.error(
       '[automations-cron] could not schedule the meeting lapse sweep:',
+      err instanceof Error ? err.message : err,
+    )
+  }
+}
+
+/**
+ * Every minute: the seat of someone who is no longer live staff of the
+ * meeting's workspace is closed and cut. Under a minute, so a tick a
+ * little early is not skipped.
+ */
+const seatAccessDue = everyInterval(45_000)
+
+function scheduleSeatAccessSweep() {
+  try {
+    if (!seatAccessDue()) return
+    after(async () => {
+      try {
+        const summary = await runSeatAccessSweep(supabaseAdmin())
+        if (summary.cut > 0) {
+          console.log('[automations-cron] meeting access:', summary)
+        }
+      } catch (err) {
+        console.error(
+          '[automations-cron] meeting access sweep failed:',
+          err instanceof Error ? err.message : err,
+        )
+      }
+    })
+  } catch (err) {
+    console.error(
+      '[automations-cron] could not schedule the meeting access sweep:',
       err instanceof Error ? err.message : err,
     )
   }
@@ -280,17 +312,18 @@ function scheduleCaseReview() {
 
 /**
  * PDPL retention (migration 223): each workspace's own policy, a dry run
- * until the workspace applies it. Once a day per process, inside after();
- * a failure is only logged and the next day's run sweeps again.
+ * until the workspace applies it. Once a day per process, inside after(),
+ * in slices within a time budget: what is left goes on at the next tick,
+ * and a failure is tried again instead of spending the day (282).
  */
-const retentionSweepDue = everyInterval(24 * 60 * 60_000)
+const retention = retentionRunner()
 
 function scheduleRetentionSweep() {
   try {
-    if (!retentionSweepDue()) return
+    if (!retention.due()) return
     after(async () => {
       try {
-        await runRetentionSweeps(supabaseAdmin())
+        await retention.run(supabaseAdmin())
       } catch (err) {
         console.error(
           '[automations-cron] retention sweep failed:',
@@ -570,10 +603,10 @@ function scheduleKbGapRecompute() {
 }
 
 /**
- * Learn from team answers (migration 278): workspaces that switched it on
+ * Learn from team answers (migration 290): workspaces that switched it on
  * get learned knowledge-base DRAFTS from their open gap topics, at most
- * once a week each (kb_learn_claim_run stamps the account before it
- * runs). Checked hourly per process inside after(); runKbLearning never
+ * once a week each, a failed run again within the hour (kb_learn_claim_run
+ * stamps it first). Checked hourly inside after(); runKbLearning never
  * throws and starts no new work after its own budget.
  */
 const kbLearningDue = everyInterval(60 * 60_000)
@@ -633,6 +666,7 @@ function scheduleWebhookInbox() {
  * (case.stage_changed, submission_group.*, …) are claimed and sent at
  * most once a minute per process, and delivered rows older than 7 days
  * are purged once a day, both inside after(). A failure is only logged.
+ * The daily purge also forgets the public API's message keys (305).
  */
 const webhookOutboxDue = everyInterval(60_000)
 const webhookOutboxPurgeDue = everyInterval(24 * 60 * 60_000)
@@ -659,6 +693,14 @@ function scheduleWebhookOutbox() {
         } catch (err) {
           console.error(
             '[automations-cron] webhook outbox purge failed:',
+            err instanceof Error ? err.message : err,
+          )
+        }
+        try {
+          await purgeMessageKeys(supabaseAdmin())
+        } catch (err) {
+          console.error(
+            '[automations-cron] message key purge failed:',
             err instanceof Error ? err.message : err,
           )
         }
@@ -1045,6 +1087,7 @@ export async function GET(request: Request) {
   } finally {
     scheduleChannelHealthCheck()
     scheduleMeetingLapseSweep()
+    scheduleSeatAccessSweep()
     scheduleTeamActivitySweep()
     scheduleResponseEscalation()
     scheduleEdgePurge()

@@ -10,10 +10,16 @@
 import { chunkIds } from './chat-tag-column';
 import { dedupeByPhone, isUniqueViolation, normalizeKey } from './dedupe';
 import type { ParsedContactRow } from './parse-contact-csv';
-import { partitionRowsByPhone } from './phone-validation';
+import { storedForms } from './phone-match';
+import {
+  partitionRowsByPhone,
+  type PhoneValidationReason,
+} from './phone-validation';
 
 /** Numbers per `.in()` filter: 200 of them stay well inside a URL. */
 export const LOOKUP_CHUNK = 200;
+/** Look-up chunks in flight at once. */
+const LOOKUP_PARALLEL = 4;
 export const INSERT_CHUNK = 50;
 
 type Failure = { message: string; code?: string };
@@ -25,11 +31,23 @@ export interface ImportProblem {
   reason: 'unreadable' | 'no_phone' | 'phone' | 'save';
   /** The phone rule's sentence, or the database's message. */
   detail?: string;
+  /** For `phone`: the rule's code, which the screen translates. */
+  phoneReason?: PhoneValidationReason;
+}
+
+/** A number already a customer, stored in another form. */
+export interface SavedElsewhere {
+  line: number | null;
+  phone: string;
+  savedAs: string;
 }
 
 export interface ImportPlan {
   toInsert: ParsedContactRow[];
+  /** Includes `savedElsewhere`. */
   alreadyThere: number;
+  /** Numbers found only as a trunk-0 or no-country-code row. */
+  savedElsewhere: SavedElsewhere[];
   /** Repeats of a number earlier in the file. */
   repeats: number;
   problems: ImportProblem[];
@@ -44,12 +62,20 @@ export async function readExistingNumbers(
   }>
 ): Promise<Set<string>> {
   const found = new Set<string>();
-  for (const chunk of chunkIds([...new Set(keys)], LOOKUP_CHUNK)) {
-    const { data, error } = await read(chunk);
-    if (error) throw new Error(error.message);
-    for (const row of data ?? [])
-      if (row.phone_normalized) found.add(row.phone_normalized);
-  }
+  const chunks = chunkIds([...new Set(keys)], LOOKUP_CHUNK);
+  let next = 0;
+  // A small pool: a failed chunk rejects its worker, so the read throws.
+  const worker = async () => {
+    while (next < chunks.length) {
+      const { data, error } = await read(chunks[next++]);
+      if (error) throw new Error(error.message);
+      for (const row of data ?? [])
+        if (row.phone_normalized) found.add(row.phone_normalized);
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(LOOKUP_PARALLEL, chunks.length) }, worker)
+  );
   return found;
 }
 
@@ -68,13 +94,26 @@ export async function planImport(
   // normalized, so the checks below compare the digits to be stored.
   const { valid, rejected } = partitionRowsByPhone(file.rows);
   const { unique, duplicates } = dedupeByPhone(valid);
+  // Inbound matching knows a customer saved with a trunk 0 or without a
+  // country code, so the look-up asks for those forms too.
   const existing = await readExistingNumbers(
-    unique.map((row) => normalizeKey(row.phone)),
+    unique.flatMap((row) => storedForms(normalizeKey(row.phone))),
     read
   );
-  const toInsert = unique.filter(
-    (row) => !existing.has(normalizeKey(row.phone))
-  );
+  const toInsert: ParsedContactRow[] = [];
+  const savedElsewhere: SavedElsewhere[] = [];
+  for (const row of unique) {
+    const key = normalizeKey(row.phone);
+    if (existing.has(key)) continue;
+    const savedAs = storedForms(key).find((form) => existing.has(form));
+    if (savedAs === undefined) toInsert.push(row);
+    else
+      savedElsewhere.push({
+        line: row.line ?? null,
+        phone: row.phone,
+        savedAs,
+      });
+  }
   const problems: ImportProblem[] = [
     ...file.badLines.map((line) => ({
       line,
@@ -86,16 +125,18 @@ export async function planImport(
       phone: '',
       reason: 'no_phone' as const,
     })),
-    ...rejected.map(({ row, error }) => ({
+    ...rejected.map(({ row, error, reason }) => ({
       line: row.line ?? null,
       phone: row.phone,
       reason: 'phone' as const,
       detail: error,
+      phoneReason: reason,
     })),
   ].sort((a, b) => (a.line ?? 0) - (b.line ?? 0));
   return {
     toInsert,
     alreadyThere: unique.length - toInsert.length,
+    savedElsewhere,
     repeats: duplicates,
     problems,
   };

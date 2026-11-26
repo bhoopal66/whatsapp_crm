@@ -173,6 +173,20 @@ BEGIN
   -- A deal room (opened by a later migration's functions): staff + a guest.
   INSERT INTO chat_channels (account_id, kind, name, created_by)
   VALUES (a, 'deal_room', 'IC deal', u_owner) RETURNING id INTO deal;
+  -- 312: a guest sees the channel of a room whose bank has a person in the
+  -- group, so the channel has its room, as in the app.
+  INSERT INTO whatsapp_config (user_id, account_id, provider, phone_number_id, access_token, waba_id, status, is_primary)
+  VALUES (u_owner, a, 'meta', 'ica-312', 'x', 'ica-312', 'connected', false);
+  INSERT INTO contacts (account_id, user_id, phone, name) VALUES (a, u_owner, '+971500003129', 'ica 312');
+  INSERT INTO deal_rooms (account_id, channel_id, contact_id, whatsapp_config_id, wa_group_id, subject, status, created_by)
+  SELECT a, deal, ct.id, w.id, 'ica-312', 'ica 312', 'open', u_owner
+    FROM contacts ct, whatsapp_config w
+   WHERE ct.account_id = a AND ct.name = 'ica 312' AND w.account_id = a AND w.phone_number_id = 'ica-312';
+  INSERT INTO deal_room_participants (room_id, account_id, display_name, phone, role, bank_code, status)
+  SELECT d.id, a, 'ADCB officer', '971500003128', 'bank_guest', 'ADCB', 'joined' FROM deal_rooms d WHERE d.channel_id = deal;
+  INSERT INTO bank_guest_policies (account_id, bank_code, guests_allowed, dsa_checked_by, dsa_checked_at)
+  VALUES (a, 'ADCB', true, u_owner, now())
+  ON CONFLICT (account_id, bank_code) DO UPDATE SET guests_allowed = true, dsa_checked_by = excluded.dsa_checked_by, dsa_checked_at = excluded.dsa_checked_at;
   INSERT INTO chat_channel_members (channel_id, user_id, role)
   VALUES (deal, u_owner, 'admin'), (deal, u_rm, 'member'), (deal, u_guest, 'guest');
 
@@ -235,11 +249,17 @@ BEGIN
   n := n+1; failed := failed || pg_temp.ck(r LIKE 'ERROR%only owner/admin/supervisor can add bank guests%', 'add: agent adds a guest: ' || r);
   r := pg_temp.u(u_sup, pg_temp.q_add(ch, ARRAY[u_guest]));
   n := n+1; failed := failed || pg_temp.ck(r LIKE 'ERROR%only members of a private channel%', 'add: non-member supervisor adds a guest: ' || r);
-  r := pg_temp.u(u_rm, pg_temp.q_add(ch, ARRAY[u_sup])) || '/' || pg_temp.u(u_sup, pg_temp.q_add(ch, ARRAY[u_guest]))
+  r := pg_temp.u(u_rm, pg_temp.q_add(ch, ARRAY[u_sup]));
+  -- 289: a supervisor who is no channel admin adds nobody, guests included.
+  n := n+1; failed := failed || pg_temp.ck(pg_temp.u(u_sup, pg_temp.q_add(ch, ARRAY[u_guest])) LIKE 'ERROR%only channel admins%',
+    'add: a supervisor who is no channel admin added a guest');
+  UPDATE chat_channel_members SET role = 'admin' WHERE channel_id = ch AND user_id = u_sup;
+  r := r || '/' || pg_temp.u(u_sup, pg_temp.q_add(ch, ARRAY[u_guest]))
     || '/' || pg_temp.u(u_rm, pg_temp.q_add(ch, ARRAY[u_rm2]));
   n := n+1; failed := failed || pg_temp.ck(r = '1/1/0'
     AND (SELECT role FROM chat_channel_members WHERE channel_id = ch AND user_id = u_guest) = 'guest',
-    'add: member supervisor adds a guest (role guest), re-add is 0: ' || r);
+    'add: channel admin supervisor adds a guest (role guest), re-add is 0: ' || r);
+  UPDATE chat_channel_members SET role = 'member' WHERE channel_id = ch AND user_id = u_sup;
   ch := pg_temp.id(u_sup, pg_temp.q_ch(a, 'private', 'ic-add-deny', ARRAY[u_rm, u_guest]));
   r := pg_temp.u(u_rm, pg_temp.q_add(ch, ARRAY[u_ag]));
   n := n+1; failed := failed || pg_temp.ck(r LIKE 'ERROR%only channel admins%', 'add: plain member adds: ' || r);

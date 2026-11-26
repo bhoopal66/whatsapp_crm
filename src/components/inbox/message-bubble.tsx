@@ -24,6 +24,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { format } from 'date-fns';
+import { documentCaption } from '@/lib/media/filename';
 import { ReplyQuote } from './reply-quote';
 import { MessageReactions } from './message-reactions';
 import {
@@ -109,8 +110,9 @@ function endsInText(message: Message): boolean {
       return !!(message.content_text || message.template_name);
     case 'interactive':
       return !message.interactive_payload;
-    case 'audio':
     case 'document':
+      return !!message.media_url && !!documentCaption(message);
+    case 'audio':
     case 'location':
     case 'contacts':
       return false;
@@ -201,7 +203,9 @@ function MessageContent({
           />
         );
       }
-      return <MediaDocumentBubble message={message} t={t} />;
+      return (
+        <MediaDocumentBubble message={message} t={t} trailing={trailing} />
+      );
 
     case 'template':
       // Fall back to the template's name when we have no stored body
@@ -617,6 +621,22 @@ export function MessageBubble({
           {meta}
         </div>
       </div>
+      {/* A row WhatsApp failed, in words: the red mark alone left nobody
+          able to tell a wrong number from an account problem. A send that
+          never left is drawn by FailedSendRow instead. */}
+      {isAgent &&
+        message.status === 'failed' &&
+        !message.id.startsWith('temp-') && (
+          <p className="text-destructive mt-1 max-w-72 px-1 text-xs leading-4">
+            {message.failure_reason ? (
+              <>
+                {t('notDeliveredBecause')} <bdi>{message.failure_reason}</bdi>
+              </>
+            ) : (
+              t('notDelivered')
+            )}
+          </p>
+        )}
       {reactions && reactions.length > 0 && onToggleReaction && (
         <MessageReactions
           reactions={reactions}

@@ -168,15 +168,21 @@ export function startLiveRead<T>({
 
 /**
  * The same, for a screen that already loads itself: nothing on start,
- * `run` after each gap. A rejecting `run` is retried as a read is.
+ * `run` after each gap. A rejecting `run` is retried as a read is. A
+ * `run` that answers instead of applying hands its value to `apply`,
+ * under `startLiveRead`'s rules (`changed`, newest wins, not after stop).
  */
-export function startCatchUp(run: () => unknown): LiveRead {
+export function startCatchUp<T>(
+  run: () => T | Promise<T>,
+  apply: (value: T) => void = () => {}
+): LiveRead {
   let opened = false;
-  return startLiveRead<void>({
+  return startLiveRead<{ value: T } | null>({
     read: async () => {
-      if (opened) await run();
+      if (opened) return { value: await run() };
       opened = true;
+      return null;
     },
-    apply: () => {},
+    apply: (answer) => answer && apply(answer.value),
   });
 }

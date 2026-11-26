@@ -3,6 +3,7 @@
 // is good, the weekday x hour grid, the people table's sort, the call
 // list's paging, and the CSV export. Safe for the browser.
 
+import { neutraliseFormula } from '@/lib/csv/build';
 import {
   CALL_STATS_PERIODS,
   checkCustomDays,
@@ -397,16 +398,14 @@ export type CsvValue = string | number | null | undefined;
 
 /**
  * One CSV cell. Quoted when it holds a comma, quote or line break
- * (quotes doubled); a text starting with = + - @ (or a tab or carriage
- * return) is prefixed with ' so a spreadsheet shows it rather than
- * running it as a formula. Numbers are written as they are.
+ * (quotes doubled); a text a spreadsheet would run as a formula is
+ * neutralised (lib/csv/build). Numbers are written as they are.
  */
 export function csvCell(value: CsvValue): string {
   if (value === null || value === undefined) return '';
   if (typeof value === 'number')
     return Number.isFinite(value) ? String(value) : '';
-  let s = value;
-  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+  const s = neutraliseFormula(value);
   return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 

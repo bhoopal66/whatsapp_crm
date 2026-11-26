@@ -16,6 +16,7 @@ import {
   validateStepsForActivation,
   validateTriggerForActivation,
 } from '@/lib/automations/validate';
+import { templateValueIssues } from '@/lib/automations/template-issues';
 import { serverErrorResponse } from '@/lib/api/server-error';
 import {
   authUnavailableResponse,
@@ -138,6 +139,14 @@ export async function POST(request: Request) {
           step_config: Record<string, unknown>;
         }[]
       ),
+      ...(await templateValueIssues(
+        supabaseAdmin(),
+        accountId,
+        (effectiveSteps ?? []) as unknown as {
+          step_type: string;
+          step_config: Record<string, unknown>;
+        }[]
+      )),
     ];
     if (issues.length > 0) {
       return NextResponse.json(

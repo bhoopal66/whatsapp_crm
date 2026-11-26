@@ -1,11 +1,32 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 
 import { Button } from '@/components/ui/button';
+import { AnswerOrder } from '@/lib/cases/answer-order';
 
-/** A tab's GET, fetched on mount; a failed refresh keeps what is shown. */
+/**
+ * The case detail last read: a new object per successful reload, so a tab
+ * that depends on it reads its own data again after a header action or on
+ * coming back to the page.
+ */
+export const CaseRefreshContext = createContext<unknown>(null);
+
+/** Changes whenever the case was read again. */
+export const useCaseRefreshKey = (): unknown => useContext(CaseRefreshContext);
+
+/**
+ * A tab's GET, fetched on mount and again whenever the case is reloaded.
+ * What is shown stays until a newer answer; a failed refresh keeps it.
+ */
 export function useCaseResource<T>(
   url: string,
   parse: (json: unknown) => T
@@ -21,20 +42,23 @@ export function useCaseResource<T>(
   const [failed, setFailed] = useState(false);
   const parseRef = useRef(parse);
   const mounted = useRef(true);
+  const [order] = useState(() => new AnswerOrder());
+  const refreshKey = useCaseRefreshKey();
 
   const reload = useCallback(async () => {
+    const mine = order.start();
     try {
       const res = await fetch(url, { cache: 'no-store' });
       if (!res.ok) throw new Error(String(res.status));
       const parsed = parseRef.current(await res.json());
-      if (!mounted.current) return;
+      if (!mounted.current || !order.accept(mine)) return;
       setData(parsed);
       setLoadedAt(Date.now());
       setFailed(false);
     } catch {
-      if (mounted.current) setFailed(true);
+      if (mounted.current && !order.isStale(mine)) setFailed(true);
     }
-  }, [url]);
+  }, [url, order]);
 
   useEffect(() => {
     mounted.current = true;
@@ -42,7 +66,7 @@ export function useCaseResource<T>(
     return () => {
       mounted.current = false;
     };
-  }, [reload]);
+  }, [reload, refreshKey]);
 
   return { data, failed, loadedAt, reload };
 }

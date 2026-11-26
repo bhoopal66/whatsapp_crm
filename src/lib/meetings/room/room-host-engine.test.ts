@@ -410,9 +410,17 @@ describe('MeetingCallEngine host flags', () => {
 
   it('calls the bulk and invite paths', async () => {
     const { e } = await engine();
-    answer(200, { ok: true, count: 3, invited: ['u'] });
+    answer(200, {
+      ok: true,
+      count: 3,
+      invited: ['u'],
+      needs_readmit: ['v'],
+    });
     expect(await e.moderateAll('lower_all_hands')).toBe(true);
-    expect(await e.invite(['u', 'v'])).toEqual(['u']);
+    expect(await e.invite(['u', 'v'])).toEqual({
+      invited: ['u'],
+      needsReadmit: ['v'],
+    });
     expect(sent()).toEqual([
       ['moderate', { action: 'lower_all_hands' }],
       ['invite', { userIds: ['u', 'v'] }],

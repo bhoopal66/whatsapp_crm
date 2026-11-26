@@ -3,12 +3,14 @@
  * /submission-groups and /submission-groups/[id]. Client-safe: it imports
  * only the pure rules, never the store or the gateway.
  */
+import { SEND_UNCONFIRMED } from '@/lib/groups/unconfirmed-sends';
 import { canSendMessages, isAccountRole } from '@/lib/auth/roles';
 import { caseStatusView, contactPersonLine } from '@/lib/cases/ui';
 
 import {
   prefixMessage,
   ROLE_LABELS,
+  SEND_NOT_STORED,
   STAFF_LABELS,
   isStaffLabel,
   type StaffLabel,
@@ -132,6 +134,8 @@ export interface SgOlderPage extends Pick<
 
 export interface SgListPage {
   groups: SgListItem[];
+  /** 308: ENDED groups with a customer's new message; absent for none. */
+  ended_unread?: SgListItem[];
   next_cursor: string | null;
 }
 
@@ -141,18 +145,25 @@ const isObj = (v: unknown): v is Record<string, unknown> =>
 /** The list response, tolerant of a missing or malformed body. */
 export function parseSgList(json: unknown): SgListPage {
   if (!isObj(json)) return { groups: [], next_cursor: null };
-  const groups = Array.isArray(json.groups)
-    ? (
-        json.groups.filter(
-          (g) => isObj(g) && typeof g.id === 'string'
-        ) as SgListItem[]
-      ).map((g) => ({ ...g, wa_mode: waModeOf(g) }))
-    : [];
+  const items = (list: unknown) =>
+    Array.isArray(list)
+      ? (
+          list.filter(
+            (g) => isObj(g) && typeof g.id === 'string'
+          ) as SgListItem[]
+        ).map((g) => ({ ...g, wa_mode: waModeOf(g) }))
+      : [];
+  const groups = items(json.groups);
+  const endedUnread = items(json.ended_unread);
   const next =
     typeof json.next_cursor === 'string' && json.next_cursor
       ? json.next_cursor
       : null;
-  return { groups, next_cursor: next };
+  return {
+    groups,
+    ...(endedUnread.length ? { ended_unread: endedUnread } : {}),
+    next_cursor: next,
+  };
 }
 
 /** The list URL for one tab, search, bank filter and page. */
@@ -177,6 +188,41 @@ export function appendPage(
 ): SgListItem[] {
   const seen = new Set(current.map((g) => g.id));
   return [...current, ...next.filter((g) => !seen.has(g.id))];
+}
+
+/**
+ * A refresh's fresh first page over what is already loaded. A refresh
+ * restarts from page one; replacing the list would drop every row the
+ * reader scrolled to. With more than one page loaded, the fresh page wins
+ * for everything it covers (moved, new and removed rows), the old rows
+ * past its last row stay, and the old `next` cursor is kept. With one page
+ * loaded, or a fresh page that is the whole list, the fresh page replaces.
+ */
+export function mergeFirstPage(
+  old: { groups: readonly SgListItem[]; next: string | null },
+  fresh: { groups: readonly SgListItem[]; next: string | null },
+  status: 'active' | 'ended'
+): { groups: SgListItem[]; next: string | null } {
+  const last = fresh.groups[fresh.groups.length - 1];
+  if (
+    !fresh.next ||
+    !old.next ||
+    !last ||
+    old.groups.length <= fresh.groups.length
+  )
+    return { groups: [...fresh.groups], next: fresh.next };
+  const at = (g: SgListItem) =>
+    (status === 'active' ? g.last_activity_at : g.ended_at) ?? '';
+  const after = (g: SgListItem) =>
+    at(g) < at(last) || (at(g) === at(last) && g.id < last.id);
+  const seen = new Set(fresh.groups.map((g) => g.id));
+  return {
+    groups: [
+      ...fresh.groups,
+      ...old.groups.filter((g) => !seen.has(g.id) && after(g)),
+    ],
+    next: old.next,
+  };
 }
 
 export type BubbleKind = 'staff' | 'customer' | 'coordinator' | 'other';
@@ -272,13 +318,16 @@ export type SendErrorKey =
   | 'notFound'
   | 'rateLimited'
   | 'gateway'
+  | 'notStored'
+  | 'maybeSent'
   | 'tooLong'
   | 'unknown';
 
 /** A failed POST /messages, as the toast's message key. */
 export function sendErrorKey(
   status: number,
-  reason?: string | null
+  reason?: string | null,
+  code?: string | null
 ): SendErrorKey {
   if (status === 409) {
     if (reason === 'opted_out') return 'optedOut';
@@ -286,11 +335,50 @@ export function sendErrorKey(
     return reason ? 'blocked' : 'notReady';
   }
   if (status === 429) return 'rateLimited';
-  if (status === 502) return 'gateway';
+  if (status === 502)
+    return code === SEND_UNCONFIRMED ? 'maybeSent' : 'gateway';
+  if (code === SEND_NOT_STORED) return 'notStored';
   if (status === 403) return 'notAllowed';
   if (status === 404) return 'notFound';
   if (status === 400 || status === 413) return 'tooLong';
   return 'unknown';
+}
+
+/**
+ * A refused POST /messages: whether the composer keeps it as sent (false
+ * gives the words back and deletes an upload), and the toast. A stored row
+ * points at an attachment's file, so a file is only deleted when the log
+ * says there is none. `body` is null when a proxy answered for the app
+ * (nginx's own 502 while the app restarts), and then only the log (`stored`;
+ * null when it cannot be read) says whether WhatsApp was asked.
+ */
+export async function refusedSendOutcome(
+  answer: {
+    status: number;
+    body: { error?: unknown; reason?: string; code?: string } | null;
+    media: boolean;
+  },
+  stored: () => Promise<boolean | null>
+): Promise<{ kept: boolean; toast: SendErrorKey }> {
+  const { status, body, media } = answer;
+  const toast = sendErrorKey(status, body?.reason, body?.code);
+  // The consent block's row is stored; every other 4xx stores nothing.
+  if (status === 409 && body?.reason !== undefined)
+    return { kept: true, toast };
+  if (status < 502) return { kept: false, toast };
+  // WhatsApp may hold it, and its row is stored: never given back.
+  if (body?.code === SEND_UNCONFIRMED) return { kept: true, toast };
+  // Nothing went out; the row can still exist if only its answer was lost.
+  if (body?.code === SEND_NOT_STORED)
+    return { kept: media && (await stored()) !== false, toast };
+  const row = await stored();
+  // Our own 502 stored its row before it asked WhatsApp.
+  if (typeof body?.error === 'string')
+    return { kept: row ?? (media || status === 502), toast };
+  return {
+    kept: row ?? media,
+    toast: row === false ? 'unknown' : 'maybeSent',
+  };
 }
 
 /**
@@ -313,11 +401,39 @@ export function ownSendStored(
   );
 }
 
+/** What an admin's End answers, as the toast's message key (the service's EndResult). */
+export function endToastKey(
+  r: { closed?: boolean; closeDeferred?: boolean; closeError?: unknown } | null
+): 'endDone' | 'endCloseDeferred' | 'endCloseFailed' {
+  if (r?.closed) return 'endDone';
+  if (r?.closeError) return 'endCloseFailed';
+  return r?.closeDeferred ? 'endCloseDeferred' : 'endDone';
+}
+
+/** What an admin's Retry answers, as the toast's message key. */
+export function retryToastKey(
+  status: number,
+  r: { pending?: boolean; code?: unknown } | null
+):
+  | 'retryDone'
+  | 'retryPending'
+  | 'retryFailed'
+  | 'banners.numberRemoved'
+  | 'banners.contactRemoved' {
+  if (status === 409 && r?.code === 'number_removed')
+    return 'banners.numberRemoved';
+  if (status === 409 && r?.code === 'contact_removed')
+    return 'banners.contactRemoved';
+  if (status < 200 || status > 299) return 'retryFailed';
+  return r?.pending ? 'retryPending' : 'retryDone';
+}
+
 export type BannerKey =
   | 'noWhatsapp'
   | 'pending'
   | 'createError'
   | 'closeError'
+  | 'stillOpen'
   | 'numberRemoved'
   | 'contactRemoved';
 
@@ -332,8 +448,12 @@ export function groupBanners(g: SgGroup): BannerKey[] {
     if (g.wa_create_error) out.push('createError');
     else if (g.pending || !g.wa_group_id) out.push('pending');
   }
-  if (g.status === 'ENDED' && g.wa_close_error && !g.wa_closed_at)
-    out.push('closeError');
+  // closeError says it is still open and why; stillOpen is a close not tried
+  // or put off (a pending send, the close hold, a disconnected number).
+  if (g.status === 'ENDED' && !g.wa_closed_at) {
+    if (g.wa_close_error) out.push('closeError');
+    else if (g.wa_group_id && !noGroup) out.push('stillOpen');
+  }
   if (!g.channel && !noGroup) out.push('numberRemoved');
   if (!g.contact) out.push('contactRemoved');
   return out;
@@ -541,7 +661,103 @@ export function clearUnread<T extends { id: string; unread?: number }>(
   return groups.map((g) => (ids.has(g.id) ? { ...g, unread: 0 } : g));
 }
 
+/** A page's two lists, with the groups read since it was asked for. */
+export function pageAfterReads(
+  page: SgListPage,
+  read: ReadonlySet<string>
+): { groups: SgListItem[]; endedUnread: SgListItem[] } {
+  return {
+    groups: clearUnread(page.groups, read),
+    endedUnread: clearUnread(page.ended_unread ?? [], read),
+  };
+}
+
 /** "My groups": the rows the caller holds a label on. */
 export function onlyMine(groups: readonly SgListItem[]): SgListItem[] {
   return groups.filter((g) => g.my_label !== null);
+}
+
+/**
+ * The toast for what happened to a person's saved WhatsApp number when
+ * access was given or removed (219); null when there is nothing to say. With
+ * no saved number an addition is quiet (they send from the app), a removal is
+ * not: their phone may still be in the WhatsApp group (299).
+ */
+export function staffNumberNote(
+  number: { status?: string; reason?: string } | null | undefined,
+  change: 'give' | 'remove'
+) {
+  switch (number?.status) {
+    case 'added':
+      return { tone: 'success', key: 'numberAdded' } as const;
+    case 'removed':
+      return { tone: 'success', key: 'numberRemoved' } as const;
+    case 'refused':
+      return { tone: 'warning', key: 'numberRefused' } as const;
+    case 'failed':
+      return number.reason === 'number_unconfirmed'
+        ? ({ tone: 'warning', key: 'numberUnconfirmed' } as const)
+        : ({ tone: 'warning', key: 'numberFailed' } as const);
+    case 'none':
+      return change === 'remove' && number.reason === 'no_saved_number'
+        ? ({ tone: 'warning', key: 'numberUnknown' } as const)
+        : null;
+    default:
+      return null;
+  }
+}
+
+/**
+ * The refusal codes the invite and add-number routes answer beside their
+ * English `error`. Each has a line in `SubmissionGroups.refusals`, so the
+ * screen words it in the reader's language and never shows server text.
+ */
+export const SG_REFUSAL_CODES = [
+  'not_found',
+  'not_active',
+  'not_allowed',
+  'no_whatsapp',
+  'no_group_yet',
+  'detached',
+  'bad_phone',
+  'own_number',
+  'opted_out',
+  'do_not_contact',
+  'no_phone',
+  'already_joined',
+  'in_progress',
+  'too_many',
+  'too_soon',
+  'unknown',
+] as const;
+export type SgRefusalCode = (typeof SG_REFUSAL_CODES)[number];
+
+/** The answer's refusal code, or null for none or one this build does not know. */
+export function refusalCode(
+  body: { code?: unknown } | null | undefined
+): SgRefusalCode | null {
+  return (SG_REFUSAL_CODES as readonly unknown[]).includes(body?.code)
+    ? (body?.code as SgRefusalCode)
+    : null;
+}
+
+/**
+ * What the add-number dialog says of a refusal: a known refusal code, or
+ * one of its generic keys. No answer at all is a proxy's (the app
+ * restarting), and a 5xx of that kind may have come after the add.
+ */
+export function addNumberFailure(
+  status: number,
+  body: { error?: unknown; code?: unknown } | null
+):
+  | { refusal: SgRefusalCode }
+  // `why`: the server's own words, shown under the generic text.
+  | { key: 'failed' | 'maybeAdded'; why?: string } {
+  if (body?.code === SEND_UNCONFIRMED) return { key: 'maybeAdded' };
+  const refusal = refusalCode(body);
+  if (refusal) return { refusal };
+  if (typeof body?.error === 'string') {
+    return { key: 'failed', why: body.error };
+  }
+  return { key: status >= 500 ? 'maybeAdded' : 'failed' };
 }

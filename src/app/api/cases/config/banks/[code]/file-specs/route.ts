@@ -11,14 +11,20 @@
 // namePattern?, required, maxMb, allowedMime, minValidDays?, merged }] }`
 // replaces the spec through case_file_spec_set (service role, which
 // re-checks the writer) -> `{ auditId }`; `rows: []` removes it. The rows
-// are checked in full before the call (422 SPEC_INVALID). Products match
+// are checked in full before the call (422 SPEC_INVALID). `expected` (the
+// GET's `rows`, optional) is compared with the stored rows: 409
+// SPEC_CHANGED (309). Products match
 // case-insensitively after trimming spaces, as 181 does.
 // ============================================================
 
 import { NextResponse } from 'next/server';
 
 import { assertSalesAccess, requireRole } from '@/lib/auth/account';
-import { caseFilesErrorResponse, parseSpecRows } from '@/lib/case-files/http';
+import {
+  caseFilesErrorResponse,
+  parseSpecExpected,
+  parseSpecRows,
+} from '@/lib/case-files/http';
 import { CaseFilesStore } from '@/lib/case-files/store';
 import {
   bankCodeParam,
@@ -104,7 +110,8 @@ export async function PUT(request: Request, { params }: Params) {
       ctx.userId,
       code,
       product,
-      rows
+      rows,
+      parseSpecExpected(body.expected)
     );
     return NextResponse.json({ auditId });
   } catch (err) {

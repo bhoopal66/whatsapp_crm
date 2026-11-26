@@ -19,7 +19,12 @@ import type {
   ApplicationChecklist,
   CompanyOverview,
 } from '@/lib/desk/shared-docs';
-import type { DeskSettings, TrayItem, TrayState } from '@/lib/desk/tray';
+import {
+  TRAY_PAGE,
+  type DeskSettings,
+  type TrayPage,
+  type TrayState,
+} from '@/lib/desk/tray';
 import type { TraySuggestion } from '@/lib/desk/suggest';
 import type {
   DeskCompany,
@@ -33,6 +38,8 @@ export interface DigestSettings {
   language: string;
   sendHour: number;
   gapDays: number;
+  /** The stored version this was read at; null when nothing is stored. */
+  updatedAt: string | null;
 }
 
 export type DeskAnswer<T> =
@@ -173,8 +180,13 @@ export const deskApi = {
   // Reminder digest (migration 234)
   digest: () =>
     call('/api/desk/digest', undefined, (b) => b.settings as DigestSettings),
-  saveDigest: (body: DigestSettings) =>
-    call('/api/desk/digest', json('PUT', body), () => true),
+  /** Answers the version saved; 409 SETTINGS_CHANGED over another (316). */
+  saveDigest: ({ updatedAt, ...body }: DigestSettings) =>
+    call(
+      '/api/desk/digest',
+      json('PUT', { ...body, expectedUpdatedAt: updatedAt }),
+      (b) => (b.updatedAt as string | undefined) ?? null
+    ),
   // Cover and leave (migration 232)
   cover: () =>
     call('/api/desk/cover', undefined, (b) => b.banks as BankCover[]),
@@ -222,17 +234,20 @@ export const deskApi = {
       created: b.created === true,
     })),
   // WhatsApp routing and the tray (migration 230)
-  tray: (state: TrayState = 'open') =>
+  tray: (state: TrayState = 'open', limit: number = TRAY_PAGE) =>
     call(
-      `/api/desk/tray?state=${state}`,
+      `/api/desk/tray?state=${state}&limit=${limit}`,
       undefined,
-      (b) => b.items as TrayItem[]
+      (b) => b as unknown as TrayPage
     ),
   trayFile: (trayId: string, caseId: string, confirmCompany: string | null) =>
     call(
       `/api/desk/tray/${trayId}/file`,
       json('POST', { caseId, confirmCompany }),
-      (b) => ({ caseNumber: (b.caseNumber as string | null) ?? null })
+      (b) => ({
+        waiting: b.outcome === 'waiting',
+        caseNumber: (b.caseNumber as string | null) ?? null,
+      })
     ),
   trayDismiss: (trayId: string, reason: string) =>
     call(
@@ -249,7 +264,13 @@ export const deskApi = {
     routingEnabled: boolean;
     deskChannelIds: string[];
     escalateMinutes: number;
-  }) => call('/api/desk/settings', json('PUT', body), () => true),
+    expectedUpdatedAt: string | null;
+  }) =>
+    call(
+      '/api/desk/settings',
+      json('PUT', body),
+      (b) => (b.updatedAt as string | undefined) ?? null
+    ),
   setDuty: (userId: string | null) =>
     call('/api/desk/duty', json('PUT', { userId }), () => true),
   retag: (itemId: string, tags: ItemTags) =>

@@ -9,7 +9,20 @@ parser, signature check, WebSocket helpers, token manager and CDR helpers.
 - Who sees a call is `pbx_can_view_call`; guests see none. Since 113:
   owners/admins all; everyone else the calls they were on or that rang
   them (`meta.rang_user_ids`), a leader also their teams' calls, plus
-  the calls of contacts they can see. `call_live_select` follows. Secrets
+  the calls of contacts they can see. `call_live_select` follows. Since
+  294 also each person who answered a leg (`meta.answered_user_ids`, that
+  person alone, not their leader): after a transfer `user_id` names one of
+  them, and each may write the outcome and note (`pbx_set_disposition` ↔
+  `answeredByFilter`, the wrap-up list). `user_id` alone still credits the
+  reports. A consulted colleague is not on the list: the other side of an
+  internal leg joins only when that leg outlasts the asker's time with the
+  customer (`answeredExtensions`; ties and untimed legs stay out). A note is saved only over the text its writer last saw
+  (`pbx_save_call_note`, `notesSeen`): a conflict is a 409 with
+  `conflict: true` and the stored text, an erased call a 409 without it.
+  The in-call panel's draft is `call-note.ts` (pure) and `call-note-store.ts`:
+  a panel never goes with an unsaved draft unless the person says so; it is
+  kept in `sessionCache` behind a message (`keepCallNote`, `reopenPanel`).
+  Re-running 089 or 198 reverts 294. `verify-call-notes.sql`. Secrets
   (app-encrypted) live only in `pbx_connection_secrets`: RLS on, no policy, no
   client grant.
 - **Tokens.** Yeastar allows 8 live tokens per application, each for 30
@@ -25,7 +38,14 @@ parser, signature check, WebSocket helpers, token manager and CDR helpers.
   never holds PBX credentials). `ingestPbxEvent` (`process.ts`) dedupes on a
   `pbx_events_raw` hash upsert, then writes `calls`, live state, presence, a
   `missed_call` task and a `call_missed` bell, and settles call-backs; a bad
-  event never throws.
+  event never throws. A later customer call with talk at a known extension
+  closes the open `missed_call` tasks of that contact or number whose
+  calls started before it, whoever holds them (`closeSpokenMissedTasks`, meta
+  `spoke_call_id` / `spoke_user_id`); one holding a call missed since stays.
+  A missed end handled after such a call opens and folds nothing
+  (`spokenSince`, read again once the task is written).
+  The Calls screen's badges are read on the service role (`missed-tasks.ts`)
+  for calls the caller's RLS read returned.
 - **Recordings** are fetched one at a time (the PBX refuses a second
   concurrent download) into the private `call-recordings` bucket, uploaded
   before their row, hence the orphan sweep's 1 h grace.
@@ -39,14 +59,26 @@ parser, signature check, WebSocket helpers, token manager and CDR helpers.
   and up to download), then a 300 s URL is signed.
 - **Erasure.** `pbx_erase_contact_calls` (owner-only, with a reason, refused
   under a legal hold) matches the contact, its phone candidates and
-  `pbx_phone_variants` (↔ `phoneVariants` / `contactPhoneCandidates`). The
+  `pbx_phone_variants` (↔ `phoneVariants` / `contactPhoneCandidates`), but a
+  call linked to somebody is only theirs (311): `meta.contact_candidates` is
+  never kept on a linked call. A call is on a deal once
+  (`deal_files_call_ref_idx`), never on another customer's. The
   `calls_guard` trigger strips number, file and meta for every writer, late
   PBX events included.
+- **Numbers.** `contacts.phone_normalized` is only the typed digits (022, no
+  country code added), so a contact is found by number with
+  `storedPhoneCandidates` (national and `00` forms too), never by `phone`.
+  A number search goes through `numberSearchTerm` (`phone.ts`).
 - **Call-backs** (`callback_requests`, written by the journey sink, which
   gives a do-not-contact customer a task instead; hours restated untested) are
-  dialled by `callbacks.ts` 09:00–20:00 Asia/Dubai, at most 3 attempts, never
-  to a do-not-contact contact; a `dialing` claim older than 30 minutes is
-  released on every pass, outside hours too.
+  dialled by `callbacks.ts` 09:00–20:00 Asia/Dubai, at most 3 attempts (30 min,
+  then 2 h apart), never to a do-not-contact contact or number; a `dialing`
+  claim older than 30 minutes is released on every pass, outside hours too.
+  Only a refusal the PBX stated is a failed dial: an unclear answer stays
+  `dialing`, never redialled at once. `ringClash` keeps one customer from being
+  rung twice in 30 minutes and is asked again AFTER the claim (that second look
+  is what stops overlapping passes: keep both). A wait moves `not_before`, so
+  the head of the queue cannot block it; no owner or extension is `skipped`.
 - **Browser.** The Linkus softphone SDK loads at runtime from
   `NEXT_PUBLIC_LINKUS_SDK_URL` (unset: desk phones only). It and
   `NEXT_PUBLIC_PBX_ORIGIN` (https and wss) are added to the CSP in
@@ -55,7 +87,12 @@ parser, signature check, WebSocket helpers, token manager and CDR helpers.
   softphone. A row's silence is no proof a call ended (nothing writes
   it between frames), so lost hang-ups are judged by `CallPulse` in
   `call-ui.ts`: quiet on the server's clock and no softphone session;
-  such a call yields, and only a person closes it.
+  such a call yields, and only a person closes it. The action route's
+  404 (`not_on_call`, `call_gone`) ends the panel at once
+  (`markCallGone`, kept at that frame's `updated_at`; a newer frame
+  brings it back) and never deletes `call_live`. An all-BYE frame stamps
+  `meta.bye_at` / `bye_channels`, so a slower earlier frame does not put
+  the row back (`precedesBye`); a new channel is a call that goes on.
 - `runPbxCron` (recordings, call-backs, event retries, purge) runs from
   `GET /api/pbx/cron` and the automations cron, and starts no new work
   after 45 s. `verify-pbx.sql`. The retry also picks events interrupted
@@ -64,10 +101,13 @@ parser, signature check, WebSocket helpers, token manager and CDR helpers.
   writes its row (`late`: no task, bell or call-back), and an old ring or
   a superseded status is stamped without running.
 - **Lost events.** The cron's `reconcile` step (`reconcile-calls.ts`,
-  every 15 minutes) ingests calls with no `calls` row from the last hour's
-  CDR, 10 minutes after they end and decided on the merged call: all legs
+  every 15 minutes) ingests calls with no `calls` row, or a live one whose
+  end was lost (`lostCalls`: off the PBX's own list of calls up, read
+  before the CDR, since a finished leg has its record while the customer is
+  still on the line), from the last hour's CDR, 10 minutes after they end and decided on the merged call: all legs
   `historical`, except the last leg of a missed inbound call, which rings
-  once; `keepClock` leaves `last_event_at` alone. Calls that started over
+  once (an answered one under an hour old also closes the customer's
+  missed-call tasks); `keepClock` leaves `last_event_at` alone. Calls that started over
   an hour ago are not recovered here (the gateway's 24 h backfill covers
   those when the gateway runs).
 - **Chats follow the caller.** `assignChatFromCallHistory`

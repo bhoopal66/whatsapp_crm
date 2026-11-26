@@ -32,6 +32,9 @@ import { stageIndex } from '@/lib/hr/access';
 import { HR_STAGES, type HrRule, type HrStage } from '@/lib/hr/types';
 import { createClient } from '@/lib/supabase/client';
 
+/** Conversations read in one go; a full page means there may be more. */
+const HIRE_FAST_LIMIT = 500;
+
 const SELECT =
   'conversation_id, inbox, stage_key, urgent, upset, reply_state, last_inbound_at, last_outbound_at, closed_at, created_at, chat:conversations(assigned_agent_id, contact:contacts(name, phone))';
 
@@ -68,6 +71,9 @@ export default function HrHireFastPage() {
   const tReply = useTranslations('Hr.replyState');
   const { user, accountId } = useAuth();
   const [allowed, setAllowed] = useState<boolean | null>(null);
+  // The roles could not be read, which is not "no access".
+  const [rolesFailed, setRolesFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const [data, setData] = useState<Loaded | null>(null);
   const [failed, setFailed] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -79,14 +85,14 @@ export default function HrHireFastPage() {
     let live = true;
     void hrMyRoles(createClient()).then((res) => {
       if (!live) return;
-      setAllowed(
-        'data' in res && (res.data.admin || res.data.recruiter !== null)
-      );
+      setRolesFailed(!('data' in res));
+      if ('data' in res)
+        setAllowed(res.data.admin || res.data.recruiter !== null);
     });
     return () => {
       live = false;
     };
-  }, [accountId]);
+  }, [accountId, attempt]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -99,13 +105,15 @@ export default function HrHireFastPage() {
           .select(SELECT)
           .eq('inbox', 'recruiter')
           .is('closed_at', null)
-          .limit(500),
+          .order('last_inbound_at', { ascending: false, nullsFirst: false })
+          .limit(HIRE_FAST_LIMIT),
         sb
           .from('tasks')
           .select('status, due_at, source_ref')
           .eq('status', 'open')
           .like('source_ref', 'hr:%')
           .lt('due_at', new Date(now).toISOString())
+          .order('due_at', { ascending: true })
           .limit(1000),
         sb
           .from('hr_workflow_rules')
@@ -217,6 +225,17 @@ export default function HrHireFastPage() {
 
       {allowed === false ? (
         <p className="text-muted-foreground text-sm">{t('noAccess')}</p>
+      ) : allowed === null && rolesFailed ? (
+        <div className="space-y-2" role="alert">
+          <p className="text-destructive text-sm">{t('loadFailed')}</p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setAttempt((n) => n + 1)}
+          >
+            {t('refresh')}
+          </Button>
+        </div>
       ) : allowed === null ? (
         <div className="bg-card-2 h-24 animate-pulse rounded-lg" />
       ) : (
@@ -327,6 +346,11 @@ export default function HrHireFastPage() {
               </>
             )}
           </div>
+          {!failed && data && data.rows.length >= HIRE_FAST_LIMIT && (
+            <p className="text-muted-foreground text-xs">
+              {t('capped', { n: HIRE_FAST_LIMIT })}
+            </p>
+          )}
         </>
       )}
     </div>

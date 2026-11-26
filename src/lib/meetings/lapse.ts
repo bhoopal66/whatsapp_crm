@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { cutSeats, type SeatToCut } from './cut';
 import { PRESENCE_WINDOW_MS } from './types';
 
 /**
@@ -69,8 +70,16 @@ const SWEEP_LIMIT = 100;
 /** Newest first, so PostgREST's row cap can only ever drop old seats. */
 const SEATS_READ = 1000;
 
+/** Meetings the last pass found empty; a cold process remembers none. */
+const emptyInLastPass = new Set<string>();
+
 /**
- * Ends instant meetings nobody is in any more. The meetings_guard trigger
+ * Ends instant meetings nobody is in any more, once two passes in a row
+ * (5 minutes apart) found them empty. After the app or the database was
+ * down for the whole grace, every live meeting looks empty until its
+ * first heartbeat: the first pass of a cold process, and the one after a
+ * failed pass, only note what they saw. What a meeting's end closes is
+ * cut at Cloudflare too. The meetings_guard trigger
  * stamps ended_at and closes open seat rows, so ending a meeting someone
  * is in would cut their call: each meeting's seats are read on their own,
  * right before deciding. One read for the whole batch could be cut short
@@ -80,8 +89,12 @@ const SEATS_READ = 1000;
  * a failed update is logged and the sweep goes on.
  */
 export async function runMeetingLapseSweep(
-  admin: SupabaseClient
+  admin: SupabaseClient,
+  memory: Set<string> = emptyInLastPass
 ): Promise<{ checked: number; ended: number }> {
+  // Taken first, so a pass that throws leaves nothing for the next.
+  const emptyBefore = new Set(memory);
+  memory.clear();
   const cutoff = new Date(Date.now() - INSTANT_LAPSE_MS).toISOString();
 
   const { data: meetings, error } = await admin
@@ -99,7 +112,7 @@ export async function runMeetingLapseSweep(
   for (const m of meetings as LapseMeeting[]) {
     const { data: seats, error: seatError } = await admin
       .from('meeting_participants')
-      .select('meeting_id, joined_at, last_seen_at, left_at')
+      .select('meeting_id, joined_at, last_seen_at, left_at, cf_session_id')
       .eq('meeting_id', m.id)
       .order('last_seen_at', { ascending: false })
       .limit(SEATS_READ);
@@ -111,19 +124,18 @@ export async function runMeetingLapseSweep(
       );
       continue;
     }
-    const lapsed = lapsedInstantMeetings(
-      [m],
-      (seats ?? []) as LapseSeat[],
-      Date.now()
-    );
-    if (lapsed.length === 0) continue;
+    const rows = (seats ?? []) as (LapseSeat & SeatToCut)[];
+    if (lapsedInstantMeetings([m], rows, Date.now()).length === 0) continue;
+    memory.add(m.id);
+    if (!emptyBefore.has(m.id)) continue;
     // Still instant: a PATCH may have scheduled it since the read above.
-    const { error: updateError } = await admin
+    const { data: done, error: updateError } = await admin
       .from('meetings')
       .update({ status: 'ended' })
       .eq('id', m.id)
       .eq('status', 'scheduled')
-      .is('scheduled_start', null);
+      .is('scheduled_start', null)
+      .select('id');
     if (updateError) {
       console.error(
         '[meeting-lapse] could not end meeting:',
@@ -132,7 +144,104 @@ export async function runMeetingLapseSweep(
       );
       continue;
     }
+    memory.delete(m.id);
+    if (!done?.length) continue;
     ended += 1;
+    await cutSeats(rows.filter((s) => s.left_at === null));
   }
   return { checked: meetings.length, ended };
+}
+
+/** Also the most people one profiles read names. */
+const ACCESS_PAGE = 100;
+const ACCESS_PAGES = 50;
+
+interface OpenSeat {
+  id: string;
+  account_id: string;
+  user_id: string;
+}
+
+/**
+ * Closes and cuts the open seats of people who are no longer live staff
+ * of the meeting's account: no profile there, deactivated, or a bank
+ * guest. The members route does it as it happens (`cutMemberSeats`); this
+ * catches what that missed, and every other way to lose a membership.
+ *
+ * Every open seat is asked about, however old its heartbeat: a client
+ * that no longer beats may still be receiving. With no open seat that is
+ * one read. No answer about an account's people is not "they left", so
+ * its seats wait for the next pass; one seat that cannot be closed never
+ * stops the rest. A failed read of the seats themselves throws.
+ */
+export async function runSeatAccessSweep(
+  admin: SupabaseClient
+): Promise<{ checked: number; cut: number }> {
+  let checked = 0;
+  let cut = 0;
+  let last: string | null = null;
+  for (let page = 0; page < ACCESS_PAGES; page += 1) {
+    const open = admin
+      .from('meeting_participants')
+      .select('id, account_id, user_id')
+      .is('left_at', null);
+    const { data, error } = await (last === null ? open : open.gt('id', last))
+      .order('id', { ascending: true })
+      .limit(ACCESS_PAGE);
+    if (error) throw new Error(error.message);
+    const seats = (data ?? []) as OpenSeat[];
+    checked += seats.length;
+
+    const closed: SeatToCut[] = [];
+    for (const seat of await seatsWithoutAccess(admin, seats)) {
+      try {
+        const { data: rows, error: closeError } = await admin
+          .from('meeting_participants')
+          .update({ left_at: new Date().toISOString() })
+          .eq('id', seat.id)
+          .is('left_at', null)
+          .select('cf_session_id');
+        if (closeError) throw closeError;
+        closed.push(...((rows ?? []) as SeatToCut[]));
+      } catch (err) {
+        console.error(
+          '[meeting-access] could not close a seat:',
+          seat.id,
+          (err as { code?: unknown } | null)?.code
+        );
+      }
+    }
+    if (closed.length > 0) await cutSeats(closed);
+    cut += closed.length;
+
+    if (seats.length < ACCESS_PAGE) break;
+    last = seats[seats.length - 1].id;
+  }
+  return { checked, cut };
+}
+
+/** One read per account, so no row cap can make someone look gone. */
+async function seatsWithoutAccess(
+  admin: SupabaseClient,
+  seats: OpenSeat[]
+): Promise<OpenSeat[]> {
+  const gone: OpenSeat[] = [];
+  for (const accountId of new Set(seats.map((s) => s.account_id))) {
+    const here = seats.filter((s) => s.account_id === accountId);
+    const { data, error } = await admin
+      .from('profiles')
+      .select('user_id')
+      .eq('account_id', accountId)
+      .in('user_id', [...new Set(here.map((s) => s.user_id))])
+      .is('deactivated_at', null)
+      // account_role, never the legacy `role` column.
+      .neq('account_role', 'bank_guest');
+    if (error || !data) {
+      console.error('[meeting-access] could not read members:', error?.code);
+      continue;
+    }
+    const staff = new Set(data.map((r) => r.user_id as string));
+    gone.push(...here.filter((s) => !staff.has(s.user_id)));
+  }
+  return gone;
 }

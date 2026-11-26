@@ -299,7 +299,7 @@ describe('attendanceCsv', () => {
   const nameCell = (name: string) => lines(name)[1].split(`,${at(0)}`)[0];
 
   it('quotes a cell a semicolon-locale spreadsheet would split', () => {
-    expect(nameCell('x;=HYPERLINK("a")')).toBe('"x;=HYPERLINK(""a"")"');
+    expect(nameCell('x;=HYPERLINK("a")')).toBe('"x;\'=HYPERLINK(""a"")"');
   });
 
   it('writes a heading and a row, CRLF throughout', () => {

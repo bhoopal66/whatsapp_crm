@@ -77,6 +77,7 @@ export async function PATCH(
     }
 
     const contact = await getContactById(ctx.supabase, ctx.accountId, id);
+    if (!contact) return fail('not_found', 'Contact not found', 404);
     return ok(contact);
   } catch (err) {
     if (err instanceof ContactError) {

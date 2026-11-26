@@ -9,12 +9,15 @@
 //     name and avatar of their other rows. A login that is banned
 //     because every membership it had was deactivated (PATCH
 //     /api/account/members/[userId]) has the ban lifted, or the new row
-//     would be a member who cannot sign in.
+//     would be a member who cannot sign in. So has somebody this
+//     workspace removed earlier (306), whose row the RPC moves back from
+//     the empty private account the removal gave them.
 //   - Otherwise (`P0002 'no_such_user'`): the login is created here
 //     with the admin's password and moved in by
 //     `provision_account_member`, the path every add took before 083.
 //     The RPC adds only someone the caller already administers in
-//     another workspace and answers `no_such_user` for anyone else, so
+//     another workspace, or whom this one removed, and answers
+//     `no_such_user` for anyone else, so
 //     a registered address can still land here; GoTrue then refuses
 //     it and the answer is `EMAIL_HAS_LOGIN`, never GoTrue's text.
 //
@@ -71,7 +74,7 @@ export interface AddMemberInput {
 /** The one answer for an address that already has a login the caller
  *  may not add (see `add_workspace_member`, migration 083). */
 export const EMAIL_HAS_LOGIN =
-  "This email already has a login. An administrator of one of that person's workspaces can add them here.";
+  'This email already has a login that you cannot add. If they can sign in, send them an invitation link; otherwise an administrator of both this workspace and one where they are active can add them.';
 
 export type AddMemberResult =
   | { ok: true; userId: string; created: boolean }

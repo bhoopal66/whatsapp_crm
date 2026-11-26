@@ -10,6 +10,8 @@ const h = vi.hoisted(() => ({
   deliver: vi.fn(),
   finalize: vi.fn(),
   reconcile: vi.fn(),
+  refuse: vi.fn(),
+  wait: vi.fn(),
   afterCallbacks: [] as (() => Promise<void>)[],
 }));
 
@@ -32,12 +34,12 @@ vi.mock('@/lib/flows/admin-client', () => ({
             order: () => ({
               limit: () => Promise.resolve({ data: h.due, error: null }),
             }),
-            // Unfinished campaigns: cron-continue.test.ts.
-            gte: () => ({
-              or: () => ({
-                order: () => ({
-                  limit: () => Promise.resolve({ data: [], error: null }),
-                }),
+          }),
+          // Unfinished campaigns: cron-continue.test.ts.
+          or: () => ({
+            or: () => ({
+              order: () => ({
+                limit: () => Promise.resolve({ data: [], error: null }),
               }),
             }),
           }),
@@ -76,6 +78,14 @@ vi.mock('@/lib/whatsapp/broadcast-core', async (importOriginal) => {
   };
 });
 
+vi.mock('@/lib/whatsapp/broadcast-continue', async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import('@/lib/whatsapp/broadcast-continue')
+  >()),
+  recordContinueRefusal: h.refuse,
+  waitForNumber: h.wait,
+}));
+
 import { GET } from './route';
 import { BroadcastError } from '@/lib/whatsapp/broadcast-core';
 
@@ -107,6 +117,8 @@ beforeEach(() => {
   h.release.mockReset().mockResolvedValue(undefined);
   h.deliver.mockReset().mockResolvedValue(undefined);
   h.finalize.mockReset().mockResolvedValue(undefined);
+  h.refuse.mockReset().mockResolvedValue(undefined);
+  h.wait.mockReset().mockResolvedValue(true);
   h.reconcile.mockReset().mockResolvedValue(0);
   vi.useFakeTimers();
   // 12:00 Dubai (08:00Z) — outside the default test window.
@@ -288,6 +300,45 @@ describe('GET /api/whatsapp/broadcast/cron — delivery', () => {
       id: 'bc-1',
       payload: expect.objectContaining({ status: 'failed' }),
     });
+    expect(h.refuse).toHaveBeenCalledWith(
+      expect.anything(),
+      'bc-1',
+      'No template'
+    );
+    expect(h.wait).not.toHaveBeenCalled();
+  });
+
+  it('keeps a campaign scheduled while no number is connected', async () => {
+    h.due = [DUE];
+    h.plan.mockRejectedValue(
+      new BroadcastError('whatsapp_not_configured', 'No number', 400)
+    );
+    expect(await (await GET(req('s3cret'))).json()).toMatchObject({
+      started: 0,
+      deferred: 1,
+      skipped: 0,
+    });
+    expect(h.wait).toHaveBeenCalledWith(
+      expect.anything(),
+      DUE,
+      'No number',
+      expect.any(Date)
+    );
+    expect(h.updates).toEqual([]);
+    expect(h.release).toHaveBeenCalledTimes(1);
+
+    // The week is over: failed, with the reason.
+    h.wait.mockResolvedValue(false);
+    expect(await (await GET(req('s3cret'))).json()).toMatchObject({
+      deferred: 0,
+      skipped: 1,
+    });
+    expect(h.refuse).toHaveBeenCalledWith(
+      expect.anything(),
+      'bc-1',
+      'No number'
+    );
+    expect(h.updates[0].payload).toMatchObject({ status: 'failed' });
   });
 });
 

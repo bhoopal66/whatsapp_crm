@@ -11,6 +11,12 @@ import type {
   RecordingFlagResult,
 } from './recording';
 
+/** User ids: who was invited, and who was removed and must be let in. */
+export interface InviteResult {
+  invited: string[];
+  needsReadmit: string[];
+}
+
 /** A participant's id is `meeting_participants.id`; 'self' is never used. */
 export type ParticipantId = string;
 
@@ -126,8 +132,8 @@ export interface CallActionsV2 {
   moderateAll: (action: BulkModerationAction) => Promise<boolean>;
   /** `unavailable`: the database does not have migration 176 yet. */
   setLocked: (locked: boolean) => Promise<LockResult>;
-  /** The user ids invited, or null when the server refused. */
-  invite: (userIds: string[]) => Promise<string[] | null>;
+  /** Null when the server refused. */
+  invite: (userIds: string[]) => Promise<InviteResult | null>;
   /** `unavailable`: the database does not have migration 176 yet. */
   setRecordingFlag: (on: boolean) => Promise<RecordingFlagResult>;
   /** The screen reports how big each participant is drawn. */

@@ -80,6 +80,76 @@ export function serverSupabaseUrl(): string {
 export const AUTH_COOKIE_NAME = 'sb-wacrm-auth-token'
 
 /**
+ * How long an idle session lasts. The cookie is rewritten on every token
+ * refresh (about hourly while the app is open), so this is the time since
+ * the person last used the app, not since they signed in. @supabase/ssr's
+ * default is 400 days: a laptop left signed in at a branch stayed a way
+ * into the CRM for a year. Changing it applies from each session's next
+ * refresh.
+ *
+ * `cookieOptions.maxAge` alone does nothing: @supabase/ssr writes its own
+ * 400 days over it on every set (cookies.js, `setCookieOptions`). Every
+ * `setAll` therefore goes through `sessionCookiesToWrite`.
+ */
+export const AUTH_COOKIE_MAX_AGE_SECONDS = 7 * 24 * 60 * 60
+
+/**
+ * The session cookie's options, the same on the browser, the server and
+ * the middleware (a mismatch makes one side rewrite the other's cookie).
+ * `secure` whenever the site is served over https, read from the public
+ * Supabase URL, which is the site's own origin on a self-host and https
+ * on every real deployment: the session then never travels over plain
+ * http, e.g. to the app's port reached directly. Local http development
+ * keeps working. HttpOnly stays off: the browser client reads the cookie.
+ */
+export function authCookieOptions(publicUrl: string | undefined = publicSupabaseUrl()) {
+  return {
+    name: AUTH_COOKIE_NAME,
+    path: '/',
+    sameSite: 'lax' as const,
+    maxAge: AUTH_COOKIE_MAX_AGE_SECONDS,
+    secure: typeof publicUrl === 'string' && /^https:\/\//i.test(publicUrl.trim()),
+  }
+}
+
+const isSessionCookie = (name: string) =>
+  name === AUTH_COOKIE_NAME ||
+  (name.startsWith(`${AUTH_COOKIE_NAME}.`) &&
+    /^\d+$/.test(name.slice(AUTH_COOKIE_NAME.length + 1)))
+
+/**
+ * What a `setAll` writes: capped (below), and the whole session. The
+ * server side of @supabase/ssr rewrites only the chunks whose value
+ * changed; an unchanged one would keep its old expiry, end first, and
+ * take the session with it. `present` is what the request carries.
+ */
+export function sessionCookiesToWrite<
+  C extends { name: string; value: string; options: { maxAge?: number } },
+>(toSet: C[], present: Array<{ name: string; value: string }> = []): C[] {
+  const named = new Set(toSet.map((c) => c.name))
+  const written = toSet.find(
+    (c) => isSessionCookie(c.name) && c.value !== '' && c.options.maxAge !== 0
+  )
+  const rest = written
+    ? present
+        .filter((c) => isSessionCookie(c.name) && c.value !== '' && !named.has(c.name))
+        .map(({ name, value }) => ({ ...written, name, value }))
+    : []
+  return [...toSet, ...rest].map((c) => ({
+    ...c,
+    options: sessionCookieWrite(c.options),
+  }))
+}
+
+/** The options a `setAll` writes a session cookie with: never longer than
+ *  the idle limit; a removal (`maxAge: 0`) stays a removal. */
+export function sessionCookieWrite<T extends { maxAge?: number }>(options: T): T {
+  return options.maxAge !== undefined && options.maxAge <= AUTH_COOKIE_MAX_AGE_SECONDS
+    ? options
+    : { ...options, maxAge: AUTH_COOKIE_MAX_AGE_SECONDS }
+}
+
+/**
  * Re-point a server-built Supabase URL at the browser-facing origin.
  *
  * `storage.getPublicUrl()` composes its result from the base URL of the

@@ -54,28 +54,38 @@ export function MessageMarksProvider({
 
   useEffect(() => {
     let off = false;
-    let buffered: PinEvent[] | null = [];
+    // Pin events that arrive while a read is in flight are replayed over
+    // it; the newest read wins. A resync (the stream missed events)
+    // reads again; a failed read keeps what is shown (null on the first).
+    let buffered: PinEvent[] | null = null;
+    let seq = 0;
+    const readPins = () => {
+      const mine = ++seq;
+      buffered = [];
+      pinsFor(sb, channelId)
+        .then((pins) => {
+          if (off || mine !== seq) return;
+          const events = buffered ?? [];
+          buffered = null;
+          setPinnedIds(
+            applyPinEvents(
+              new Set(pins.map((p) => p.messageId)),
+              channelId,
+              events
+            )
+          );
+        })
+        .catch(() => {
+          if (mine === seq) buffered = null;
+        });
+    };
     const unlisten = listen((e) => {
+      if (e.kind === 'resync') return readPins();
       if (e.kind !== 'pin') return;
       if (buffered) buffered.push(e.event);
       else setPinnedIds((s) => s && applyPinEvents(s, channelId, [e.event]));
     });
-    pinsFor(sb, channelId)
-      .then((pins) => {
-        if (off) return;
-        const events = buffered ?? [];
-        buffered = null;
-        setPinnedIds(
-          applyPinEvents(
-            new Set(pins.map((p) => p.messageId)),
-            channelId,
-            events
-          )
-        );
-      })
-      .catch(() => {
-        buffered = null;
-      });
+    readPins();
     savedIdsIn(sb, channelId)
       .then((ids) => !off && setSavedIds(new Set(ids)))
       .catch(() => {});
@@ -87,12 +97,12 @@ export function MessageMarksProvider({
 
   const setPinned = useCallback(
     async (messageId: string, on: boolean) => {
-      setPinnedIds((s) => withMark(s ?? EMPTY, messageId, on));
+      setPinnedIds((s) => s && withMark(s, messageId, on));
       try {
         await setPin(sb, messageId, on);
         toast.success(t(on ? 'pinned' : 'unpinned'));
       } catch (err) {
-        setPinnedIds((s) => withMark(s ?? EMPTY, messageId, !on));
+        setPinnedIds((s) => s && withMark(s, messageId, !on));
         fail(err);
       }
     },

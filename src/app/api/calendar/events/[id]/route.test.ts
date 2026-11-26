@@ -52,8 +52,8 @@ function eventRow(over: Record<string, unknown>) {
   };
 }
 
-const ctx = (userId: string) => ({
-  role: 'agent',
+const ctx = (userId: string, role = 'agent') => ({
+  role,
   userId,
   accountId: 'acct-1',
   supabase: fakeSupabase(db),
@@ -153,6 +153,40 @@ describe('/api/calendar/events/[id]', () => {
       expect((await (await get()).json()).canEdit).toBe(false);
     });
 
+    it('lets the creator delete, without asking the database', async () => {
+      expect((await (await get()).json()).canDelete).toBe(true);
+      expect(rpcCalls()).toEqual([]);
+    });
+
+    it("asks the database whether an admin may delete somebody else's", async () => {
+      mocks.getCurrentAccount.mockResolvedValue(ctx(OTHER, 'admin'));
+      for (const data of [true, false]) {
+        db.rpc = { calendar_event_can_remove: () => ({ data }) };
+        db.rpcCalls = [];
+        expect(await (await get()).json()).toMatchObject({
+          canEdit: false,
+          canDelete: data,
+        });
+        expect(rpcCalls()).toEqual([
+          ['calendar_event_can_remove', { p_event: ONE }],
+        ]);
+      }
+      // Before 278 the function is not there.
+      db.rpc = {
+        calendar_event_can_remove: () => ({ error: { code: 'PGRST202' } }),
+      };
+      const res = await get();
+      expect(res.status).toBe(200);
+      expect((await res.json()).canDelete).toBe(false);
+    });
+
+    it('never asks for anyone below admin', async () => {
+      mocks.getCurrentAccount.mockResolvedValue(ctx(OTHER, 'team_leader'));
+      db.rpc = { calendar_event_can_remove: () => ({ data: true }) };
+      expect((await (await get()).json()).canDelete).toBe(false);
+      expect(rpcCalls()).toEqual([]);
+    });
+
     it('answers 404 for an event the caller cannot see, 400 for a bad id', async () => {
       expect((await get('55555555-5555-4555-8555-555555555555')).status).toBe(
         404
@@ -240,6 +274,243 @@ describe('/api/calendar/events/[id]', () => {
       });
     });
 
+    describe('the cancelled dates when the start date moves', () => {
+      // Mon–Fri 09:00 Dubai from Monday 2 November; Wednesday 2 December
+      // is cancelled.
+      const CANCELLED = '2026-12-02T05:00:00.000Z';
+      const move = async (
+        stored: string,
+        day: string,
+        body: Record<string, unknown> = {}
+      ) => {
+        Object.assign(find(SERIES), {
+          start_at: '2026-11-02T05:00:00.000Z',
+          end_at: '2026-11-02T05:30:00.000Z',
+          rrule: stored,
+          exdates: [CANCELLED],
+        });
+        const res = await patch(
+          {
+            start: `2026-11-${day}T06:00:00Z`,
+            end: `2026-11-${day}T06:30:00Z`,
+            allDay: false,
+            timeZone: 'Asia/Dubai',
+            scope: 'all',
+            ...body,
+          },
+          SERIES
+        );
+        expect(res.status).toBe(200);
+        return (rpcCalls()[0][1].p_patch as { exdates: string[] }).exdates;
+      };
+      const WORKDAYS = 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR';
+      // The start moves from 09:00 to 10:00 as well.
+      const sameDay = ['2026-12-02T06:00:00.000Z'];
+
+      it('stay on their day when the series only starts later', async () => {
+        expect(await move(WORKDAYS, '03')).toEqual(sameDay);
+      });
+
+      it('stay on their day when a daily series starts later', async () => {
+        expect(await move('FREQ=DAILY', '03')).toEqual(sameDay);
+      });
+
+      it('stay on their day when a weekly series starts a week later', async () => {
+        expect(await move('FREQ=WEEKLY;BYDAY=MO', '09')).toEqual(sameDay);
+      });
+
+      it('move with the days the rule moved by', async () => {
+        expect(
+          await move('FREQ=WEEKLY;BYDAY=MO,WE', '03', {
+            rrule: 'FREQ=WEEKLY;BYDAY=TU,TH',
+          })
+        ).toEqual(['2026-12-03T06:00:00.000Z']);
+      });
+
+      it('move with a rule that takes its day from the start', async () => {
+        expect(await move('FREQ=WEEKLY', '03')).toEqual([
+          '2026-12-03T06:00:00.000Z',
+        ]);
+        db.rpcCalls = [];
+        // Day 2 → day 30: over what every month has.
+        expect(
+          await move('FREQ=MONTHLY;BYMONTHDAY=2', '30', {
+            rrule: 'FREQ=MONTHLY;BYMONTHDAY=30',
+          })
+        ).toEqual(['2026-12-30T06:00:00.000Z']);
+      });
+
+      it('move by a drag of every occurrence, the rule unchanged', async () => {
+        expect(await move(WORKDAYS, '09', { moveSeries: true })).toEqual([
+          '2026-12-09T06:00:00.000Z',
+        ]);
+      });
+
+      it('a drag is not refused for a first date that already missed the rule', async () => {
+        expect(
+          await move('FREQ=WEEKLY;BYDAY=WE', '03', {
+            rrule: 'FREQ=WEEKLY;BYDAY=TH',
+            moveSeries: true,
+          })
+        ).toEqual(['2026-12-03T06:00:00.000Z']);
+      });
+
+      it('nor is one from a tab that does not say it is a drag', async () => {
+        expect(
+          await move('FREQ=WEEKLY;BYDAY=WE', '03', {
+            rrule: 'FREQ=WEEKLY;BYDAY=TH',
+          })
+        ).toEqual(['2026-12-03T06:00:00.000Z']);
+        db.rpcCalls = [];
+        // A week later: the moved rule is the stored one, so none is sent.
+        expect(await move('FREQ=WEEKLY;BYDAY=WE', '09')).toEqual([
+          '2026-12-09T06:00:00.000Z',
+        ]);
+      });
+    });
+
+    describe('the cancelled dates the rule itself carries on', () => {
+      /** Edits a series (dates at 09:00 Dubai); the cancelled days after. */
+      const edit = async (
+        [start, rule, ...cancelled]: string[],
+        [day, newRule = rule]: string[],
+        body: Record<string, unknown> = {}
+      ) => {
+        Object.assign(find(SERIES), {
+          start_at: `${start}T05:00:00.000Z`,
+          end_at: `${start}T05:30:00.000Z`,
+          rrule: rule,
+          exdates: cancelled.map((d) => `${d}T05:00:00.000Z`),
+        });
+        db.rpcCalls = [];
+        const res = await patch(
+          {
+            start: `${day}T06:00:00Z`,
+            end: `${day}T06:30:00Z`,
+            allDay: false,
+            timeZone: 'Asia/Dubai',
+            rrule: newRule,
+            scope: 'all',
+            ...body,
+          },
+          SERIES
+        );
+        expect(res.status).toBe(200);
+        const { exdates } = rpcCalls()[0][1].p_patch as { exdates: string[] };
+        // The start moves from 09:00 to 10:00 as well.
+        expect(exdates.filter((x) => !x.endsWith('T06:00:00.000Z'))).toEqual(
+          []
+        );
+        return exdates.map((x) => x.slice(0, 10));
+      };
+      const TUESDAYS = 'FREQ=WEEKLY;INTERVAL=2;BYDAY=TU';
+      const DAY_5 = 'FREQ=MONTHLY;INTERVAL=2;BYMONTHDAY=5';
+
+      it.each([
+        ['one week later', '2026-12-08', '2026-12-22'],
+        ['three weeks later', '2026-12-22', '2027-01-05'],
+        ['one week earlier', '2026-11-24', '2026-12-08'],
+        ['two weeks later', '2026-12-15', '2026-12-15'],
+        ['four weeks later', '2026-12-29', '2026-12-15'],
+      ])('every second Tuesday, %s', async (_what, day, after) => {
+        expect(
+          await edit(['2026-12-01', TUESDAYS, '2026-12-15'], [day])
+        ).toEqual([after]);
+      });
+
+      it('every second week, on two days: by whole weeks', async () => {
+        const series = ['2026-12-01', `${TUESDAYS},TH`, '2026-12-17'];
+        // To the Thursday of the same week, and of the next.
+        expect(await edit(series, ['2026-12-03'])).toEqual(['2026-12-17']);
+        expect(await edit(series, ['2026-12-10'])).toEqual(['2026-12-24']);
+      });
+
+      it('every second week, counted from the Sunday it names', async () => {
+        const rule = 'FREQ=WEEKLY;INTERVAL=2;WKST=SU;BYDAY=SU,SA';
+        // Saturday 5 and Sunday 6 December are in two of its weeks.
+        expect(
+          await edit(['2026-12-05', rule, '2026-12-19'], ['2026-12-06'])
+        ).toEqual(['2026-12-26']);
+      });
+
+      it('every second month', async () => {
+        const series = ['2026-12-05', DAY_5, '2027-02-05'];
+        expect(await edit(series, ['2027-01-05'])).toEqual(['2027-03-05']);
+        expect(await edit(series, ['2027-02-05'])).toEqual(['2027-02-05']);
+        expect(
+          await edit(
+            ['2026-12-01', 'FREQ=MONTHLY;INTERVAL=2;BYDAY=1TU', '2027-02-02'],
+            ['2027-01-05']
+          )
+        ).toEqual(['2027-03-02']);
+      });
+
+      it('another weekday of the month', async () => {
+        const first = 'FREQ=MONTHLY;BYDAY=1TU';
+        expect(
+          await edit(
+            ['2026-12-01', first, '2027-01-05', '2027-09-07'],
+            ['2026-12-09', 'FREQ=MONTHLY;BYDAY=2WE']
+          )
+        ).toEqual(['2027-01-13', '2027-09-08']);
+        // 2TU → 2TH, two days later, but five earlier in April 2027.
+        expect(
+          await edit(
+            ['2026-12-08', 'FREQ=MONTHLY;BYDAY=2TU', '2027-04-13'],
+            ['2026-12-10', 'FREQ=MONTHLY;BYDAY=2TH'],
+            { moveSeries: true }
+          )
+        ).toEqual(['2027-04-08']);
+      });
+
+      it('no longer the last day of the month', async () => {
+        const last = ['2026-12-31', 'FREQ=MONTHLY;BYMONTHDAY=-1'];
+        expect(
+          await edit(
+            [...last, '2027-02-28', '2027-04-30'],
+            ['2026-12-15', 'FREQ=MONTHLY;BYMONTHDAY=15']
+          )
+        ).toEqual(['2027-02-15', '2027-04-15']);
+        // A month without the day, and a date the rule never named.
+        expect(
+          await edit(
+            [...last, '2027-02-28', '2027-03-30', '2027-04-30'],
+            ['2026-12-30', 'FREQ=MONTHLY;BYMONTHDAY=30']
+          )
+        ).toEqual(['2027-04-30']);
+        // The start stays.
+        expect(
+          await edit(
+            [...last, '2027-02-28'],
+            ['2026-12-31', 'FREQ=MONTHLY;BYDAY=-1TH']
+          )
+        ).toEqual(['2027-02-25']);
+      });
+
+      it("over a month's end", async () => {
+        expect(
+          await edit(
+            ['2026-11-28', 'FREQ=MONTHLY;BYMONTHDAY=28', '2026-12-28'],
+            ['2026-12-02', 'FREQ=MONTHLY;BYMONTHDAY=2']
+          )
+        ).toEqual(['2027-01-02']);
+      });
+    });
+
+    it('moves the cancelled dates with a monthly rule sent alone', async () => {
+      Object.assign(find(SERIES), {
+        rrule: 'FREQ=MONTHLY;BYMONTHDAY=5',
+        exdates: ['2026-11-05T05:00:00.000Z'],
+      });
+      const rrule = 'FREQ=MONTHLY;BYDAY=1MO';
+      expect((await patch({ rrule, scope: 'all' }, SERIES)).status).toBe(200);
+      expect(rpcCalls()[0][1].p_patch).toEqual({
+        rrule,
+        exdates: ['2026-11-02T05:00:00.000Z'],
+        series_end_at: null,
+      });
+    });
+
     it('stores the end of a bounded series when the rule changes', async () => {
       const res = await patch(
         { rrule: 'FREQ=WEEKLY;COUNT=3', scope: 'all' },
@@ -260,6 +531,52 @@ describe('/api/calendar/events/[id]', () => {
       );
       expect(res.status).toBe(400);
       expect(rpcCalls()).toEqual([]);
+    });
+
+    describe('a rule that does not name the first date', () => {
+      const times = (day: string, hour = '05') => ({
+        start: `2026-10-${day}T${hour}:00:00Z`,
+        end: `2026-10-${day}T${hour}:30:00Z`,
+        allDay: false,
+        timeZone: 'Asia/Dubai',
+        scope: 'all',
+      });
+
+      it('is refused when the rule or the first date changes', async () => {
+        const rule = await patch(
+          { rrule: 'FREQ=WEEKLY;BYDAY=TU', scope: 'all' },
+          SERIES
+        );
+        expect(rule.status).toBe(400);
+        expect((await rule.json()).error).toBe(
+          'The first date is not one of the repeat days'
+        );
+        find(SERIES).rrule = 'FREQ=WEEKLY;BYDAY=MO';
+        expect((await patch(times('06'), SERIES)).status).toBe(400);
+        // Already missed, and moved to another day it misses.
+        find(SERIES).rrule = 'FREQ=WEEKLY;BYDAY=TU';
+        const rrule = 'FREQ=WEEKLY;BYDAY=FR';
+        const other = await patch({ ...times('07'), rrule }, SERIES);
+        expect(other.status).toBe(400);
+        expect(rpcCalls()).toEqual([]);
+      });
+
+      it('leaves the other fields of one already stored editable', async () => {
+        find(SERIES).rrule = 'FREQ=WEEKLY;BYDAY=TU';
+        expect((await patch({ title: 'x' }, SERIES)).status).toBe(200);
+        expect((await patch({ attendees: [U1] }, SERIES)).status).toBe(200);
+        // The same date at another time of day.
+        expect((await patch(times('05', '07'), SERIES)).status).toBe(200);
+        // Both moved so that they agree.
+        expect(
+          (
+            await patch(
+              { ...times('06'), rrule: 'FREQ=WEEKLY;BYDAY=TU' },
+              SERIES
+            )
+          ).status
+        ).toBe(200);
+      });
     });
 
     it('leaves the exdates and the end alone when the series keeps its times and rule', async () => {
@@ -498,6 +815,37 @@ describe('/api/calendar/events/[id]', () => {
       ).toBe(403);
       expect(events()).toHaveLength(2);
       expect(rpcCalls()).toEqual([]);
+    });
+
+    it("lets an admin delete a leaver's event, or cancel one of its dates", async () => {
+      mocks.getCurrentAccount.mockResolvedValue(ctx(OTHER, 'admin'));
+      db.rpc!.calendar_event_can_remove = () => ({ data: true });
+      expect(
+        (await del(SERIES, `scope=this&occurrenceStart=${OCC}`)).status
+      ).toBe(200);
+      expect(rpcCalls().map((c) => c[0])).toEqual([
+        'calendar_event_can_remove',
+        'calendar_cancel_occurrence',
+      ]);
+      expect((await del()).status).toBe(200);
+      expect(events().map((r) => r.id)).toEqual([SERIES]);
+      // Editing stays the creator's.
+      expect((await patch({ title: 'x' }, SERIES)).status).toBe(403);
+    });
+
+    it('refuses an admin when the database says no, or cannot say', async () => {
+      mocks.getCurrentAccount.mockResolvedValue(ctx(OTHER, 'admin'));
+      for (const answer of [{ data: false }, { error: { code: 'PGRST202' } }]) {
+        db.rpc!.calendar_event_can_remove = () => answer;
+        expect((await del()).status).toBe(403);
+        expect(
+          (await del(SERIES, `scope=this&occurrenceStart=${OCC}`)).status
+        ).toBe(403);
+      }
+      expect(events()).toHaveLength(2);
+      expect(rpcCalls().map((c) => c[0])).not.toContain(
+        'calendar_cancel_occurrence'
+      );
     });
 
     it('answers 403 when the policy refuses the delete (0 rows)', async () => {

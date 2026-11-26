@@ -144,3 +144,84 @@ export async function recordContinueRefusal(
     .eq('status', 'pending')
     .or(RESENDABLE_FILTER);
 }
+
+/**
+ * Meta refused the campaign's template (`template_refused`): no later try
+ * ends differently, so the campaign is failed instead of coming due again,
+ * with the reason on its first pending recipient. The rest stay pending:
+ * Resume works once the template is accepted. Never touches a draft or a
+ * campaign that has already ended.
+ */
+export async function failRefusedCampaign(
+  admin: SupabaseClient,
+  broadcastId: string,
+  reason: string
+): Promise<void> {
+  await recordContinueRefusal(admin, broadcastId, reason);
+  const { error } = await admin
+    .from('broadcasts')
+    .update({ status: 'failed', updated_at: new Date().toISOString() })
+    .eq('id', broadcastId)
+    .in('status', ['sending', 'scheduled']);
+  if (error) {
+    console.error('[broadcast-continue] refusal not recorded:', error.message);
+  }
+}
+
+/** How long a due campaign with no number to send from is kept waiting. */
+export const WAIT_FOR_NUMBER_MS = 7 * 24 * 60 * 60 * 1000;
+
+const DUE_SINCE = ' - due since ';
+
+/**
+ * A scheduled campaign came due with no number connected: keep it
+ * scheduled and look again in half an hour, until a week after it was
+ * first due. `scheduled_at` moves, so that first time is kept in the
+ * reason on its first pending recipient. False when the week is over: the
+ * caller fails the campaign.
+ */
+export async function waitForNumber(
+  admin: SupabaseClient,
+  broadcast: { id: string; scheduled_at: string },
+  reason: string,
+  now: Date
+): Promise<boolean> {
+  const { data, error } = await admin
+    .from('broadcast_recipients')
+    .select('error_message')
+    .eq('broadcast_id', broadcast.id)
+    .eq('status', 'pending')
+    .like('error_message', `%${DUE_SINCE}%`)
+    .limit(1);
+  // Unreadable: the next tick asks again.
+  if (error) return true;
+  const noted = (data?.[0]?.error_message as string | undefined)?.split(
+    DUE_SINCE
+  )[1];
+  const due = [noted, broadcast.scheduled_at]
+    .map((at) => Date.parse(at ?? ''))
+    .find(Number.isFinite);
+  const until = (due ?? now.getTime()) + WAIT_FOR_NUMBER_MS;
+  if (now.getTime() >= until) return false;
+
+  await recordContinueRefusal(
+    admin,
+    broadcast.id,
+    reason + DUE_SINCE + new Date(until - WAIT_FOR_NUMBER_MS).toISOString()
+  );
+  const { error: moveError } = await admin
+    .from('broadcasts')
+    .update({
+      scheduled_at: new Date(
+        Math.min(now.getTime() + CONTINUE_BACKOFF_MS, until)
+      ).toISOString(),
+    })
+    .eq('id', broadcast.id)
+    .eq('status', 'scheduled')
+    // Not over a new appointment someone gave it meanwhile.
+    .eq('scheduled_at', broadcast.scheduled_at);
+  if (moveError) {
+    console.error('[broadcast-continue] wait not recorded:', moveError.message);
+  }
+  return true;
+}

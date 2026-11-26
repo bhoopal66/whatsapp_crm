@@ -7,6 +7,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { disconnectOpenWANumber } from './openwa-number';
+import { waitingMessages } from './waiting-messages';
 
 /**
  * Disconnect `userId`'s personal numbers of `accountId`. Never throws.
@@ -60,7 +61,16 @@ async function disconnectOne(
   row: { id: string; phone_number_id: string | null }
 ): Promise<boolean> {
   try {
-    const res = await disconnectOpenWANumber(db, accountId, row);
+    // Access is cut at once whatever waits: the count is only logged.
+    const waiting = await waitingMessages(db, [row.id]);
+    if (waiting > 0) {
+      console.warn(
+        `[personal-number] number ${row.id} in account ${accountId} removed with ${waiting} customer messages not yet processed`
+      );
+    }
+    const res = await disconnectOpenWANumber(db, accountId, row, {
+      force: true,
+    });
     if (res.ok) {
       const body = (await res.json()) as { gatewayCleanup?: string };
       return body.gatewayCleanup === 'complete';

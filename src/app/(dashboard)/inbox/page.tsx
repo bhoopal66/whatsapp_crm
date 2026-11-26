@@ -64,6 +64,13 @@ import {
   inPersonalInbox,
   shouldFetchUnloadedPin,
 } from '@/lib/inbox/insights';
+import {
+  chatPopAction,
+  chatUrlWrite,
+  isPushedChat,
+  linkToFollow,
+  TWO_PANE_QUERY,
+} from '@/lib/inbox/chat-history';
 import type { InboxNarrowing } from '@/lib/inbox/unread-counts';
 import {
   viewerInboxDepartment,
@@ -310,8 +317,9 @@ export function InboxPageInner({
 
   // Chats shared with me as a coordinator (migration 133), with the
   // bank each came under: they count as mine on the personal inbox and
-  // carry a "Shared" label. Re-read with every resync.
-  const sharedBanks = useMyCoordinatorShares(resyncToken + deltaSync.token);
+  // carry a "Shared" label. Re-read with a full resync; after a gap in
+  // realtime the hook re-reads by itself, so the delta is not passed.
+  const sharedBanks = useMyCoordinatorShares(resyncToken);
   // Keyed on the ids, so a re-read finding the same shares does not
   // refetch the list.
   const sharedKey = sharedBanks ? [...sharedBanks.keys()].sort().join(',') : '';
@@ -403,6 +411,12 @@ export function InboxPageInner({
   // back to the deep-linked conversation if they've already clicked
   // elsewhere.
   const autoSelectedForDeepLinkRef = useRef<string | null>(null);
+  /** The header arrow asked the browser to go back and the URL has not
+   *  followed yet; a chat tapped meanwhile stays open. */
+  const backPendingRef = useRef(false);
+  /** The list has loaded once: from here a new `?c=` is a link followed
+   *  with the Inbox on screen (see the effect below). */
+  const listLoadedRef = useRef(false);
 
   // Tracks conversations whose hydrate fetch is currently in flight. The
   // conv-INSERT and the first-message-INSERT events both call into
@@ -891,6 +905,8 @@ export function InboxPageInner({
   // (this ?c= case) the chat opens on the full row, unless another chat
   // was asked for in the meantime (`openingIdRef`).
   const openingIdRef = useRef<OpenTicket | null>(null);
+  // Chats no longer ours (handed away); see dropGone below.
+  const dropGoneRef = useRef<(ids: readonly string[]) => void>(() => {});
   const openDeps = useMemo<OpenConversationDeps>(
     () => ({
       latest: openingIdRef,
@@ -916,9 +932,10 @@ export function InboxPageInner({
           });
           return null;
         }
-        return data ? normalizeConversation(data) : null;
+        return data ? normalizeConversation(data) : 'gone';
       },
       failed: (id) => setFullRowFailedId(id),
+      gone: (id) => dropGoneRef.current([id]),
     }),
     []
   );
@@ -1025,6 +1042,10 @@ export function InboxPageInner({
         setConversations((prev) => appendConversationPage(prev, loaded));
         return;
       }
+      if (load.mode === 'gone') {
+        dropGoneRef.current(load.ids);
+        return;
+      }
       if (load.mode === 'delta') {
         const visible = document.visibilityState === 'visible';
         setConversations((prev) => {
@@ -1048,6 +1069,7 @@ export function InboxPageInner({
         return;
       }
       listCursorRef.current = load.cursor;
+      listLoadedRef.current = true;
       setConversations(loaded);
       // Resolve a pending deep-link here rather than in an effect — this
       // is an event handler, so the setState calls below are allowed by
@@ -1060,6 +1082,7 @@ export function InboxPageInner({
       // into a team thread needs the fallback below.
       if (
         deepLinkConvId &&
+        !backPendingRef.current &&
         autoSelectedForDeepLinkRef.current !== deepLinkConvId
       ) {
         autoSelectedForDeepLinkRef.current = deepLinkConvId;
@@ -1089,6 +1112,24 @@ export function InboxPageInner({
       }
     },
     [deepLinkConvId, activeConversation?.id, openConversationById]
+  );
+
+  // The URL of a chat just opened. From the list on a phone it is a new
+  // history entry, so the phone's Back returns to the list
+  // (lib/inbox/chat-history.ts); otherwise it replaces the current one.
+  const writeSelection = useCallback(
+    (convId: string) => {
+      // The header arrow's way back is still on its way: `onPop` writes it.
+      if (backPendingRef.current) return;
+      const { method, state } = chatUrlWrite({
+        twoPane: window.matchMedia(TWO_PANE_QUERY).matches,
+        chatOpen: !!activeConversation,
+        urlChat: new URLSearchParams(window.location.search).get('c'),
+        historyState: window.history.state,
+      });
+      window.history[method](state, '', selectionUrl(convId));
+    },
+    [activeConversation, selectionUrl]
   );
 
   const handleSelectConversation = useCallback(
@@ -1132,7 +1173,8 @@ export function InboxPageInner({
       autoSelectedForDeepLinkRef.current = conv.id;
       // Reflect the selection in the URL so a refresh lands the user
       // back in the same thread, and so copy-paste links work. Replace,
-      // not push, to avoid polluting browser history with every click.
+      // not push, to avoid polluting browser history with every click
+      // (but see writeSelection for a phone).
       //
       // The native History API rather than `router.replace`: the inbox
       // is a client component that fetches its own data, so the URL
@@ -1141,12 +1183,12 @@ export function InboxPageInner({
       // tunnel. Next keeps `useSearchParams` in sync with
       // `history.replaceState` (see settings/page.tsx), so `?c=` still
       // reads back on reload and on back/forward.
-      window.history.replaceState(null, '', selectionUrl(conv.id));
+      writeSelection(conv.id);
     },
     [
       activeConversation?.id,
       fullRowFailed,
-      selectionUrl,
+      writeSelection,
       openConversationById,
       retryFullRow,
     ]
@@ -1164,28 +1206,141 @@ export function InboxPageInner({
       if (activeConversation?.id === convId) return;
       void openConversationById(convId);
       autoSelectedForDeepLinkRef.current = convId;
-      window.history.replaceState(null, '', selectionUrl(convId));
+      writeSelection(convId);
     },
     [
       activeConversation?.id,
-      selectionUrl,
+      writeSelection,
       handleSelectConversation,
       openConversationById,
     ]
   );
 
-  // Mobile "back" — deselect the conversation so the list pane comes
-  // back. Also clears the ?c= param so a refresh lands on the list
-  // instead of re-opening the thread the user just backed out of.
-  const handleCloseConversation = useCallback(() => {
+  // Deselect the conversation, so on a phone the list pane comes back.
+  const closeChat = useCallback(() => {
     openingIdRef.current = null;
     setActiveChat(null);
     setMessages([]);
     // Clearing the ref lets the deep-link auto-selector fire again if
     // the user later visits ?c=<same-id> again — desirable UX.
     autoSelectedForDeepLinkRef.current = null;
+  }, []);
+
+  // Also clears the ?c= param so a refresh lands on the list instead of
+  // re-opening the thread the user just backed out of.
+  const handleCloseConversation = useCallback(() => {
+    closeChat();
     window.history.replaceState(null, '', selectionUrl(null));
-  }, [selectionUrl]);
+  }, [closeChat, selectionUrl]);
+
+  // Mobile "back" in the thread header. When the list put this chat in
+  // the history, going back is what takes it out again; closed at once
+  // too, so a second tap cannot go back twice.
+  const handleBackToList = useCallback(() => {
+    if (!isPushedChat(window.history.state)) {
+      handleCloseConversation();
+      return;
+    }
+    closeChat();
+    backPendingRef.current = true;
+    window.history.back();
+    // Should the browser not answer with a popstate.
+    window.setTimeout(() => {
+      backPendingRef.current = false;
+    }, 1_500);
+  }, [closeChat, handleCloseConversation]);
+
+  // The phone's Back and Forward. Next's router follows the same event
+  // and moves `useSearchParams`; nothing here writes the URL.
+  useEffect(() => {
+    const onPop = () => {
+      if (backPendingRef.current) {
+        backPendingRef.current = false;
+        // Tapped between the arrow and here: it goes in as from the list.
+        const openId = autoSelectedForDeepLinkRef.current;
+        if (openId && window.location.pathname === basePath) {
+          const { method, state } = chatUrlWrite({
+            twoPane: window.matchMedia(TWO_PANE_QUERY).matches,
+            chatOpen: false,
+            urlChat: new URLSearchParams(window.location.search).get('c'),
+            historyState: window.history.state,
+          });
+          window.history[method](state, '', selectionUrl(openId));
+        }
+        return;
+      }
+      const action = chatPopAction({
+        twoPane: window.matchMedia(TWO_PANE_QUERY).matches,
+        screenPath: basePath,
+        path: window.location.pathname,
+        urlChat: new URLSearchParams(window.location.search).get('c'),
+        openId: activeConversation?.id ?? null,
+      });
+      if (action.kind === 'close') {
+        closeChat();
+      } else if (action.kind === 'open') {
+        autoSelectedForDeepLinkRef.current = action.id;
+        const row = conversationsRef.current.find((c) => c.id === action.id);
+        void openConversationById(action.id, row);
+        // As a click on the row does.
+        setConversations((prev) => zeroUnreadOf(prev, action.id));
+      }
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, [
+    basePath,
+    activeConversation?.id,
+    closeChat,
+    openConversationById,
+    selectionUrl,
+  ]);
+
+  // A link to a chat followed while this screen is already open. Only
+  // when the URL's chat changes, so the rest is read through a ref: the
+  // header arrow closes the chat before the URL follows.
+  const followLinkRef = useRef<(urlChat: string | null) => void>(() => {});
+  useEffect(() => {
+    followLinkRef.current = (urlChat) => {
+      const id = linkToFollow({
+        urlChat,
+        locationChat: new URLSearchParams(window.location.search).get('c'),
+        handled: autoSelectedForDeepLinkRef.current,
+        listLoaded: listLoadedRef.current,
+      });
+      if (!id) return;
+      autoSelectedForDeepLinkRef.current = id;
+      if (activeConversation?.id === id) return;
+      const row = conversationsRef.current.find((c) => c.id === id);
+      void openConversationById(id, row);
+      if (document.visibilityState === 'visible') {
+        setConversations((prev) => zeroUnreadOf(prev, id));
+      }
+    };
+  });
+  useEffect(() => {
+    followLinkRef.current(deepLinkConvId);
+  }, [deepLinkConvId]);
+
+  // Out of the list and the caches; the open one closes and says why,
+  // rather than standing there without its messages.
+  useEffect(() => {
+    dropGoneRef.current = (ids) => {
+      const gone = new Set(ids);
+      setConversations((prev) =>
+        prev.some((c) => gone.has(c.id))
+          ? prev.filter((c) => !gone.has(c.id))
+          : prev
+      );
+      for (const id of gone) {
+        forgetFailedChat(sessionCache, accountId, user?.id, id);
+      }
+      if (openChatId && gone.has(openChatId)) {
+        handleCloseConversation();
+        toast.info(t('chatGone'));
+      }
+    };
+  });
 
   // Accepts an updater too: the thread prepends older pages and merges
   // resyncs against the freshest state, not a render-time snapshot.
@@ -1387,7 +1542,7 @@ export function InboxPageInner({
             onChatTagsChange={handleChatTagsChange}
             onAssignChange={handleAssignChange}
             onAiChange={handleAiChange}
-            onBack={handleCloseConversation}
+            onBack={handleBackToList}
             resyncToken={resyncToken}
             deltaSyncToken={deltaSync.token}
             onRefresh={handleManualRefresh}

@@ -7,6 +7,7 @@
  * company and bank are always shown, a company the sender does not act
  * for needs its legal name typed, and filing needs a chosen case.
  */
+import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import { toast } from 'sonner';
@@ -17,11 +18,14 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/hooks/use-auth';
+import { formatFileSize } from '@/lib/case-files/view';
 import { mergeCandidates } from '@/lib/desk/case-search';
 import { trayDismissBlock, trayFileBlock } from '@/lib/desk/form-hints';
 import { formatAge } from '@/lib/desk/intake-form';
 import {
   needsCompanyConfirm,
+  TRAY_PAGE,
+  TRAY_PAGE_MAX,
   type DeskSettings,
   type TrayCandidate,
   type TrayItem,
@@ -30,6 +34,7 @@ import {
 import { deskApi } from './desk-api';
 import { FilePreview } from './file-preview';
 import { DisabledHint } from './disabled-hint';
+import { LoadFailed } from './load-failed';
 import { TrayCaseFinder } from './tray-case-finder';
 
 export function TrayTab({ isLead }: { isLead: boolean }) {
@@ -37,19 +42,33 @@ export function TrayTab({ isLead }: { isLead: boolean }) {
   const locale = useLocale();
   const { user } = useAuth();
   const [items, setItems] = useState<TrayItem[] | null>(null);
+  const [total, setTotal] = useState(0);
+  const [limit, setLimit] = useState(TRAY_PAGE);
   const [settings, setSettings] = useState<DeskSettings | null>(null);
+  // A failed read keeps what is on screen (the picked case, the typed
+  // confirmation) and offers Retry; it never reads as an empty tray.
+  const [trayFailed, setTrayFailed] = useState(false);
+  const [settingsFailed, setSettingsFailed] = useState(false);
 
   const load = useCallback(
     () =>
-      Promise.all([deskApi.tray(), deskApi.settings()]).then(([r, s]) => {
-        if (r.ok) setItems(r.data);
-        else {
-          toast.error(r.error);
-          setItems([]);
+      Promise.all([deskApi.tray('open', limit), deskApi.settings()]).then(
+        ([r, s]) => {
+          if (r.ok) {
+            setItems(r.data.items);
+            setTotal(r.data.total);
+            setTrayFailed(false);
+          } else {
+            toast.error(r.error);
+            setTrayFailed(true);
+          }
+          if (s.ok) {
+            setSettings(s.data.settings);
+            setSettingsFailed(false);
+          } else setSettingsFailed(true);
         }
-        if (s.ok) setSettings(s.data.settings);
-      }),
-    []
+      ),
+    [limit]
   );
   useEffect(() => {
     void load();
@@ -57,11 +76,13 @@ export function TrayTab({ isLead }: { isLead: boolean }) {
 
   const duty = settings?.dutyUserId ?? null;
   const dutyLabel =
-    duty === null
-      ? t('tray.dutyNobody')
-      : duty === user?.id
-        ? t('tray.dutyYou')
-        : t('tray.dutyOther');
+    settings === null
+      ? null
+      : duty === null
+        ? t('tray.dutyNobody')
+        : duty === user?.id
+          ? t('tray.dutyYou')
+          : t('tray.dutyOther');
   const setDuty = async (userId: string | null) => {
     const r = await deskApi.setDuty(userId);
     if (!r.ok) toast.error(r.error);
@@ -79,7 +100,7 @@ export function TrayTab({ isLead }: { isLead: boolean }) {
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
             {items !== null && (
               <span className="text-foreground font-medium">
-                {t('tray.count', { count: items.length })}
+                {t('tray.count', { count: Math.max(total, items.length) })}
                 {oldest !== null && (
                   <span className="text-muted-foreground font-normal">
                     {' · '}
@@ -88,10 +109,15 @@ export function TrayTab({ isLead }: { isLead: boolean }) {
                 )}
               </span>
             )}
-            <span className="text-muted-foreground">
-              {t('tray.duty')}: {dutyLabel}
-            </span>
-            {isLead && user && duty !== user.id && (
+            {settings !== null && (
+              <span className="text-muted-foreground">
+                {t('tray.duty')}: {dutyLabel}
+              </span>
+            )}
+            {settings === null && settingsFailed && (
+              <LoadFailed title={t('tray.duty')} onRetry={load} />
+            )}
+            {settings !== null && isLead && user && duty !== user.id && (
               <Button
                 size="sm"
                 variant="outline"
@@ -100,7 +126,7 @@ export function TrayTab({ isLead }: { isLead: boolean }) {
                 {t('tray.takeDuty')}
               </Button>
             )}
-            {isLead && duty !== null && (
+            {settings !== null && isLead && duty !== null && (
               <Button size="sm" variant="ghost" onClick={() => setDuty(null)}>
                 {t('tray.clearDuty')}
               </Button>
@@ -108,15 +134,30 @@ export function TrayTab({ isLead }: { isLead: boolean }) {
           </div>
         </CardContent>
       </Card>
-      {items === null && (
+      {trayFailed && <LoadFailed onRetry={load} />}
+      {items === null && !trayFailed && (
         <p className="text-muted-foreground text-sm">{t('loading')}</p>
       )}
-      {items !== null && items.length === 0 && (
+      {items !== null && items.length === 0 && !trayFailed && (
         <p className="text-muted-foreground text-sm">{t('tray.empty')}</p>
       )}
       {items?.map((item) => (
         <TrayCard key={item.trayId} item={item} onDone={load} />
       ))}
+      {items !== null && total > items.length && (
+        <div className="text-muted-foreground flex flex-wrap items-center gap-3 text-sm">
+          <span>{t('tray.shown', { shown: items.length, total })}</span>
+          {limit < TRAY_PAGE_MAX && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setLimit(limit + TRAY_PAGE)}
+            >
+              {t('tray.loadMore')}
+            </Button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -184,9 +225,12 @@ function TrayCard({
         toast.error(r.error);
         return;
       }
-      toast.success(
-        t('tray.filed', { caseNumber: r.data.caseNumber ?? picked.caseId })
-      );
+      const filedOn = r.data.caseNumber;
+      if (r.data.waiting) toast.info(t('tray.waiting'));
+      else if (filedOn === null) toast.info(t('tray.filedAlready'));
+      else if (filedOn === picked.caseNumber)
+        toast.success(t('tray.filed', { caseNumber: filedOn }));
+      else toast.info(t('tray.filedElsewhere', { caseNumber: filedOn }));
       await onDone();
     } finally {
       setBusy(false);
@@ -247,6 +291,21 @@ function TrayCard({
               {t('tray.open')}
               {item.originalName ? ` · ${item.originalName}` : ''}
             </a>
+          )}
+          {item.reason === 'copy_failed' && (
+            <span className="text-muted-foreground text-xs" dir="ltr">
+              {[item.mime, formatFileSize(item.sizeBytes)]
+                .filter(Boolean)
+                .join(' · ')}
+            </span>
+          )}
+          {item.reason === 'copy_failed' && item.conversationId && (
+            <Link
+              href={`/inbox?c=${encodeURIComponent(item.conversationId)}`}
+              className="text-primary text-sm underline underline-offset-2"
+            >
+              {t('tray.openChat')}
+            </Link>
           )}
           {item.caption && (
             <span className="text-muted-foreground min-w-0 text-xs break-words">

@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 // What a delivery pass does between the first send and the last:
 // opt-outs and quiet hours that begin meanwhile, and sends whose outcome
 // nobody knows.
@@ -7,6 +8,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fakeDb, type Row } from './broadcast.fake';
 
 const sendTemplate = vi.fn();
+// The secrets come through the service role (migration 285).
+vi.mock('@/lib/whatsapp/channel-secrets', () => ({
+  withChannelSecrets: async (rows: Array<{ id: string }>) =>
+    rows.map((r) => ({ access_token: 'tok', app_secret: null, ...r })),
+}));
 vi.mock('./provider', async (orig) => ({
   ...(await orig<typeof import('./provider')>()),
   sendTemplate: (...args: unknown[]) => sendTemplate(...args),
@@ -23,8 +29,10 @@ import {
   type BroadcastPlan,
 } from './broadcast-core';
 import { runBroadcastPass } from './broadcast-pass';
-import { planBroadcastResume } from './broadcast-resume';
+import { markBroadcastSending, planBroadcastResume } from './broadcast-resume';
 import { MetaError } from './meta-api';
+import { OpenWAError } from './openwa-api';
+import { WhapiError } from './whapi-api';
 import {
   SEND_UNCONFIRMED_REASON,
   SENT_NOT_RECORDED_REASON,
@@ -172,6 +180,102 @@ describe('opt-out during a pass', () => {
   });
 });
 
+describe('do-not-contact', () => {
+  const DNC = 'Customer is marked do-not-contact';
+
+  it('skips a customer marked after the plan was built', async () => {
+    const w = world(2);
+    w.contacts[1].do_not_contact_at = '2026-11-23T08:00:01Z';
+    await deliverBroadcast(fakeDb(w), planFor(w));
+
+    expect(sendTemplate).toHaveBeenCalledTimes(1);
+    expect(w.broadcast_recipients[1]).toMatchObject({
+      status: 'failed',
+      error_message: DNC,
+    });
+  });
+
+  it('leaves them out of a resume', async () => {
+    const w = world(3);
+    (w.broadcast_recipients[0].contact as Row).opted_out_at = '2026';
+    (w.broadcast_recipients[1].contact as Row).do_not_contact_at = '2026';
+    const { plan, remaining, optedOut } = await resume(fakeDb(w));
+
+    expect(plan.planned.map((r) => r.recipientRowId)).toEqual(['r00002']);
+    expect([optedOut, plan.skippedOptedOut, remaining]).toEqual([2, 2, 0]);
+    expect(w.broadcast_recipients.map((r) => r.error_message)).toEqual([
+      OPTED_OUT_REASON,
+      DNC,
+      null,
+    ]);
+  });
+});
+
+describe('frequency cap at delivery', () => {
+  /** A row of another campaign for the second customer. */
+  const other = (w: ReturnType<typeof world>, row: Row) =>
+    w.broadcast_recipients.push({
+      id: 'other',
+      broadcast_id: 'bc-2',
+      contact_id: 'c00001',
+      ...row,
+    });
+  const capped = async (row: Row, skipRecentDays: number | null = 7) => {
+    const w = world(2, { skip_recent_days: skipRecentDays });
+    const { plan } = await resume(fakeDb(w));
+    other(w, row);
+    await deliverBroadcast(fakeDb(w), plan);
+    return w.broadcast_recipients.slice(0, 2);
+  };
+
+  it('skips a customer another campaign messaged after this one was built', async () => {
+    const rows = await capped({
+      status: 'delivered',
+      sent_at: '2026-11-17T08:00:00.000Z',
+    });
+    expect(sendTemplate).toHaveBeenCalledTimes(1);
+    expect(rows.map((r) => r.status)).toEqual(['sent', 'failed']);
+    expect(rows[1].error_message).toBe(
+      'Skipped: messaged by another campaign in the last 7 days'
+    );
+  });
+
+  it.each([
+    ['before the window', 'sent', '2026-11-16T07:59:59.000Z', 7],
+    ['failed', 'failed', '2026-11-22T08:00:00.000Z', 7],
+    ['pending', 'pending', null, 7],
+    ['a campaign without a cap', 'sent', '2026-11-22T08:00:00.000Z', null],
+  ])('sends: %s', async (_name, status, sent_at, days) => {
+    const rows = await capped({ status, sent_at }, days);
+    expect(rows.map((r) => r.status)).toEqual(['sent', 'sent']);
+  });
+
+  it('does not count what this campaign sent itself', async () => {
+    const rows = await capped({
+      broadcast_id: 'bc-1',
+      status: 'sent',
+      sent_at: '2026-11-22T08:00:00.000Z',
+    });
+    expect(rows.map((r) => r.status)).toEqual(['sent', 'sent']);
+  });
+
+  it('stops with the rest pending when it cannot be read', async () => {
+    const w = world(2);
+    let reads = 0;
+    const db = fakeDb(w, {
+      fail: ({ table, patch }) =>
+        table === 'broadcast_recipients' && !patch && ++reads === 1
+          ? 'timeout'
+          : null,
+    });
+    await deliverBroadcast(db, planFor(w, { skipRecentDays: 7 }));
+
+    expect(sendTemplate).not.toHaveBeenCalled();
+    expect(statuses(w)).toEqual(['pending', 'pending']);
+    expect(w.broadcasts[0].status).toBe('sending');
+  });
+});
+
 describe('quiet hours', () => {
   it('stops a pass they begin in, resumable', async () => {
     const w = world(3);
@@ -315,7 +419,8 @@ describe('sends whose outcome nobody knows', () => {
       status: 'failed',
       error_message: SENT_NOT_RECORDED_REASON,
     });
-    expect(w.broadcast_recipients[0].whatsapp_message_id).toBeUndefined();
+    // Kept, so that its receipt can correct the row (migration 291).
+    expect(w.broadcast_recipients[0].whatsapp_message_id).toBe('wamid.1');
     expect(w.broadcast_recipients[1].status).toBe('pending');
     await expect(resume(db, 'failed')).rejects.toMatchObject({
       code: 'nothing_to_resume',
@@ -501,4 +606,213 @@ describe('planning while the database does not answer', () => {
       await expect(resume(db)).rejects.toMatchObject({ code: 'internal' });
     }
   );
+});
+
+describe('Stop (migration 301)', () => {
+  beforeEach(() => {
+    sendTemplate.mockReset();
+  });
+
+  it('holds for a pass already running: the rest stay pending', async () => {
+    const w = world(3);
+    sendTemplate.mockImplementation(async () => {
+      w.broadcasts[0].status = 'stopped';
+      return { messageId: 'wamid.1' };
+    });
+    await deliverBroadcast(fakeDb(w), planFor(w));
+    expect(sendTemplate).toHaveBeenCalledTimes(1);
+    expect(w.broadcast_recipients.map((r) => r.status)).toEqual([
+      'sent',
+      'pending',
+      'pending',
+    ]);
+    expect(w.broadcast_recipients[1].error_message).toBeNull();
+    expect(w.broadcasts[0].status).toBe('stopped');
+  });
+
+  it.each([
+    ['finished meanwhile', 'sent', null],
+    ['not readable', 'sending', 'timeout'],
+  ])(
+    'ends the pass when nothing could be marked and it is %s',
+    async (_, status, failRead) => {
+      const w = world(4);
+      let marking = false;
+      const db = fakeDb(w, {
+        fail: ({ table }) => {
+          if (table !== 'broadcasts' || !marking) return null;
+          return failRead;
+        },
+      });
+      const marked: string[] = [];
+      const from = db.from.bind(db);
+      // Every mark matches nothing: the trigger of 301, or another pass.
+      db.from = ((table: string) => {
+        const q = from(table) as unknown as Record<
+          string,
+          (...a: unknown[]) => unknown
+        >;
+        if (table !== 'broadcast_recipients') return q;
+        const update = q.update.bind(q);
+        q.update = (patch: unknown) => {
+          const text = (patch as Row).error_message;
+          if (typeof text === 'string' && text.startsWith('May have been')) {
+            marking = true;
+            marked.push(text);
+            w.broadcasts[0].status = status;
+            return (update({ ...(patch as Row) }) as typeof q).eq('id', 'none');
+          }
+          return update(patch);
+        };
+        return q;
+      }) as unknown as typeof db.from;
+      await deliverBroadcast(db, planFor(w));
+      expect(sendTemplate).not.toHaveBeenCalled();
+      expect(marked).toHaveLength(1);
+    }
+  );
+
+  it('is undone by its own Resume only', async () => {
+    const w = world(2, { status: 'stopped' });
+    const db = fakeDb(w);
+    const refused = { code: 'campaign_stopped', status: 400 };
+    await expect(
+      planBroadcastResume(db, 'acct-1', 'bc-1', 'pending')
+    ).rejects.toMatchObject(refused);
+    // Stopped after the plan was made.
+    await expect(markBroadcastSending(db, 'bc-1')).rejects.toMatchObject(
+      refused
+    );
+    expect(w.broadcasts[0].status).toBe('stopped');
+
+    const opts = { resumeStopped: true };
+    const { plan } = await planBroadcastResume(
+      db,
+      'acct-1',
+      'bc-1',
+      'pending',
+      opts
+    );
+    expect(plan.planned).toHaveLength(2);
+    await markBroadcastSending(db, 'bc-1', opts);
+    expect(w.broadcasts[0].status).toBe('sending');
+  });
+
+  it('the SQL guard names the write-ahead mark', () => {
+    const sql = readFileSync(
+      'supabase/migrations/301_campaign_stop.sql',
+      'utf8'
+    );
+    expect(sql).toContain(`NEW.error_message = '${SEND_UNCONFIRMED_REASON}'`);
+  });
+});
+
+describe('a gateway that is down', () => {
+  const caused = <E extends Error>(err: E, cause: unknown): E =>
+    Object.assign(err, { cause });
+  const refused = Object.assign(new Error('connect ECONNREFUSED'), {
+    code: 'ECONNREFUSED',
+    syscall: 'connect',
+  });
+  const timedOut = Object.assign(new Error('timed out'), {
+    name: 'TimeoutError',
+  });
+
+  it.each<[string, Error]>([
+    [
+      'OpenWA 409 not connected',
+      new OpenWAError(
+        'Session is not connected. The WhatsApp client is not ready.',
+        409
+      ),
+    ],
+    [
+      'OpenWA 400 not started',
+      new OpenWAError(
+        "Session 'x' is not active. Start the session first.",
+        400
+      ),
+    ],
+    [
+      'OpenWA page reload',
+      new OpenWAError('WhatsApp Web is reloading', 409, {
+        code: 'ENGINE_PAGE_RELOADING',
+      }),
+    ],
+    [
+      'OpenWA refused connection',
+      caused(new OpenWAError('fetch failed', 503), refused),
+    ],
+    [
+      'Whapi refused connection',
+      caused(new WhapiError('fetch failed', 503), refused),
+    ],
+    ['Meta refused connection', caused(new TypeError('fetch failed'), refused)],
+    ['Meta number not registered', new MetaError('x', 400, 133010)],
+    ['Meta account locked', new MetaError('x', 403, 131031)],
+  ])('%s: pauses, everyone stays pending', async (_name, err) => {
+    const w = world(3);
+    sendTemplate.mockRejectedValue(err);
+    await deliverBroadcast(fakeDb(w), planFor(w));
+    expect(sendTemplate).toHaveBeenCalledTimes(1);
+    expect(statuses(w)).toEqual(['pending', 'pending', 'pending']);
+    expect(w.broadcasts[0].status).toBe('sending');
+    // The reason shows, and is not the "may have been sent" mark.
+    expect(w.broadcast_recipients[0].error_message).toBeTruthy();
+    expect(w.broadcast_recipients[0].error_message).not.toBe(
+      SEND_UNCONFIRMED_REASON
+    );
+    // Back up: the same people get it, once.
+    sendTemplate.mockReset();
+    sendTemplate.mockImplementation(async () => ({ messageId: 'wamid.2' }));
+    const { plan } = await resume(fakeDb(w));
+    expect(plan.planned).toHaveLength(3);
+  });
+
+  it.each<[string, Error]>([
+    ['Whapi 503', new WhapiError('Service unavailable', 503)],
+    ['OpenWA 503', new OpenWAError('Transport died', 503)],
+  ])('%s: pauses, the one it was at is never resent', async (_name, err) => {
+    const w = world(3);
+    sendTemplate.mockRejectedValue(err);
+    await deliverBroadcast(fakeDb(w), planFor(w));
+    expect(sendTemplate).toHaveBeenCalledTimes(1);
+    expect(statuses(w)).toEqual(['failed', 'pending', 'pending']);
+    expect(w.broadcast_recipients[0].error_message).toBe(
+      SEND_UNCONFIRMED_REASON
+    );
+    expect(w.broadcast_recipients[1].error_message).toBeTruthy();
+    const { plan } = await resume(fakeDb(w));
+    expect(plan.planned.map((p) => p.recipientRowId)).toEqual([
+      'r00001',
+      'r00002',
+    ]);
+  });
+
+  it.each<[string, Error, boolean]>([
+    ['a bad number', new OpenWAError('Invalid chatId', 400), false],
+    ['Whapi bad number', new WhapiError('bad to', 400), false],
+    ['Meta bad number', new MetaError('x', 400, 131026), false],
+    [
+      'a timeout after sending',
+      caused(new OpenWAError('timeout', 503), timedOut),
+      true,
+    ],
+    [
+      'an OpenWA send cut short',
+      new OpenWAError(
+        'WhatsApp Web reloaded its page while the message was being sent, and it may or may not have been sent. Check the chat before sending it again.',
+        409
+      ),
+      true,
+    ],
+  ])('%s: fails one recipient and goes on', async (_name, err, unconfirmed) => {
+    const w = world(2);
+    sendTemplate.mockRejectedValueOnce(err);
+    await deliverBroadcast(fakeDb(w), planFor(w));
+    expect(statuses(w)).toEqual(['failed', 'sent']);
+    expect(
+      w.broadcast_recipients[0].error_message === SEND_UNCONFIRMED_REASON
+    ).toBe(unconfirmed);
+  });
 });

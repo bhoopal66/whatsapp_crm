@@ -1,4 +1,7 @@
 {
+  "Common": {
+    "toasts": "الإشعارات"
+  },
   "LoginPage": {
     "titleAccept": "سجّل الدخول للقبول",
     "titleWelcome": "مرحباً بعودتك",
@@ -68,6 +71,7 @@
     "retry": "حاول مرة أخرى"
   },
   "Sidebar": {
+    "primaryNav": "القائمة الرئيسية",
     "navLabel": "التنقل في الشريط الجانبي",
     "title": "Taamul Connect",
     "dashboard": "لوحة المعلومات",
@@ -246,7 +250,14 @@
     "unlinkedBody": "لن يُحفظ أي شيء تغيّره ما دامت هذه المشكلة قائمة، إذ ترفض قاعدة البيانات كل عملية كتابة من مستخدم بلا حساب أو دور. إذا دُعيت إلى فريق، فاطلب من المالك إعادة إرسال الدعوة. وفي التثبيت المستضاف ذاتيًا، تحقق من تشغيل ترحيل تهيئة الحساب لهذا المستخدم.",
     "errorTitle": "تعذر تحميل صلاحياتك",
     "errorBody": "لم يُحمَّل دور حسابك، لذا يُعامل كل إجراء كقراءة فقط ولن تُحفظ التغييرات. تحقق من اتصالك وحاول مرة أخرى.",
-    "retry": "إعادة المحاولة"
+    "retry": "إعادة المحاولة",
+    "signOutFailed": "تعذّر تسجيل الخروج، حاول مرة أخرى.",
+    "stillSigningOut": "ما زال تسجيل الخروج جاريًا…",
+    "reconnecting": "جارٍ إعادة الاتصال…",
+    "switchedElsewhere": "لقد بدّلت مساحة العمل على جهاز آخر.",
+    "workspaceDeactivated": "تم تعطيل وصولك إلى مساحة العمل هذه.",
+    "reload": "إعادة التحميل",
+    "dismiss": "إغلاق"
   },
   "Dashboard": {
     "home": {
@@ -282,7 +293,8 @@
         },
         "overdueTasks": {
           "label": "مهام متأخرة",
-          "hint": "{count, plural, =0 {لا شيء آخر مستحق اليوم} other {# مستحقة اليوم}}"
+          "hint": "{count, plural, =0 {لا شيء آخر مستحق اليوم} other {# مستحقة اليوم}}",
+          "hintCut": "أكثر مما هو معروض هنا"
         },
         "missedCalls": {
           "label": "مكالمات فائتة",
@@ -299,6 +311,8 @@
         "title": "مهامي",
         "subtitle": "{overdue} متأخرة · {today} مستحقة اليوم",
         "subtitleOpen": "{count, plural, one {# مهمة مفتوحة} other {# مهام مفتوحة}}",
+        "subtitleCutOverdue": "{overdue} متأخرة",
+        "subtitleCutOpen": "{count} مهام مفتوحة",
         "groups": {
           "overdue": "متأخرة",
           "today": "اليوم",
@@ -461,6 +475,7 @@
       "dealCount": "{count} {count, plural, =1 {صفقة} other {صفقات}}",
       "total": "الإجمالي",
       "ariaLabel": "قيمة مسار المبيعات بحسب المرحلة",
+      "mixedCurrencies": "الحلقة حسب عدد الصفقات، لأن القيم بأكثر من عملة.",
       "viewPipelines": "عرض مسارات المبيعات"
     },
     "responseTimeChart": {
@@ -478,6 +493,7 @@
   },
   "Inbox": {
     "page": {
+      "chatGone": "لم تعد هذه المحادثة من محادثاتك.",
       "whatsappNotConnected": "WhatsApp® غير متصل. انتقل إلى الإعدادات لربط حسابك."
     },
     "reminderSuggestion": {
@@ -529,6 +545,7 @@
       "noConversations": "لم يتم العثور على محادثات",
       "loadFailed": "تعذّر تحميل المحادثات.",
       "loadMoreFailed": "تعذّر تحميل المزيد.",
+      "pinsFailed": "تعذّر تحميل المحادثات المثبّتة.",
       "retry": "إعادة المحاولة",
       "noMessagesYet": "لا رسائل بعد",
       "unknown": "غير معروف",
@@ -544,6 +561,9 @@
       "personalOf": "شخصي · {name}"
     },
     "messageThread": {
+      "reactionWait": "انتظر حتى يكتمل إرسال الرسالة",
+      "reactionFailed": "فشل التفاعل: {reason}",
+      "reactionNetworkError": "تعذّر الوصول إلى الخادم",
       "personalMine": "WhatsApp الخاص بي",
       "personalOf": "شخصي · {name}",
       "loadingMessages": "جارٍ تحميل الرسائل",
@@ -626,7 +646,9 @@
       "copyFailed": "تعذّر النسخ. حدّد النص وانسخه بنفسك.",
       "discardMaybeTitle": "إزالة هذه الرسالة من القائمة",
       "offline": "أنت غير متصل بالإنترنت.",
-      "noAnswer": "انقطع الاتصال قبل وصول الرد."
+      "noAnswer": "انقطع الاتصال قبل وصول الرد.",
+      "toast": "تعذّر الإرسال: {reason}",
+      "toastTemplate": "تعذّر إرسال القالب: {reason}"
     },
     "composer": {
       "templates": "القوالب",
@@ -650,6 +672,7 @@
       "undoTranslate": "تراجع",
       "translateFailed": "تعذّرت ترجمة الرسالة.",
       "translateNotConfigured": "لم يُعدّ الذكاء الاصطناعي بعد — فعّله في وكلاء الذكاء الاصطناعي ← المساعد.",
+      "translateUnsafe": "تعذّرت ترجمة هذا النص بأمان. احذف الرقم وأضِفه بنفسك.",
       "translateChanged": "تغيّرت الرسالة أثناء الترجمة، لذا أُبقيت كما هي.",
       "addCaption": "أضف تعليقًا…",
       "removeAttachment": "إزالة المرفق",
@@ -667,6 +690,8 @@
       "attachmentExpired": "أُضيف هذا المرفق منذ وقت طويل جدًا لإرساله وتمت إزالته. أرفق الملف مرة أخرى."
     },
     "bubble": {
+      "notDelivered": "لم تصل الرسالة.",
+      "notDeliveredBecause": "لم تصل الرسالة:",
       "photo": "صورة",
       "video": "فيديو",
       "audio": "صوت",
@@ -685,6 +710,7 @@
       "viewImage": "عرض الصورة",
       "expandVideo": "تكبير الفيديو",
       "imageAlt": "صورة مشتركة",
+      "mediaRetry": "حاول مرة أخرى",
       "contactShared": "تمت مشاركة جهة اتصال",
       "forwarded": "معاد توجيهها",
       "translate": "ترجمة",
@@ -729,7 +755,8 @@
         "missing": "لم يُعثر على ميكروفون في هذا الجهاز.",
         "inUse": "برنامج آخر يستخدم الميكروفون. أغلقه ثم حاول مرة أخرى.",
         "failed": "تعذّر تشغيل الميكروفون. أعد تحميل الصفحة وحاول مرة أخرى.",
-        "lost": "تعذّر حفظ التسجيل. سجّله مرة أخرى."
+        "lost": "تعذّر حفظ التسجيل. سجّله مرة أخرى.",
+        "outdated": "تعذّر تحميل تسجيل الصوت، غالبًا لأن التطبيق حُدِّث. أعد تحميل الصفحة ثم سجّل مرة أخرى."
       },
       "keptFirst": "أرسل الملاحظة الصوتية المنتظرة أو تجاهلها أولًا.",
       "draftFirst": "أرسل المرفق المنتظر أو أزله أولًا."
@@ -784,6 +811,8 @@
       "searchPlaceholder": "بحث بالاسم أو الهاتف",
       "noChats": "لم يتم العثور على محادثات",
       "loadFailed": "تعذّر تحميل محادثاتك",
+      "searchFailed": "تعذّر البحث. غيّر النص للمحاولة مرة أخرى.",
+      "searching": "جارٍ البحث في كل محادثاتك…",
       "unknownContact": "جهة اتصال غير معروفة",
       "selectedCount": "تم تحديد {count} من {max}",
       "cancel": "إلغاء",
@@ -792,9 +821,14 @@
       "failed": "فشلت إعادة التوجيه: {reason}",
       "failedFor": "تعذّرت إعادة التوجيه إلى {name}: {reason}",
       "maybeSentFor": "لم يرد WhatsApp بشأن {name}: ربما أُعيد توجيه الرسالة. تحقّق من المحادثة قبل إعادة التوجيه.",
-      "maybeSent": "لا يوجد رد: ربما أُعيد توجيه الرسالة. تحقّق من المحادثات قبل إعادة التوجيه."
+      "maybeSent": "لا يوجد رد: ربما أُعيد توجيه الرسالة. تحقّق من المحادثات قبل إعادة التوجيه.",
+      "networkError": "تعذّر الوصول إلى الخادم"
     },
     "templatePicker": {
+      "loadFailed": "تعذر تحميل القوالب.",
+      "retry": "إعادة المحاولة",
+      "urlValueLabel": "الزر \"{text}\": قيمة {val}",
+      "fillAll": "املأ كل الفراغات لتتمكن من الإرسال.",
       "sendTemplate": "إرسال قالب",
       "fillPlaceholders": "املأ العناصر النائبة لعرض هذا القالب. تشترط Meta تعيين كل متغير.",
       "pickTemplate": "اختر قالب WhatsApp معتمدًا لإرساله إلى جهة الاتصال هذه.",
@@ -807,7 +841,15 @@
       "finalUrl": "عنوان URL النهائي: {url}",
       "back": "رجوع",
       "cancel": "إلغاء",
-      "send": "إرسال القالب"
+      "send": "إرسال القالب",
+      "pickTemplateLinked": "اختر قالبًا محفوظًا لإرساله إلى جهة الاتصال هذه.",
+      "noTemplates": "لا توجد قوالب",
+      "noTemplatesHint": "يمكن للمسؤول إضافة قالب من الإعدادات ← القوالب.",
+      "blocked": {
+        "not_approved": "غير معتمد من Meta",
+        "waiting": "بانتظار Meta",
+        "paused": "أوقفته Meta مؤقتًا"
+      }
     },
     "sidebar": {
       "contactInfo": "بيانات جهة الاتصال",
@@ -872,6 +914,9 @@
       "saved": "تم حفظ {name} في جهات الاتصال.",
       "alreadySaved": "هذا الرقم موجود بالفعل في جهات اتصالك.",
       "saveFailed": "تعذّر حفظ جهة الاتصال.",
+      "colleagueHasIt": "هذا الرقم يخص بالفعل عميلاً لزميل آخر.",
+      "lookupFailed": "تعذّر التحقق من جهات اتصالك.",
+      "retry": "إعادة المحاولة",
       "viewContact": "تم الحفظ — عرض جهة الاتصال",
       "openContact": "فتح جهة الاتصال"
     },
@@ -929,6 +974,7 @@
       "undoFailed": "تعذّر إلغاء التذكير",
       "upcomingTitle": "التذكيرات المفتوحة لهذا العميل",
       "upcomingEmpty": "لا تذكيرات قادمة",
+      "upcomingFailed": "تعذر تحميل التذكيرات الحالية",
       "unassigned": "غير مُسنَد",
       "done": "تم",
       "markDone": "تعليم «{title}» كمنجز",
@@ -938,8 +984,11 @@
   },
   "Contacts": {
     "page": {
+      "selectAllOnPage": "تحديد كل جهات الاتصال في هذه الصفحة",
+      "selectOne": "تحديد {name}",
       "title": "جهات الاتصال",
       "subtitle": "أدر قائمة جهات الاتصال. الإجمالي {count} جهة اتصال.",
+      "subtitleFirst": "أدر قائمة جهات الاتصال. أول {count} نتيجة؛ اكتب المزيد لتضييقها.",
       "subtitleZero": "أدر قائمة جهات الاتصال.",
       "customFieldsBtn": "الحقول المخصصة",
       "importBtn": "استيراد",
@@ -972,6 +1021,7 @@
       "optedOutHint": "ألغى الاشتراك في {date}. طلب عدم مراسلته. تتخطى الحملات هذا العميل.",
       "editAction": "تعديل",
       "deleteAction": "حذف",
+      "showingFirst": "عرض {start}-{end} من أول {total} نتيجة",
       "showingPagination": "عرض {start}-{end} من {total}",
       "pageCount": "الصفحة {page} من {total}",
       "deleteContactTitle": "حذف جهة الاتصال",
@@ -990,11 +1040,40 @@
       "toastBulkNotDeleted": "لم تُحذف أي جهة اتصال. ربما لم يعد لديك صلاحية الوصول، أو تم حذفها بالفعل.",
       "toastBulkDeleted": "تم حذف {count} من جهات الاتصال"
     },
+    "deleteDialog": {
+      "checking": "جارٍ التحقق مما سيُحذف معه…",
+      "deletedTitle": "{count, plural, one {يُحذف مع العميل:} other {يُحذف مع العملاء:}}",
+      "keptTitle": "{count, plural, one {يبقى دون العميل:} other {يبقى دون العملاء:}}",
+      "chats": "{count, plural, one {محادثة واحدة برسائلها} two {محادثتان برسائلهما} few {# محادثات برسائلها} other {# محادثة برسائلها}}",
+      "tasks": "{count, plural, one {مهمة مفتوحة واحدة} two {مهمتان مفتوحتان} few {# مهام مفتوحة} other {# مهمة مفتوحة}}",
+      "dealRooms": "{count, plural, one {غرفة صفقة واحدة} two {غرفتا صفقة} few {# غرف صفقات} other {# غرفة صفقة}}",
+      "deals": "{count, plural, one {صفقة واحدة} two {صفقتان} few {# صفقات} other {# صفقة}}",
+      "documents": "{count, plural, one {مستند واحد} two {مستندان} few {# مستندات} other {# مستندًا}}",
+      "cases": "{count, plural, one {ملف واحد} two {ملفان} few {# ملفات} other {# ملفًا}}",
+      "optOutNote": "يُحفظ إلغاء الاشتراك أو عدم التواصل، ويُطبَّق من جديد إذا أُضيف الرقم مرة أخرى.",
+      "blockedOne": "لا يمكن حذف هذا العميل بعد:",
+      "blockedSome": "{count, plural, one {جهة اتصال واحدة لا يمكن حذفها بعد، ولن تُحذف:} two {جهتا اتصال لا يمكن حذفهما بعد، ولن تُحذفا:} few {# جهات اتصال لا يمكن حذفها بعد، ولن تُحذف:} other {# جهة اتصال لا يمكن حذفها بعد، ولن تُحذف:}}",
+      "blockedAll": "لا يمكن حذف أي من جهات الاتصال هذه بعد:",
+      "blockedRow": "{name}: {reason}",
+      "blockedHint": "أغلق الأعمال المفتوحة أولاً. ويُرفع الحجز القانوني من الإعدادات ثم الخصوصية.",
+      "more": "و{count} غيرها",
+      "moreNames": "{count} غيرها",
+      "close": "إغلاق",
+      "reasonLegalHold": "حجز قانوني",
+      "reasonCases": "{count, plural, one {ملف مفتوح واحد} two {ملفان مفتوحان} few {# ملفات مفتوحة} other {# ملفًا مفتوحًا}}",
+      "reasonDealRooms": "{count, plural, one {غرفة صفقة مفتوحة واحدة} two {غرفتا صفقة مفتوحتان} few {# غرف صفقات مفتوحة} other {# غرفة صفقة مفتوحة}}",
+      "reasonSubmissionGroups": "{count, plural, one {مجموعة طلب نشطة واحدة} two {مجموعتا طلب نشطتان} few {# مجموعات طلبات نشطة} other {# مجموعة طلب نشطة}}",
+      "reasonOpenWork": "أعمال مفتوحة",
+      "reasonFailed": "تعذّر الحذف، حاول مرة أخرى",
+      "stayedRow": "{name} ({reason})",
+      "toastRefused": "لم يتم حذف {name}: {reason}.",
+      "toastBulkStayed": "تم حذف {count} من أصل {total} من جهات الاتصال. لم تُحذف: {names}."
+    },
     "form": {
       "addTitle": "إضافة جهة اتصال",
-      "addDesc": "أنشئ جهة اتصال جديدة. الاسم مطلوب.",
+      "addDesc": "أنشئ جهة اتصال جديدة. رقم الهاتف مطلوب، والاسم اختياري.",
       "editTitle": "تعديل جهة الاتصال",
-      "editDesc": "حدّث تفاصيل جهة الاتصال ووسومها.",
+      "editDesc": "حدّث رقم هاتف جهة الاتصال واسمها وبريدها الإلكتروني وشركتها.",
       "nameLabel": "الاسم",
       "namePlaceholder": "محمد أحمد",
       "phoneLabel": "رقم الهاتف",
@@ -1011,6 +1090,18 @@
       "toastSuccessAdd": "تم إنشاء جهة الاتصال بنجاح",
       "toastSuccessEdit": "تم تحديث جهة الاتصال بنجاح",
       "toastError": "تعذّر حفظ جهة الاتصال",
+      "close": "إغلاق",
+      "notAuthenticated": "لم تسجّل الدخول. سجّل الدخول مرة أخرى وأعد المحاولة.",
+      "profileNotLinked": "ملفك الشخصي غير مرتبط بحساب.",
+      "phoneError": {
+        "scientific_notation": "رقم الهاتف مكتوب بالصيغة العلمية لجداول البيانات وفقد بعض أرقامه. أدخل الرقم كاملاً مع رمز الدولة، مثال: {example}",
+        "malformed": "يحتوي رقم الهاتف على رموز غير مناسبة. أدخل الأرقام 0-9 فقط مع رمز الدولة (المسافات و+ ( ) - . / مسموحة)، مثال: {example}",
+        "missing_country_code": "رقم الهاتف بلا رمز الدولة. استبدل الصفر في البداية برمز الدولة، مثال: {example}",
+        "too_short": "رقم الهاتف قصير جداً. أضف رمز الدولة، مثال: {example}",
+        "too_long": "رقم الهاتف طويل جداً. أدخل رقماً واحداً مع رمز الدولة، مثال: {example}",
+        "invalid_uae": "هذا ليس رقماً إماراتياً صحيحاً. أدخل +971 ثم رقم الجوال المكوّن من 9 أرقام ويبدأ بـ 5، مثال: {example} (الهاتف الأرضي هو +971 و8 أرقام)",
+        "invalid_number": "رقم الهاتف غير صالح لرمز دولته. إذا كان رقماً محلياً فأضف رمز الدولة، مثال: {example}"
+      },
       "toastNotSaved": "لم يتم الحفظ. ربما لم يعد لديك صلاحية الوصول، أو تم حذف جهة الاتصال.",
       "toastConflict": "توجد جهة اتصال بهذا الرقم بالفعل",
       "viewExisting": "عرض {name}",
@@ -1072,7 +1163,6 @@
       "toastCustomFieldsSaved": "تم حفظ الحقول المخصصة",
       "toastCustomFieldsNotSaved": "لم يُحفظ: {names}. حاول مرة أخرى.",
       "toastCustomFieldsGone": "لم يُحفظ: {names}. ربما لم يعد لديك صلاحية الوصول، أو تم حذف القيمة بالفعل.",
-      "toastTemplateSent": "أُرسل القالب «{name}»",
       "toastTemplateFailed": "تعذّر إرسال القالب: {reason}",
       "sendPersonalBtn": "مراسلة من WhatsApp الخاص بي",
       "noPersonalNumber": "ليس لديك رقم WhatsApp شخصي مربوط.",
@@ -1091,7 +1181,9 @@
       "channelHint": {
         "message": "تُرسل الرسائل من {channel}",
         "template": "تُرسل القوالب من {channel}"
-      }
+      },
+      "toastTemplateHandedOver": "سُلّم القالب «{name}» إلى WhatsApp. افتح المحادثة لمعرفة ما إذا تم تسليمه.",
+      "toastOpenChat": "فتح المحادثة"
     },
     "importModal": {
       "planChecking": "جارٍ التحقق من الأرقام الموجودة لديك…",
@@ -1106,18 +1198,21 @@
       "problemNoPhone": "لا يوجد رقم هاتف.",
       "problemNotSaved": "تعذّر الحفظ: {reason}",
       "problemsMore": "+ {count} أخرى",
+      "savedAs": "عميل بالفعل (محفوظ باسم {savedAs})",
+      "errorEncoding": "تعذّرت قراءة بعض الحروف في هذا الملف. احفظه في Excel بصيغة «CSV UTF-8» أو ‎.xlsx ثم ارفعه.",
+      "errorXls": "هذا مصنف .xls قديم. احفظه بصيغة .xlsx أو CSV ثم ارفعه.",
+      "errorXlsxLimit": "هذا المصنف كبير جدًا بحيث لا يمكن استيراده: {reason}",
+      "errorCsvParse": "تعذرت قراءة الملف.",
       "closeConfirm": "لا يزال الاستيراد جارياً. هل تريد إيقافه؟ ستبقى جهات الاتصال التي تم استيرادها.",
       "keepImporting": "متابعة الاستيراد",
       "stopAndClose": "إيقاف وإغلاق",
       "title": "استيراد جهات الاتصال",
-      "desc": "ارفع ملف CSV يحتوي على عمود <phoneCode>phone</phoneCode> إلزامي. اختيارياً: <nameCode>name</nameCode> و<emailCode>email</emailCode> و<companyCode>company</companyCode>. تُتجاهل الأعمدة الأخرى، بما فيها <tagsCode>tags</tagsCode>.",
-      "uploadDropzone": "انقر لاختيار ملف CSV",
-      "uploadHint": ".csv حتى حد المتصفح لديك",
-      "rowsReady": "{count} صف جاهز",
-      "rowsReady_plural": "{count} صفوف جاهزة",
+      "desc": "ارفع ملف CSV أو Excel (‎.xlsx، الورقة الأولى) يحتوي على عمود <phoneCode>phone</phoneCode> إلزامي. اختيارياً: <nameCode>name</nameCode> و<emailCode>email</emailCode> و<companyCode>company</companyCode>. تُتجاهل الأعمدة الأخرى، بما فيها <tagsCode>tags</tagsCode>.",
+      "uploadDropzone": "انقر لاختيار ملف CSV أو Excel",
+      "uploadHint": ".csv أو ‎.xlsx حتى حد المتصفح لديك",
+      "rowsReady": "{count, plural, one {# صف جاهز} other {# صفوف جاهزة}}",
       "preview": "معاينة · أول {count}",
-      "moreRows": "+ {count} صف آخر غير معروض",
-      "moreRows_plural": "+ {count} صفوف أخرى غير معروضة",
+      "moreRows": "{count, plural, one {+ # صف آخر غير معروض} other {+ # صفوف أخرى غير معروضة}}",
       "importComplete": "اكتمل الاستيراد",
       "resultImported": "تم استيراد {count}",
       "resultSkipped": "تم تخطي {count}",
@@ -1130,15 +1225,11 @@
       },
       "cancel": "إلغاء",
       "close": "إغلاق",
-      "importBtn": "استيراد {count} جهة اتصال",
-      "importBtn_plural": "استيراد {count} من جهات الاتصال",
-      "toastNoValidRows": "لم يُعثر على صفوف صالحة. تأكد من أن ملف CSV يحتوي على عنوان عمود «phone».",
-      "toastImported": "تم استيراد {count} جهة اتصال",
-      "toastImported_plural": "تم استيراد {count} من جهات الاتصال",
-      "toastSkipped": "تم تخطي {count} مكرر",
-      "toastSkipped_plural": "تم تخطي {count} من المكررات",
-      "toastFailed": "فشل استيراد {count} جهة اتصال",
-      "toastFailed_plural": "فشل استيراد {count} من جهات الاتصال",
+      "importBtn": "{count, plural, one {استيراد # جهة اتصال} other {استيراد # من جهات الاتصال}}",
+      "toastNoValidRows": "لم يُعثر على صفوف صالحة. تأكد من أن الملف يحتوي على عنوان عمود «phone».",
+      "toastImported": "{count, plural, one {تم استيراد # جهة اتصال} other {تم استيراد # من جهات الاتصال}}",
+      "toastSkipped": "{count, plural, one {تم تخطي # مكرر} other {تم تخطي # من المكررات}}",
+      "toastFailed": "{count, plural, one {فشل استيراد # جهة اتصال} other {فشل استيراد # من جهات الاتصال}}",
       "toastError": "فشل الاستيراد"
     },
     "customFields": {
@@ -1376,10 +1467,13 @@
       "delivered": "تم التسليم",
       "read": "تمت القراءة",
       "replied": "تم الرد",
-      "unknown": "غير معروف"
+      "unknown": "غير معروف",
+      "stopped": "متوقفة"
     },
     "detail": {
       "backToBroadcasts": "العودة إلى الحملات",
+      "refreshFailed": "تعذّر التحديث: {error}",
+      "retry": "إعادة المحاولة",
       "notFound": "الحملة غير موجودة",
       "template": "القالب: {name}",
       "createdAt": "تاريخ الإنشاء {date}",
@@ -1430,7 +1524,13 @@
       "toastResumeStarted": "جارٍ إرسال الرسالة إلى {count} من المستلمين في الخلفية.",
       "toastResumeStartedCapped": "جارٍ إرسال الرسالة إلى {count} من المستلمين في الخلفية. سيحتاج {remaining} آخرون إلى تشغيل إضافي.",
       "toastResumeFailed": "تعذر الاستئناف: {error}",
-      "followUpFlow": "تبدأ الردود المسار <link>{name}</link>."
+      "followUpFlow": "تبدأ الردود المسار <link>{name}</link>.",
+      "stop": "إيقاف",
+      "stopPrompt": "تتوقف الحملة بعد الرسالة الجاري إرسالها الآن. من استلمها تبقى لديه. يمكنك الاستئناف لاحقًا.",
+      "toastStopped": "تم إيقاف الحملة: أُرسلت إلى {sent}، ولم تُرسل إلى {remaining}",
+      "toastFailedStop": "تعذّر إيقاف الحملة: {error}",
+      "stoppedTitle": "هذه الحملة متوقفة",
+      "stoppedHint": "{count, plural, one {لم يستلمها شخص واحد (#).} other {لم يستلمها # من الأشخاص.}} يؤدي الاستئناف إلى إرسالها إليهم الآن."
     },
     "new": {
       "title": "حملة جديدة",
@@ -1512,7 +1612,7 @@
         "excludeChatTags": "استبعاد أوسمة المحادثة (اختياري)",
         "optedOutSkipped": "{count, plural, one {سيتم تخطي # عميل طلب عدم مراسلته.} other {سيتم تخطي # عملاء طلبوا عدم مراسلتهم.}}",
         "frequencyCap": "حد التكرار",
-        "frequencyCapDesc": "تخطَّ جهات الاتصال التي استلمت أي حملة خلال آخر N يومًا. القيمة 0 تعني إيقاف الحد.",
+        "frequencyCapDesc": "تخطَّ جهات الاتصال التي راسلتها حملة أخرى خلال آخر N يومًا أو ستراسلها قريبًا. يُعاد التحقق عند إرسال الحملة. القيمة 0 تعني إيقاف الحد.",
         "frequencyCapDays": "أيام",
         "field": "الحقل",
         "selectField": "اختر حقلًا...",
@@ -1529,6 +1629,7 @@
         "errorLoadFields": "تعذر تحميل الحقول المخصصة",
         "csvBadLines": "أسطر تعذّرت قراءتها (علامة اقتباس لم تُغلق): {lines}.",
         "errorCsvParse": "تعذرت قراءة الملف.",
+        "errorEncoding": "تعذّرت قراءة بعض الحروف في هذا الملف. احفظه في Excel بصيغة «CSV UTF-8» أو ‎.xlsx ثم ارفعه.",
         "errorXlsxLimit": "هذا المصنف كبير جدًا بحيث لا يمكن استيراده: {reason}",
         "errorCsvMissingPhone": "يجب أن يحتوي الملف على عمود «phone» أو «Phone Number».",
         "errorXls": "هذا مصنف .xls قديم. احفظه بصيغة .xlsx أو CSV ثم ارفعه.",
@@ -1702,7 +1803,8 @@
         "updateError": "فشل التحديث",
         "duplicateError": "فشل التكرار",
         "deleteError": "فشل الحذف"
-      }
+      },
+      "neverRuns": "مفعّلة، لكنها لا تعمل أبدًا"
     },
     "edit": {
       "loading": "جارٍ التحميل...",
@@ -1824,7 +1926,9 @@
         "email": "البريد الإلكتروني",
         "company": "الشركة",
         "customFields": "حقول مخصصة",
-        "unknown": "{id} (حقل غير معروف)"
+        "unknown": "{id} (حقل غير معروف)",
+        "phone": "الهاتف",
+        "choose": "اختر حقلًا…"
       },
       "agents": {
         "select": "اختر موظفًا…",
@@ -1848,7 +1952,10 @@
         "languageLabel": "اللغة",
         "select": "اختر قالبًا…",
         "unknown": "{name} ({lang}) — ليس في قائمة المعتمدة",
-        "unknownLang": "غير معروفة"
+        "unknownLang": "غير معروفة",
+        "value": "قيمة {name}",
+        "headerValue": "قيمة الترويسة",
+        "valuesHint": "مطلوب. استخدم {{ message.text }} لإدراج رسالة العميل."
       },
       "branches": {
         "yes": "نعم",
@@ -1917,7 +2024,10 @@
           "placeholderText": "حدّد الفرز أن هذا العميل المحتمل جاهز للتقديم.",
           "textHint": "يُنشر باسم «wacrm · automation» ولا يُشعر أحدًا. **العلامتان المزدوجتان للنجمة** تجعلان نصك غامقًا؛ ويتم ملء {{ message.text }} و{{ vars.x }} دون تغميق أو إشارات. يرى المنشور كل من يستطيع قراءة القناة، حتى من لا يستطيع رؤية المحادثة: في قناة الفريق هذا يشمل كل موظف، والمشاهدين أيضًا. لا يُنشر أبدًا في قناة فيها ضيف بنك."
         }
-      }
+      },
+      "triggerNotAvailable": "{trigger} (غير متاح بعد)",
+      "triggerNotAvailableWhy": "لا يمكن استخدام المشغّلات المعلّمة «غير متاح بعد»: لا شيء يشغّلها حتى الآن.",
+      "triggerNotRunning": "هذا المشغّل لا يعمل بعد، لذلك لا يمكن تفعيل الأتمتة."
     }
   },
   "Flows": {
@@ -2140,7 +2250,17 @@
       "fixIssues": "أصلح المشكلات أدناه قبل التفعيل.",
       "statusActivated": "تم تفعيل المسار.",
       "statusArchived": "تمت الأرشفة.",
-      "statusDraft": "تم الحفظ كمسودة."
+      "statusDraft": "تم الحفظ كمسودة.",
+      "saveFailed": "تعذّر حفظ المسار. تغييراتك ما زالت هنا؛ حاول مرة أخرى.",
+      "fixBeforeSaving": "هذا المسار مفعّل. أصلح المشكلات أدناه أو أوقفه مؤقتًا قبل الحفظ.",
+      "changedTitle": "قام شخص آخر بحفظ هذا المسار",
+      "changedBy": "حفظ {name} هذا المسار في {time}، بعد أن فتحته.",
+      "changedAt": "حُفظ هذا المسار في {time}، بعد أن فتحته.",
+      "changedChoices": "لم تُحفظ تغييراتك. أعد التحميل لرؤية المسار المحفوظ، وستفقد تغييراتك، أو احتفظ بنسختك.",
+      "reload": "إعادة التحميل",
+      "keepMine": "الاحتفاظ بنسختي",
+      "keepMineWarning": "ستحل نسختك محل نسختهم. لا يمكن التراجع عن ذلك.",
+      "keepMineConfirm": "استبدال نسختهم"
     },
     "summary": {
       "options": "{count} {count, plural, =1 {خيار} other {خيارات}}",
@@ -2340,6 +2460,8 @@
       "memberFailed": "فشل تغيير القسم"
     },
     "members": {
+      "loadFailed": "تعذر تحميل أعضاء الفريق.",
+      "invitationsLoadFailed": "تعذر تحميل الدعوات المعلقة.",
       "title": "أعضاء الفريق",
       "description": "الأشخاص الذين لديهم صلاحية الوصول إلى هذا الحساب. تحدد الأدوار ما يمكن لكل زميل فعله.",
       "inviteMember": "دعوة عضو",
@@ -2381,6 +2503,7 @@
       "reactivate": "إعادة التفعيل",
       "deactivatedOn": "تم التعطيل {date}",
       "deactivatedToast": "تم تعطيل {name}. لم يعد بإمكانه تسجيل الدخول.",
+      "deactivatedHereToast": "تم تعطيل {name} في مساحة العمل هذه. لا يزال بإمكانه تسجيل الدخول إلى مساحة العمل الأخرى.",
       "personal": {
         "badge": "WhatsApp خاص",
         "allow": "السماح بـ WhatsApp خاص",
@@ -2400,6 +2523,11 @@
         "removedToast": "لم يعد {name} يراجع كل مكالمة",
         "notEligible": "لا يمكن أن يكون هذا العضو مراجع مكالمات",
         "failed": "تعذر تحديث العضو"
+      },
+      "activeFailed": {
+        "deactivation_undone": "تعذّر تعطيل تسجيل دخول {name}. أصبح الحساب نشطًا من جديد، لكن أُزيل ما كان له من فريق وتحويلة هاتف وصلاحية تقارير: أعد تعيينها.",
+        "deactivation_half_done": "{name} معطّل هنا، لكن تعذّر إيقاف تسجيل دخوله. أعد تفعيله ثم عطّله مرة أخرى.",
+        "reactivation_half_done": "{name} نشط هنا من جديد، لكن تسجيل دخوله ما زال موقوفًا. عطّله ثم أعد تفعيله."
       },
       "reactivatedToast": "تمت إعادة تفعيل {name}",
       "deactivateDialogTitle": "تعطيل عضو",
@@ -2465,7 +2593,20 @@
         "failed": "تعذّر تسليم العمل. حاول مرة أخرى.",
         "later": "ليس الآن",
         "removeWarning": "لا يزال لدى {name} {what}. إزالته تترك هذا العمل بلا صاحب: سلّمه أولاً.",
-        "noPeople": "لا يوجد شخص آخر لتسليم العمل إليه."
+        "noPeople": "لا يوجد شخص آخر لتسليم العمل إليه.",
+        "holdsKeys": "أنشأ {count, plural, one {مفتاح API واحدًا} two {مفتاحَي API} few {# مفاتيح API} many {# مفتاح API} other {# مفتاح API}} ما زال فعالًا",
+        "keysTitle": "{count, plural, one {مفتاح API واحد} two {مفتاحا API} few {# مفاتيح API} many {# مفتاح API} other {# مفتاح API}} أنشأها هذا الشخص",
+        "keysHint": "لا يُلغى شيء تلقائيًا: قد يعمل تكامل ما بمفتاح. ألغِ المفاتيح التي لا يحتاجها أحد.",
+        "keyLastUsed": "آخر استخدام {date}",
+        "keyNeverUsed": "لم يُستخدم قط",
+        "revoke": "إلغاء",
+        "revokeConfirm": "إلغاء المفتاح \"{name}\"؟ سيتوقف كل ما يستخدمه فورًا.",
+        "revoked": "أُلغي المفتاح \"{name}\".",
+        "revokeFailed": "تعذّر إلغاء المفتاح. حاول مرة أخرى.",
+        "keysUnreadable": "تعذّرت قراءة مفاتيح API.",
+        "removeKeysWarning": "أنشأ {name} {count, plural, one {مفتاح API واحدًا} two {مفتاحَي API} few {# مفاتيح API} many {# مفتاح API} other {# مفتاح API}} تبقى فعالة بعد إزالته: ألغِ ما لا يحتاجه أحد.",
+        "strayTitle": "{count, plural, one {مفتاح API واحد} two {مفتاحا API} few {# مفاتيح API} many {# مفتاح API} other {# مفتاح API}} بلا مسؤول وراءها",
+        "strayHint": "أنشأها شخص لم يعد في مساحة العمل هذه. تبقى تعمل حتى تُلغى."
       }
     },
     "invite": {
@@ -2565,24 +2706,32 @@
       "title": "قوالب الرسائل",
       "description": "أنشئ قوالب وأرسلها إلى Meta للاعتماد. استخدم «مزامنة من Meta» لجلب القوالب المعتمدة من مكان آخر.",
       "syncFromMeta": "مزامنة من Meta",
+      "notLinkedToMeta": "غير مرتبط بـ Meta. أرسله، أو اضغط «مزامنة» إذا كان موجوداً لدى Meta.",
+      "submitToMeta": "إرسال إلى Meta",
+      "submitToMetaTitle": "هل تريد إرسال «{name}» إلى Meta؟",
+      "submitToMetaDesc": "تراجعه Meta، وقد يستغرق ذلك حتى 24 ساعة. لا يمكن تغيير النص أثناء المراجعة.",
+      "submitToMetaConfirm": "إرسال",
+      "submitRefusedBefore": "رفضته Meta سابقاً: {reason}",
+      "submitBlocked": {
+        "media_header": "يحتوي رأس هذا القالب على صورة أو فيديو أو مستند. تحتاج Meta إلى رفع هذا الملف لديها، لذلك لا يمكن إرساله من هنا. أنشئه في WhatsApp Manager ثم اضغط «مزامنة».",
+        "authentication": "لا يمكن إرسال قوالب المصادقة من هنا. أنشئه في WhatsApp Manager ثم اضغط «مزامنة»."
+      },
+      "toastMetaHasIt": "لدى Meta بالفعل قالب بهذا الاسم وهذه اللغة. اضغط «مزامنة» لإحضاره.",
+      "toastMetaNoAnswer": "لم تستجب Meta. ربما تم إرسال القالب: اضغط «مزامنة» بعد دقيقة.",
+      "toastTemplateGone": "تم حذف هذا القالب أو تغيير اسمه. تم تحديث القائمة.",
       "syncing": "جارٍ المزامنة…",
       "syncTitle": "جلب القوالب المعتمدة من حساب WhatsApp Business الخاص بك في Meta",
       "newTemplate": "قالب جديد",
       "noTemplates": "لا توجد قوالب بعد.",
       "createFirst": "أنشئ أول قالب رسائل للبدء.",
-      "editTitle": "التعديل يستدعي مراجعة جديدة من Meta — وتتحول الحالة إلى PENDING.",
+      "editTitle": "عدّل هذا القالب هنا. لا يُرسل التعديل إلى Meta.",
       "editLabel": "تعديل القالب",
       "edit": "تعديل",
-      "resubmitTitle": "عدّل القالب وأعد إرساله إلى Meta للمراجعة.",
-      "resubmitLabel": "تعديل القالب وإعادة إرساله",
-      "resubmit": "إعادة الإرسال",
-      "deleteMetaLocallyAria": "حذف القالب من Meta ومحلياً",
-      "deleteLocallyAria": "حذف القالب محلياً",
-      "deleteMetaLocallyTitle": "حذف من Meta ومحلياً",
-      "deleteLocallyTitle": "حذف محلياً",
+      "deleteLocallyAria": "حذف القالب من هذا النظام",
+      "deleteLocallyTitle": "حذف من هذا النظام",
       "dialogEditTitle": "تعديل قالب الرسائل",
       "dialogNewTitle": "قالب رسائل جديد",
-      "dialogEditDesc": "احفظ تعديلاتك لإعادة إرسالها إلى Meta. ستعود الحالة إلى PENDING أثناء المراجعة.",
+      "dialogEditDesc": "تُحفظ تعديلاتك هنا وتستخدمها الأرقام المرتبطة. لا تُرسل إلى Meta.",
       "dialogNewDesc": "أنشئ قالباً وأرسله إلى Meta للاعتماد. بعد الاعتماد يمكنك استخدامه في الحملات وصندوق الوارد.",
       "authWarning": "قوالب AUTHENTICATION لها شكل ثابت (نص + زر OTP) ويلزمها منشئ مختلف. أنشئها في Meta WhatsApp Manager حالياً واستخدم <bold>مزامنة من Meta</bold> لجلبها.",
       "templateName": "اسم القالب",
@@ -2603,8 +2752,8 @@
       "headerSampleAria": "قيمة نموذجية لمتغير الترويسة",
       "headerSamplePlaceholder": "قيمة نموذجية لـ {{1}} (مطلوبة لمراجعة Meta)",
       "mediaUrlPlaceholder": "https://… (أو الصق رابط {format} عاماً)",
-      "imageHint": "ارفع صورة JPEG/PNG (≤5 MB، يُفضّل ≥800×418 بكسل) أو الصق رابط HTTPS عاماً — سنرفعها إلى Meta للمراجعة تلقائياً.",
-      "mediaHint": "يجب أن يكون رابط HTTPS متاحاً للعموم. تجلبه Meta مرة واحدة أثناء المراجعة، لذا يجب أن يبقى متاحاً نحو 24 ساعة.",
+      "imageHint": "ارفع صورة JPEG/PNG (≤5 MB، يُفضّل ≥800×418 بكسل) أو الصق رابط HTTPS عاماً. لا نرفعها إلى Meta: لاستخدام هذا القالب على رقم Meta، أنشئه في WhatsApp Manager ثم اضغط «مزامنة».",
+      "mediaHint": "يجب أن يكون رابط HTTPS عاماً ويبقى متاحاً. لا نرفعه إلى Meta: لاستخدام هذا القالب على رقم Meta، أنشئه في WhatsApp Manager ثم اضغط «مزامنة».",
       "videoHint": " المُوصى به: MP4 / 3GPP، ≤16 MB، ≤60 ثانية.",
       "documentHint": " المُوصى به: PDF، ≤100 MB.",
       "bodyText": "نص الرسالة",
@@ -2630,17 +2779,17 @@
       "cancel": "إلغاء",
       "saving": "جارٍ الحفظ…",
       "submitting": "جارٍ الإرسال…",
-      "saveResubmit": "حفظ وإعادة الإرسال",
       "submitApproval": "إرسال للاعتماد",
       "deleteDialogTitle": "حذف القالب؟",
-      "deleteMetaDesc": "سيُحذف \"{name}\" من Meta ومن Taamul Connect. ستبدأ الحملات النشطة التي تستخدم هذا القالب بالفشل عند إرسالها التالي. لا يمكن التراجع عن هذا.",
-      "deleteLocalDesc": "سيُحذف \"{name}\" من Taamul Connect. لم يُرسل أبداً إلى Meta، فلا حاجة إلى تنظيف عن بُعد.",
+      "deleteMetaDesc": "يُزال \"{name}\" من هذا النظام. يبقى لدى Meta، وتعيده المزامنة ما لم يُحذف في WhatsApp Manager. قد تتوقف الحملات والأتمتة التي تستخدمه عن الإرسال.",
+      "deleteLocalDesc": "يُزال \"{name}\" من هذا النظام. قد تتوقف الحملات والأتمتة التي تستخدمه عن الإرسال. لا يمكن التراجع عن هذا.",
       "deleting": "جارٍ الحذف…",
       "delete": "حذف",
       "toastLoadFailed": "تعذر تحميل القوالب",
       "toastSubmitFailed": "تعذر الإرسال",
-      "toastSubmitEditSuccess": "تم إرسال التعديل — تراجع Meta عادةً خلال 24 ساعة.",
       "toastSubmitNewSuccess": "تم الإرسال إلى Meta — مدة المراجعة المعتادة 24 ساعة. تتحدث الحالة تلقائياً.",
+      "toastTemplateExists": "يوجد قالب بهذا الاسم وهذه اللغة بالفعل. عدّله أو اختر اسماً آخر.",
+      "toastMetaAcceptedNotSaved": "قبلت Meta هذا القالب، لكن تعذر حفظه هنا بالكامل. اضغط «مزامنة» لإحضاره.",
       "toastSaveEditDry": "تم تحديث القالب (تجريبي — دون اتصال بـ Meta)",
       "toastSaveNewDry": "تم حفظ القالب (تجريبي — دون اتصال بـ Meta)",
       "toastSyncCount": "تمت مزامنة {total} {total, plural, =1 {قالب} other {قوالب}} من Meta",
@@ -2665,7 +2814,13 @@
       },
       "toastInvalidMedia": "يجب أن تكون ترويسة {format} أحد الأنواع: {types}.",
       "toastMediaTooLarge": "حجم الملف {size} MB — الحد الأقصى لهذه الترويسة {max} MB.",
-      "editInMeta": "هذا القالب تابع لـ Meta. عدّله في Meta Business Manager ثم نفّذ المزامنة."
+      "editInMeta": "هذا القالب تابع لـ Meta. عدّله في Meta Business Manager ثم نفّذ المزامنة.",
+      "toastEditSaved": "تم الحفظ هنا. لا يُرسل التعديل إلى Meta.",
+      "toastSavedLinkedOnly": "تم الحفظ. لا يوجد رقم Meta متصل، لذا لا يمكن إرساله إلا من الأرقام المرتبطة.",
+      "toastSavedMetaUnavailable": "تم الحفظ هنا، لكنه لم يُرسل إلى Meta: تعذر استخدام رقم Meta. تحقق منه في الإعدادات ثم أعد إرسال القالب.",
+      "toastMetaRefused": "تم الحفظ للأرقام المرتبطة فقط. رفضته Meta: {reason}",
+      "metaRefusedIt": "رفضته Meta: {reason}",
+      "saveEdit": "حفظ"
     },
     "roles": {
       "admin": "مسؤول",
@@ -2732,6 +2887,7 @@
       "mirrorInboundDesc": "يحذف Whapi الملفات الواردة بعد نحو 30 يومًا. عند التفعيل، يُنسخ كل مرفق إلى تخزينك الخاص فور وصوله، فتحتفظ المحادثات القديمة بمرفقاتها.",
       "mirrorInboundOffWarning": "عند الإيقاف، تصبح المرفقات غير متاحة بعد نحو 30 يومًا من وصولها.",
       "mirrorInboundSaveFailed": "فشل حفظ إعداد الاحتفاظ بالوسائط",
+      "mirrorInboundSaveGone": "لم يُحفظ: تمت إزالة هذا الرقم أو لم تعد لديك صلاحية تعديله.",
       "saving": "جارٍ الحفظ…",
       "saveConfig": "حفظ واتصال",
       "testing": "جارٍ الاختبار…",
@@ -2851,6 +3007,7 @@
       "description": "وجّه كل نوع من الرسائل إلى أحد أرقامك المربوطة.",
       "loading": "جارٍ تحميل التوجيه…",
       "loadFailed": "تعذّر تحميل التوجيه",
+      "retry": "إعادة المحاولة",
       "connectedNumbers": "الأرقام المربوطة",
       "noChannels": "لا توجد أرقام WhatsApp مربوطة بعد.",
       "unnamedChannel": "رقم بلا اسم",
@@ -2911,6 +3068,8 @@
       "makeDefault": "جعله الافتراضي",
       "madeDefault": "أصبح {name} الرقم الافتراضي",
       "chatCount": "{count} {count, plural, =1 {محادثة} other {محادثات}}",
+      "chatCountUnknown": "تعذّر عدّ المحادثات",
+      "removeChatsUnknown": "تعذّر عدّ المحادثات على هذا الرقم.",
       "rename": "إعادة تسمية",
       "renamed": "تمت إعادة التسمية إلى {name}",
       "saveName": "حفظ الاسم",
@@ -2921,13 +3080,24 @@
       "sharedBody": "لم يُخصص لأحد — يمكن لكل عضو بدء محادثات من هذا الرقم.",
       "allocatedTitle": "مخصص لـ {count} {count, plural, =1 {شخص} other {أشخاص}}",
       "teamsLine": "الفرق: {names}",
-      "teamsEmptyShared": "لا يوجد أحد في فرقه بعد، لذا لا يزال مشتركاً مع الجميع.",
+      "adminsOnlyTitle": "للمشرفين فقط: لم يُخصص لأحد",
+      "adminsOnlyBody": "غادر كل من خُصص لهم هذا الرقم. خصّص أشخاصاً أو فرقاً، أو احفظ القائمتين فارغتين لمشاركته مع الجميع.",
+      "accessChanged": "غيّر مشرف آخر من يمكنه استخدام {name}، لذا لم يُحفظ تغييرك. افتحه مرة أخرى لرؤية ما هو محفوظ.",
+      "accessChangedStored": "غيّر مشرف آخر من يمكنه استخدام هذا الرقم، لذا لم يُحفظ تغييرك. المحفوظ الآن: {stored}. تعرضه إعادة التحميل وتلغي اختيارك.",
+      "accessChangedUnread": "غيّر مشرف آخر من يمكنه استخدام هذا الرقم، لذا لم يُحفظ تغييرك. تعذرت قراءة ما هو محفوظ الآن.",
+      "accessGone": "لم يعد {name} متصلاً، لذا لم يُحفظ تغييرك.",
+      "storedPeople": "الأشخاص: {names}",
+      "storedTeams": "الفرق: {names}",
+      "leftToAdmins": "لن يتمكن سوى المالكين والمشرفين من استخدام: {names}",
+      "teamsEmptyShared": "لا يوجد أحد في فرقه، لذا لا يمكن لغير المالكين والمشرفين استخدامه.",
       "manageAccess": "إدارة الصلاحيات",
       "accessTitle": "من يعمل على {name}؟",
       "accessDesc": "الأشخاص الذين تحددهم، وكل من في الفرق التي تحددها (بمن فيهم القادة)، يمكنهم الإرسال من هذا الرقم، وتبدأ محادثاتهم الجديدة منه. ولا يزالون يرون محادثاتهم والمُسنَدة إليهم فقط (وقادة الفرق يرون محادثات فرقهم أيضاً). الانضمام إلى فريق محدد أو مغادرته يمنح الرقم أو يسحبه تلقائياً. لا تحدد أحداً لمشاركته مع الجميع.",
       "teamsHeading": "الفرق",
       "teamPeopleCount": "{count} {count, plural, =1 {شخص} other {أشخاص}}",
-      "teamsUnavailable": "تعذر تحميل قائمة الفرق، لذا تُترك صلاحيات الفرق كما هي. أعد تحميل الصفحة لتغييرها.",
+      "teamsUnavailable": "تعذر تحميل قائمة الفرق، لذا تُترك صلاحيات الفرق كما هي.",
+      "teamsNeeded": "تعذر تحميل قائمة الفرق. لا يمكن حفظ قائمة فارغة بدونها: حمّل الفرق ثم احفظ.",
+      "retry": "إعادة المحاولة",
       "peopleHeading": "الأشخاص",
       "searchMembers": "بحث في الأعضاء…",
       "noMembers": "لا يوجد أعضاء مطابقون.",
@@ -2935,11 +3105,13 @@
       "viaTeam": "عبر {names}",
       "draftShared": "لم يُحدد أحد — سيُشارك هذا الرقم مع الجميع.",
       "draftAllocated": "تم تحديد {count} {count, plural, =1 {شخص} other {أشخاص}}.",
-      "draftTeamsEmptyShared": "لا يوجد أحد في الفرق المحددة بعد — يبقى هذا الرقم مشتركاً مع الجميع حتى يصبح لها أعضاء.",
+      "draftAdminsOnly": "لم يعد بإمكان أي ممن حُددوا تسجيل الدخول، لذا لا يمكن لغير المالكين والمشرفين استخدام هذا الرقم.",
+      "draftTeamsEmptyShared": "لا يوجد أحد في الفرق المحددة بعد. حتى يصبح لها أعضاء، لا يمكن لغير المالكين والمشرفين استخدام هذا الرقم.",
       "draftTeamsEmpty": "لا يوجد أحد في الفرق المحددة بعد، لذا لا تضيف أحداً حتى يصبح لها أعضاء.",
       "clearAll": "مسح الكل",
       "saveAccess": "حفظ الصلاحيات",
       "accessShared": "أصبح {name} مشتركاً مع الجميع",
+      "accessAdminsOnly": "لا يمكن الآن لغير المالكين والمشرفين استخدام {name}",
       "accessSaved": "خُصص {name} لـ {count} {count, plural, =1 {شخص} other {أشخاص}}",
       "addTitle": "إضافة رقم Whapi",
       "addDesc": "كل قناة Whapi هي رقم WhatsApp مستقل. أنشئ القناة في panel.whapi.cloud، وامسح رمز QR الخاص بها بالهاتف، ثم الصق رمزها هنا.",
@@ -2959,6 +3131,8 @@
       "removeBody": "تتوقف الرسائل عن الإرسال والوصول على هذا الرقم. يُحتفظ بسجل المحادثات، وتُزال قائمة الصلاحيات. يمكنك إعادة ربطه لاحقاً بالرمز نفسه.",
       "removed": "تم فصل {name}",
       "removeFailed": "تعذر فصل الرقم",
+      "waitingBody": "{count, plural, zero {لم تتم معالجة # رسالة عميل من هذا الرقم بعد وستُفقد. هل تريد الإزالة على أي حال؟} one {لم تتم معالجة رسالة عميل واحدة من هذا الرقم بعد وستُفقد. هل تريد الإزالة على أي حال؟} two {لم تتم معالجة رسالتي عميل من هذا الرقم بعد وستُفقدان. هل تريد الإزالة على أي حال؟} few {لم تتم معالجة # رسائل عملاء من هذا الرقم بعد وستُفقد. هل تريد الإزالة على أي حال؟} many {لم تتم معالجة # رسالة عميل من هذا الرقم بعد وستُفقد. هل تريد الإزالة على أي حال؟} other {لم تتم معالجة # رسالة عميل من هذا الرقم بعد وستُفقد. هل تريد الإزالة على أي حال؟}}",
+      "removeAnyway": "الإزالة على أي حال",
       "cancel": "إلغاء",
       "checking": "جارٍ التحقق…",
       "inboundMissing": "الرسائل الواردة لم تُعدّ لهذا الرقم بعد: يمكنه الإرسال، لكن لن يصل شيء مما يكتبه العملاء.",
@@ -3002,6 +3176,7 @@
       }
     },
     "myWhatsApp": {
+      "loadFailed": "تعذر تحميل رقم WhatsApp الخاص بك.",
       "title": "WhatsApp الخاص بي",
       "explainer": "المحادثات على هذا الرقم مرئية لك ولقائد فريقك والمسؤولين. لا تستخدمه الأتمتة ولا مسارات المحادثة ولا ردود الذكاء الاصطناعي ولا الحملات.",
       "notConfigured": "OpenWA غير مهيأ على هذا الخادم",
@@ -3016,6 +3191,8 @@
       "removeBody": "يؤدي هذا إلى تسجيل خروج هاتفك من نظام CRM. تتوقف الرسائل عن الإرسال والوصول إلى هنا، ويُحتفظ بسجل المحادثات. يمكنك الربط مرة أخرى لاحقًا بمسح رمز جديد.",
       "removed": "تم فصل WhatsApp الخاص بك",
       "removeFailed": "تعذر فصل WhatsApp الخاص بك",
+      "waitingBody": "{count, plural, zero {لم تتم معالجة # رسالة عميل من هذا الرقم بعد وستُفقد. هل تريد الإزالة على أي حال؟} one {لم تتم معالجة رسالة عميل واحدة من هذا الرقم بعد وستُفقد. هل تريد الإزالة على أي حال؟} two {لم تتم معالجة رسالتي عميل من هذا الرقم بعد وستُفقدان. هل تريد الإزالة على أي حال؟} few {لم تتم معالجة # رسائل عملاء من هذا الرقم بعد وستُفقد. هل تريد الإزالة على أي حال؟} many {لم تتم معالجة # رسالة عميل من هذا الرقم بعد وستُفقد. هل تريد الإزالة على أي حال؟} other {لم تتم معالجة # رسالة عميل من هذا الرقم بعد وستُفقد. هل تريد الإزالة على أي حال؟}}",
+      "removeAnyway": "الإزالة على أي حال",
       "gatewayIncomplete": "تم الفصل هنا، لكن تعذر الوصول إلى خادم OpenWA. اطلب من المسؤول إزالة الجلسة هناك.",
       "importExplainer": "تُستورد محادثاتك الفردية مرة واحدة، نصًا فقط. تظهر الرسائل الجديدة تلقائيًا، بما فيها التي تكتبها على هاتفك.",
       "importPreparing": "جارٍ التحضير لاستيراد محادثاتك…",
@@ -3265,7 +3442,7 @@
     },
     "apiKeys": {
       "title": "مفاتيح API",
-      "description": "تصادق المفاتيح على واجهة REST العامة (<apiCode>/api/v1</apiCode>) لتبني أتمتتك الخاصة. أرسلها بصيغة <headerCode>Authorization: Bearer &lt;key&gt;</headerCode>.",
+      "description": "تصادق المفاتيح على واجهة REST العامة (<apiCode>/api/v1</apiCode>) لتبني أتمتتك الخاصة. أرسلها بصيغة <headerCode>Authorization: Bearer {key}</headerCode>.",
       "newApiKey": "مفتاح API جديد",
       "noApiKeys": "لا توجد مفاتيح API بعد.",
       "createOneHint": "انقر <bold>مفتاح API جديد</bold> لإنشاء مفتاح.",
@@ -3298,7 +3475,33 @@
       "newKeyTitle": "مفتاح API جديد",
       "newKeyDesc": "سمِّه باسم التكامل الذي سيستخدمه، وامنحه النطاقات التي يحتاجها فقط.",
       "done": "تم",
-      "networkError": "تعذر الوصول إلى الخادم"
+      "networkError": "تعذر الوصول إلى الخادم",
+      "revokeTitle": "إلغاء هذا المفتاح؟",
+      "revokeBody": "يتوقف فوراً كل ما يستخدم \"{name}\". لا يمكن التراجع عن ذلك.",
+      "revokeStopsWebhooks": "{count, plural, =0 {لا يتبعه أي Webhook مفعّل.} one {يتوقف معه Webhook واحد مفعّل.} two {يتوقف معه اثنان من Webhook المفعّلة.} few {يتوقف معه # من Webhook المفعّلة.} many {يتوقف معه # من Webhook المفعّلة.} other {يتوقف معه # من Webhook المفعّلة.}}",
+      "webhooksTitle": "Webhooks",
+      "webhooksDescription": "الجهات التي تستقبل أحداث مساحة العمل هذه، ويتم إعدادها عبر API. يتوقف Webhook عند إلغاء المفتاح الذي يتبع له. لتشغيله من جديد استخدم API بمفتاح فعّال.",
+      "webhooksLoading": "جارٍ تحميل Webhooks",
+      "webhooksLoadFailed": "تعذر تحميل Webhooks",
+      "noWebhooks": "لا توجد Webhooks",
+      "webhookUnknownHost": "عنوان غير مقروء",
+      "webhookOn": "مفعّل",
+      "webhookOff": "متوقف",
+      "webhookKey": "المفتاح: {name}",
+      "webhookNoKey": "بلا مفتاح: أُنشئ قبل هذا الإصدار، أو حُذف مفتاحه",
+      "webhookFailing": "يفشل منذ {date} ({count, plural, one {إخفاق واحد} two {إخفاقان متتاليان} few {# إخفاقات متتالية} many {# إخفاقاً متتالياً} other {# إخفاق متتالٍ}})",
+      "webhookLastDelivery": "آخر تسليم {date}",
+      "webhookNeverDelivered": "لم يُسلَّم شيء بعد",
+      "webhookSwitchOff": "إيقاف",
+      "webhookDelete": "حذف",
+      "webhookOffTitle": "إيقاف هذا الـ Webhook؟",
+      "webhookOffBody": "لن يستقبل {host} أي أحداث بعد الآن ({events}). لتشغيله من جديد استخدم API بمفتاح فعّال.",
+      "webhookOffSuccess": "تم إيقاف Webhook إلى {host}",
+      "webhookOffFailed": "تعذر إيقاف Webhook",
+      "webhookDeleteTitle": "حذف هذا الـ Webhook؟",
+      "webhookDeleteBody": "لن يستقبل {host} أي أحداث بعد الآن ({events})، ويُحذف سر التوقيع الخاص به. لا يمكن التراجع عن ذلك.",
+      "webhookDeleteSuccess": "تم حذف Webhook إلى {host}",
+      "webhookDeleteFailed": "تعذر حذف Webhook"
     },
     "deals": {
       "title": "الصفقات والعملة",
@@ -3415,6 +3618,7 @@
       "uploadFile": "رفع ملف",
       "uploadTooltip": "PDF أو .txt أو .md أو .csv أو .json — يُستخرج النص ويُضاف كمستند",
       "uploadSuccess": "تمت إضافة المستند (استُخرج {chars} حرف).",
+      "uploadEncoding": "تعذّرت قراءة بعض الحروف في هذا الملف. احفظه نصًا بترميز UTF-8 (في Excel: «CSV UTF-8») ثم ارفعه.",
       "uploadFailed": "فشل الرفع."
     },
     "aiKnowledgeGaps": {
@@ -3485,7 +3689,7 @@
       "cancel": "إلغاء",
       "created": "تم إنشاء {email}",
       "failed": "تعذّر إنشاء المستخدم",
-      "added": "تمت إضافة {email} بحساب دخوله الحالي",
+      "added": "تمت إضافة {email} بحساب دخوله الحالي. يسجّل الدخول بكلمة مروره السابقة؛ عيّن كلمة جديدة عند الحاجة.",
       "noLoginHint": "لا يوجد حساب دخول بهذا البريد الإلكتروني بعد. عيّن كلمة مرور لإنشائه، وشاركها معه مباشرة — لا يُرسل أي بريد إلكتروني.",
       "bankCodeLabel": "البنك",
       "bankCodePlaceholder": "البنك (مثل Mashreq)",
@@ -3549,8 +3753,13 @@
       "numbersHint": "كل من في هذا الفريق وقائده يعملون على هذه الأرقام: يمكنهم الإرسال منها وبدء محادثات جديدة منها. ولا يزالون يرون محادثاتهم والمُسنَدة إليهم فقط (والقادة يرون أيضًا محادثات فريقهم). الانضمام إلى الفريق أو مغادرته يمنح ذلك أو يزيله تلقائيًا.",
       "providerWhapi": "Whapi",
       "providerMeta": "Meta Cloud API",
-      "emptyTeamShared": "لا أعضاء أو قائد لهذا الفريق بعد، لذا تبقى هذه الأرقام مشتركة مع الجميع حتى ينضم أحد.",
-      "emptyTeamSharedShort": "مشتركة مع الجميع حتى ينضم أحد",
+      "emptyTeamShared": "لا أعضاء أو قائد لهذا الفريق بعد، لذا فالرقم المخصص له وحده للمالكين والمشرفين حتى ينضم أحد.",
+      "membersChanged": "غيّر مشرف آخر أعضاء {name}، لذا لم يُحفظ تغييرك. افتح الفريق مرة أخرى لرؤية ما هو محفوظ.",
+      "membersChangedStored": "غيّر مشرف آخر أعضاء هذا الفريق، لذا لم يُحفظ تغييرك. الأعضاء المحفوظون الآن: {names}. تعرضهم إعادة التحميل وتلغي تغييراتك.",
+      "membersChangedUnread": "غيّر مشرف آخر أعضاء هذا الفريق، لذا لم يُحفظ تغييرك. تعذرت قراءة ما هو محفوظ الآن.",
+      "teamGone": "حُذف {name}، لذا لم يُحفظ تغييرك.",
+      "formerMember": "عضو سابق",
+      "emptyTeamSharedShort": "للمشرفين فقط حتى ينضم أحد",
       "unsavedChanges": "تغييرات غير محفوظة",
       "noChanges": "لا تغييرات",
       "discardTitle": "تجاهل تغييراتك؟",
@@ -4513,6 +4722,10 @@
         "notChecked": "لم تتم المراجعة",
         "note": "ملاحظة",
         "remove": "إزالة {bank}",
+        "removeTitle": "إزالة {bank}؟",
+        "removeDescription": "يفقد ضيوف البنك {bank} الوصول إلى غرف الصفقات فورًا. سيتم حذف إذن الضيوف وتاريخ وشخص التحقق من اتفاقية DSA والملاحظة، ولا يمكن استعادتها.",
+        "removeCancel": "إلغاء",
+        "removeConfirm": "إزالة",
         "addPlaceholder": "رمز البنك، مثل MASHREQ",
         "add": "إضافة بنك",
         "invalidCode": "استخدم الحروف والأرقام و- أو _ (حتى 32).",
@@ -4698,6 +4911,7 @@
       "description": "نموذج عام في موقعك يضيف الشخص كجهة اتصال (المصدر: نموذج الويب) ويفتح مهمة متابعة. ولا يرسل أي رسالة WhatsApp أبداً.",
       "loading": "جارٍ تحميل نموذج الويب…",
       "loadFailed": "تعذر تحميل إعدادات نموذج الويب.",
+      "retry": "إعادة المحاولة",
       "enabledLabel": "قبول الطلبات",
       "enabledOn": "مفعّل: الرابط والمقتطف يقبلان عملاء محتملين جدداً.",
       "enabledOff": "متوقف: يعرض الرابط صفحة غير موجودة وتُرفض الطلبات.",
@@ -5691,7 +5905,9 @@
       "react": "التفاعل بـ {emoji}",
       "replies": "{count, plural, =1 {# رد} other {# ردود}} · آخرها {time}",
       "newMessages": "رسائل جديدة",
-      "removed": "أزالها أحد المسؤولين."
+      "removed": "أزالها أحد المسؤولين.",
+      "fileFailed": "تعذّر تحميل الملف.",
+      "fileRetry": "إعادة المحاولة"
     },
     "receipts": {
       "seen": "تمت المشاهدة",
@@ -5986,7 +6202,8 @@
         "archive": "أرشيف",
         "text": "نص",
         "other": "ملف"
-      }
+      },
+      "loadFailed": "تعذّر تحميل الملفات."
     },
     "pins": {
       "title": "الرسائل المثبتة",
@@ -5995,7 +6212,8 @@
       "empty": "لا شيء مثبت بعد. ثبّت رسالة من قائمتها ⋯ لإبقائها هنا.",
       "jump": "الانتقال إلى رسالة {name}",
       "inThread": "في سلسلة",
-      "noText": "مرفق"
+      "noText": "مرفق",
+      "loadFailed": "تعذّر تحميل الرسائل المثبّتة."
     },
     "picker": {
       "search": "بحث عن أشخاص",
@@ -6052,7 +6270,8 @@
       "remove": "إزالة",
       "inThread": "في سلسلة ردود",
       "erased": "تم محو هذه الرسالة.",
-      "noText": "مرفق أو محادثة مشاركة"
+      "noText": "مرفق أو محادثة مشاركة",
+      "loadFailed": "تعذّر تحميل رسائلك المحفوظة."
     },
     "rooms": {
       "new": "غرفة صفقة جديدة",
@@ -6124,6 +6343,7 @@
         "templateFooter": "نافذة الرد مغلقة: لم يكتب أحد في المجموعة خلال آخر 24 ساعة. إلى أن يكتب أحد، لا يمكن إرسال سوى قالب معتمد، ويُحتسب على كل عضو يستلمه. لا يمكن تعديل الرسائل المرسلة أو حذفها.",
         "templatePick": "اختر قالباً معتمداً",
         "noTemplates": "لا توجد قوالب معتمدة بعد.",
+        "templateNotLinked": "غير مرتبط بـ Meta",
         "param": "القيمة {n}",
         "review": "مراجعة وإرسال",
         "confirmTitle": "إرسال هذا القالب إلى المجموعة؟",
@@ -6185,6 +6405,7 @@
           "none": "أضف العميل على الأقل.",
           "too_many": "يمكن دعوة {max} أشخاص كحد أقصى.",
           "no_customer": "أضف العميل.",
+          "many_customers": "لا يمكن أن يكون في الغرفة سوى عميل واحد لأن الموافقة تخصه وحده. غيّر الآخرين إلى شريك أو أزلهم.",
           "name": "يحتاج كل شخص إلى اسم لا يتجاوز 120 حرفاً.",
           "phone": "{name} ليس لديه رقم هاتف صالح.",
           "duplicate": "{name} مدرج مرتين (نفس رقم الهاتف).",
@@ -6245,6 +6466,15 @@
         "pendingGuests": "ضيوف البنوك بانتظار الموافقة",
         "pendingHelp": "يستطيع قائد الفريق أو المسؤول فقط الموافقة على ضيف بنك.",
         "decideFailed": "تعذّر حفظ القرار: {error}",
+        "joinBlocks": {
+          "pending_approval": "يجب أن يوافق قائد الفريق على هذا الشخص أولاً",
+          "rejected": "رفض قائد الفريق هذا الشخص",
+          "opted_out": "ألغى هذا الشخص الاشتراك أو تم تمييزه بعدم التواصل",
+          "no_consent": "لا توجد موافقة مسجلة لهذا العميل",
+          "bank_guests_off": "لا يمكن لموظفي هذا البنك الانضمام إلى مجموعات العملاء",
+          "room_not_open": "الغرفة ليست مفتوحة",
+          "check_failed": "تعذّر التحقق من إمكانية انضمام هذا الشخص. حاول مرة أخرى."
+        },
         "inviteLink": "رابط الدعوة",
         "showLink": "عرض الرابط",
         "copy": "نسخ",
@@ -6261,7 +6491,19 @@
         "removeTitle": "إزالة {name}؟",
         "removeBody": "سيغادر المجموعة على WhatsApp ولن يستطيع الانضمام مجدداً عبر رابط الدعوة.",
         "removed": "أُزيل {name}. لا يستطيع من أُزيل الانضمام مجدداً عبر رابط الدعوة.",
-        "removeFailed": "تعذّرت إزالة {name}: {error}"
+        "removeFailed": "تعذّرت إزالة {name}: {error}",
+        "alreadyDecided": "سبق أن قرر شخص آخر في هذا الطلب.",
+        "copyFailed": "تعذّر نسخ الرابط. الرابط ظاهر في الخانة: حدّده وانسخه يدويًا.",
+        "resentNone": "لم تُرسل أي دعوات. تم التخطي: {reasons}.",
+        "resentNothingDue": "لم تُرسل أي دعوات: لا أحد مستحق لدعوة.",
+        "resentReasons": {
+          "already": "تمت دعوته مسبقًا (انسخ الرابط وأرسله)",
+          "waiting": "بانتظار موافقة قائد الفريق",
+          "opted_out": "انسحب أو غير مسموح بالتواصل معه",
+          "no_consent": "لا توجد موافقة مسجلة",
+          "bank_guests_off": "لا يمكن لموظفي البنوك الانضمام إلى مجموعات العملاء",
+          "other": "غير مسموح بدعوته الآن"
+        }
       },
       "actions": {
         "title": "إجراءات الغرفة",
@@ -6398,7 +6640,8 @@
       "cancel": "إلغاء",
       "submit": "إعادة توجيه",
       "done": "{count, plural, one {تمت إعادة التوجيه إلى # محادثة} other {تمت إعادة التوجيه إلى # محادثات}}",
-      "failed": "تعذرت إعادة التوجيه إلى {name}: {reason}"
+      "failed": "تعذرت إعادة التوجيه إلى {name}: {reason}",
+      "filesFailed": "لم تتم إعادة التوجيه: تعذّرت قراءة ملفات هذه الرسالة. حاول مرة أخرى."
     },
     "moderation": {
       "remove": "إزالة الرسالة…",
@@ -6858,6 +7101,7 @@
         "marketing_opt_in_withdrawn": "تم سحب الاشتراك",
         "opted_out": "ألغى الاشتراك",
         "resubscribed": "أعاد الاشتراك",
+        "restored": "استُعيد كما كان قبل حذف العميل",
         "do_not_contact_set": "تم تحديد عدم التواصل",
         "do_not_contact_cleared": "تم مسح عدم التواصل"
       },
@@ -6895,6 +7139,10 @@
     }
   },
   "Presence": {
+    "onlineNow": "متصل الآن",
+    "awayIdle": "بعيد — خامل",
+    "offlineSince": "غير متصل — آخر ظهور {when}",
+    "offlineUnknown": "غير متصل",
     "available": "متاح",
     "onCall": "في مكالمة",
     "dnd": "عدم الإزعاج",
@@ -7009,6 +7257,7 @@
     "taskFailed": "تعذّر تحديث المهمة",
     "playFailed": "تعذّر تشغيل التسجيل",
     "attachFailed": "تعذّر إرفاق التسجيل",
+    "attachOtherCustomer": "هذا التسجيل يخص عميلاً آخر، لذلك لا يمكن إرفاقه بهذه الصفقة",
     "download": "تنزيل التسجيل",
     "downloadFailed": "تعذّر تنزيل التسجيل",
     "noDeal": "لا توجد صفقة مفتوحة للإرفاق بها",
@@ -7052,7 +7301,6 @@
     },
     "mineHint": "المكالمات التي أجريتها أو أجبتها أو رنّ لها هاتفك، الأحدث أولاً",
     "missedHint": "الفائتة خلال آخر 7 أيام، الأحدث أولاً",
-    "tasksTruncated": "تُعرض أول {count, number} من مهام المكالمات الفائتة. قد تكون لمكالمة بلا علامة مهمة أيضاً.",
     "missedWho": {
       "label": "المكالمات الفائتة لمن",
       "mine": "خاصتي",
@@ -7068,8 +7316,14 @@
     "colleagueExtension": "الامتداد {extension}",
     "colleaguePair": "{from} ← {to}",
     "taskOpen": "المهمة مفتوحة",
+    "taskOpenBy": "مفتوحة: {name}",
     "taskDone": "المهمة منجزة",
+    "taskDoneBy": "أنجزها {name}",
     "loadFailed": "تعذر تحميل المكالمات",
+    "loadOlder": "تحميل الأقدم",
+    "loadingOlder": "جارٍ تحميل المكالمات الأقدم…",
+    "loadOlderFailed": "تعذر تحميل المكالمات الأقدم",
+    "refreshFailed": "تعذر التحديث. قد تكون القائمة متأخرة قليلاً.",
     "playRecording": "تشغيل التسجيل",
     "hideRecording": "إخفاء التسجيل",
     "unrouted": {
@@ -7187,6 +7441,7 @@
     "marketingOff": "التسويق متوقف",
     "optedOut": "ألغى الاشتراك",
     "consentUnknown": "غير معروفة",
+    "factsIncomplete": "تعذّر تحميل بعض التفاصيل",
     "detailsHidden": "هذا العميل خارج نطاق رؤيتك: يظهر فقط اسمه ومالكه وموافقته.",
     "recordedNotice": "مكالمة مسجَّلة. سمع المتصل الإشعار بالإنجليزية والعربية.",
     "decline": "رفض",
@@ -7233,6 +7488,8 @@
     "transferTo": "تحويل",
     "transferToOwner": "التحويل إلى المالك",
     "transferred": "تم تحويل المكالمة",
+    "callGone": "انتهت هذه المكالمة بالفعل",
+    "notOnCall": "لم تعد طرفًا في هذه المكالمة",
     "actionFailed": "لم ينجح ذلك: {message}",
     "call": "اتصال",
     "ringsFirst": "يرن هاتفك أولًا ثم العميل",
@@ -7273,7 +7530,27 @@
     "whatsAppChat": "محادثة WhatsApp",
     "noCustomerYet": "لا يوجد عميل مرتبط بهذه المكالمة بعد.",
     "wrapUpShort": "الإنهاء {left}",
-    "addOutcome": "إضافة نتيجة"
+    "addOutcome": "إضافة نتيجة",
+    "retry": "إعادة المحاولة",
+    "noteQueued": "ستُحفظ عند تسجيل المكالمة",
+    "noteLoadFailed": "تعذّر تحميل المكالمة. ما تكتبه محفوظ هنا وسيُسجَّل عند تحميلها.",
+    "noteConflict": "غيّر شخص آخر هذه الملاحظة أثناء كتابتك.",
+    "noteMine": "ملاحظتك",
+    "noteTheirs": "المحفوظ في المكالمة",
+    "noteEmpty": "(فارغة)",
+    "noteKeepMine": "الاحتفاظ بملاحظتي",
+    "noteKeepTheirs": "الاحتفاظ بالمحفوظة",
+    "noteCopy": "نسخ",
+    "noteCopied": "تم النسخ",
+    "noteCopyFailed": "تعذّر النسخ",
+    "unsavedLost": "لم يُحفظ. تحقق من اتصالك وحاول مرة أخرى.",
+    "unsavedRefused": "لم يُحفظ: لم تعد هذه المكالمة تقبل نتيجتك أو ملاحظتك.",
+    "unsavedConflict": "لم يُحفظ: اختر أولاً الملاحظة التي تريد الاحتفاظ بها.",
+    "unsavedNoCall": "لم يُحفظ بعد: المكالمة غير مسجلة حتى الآن.",
+    "closeUnsaved": "إغلاق دون حفظ",
+    "noteKept": "نتيجة مكالمة أو ملاحظتها لم تُحفظ.",
+    "noteKeptOpen": "فتح",
+    "noteKeptBusy": "يمكنك فتحها عند انتهاء مكالمتك الحالية."
   },
   "Voicemail": {
     "title": "البريد الصوتي",
@@ -7376,6 +7653,11 @@
       "title": "حدث خطأ ما",
       "description": "أوقف خطأ غير متوقع تحميل هذه الصفحة. حاول مرة أخرى، أو ارجع إلى الشاشة الرئيسية."
     },
+    "update": {
+      "title": "يتوفر إصدار جديد",
+      "description": "تحتاج هذه الشاشة إلى جزء من التطبيق لم يتمكن هذا التبويب من تحميله، غالبًا لأن التطبيق حُدِّث. أعد التحميل للمتابعة. إعادة التحميل تحذف النص الذي لم ترسله: لإكماله أولًا، انتقل إلى الرئيسية وافتح محادثته من جديد.",
+      "reload": "إعادة التحميل"
+    },
     "dashboard": {
       "title": "تعذّر تحميل هذه الشاشة",
       "description": "حدث خطأ أثناء عرض هذه الشاشة. بقية التطبيق ما زالت تعمل: حاول مرة أخرى، أو اختر شاشة أخرى من الشريط الجانبي."
@@ -7440,7 +7722,8 @@
         "invalidDateTime": "هذا التاريخ والوقت غير موجودين في هذه المنطقة الزمنية.",
         "durationInvalid": "اختر مدة.",
         "startInPast": "هذا الوقت قد مضى بالفعل.",
-        "saveFailed": "تعذّر حفظ الاجتماع."
+        "saveFailed": "تعذّر حفظ الاجتماع.",
+        "savedPartly": "تم حفظ الاجتماع، لكن لم يتم تحديث جميع المدعوين. راجع القائمة وحاول مرة أخرى."
       },
       "durationCustom": "مدة مخصصة بالدقائق",
       "minutesUnit": "د",
@@ -7622,7 +7905,10 @@
       "noTags": "لا وسوم محادثات بعد.",
       "save": "حفظ الإعدادات",
       "saved": "تم حفظ الإعدادات",
-      "saveFailed": "تعذّر حفظ الإعدادات"
+      "saveFailed": "تعذّر حفظ الإعدادات",
+      "loadFailed": "تعذر تحميل إعدادات إعادة التدوير.",
+      "conflict": "غيّر شخص آخر هذه الإعدادات. لم يُحفظ شيء؛ أعد التحميل لرؤية الأحدث.",
+      "reload": "إعادة التحميل"
     }
   },
   "Reminders": {
@@ -7642,6 +7928,7 @@
       "back": "رجوع",
       "more": "+{count} أخرى",
       "snoozedUntil": "مؤجل حتى {when}",
+      "changed": "تم تعديل هذا التذكير أو إنهاؤه من مكان آخر",
       "doneToast": "حُدد كمنجز",
       "failed": "تعذّر تحديث التذكير"
     }
@@ -7701,13 +7988,18 @@
     },
     "ended": {
       "title": "انتهى هذا الاجتماع",
-      "viewSummary": "عرض الملخص"
+      "viewSummary": "عرض الملخص",
+      "unsavedTitle": "محضر لم يُحفظ",
+      "unsavedCopy": "نسخ",
+      "unsavedCopied": "تم نسخ المحضر",
+      "unsavedCopyFailed": "تعذّر نسخ المحضر."
     },
     "left": {
       "title": "غادرت الاجتماع",
       "elsewhere": "انضممت من تبويب أو جهاز آخر",
       "rejoin": "إعادة الانضمام",
       "elsewhereBody": "انقطع اتصال هذه النافذة. يمكنك المتابعة هنا بدلاً من ذلك.",
+      "noAccess": "لم يعد لديك حق الوصول إلى هذا الاجتماع.",
       "rejoinHere": "إعادة الانضمام هنا",
       "backToMeetings": "العودة إلى الاجتماعات"
     },
@@ -7968,6 +8260,7 @@
         "nobody": "لا أحد لدعوته",
         "send": "{count, plural, =0 {إرسال الدعوات} one {دعوة # شخص} other {دعوة # أشخاص}}",
         "sent": "{count, plural, =0 {كانوا مدعوّين بالفعل} one {تمت دعوة # شخص} other {تمت دعوة # أشخاص}}",
+        "needsReadmit": "تمت إزالة {name} من هذا الاجتماع. اسمح له بالعودة من قائمة الأشخاص.",
         "failed": "تعذّر إرسال الدعوات.",
         "copyLink": "نسخ رابط الاجتماع",
         "linkCopied": "تم نسخ رابط الاجتماع",
@@ -8125,6 +8418,7 @@
       "ended": "انتهى {title}",
       "removed": "أزالك المضيف من {title}",
       "elsewhere": "انضممت إلى {title} من جهاز أو علامة تبويب أخرى",
+      "noAccess": "لم يعد لديك حق الوصول إلى هذا الاجتماع.",
       "lost": "انقطع الاتصال بـ {title}",
       "rejoin": "إعادة الانضمام"
     },
@@ -8193,12 +8487,16 @@
       "channel_reconnected": "عودة اتصال رقم WhatsApp",
       "inbound_message_failed": "تعذّر حفظ رسالة WhatsApp",
       "meta_number_alert": "تدهور حالة رقم Meta",
+      "retention_failed": "فشل الحذف التلقائي للبيانات (مدة الاحتفاظ)",
+      "webhook_disabled": "إيقاف Webhook",
       "pbx_connection_silent": "صمت نظام الهاتف",
       "pbx_connection_restored": "عودة نظام الهاتف",
       "team_activity_alert": "تنبيهات نشاط الفريق",
       "team_activity_unlock_request": "طلبات فك حظر رسالة محظورة",
       "team_activity_unlock_decided": "البتّ في طلبات فك الحظر الخاصة بي",
       "meeting_invite": "دعوات الاجتماعات",
+      "meeting_update": "تغيير موعد اجتماع",
+      "meeting_cancelled": "إلغاء اجتماع",
       "meeting_reminder": "تذكيرات الاجتماعات",
       "event_reminder": "تذكيرات التقويم",
       "group_join_request": "طلبات الانضمام إلى مجموعات WhatsApp",
@@ -8296,6 +8594,7 @@
       },
       "this": "هذا الحدث",
       "all": "كل الأحداث",
+      "editedDatesStay": "التواريخ التي غيّرتها بمفردها تبقى في التقويم.",
       "cancel": "إلغاء",
       "confirmDeleteTitle": "حذف هذا الحدث؟",
       "confirmDeleteBody": "لن يراه الضيوف بعد الآن. لا يمكن التراجع عن هذا.",
@@ -8305,7 +8604,10 @@
       "atStart": "عند البدء",
       "minutes": "{count, plural, =1 {دقيقة واحدة} other {# دقائق}}",
       "hours": "{count, plural, =1 {ساعة واحدة} other {# ساعات}}",
-      "days": "{count, plural, =1 {يوم واحد} other {# أيام}}"
+      "days": "{count, plural, =1 {يوم واحد} other {# أيام}}",
+      "atMidnight": "عند منتصف الليل",
+      "dayBefore": "{time} في اليوم السابق",
+      "daysBefore": "{time}، قبل {count} أيام"
     },
     "repeat": {
       "daily": "{interval, plural, =1 {كل يوم} other {كل # أيام}}",
@@ -8313,6 +8615,7 @@
       "monthlyDate": "{interval, plural, =1 {شهريًا في اليوم {day}} other {كل # أشهر في اليوم {day}}}",
       "monthlyNth": "{interval, plural, =1 {شهريًا في {weekday} رقم {nth, selectordinal, other {#}}} other {كل # أشهر في {weekday} رقم {nth, selectordinal, other {#}}}}",
       "monthlyLast": "{interval, plural, =1 {شهريًا في آخر {weekday}} other {كل # أشهر في آخر {weekday}}}",
+      "monthlyLastDay": "{interval, plural, =1 {شهريًا في آخر يوم من الشهر} other {كل # أشهر في آخر يوم من الشهر}}",
       "yearly": "{interval, plural, =1 {كل سنة في {date}} other {كل # سنوات في {date}}}",
       "custom": "يتكرر وفق جدول مخصص",
       "endsOn": "{rule}، حتى {until}",
@@ -8339,10 +8642,12 @@
         "monthlyDate": "شهريًا في اليوم نفسه",
         "monthlyNth": "شهريًا في يوم الأسبوع نفسه",
         "monthlyLast": "شهريًا في آخر يوم أسبوع",
+        "monthlyLastDay": "آخر يوم من الشهر",
         "yearly": "سنويًا",
         "custom": "قاعدة تكرار مخصصة"
       },
       "repeatPreviewInvalid": "لا يمكن حفظ هذا التكرار كما هو مضبوط.",
+      "repeatSkipsShort": "يتم تخطيه في الأشهر الأقصر",
       "every": "كل",
       "intervalUnit": {
         "days": "{count, plural, =1 {يوم} other {أيام}}",
@@ -8365,6 +8670,7 @@
       "attendeesSearch": "بحث عن أشخاص",
       "attendeesEmpty": "لا أحد يطابق.",
       "removeAttendee": "إزالة {name}",
+      "editedDatesKeepGuests": "التواريخ التي غيّرتها بمفردها تحتفظ بضيوفها.",
       "unknownPerson": "شخص غير معروف",
       "location": "الموقع",
       "locationPlaceholder": "أضف مكانًا أو رابطًا",
@@ -8403,7 +8709,8 @@
       "saving": "جارٍ الحفظ…",
       "created": "تم إنشاء الحدث",
       "saved": "تم حفظ الحدث",
-      "conflict": "غيّر شخص آخر هذا الحدث. يعرض النموذج الآن أحدث نسخة.",
+      "conflict": "تغيّر هذا الحدث في هذه الأثناء. تم الاحتفاظ بتغييراتك؛ راجعها ثم احفظ مرة أخرى.",
+      "conflictFields": "ما تغيّر في هذه الأثناء: {fields}",
       "saveFailed": "تعذر حفظ الحدث: {reason}",
       "loading": "جارٍ التحميل…",
       "loadFailed": "تعذر تحميل الحدث: {reason}",
@@ -8420,6 +8727,7 @@
         "descriptionTooLong": "الوصف طويل جدًا (5,000 حرف كحد أقصى).",
         "locationTooLong": "الموقع طويل جدًا (300 حرف كحد أقصى).",
         "repeatInvalid": "تحقق من التكرار: لا يمكن حفظه كما هو مضبوط.",
+        "repeatMissesStart": "التاريخ الأول ليس من أيام التكرار.",
         "tooManyReminders": "حتى 5 تذكيرات."
       }
     }
@@ -8436,6 +8744,11 @@
     "sync": "مزامنة من WhatsApp",
     "syncing": "جارٍ المزامنة…",
     "syncDone": "تمت مزامنة {synced, plural, =1 {# مجموعة} other {# مجموعات}} · {created} جديدة · {left} غادرتها",
+    "syncIncomplete": "بدت قائمة البوابة غير مكتملة؛ لم تُعلَّم أي مجموعة على أنها متروكة. حاول مرة أخرى بعد بضع دقائق.",
+    "syncFailedNumbers": "تعذرت قراءة هذه الأرقام: {names}. لم تتغير مجموعاتها.",
+    "syncFailedGroups": "تعذر حفظ {count, plural, =1 {# مجموعة} other {# مجموعات}}. حاول مرة أخرى بعد بضع دقائق.",
+    "syncTruncated": "تعذرت قراءة كل المجموعات هذه المرة؛ لم يتغير ما لم يُقرأ منها.",
+    "listPartial": "تعذر تحديث مجموعات الطلبات. قد يكون ما تراه قديمًا.",
     "syncFailed": "تعذرت مزامنة المجموعات: {reason}",
     "loadFailed": "تعذر تحميل المجموعات. حاول مرة أخرى بعد قليل.",
     "emptyTitle": "لا توجد مجموعات بعد",
@@ -8522,6 +8835,8 @@
         "rate_limited": "طلبات كثيرة جداً، انتظر قليلاً وحاول مرة أخرى",
         "channel_disconnected": "الرقم غير متصل",
         "billing": "اشتراك رقم WhatsApp يحتاج إلى انتباه",
+        "too_many_adds": "أُضيف عدد كبير من الأشخاص خلال الساعة الماضية. حاول مرة أخرى خلال ساعة.",
+        "too_many_creates": "أُنشئت مجموعات كثيرة على هذا الرقم خلال آخر 24 ساعة. حاول مرة أخرى غداً أو استخدم رقماً آخر.",
         "gateway_unavailable": "لم تستجب WhatsApp، حاول مرة أخرى",
         "unknown": "حدث خطأ ما"
       },
@@ -8544,8 +8859,16 @@
       "unsavedHeadline": "أُنشئت على WhatsApp لكنها لم تُحفظ هنا — لا تنشئها مرة أخرى.",
       "unsavedAdmin": "المجموعة موجودة على WhatsApp، لكن هذا النظام تعذر عليه حفظها. إنشاؤها مرة أخرى سيُنتج نسخة مكررة. شغّل المزامنة لجلبها.",
       "unsavedOther": "المجموعة موجودة على WhatsApp، لكن هذا النظام تعذر عليه حفظها. إنشاؤها مرة أخرى سيُنتج نسخة مكررة. اطلب من المسؤول تشغيل المزامنة من شاشة المجموعات.",
+      "unconfirmedTitle": "لم يتأكد إنشاء المجموعة",
+      "unconfirmedHeadline": "ربما أُنشئت المجموعة",
+      "unconfirmedBody": "لم تستجب WhatsApp في الوقت المناسب. تحقق من المجموعات بعد دقيقة قبل المحاولة مرة أخرى: قد تُنشئ المحاولة الثانية مجموعة أخرى بالأشخاص أنفسهم.",
+      "repeatHeadline": "أنشأت مجموعة بهذا الاسم قبل بضع دقائق",
+      "repeatBody": "تحقق من المجموعات أولاً. أنشئ مجموعة أخرى فقط إذا أردت مجموعة ثانية بهذا الاسم.",
+      "checkGroups": "تحقق من المجموعات",
+      "createAnother": "إنشاء مجموعة أخرى",
       "syncNow": "مزامنة الآن",
       "syncNowFailed": "تعذرت المزامنة. حاول مرة أخرى، أو شغّل المزامنة من شاشة المجموعات.",
+      "syncNowPartial": "لم تقرأ المزامنة كل المجموعات، وقد تكون المجموعة الجديدة غير ظاهرة بعد. راجع القائمة ثم أعد المزامنة عند الحاجة.",
       "resultWarnings": "تم الإنشاء، مع بعض الأمور التي يجب التحقق منها",
       "warnings": {
         "adds_stopped": "توقفت إضافة الأشخاص مبكراً. أرسل للبقية رابط الدعوة.",
@@ -8592,7 +8915,8 @@
         "send": "إرسال",
         "uploadFailed": "فشل الرفع.",
         "fileTooLarge": "حجم هذا الملف {size} MB؛ والحد الأقصى لهذا النوع {limit} MB.",
-        "fileTypeNotAllowed": "لا يمكن إرسال هذا النوع من الملفات."
+        "fileTypeNotAllowed": "لا يمكن إرسال هذا النوع من الملفات.",
+        "notSentIn": "لم يُرسل في {group}. هو محفوظ هناك: افتح المحادثة لإرساله مرة أخرى."
       },
       "reasons": {
         "not_allowed": "ليس لديك صلاحية للقيام بذلك.",
@@ -8623,7 +8947,9 @@
         "unknown": "حدث خطأ ما. حاول مرة أخرى.",
         "no_participants": "تعذرت إضافة أي من هؤلاء الأشخاص إلى مجموعة. تحقق من الأرقام وحاول مرة أخرى.",
         "saved_failed_run_sync": "أُنشئت المجموعة على WhatsApp لكن تعذر حفظها هنا. يمكن للمسؤول تشغيل المزامنة لجلبها — لا تنشئها مرة أخرى.",
-        "send_unconfirmed": "ربما أُرسلت هذه الرسالة: تحقق من المحادثة قبل إرسالها مرة أخرى."
+        "send_unconfirmed": "ربما أُرسلت هذه الرسالة: تحقق من المحادثة قبل إرسالها مرة أخرى.",
+        "number_unconfirmed": "تعذّر التأكد من إزالة الرقم: تخفي WhatsApp أرقام بعض الأعضاء. تحقق من المجموعة.",
+        "no_saved_number": "لا يوجد رقم محفوظ خاص به. إذا كان هاتفه في المجموعة فأزله من تبويب الأعضاء."
       },
       "membersTab": {
         "search": "بحث في الأعضاء",
@@ -8660,6 +8986,8 @@
         "remove": "إزالة من المجموعة",
         "toastMadeAdmin": "أصبح {name} مسؤولاً",
         "toastRemovedAdmin": "لم يعد {name} مسؤولاً",
+        "toastMakeAdminFailed": "رفض WhatsApp الطلب: {name} ليس مسؤولاً.",
+        "toastRemoveAdminFailed": "رفض WhatsApp الطلب: {name} لا يزال مسؤولاً.",
         "toastRemoved": "تمت إزالة {name} من المجموعة",
         "removeTitle": "إزالة {name}؟",
         "removeBody": "سيغادر {group} ولن يرى الرسائل الجديدة. يمكنك إضافته مرة أخرى لاحقاً.",
@@ -8841,7 +9169,7 @@
       "status": {
         "pending": "جارٍ الإرسال",
         "sent": "أُرسلت",
-        "failed": "فشلت",
+        "failed": "ربما لم تُسلَّم؛ تحقّق من المجموعة",
         "blocked": "محظورة"
       }
     },
@@ -8849,6 +9177,8 @@
       "numberAdded": "أُضيف رقم WhatsApp الخاص به إلى المجموعة.",
       "numberRefused": "لم يقبل WhatsApp إضافة رقمه. شارك معه رابط دعوة المجموعة.",
       "numberFailed": "تم حفظ الوصول، لكن تعذّر تحديث رقم WhatsApp الخاص به في المجموعة.",
+      "numberUnconfirmed": "أُزيل الوصول، لكن تعذّر التأكد من خروج رقمه: تخفي WhatsApp أرقام بعض الأعضاء. تحقق من المجموعة.",
+      "numberUnknown": "أُزيل الوصول، لكن لا يوجد رقم WhatsApp محفوظ خاص به، لذا لم يُزَل أي رقم من المجموعة. إذا كان هاتفه فيها فأزله من WhatsApp.",
       "numberRemoved": "أُزيل رقم WhatsApp الخاص به من المجموعة.",
       "title": "الأشخاص",
       "hint": "يقرأ الموظفون في هذه القائمة المجموعة ويكتبون فيها.",
@@ -8900,6 +9230,7 @@
         "noWhatsapp": "سُجّل هذا الطلب بدون مجموعة WhatsApp (مجموعات WhatsApp متوقفة في الإعدادات ← الملفات).",
         "pending": "يجري إنشاء مجموعة WhatsApp. يمكنك الإرسال عندما تصبح جاهزة.",
         "createError": "تعذّر إنشاء مجموعة WhatsApp.",
+        "stillOpen": "انتهت هنا، لكن مجموعة WhatsApp لا تزال مفتوحة.",
         "closeError": "انتهت المجموعة، لكن فشل إغلاقها على WhatsApp.",
         "closeRemaining": "{count, plural, one {تعذّرت إزالة شخص واحد منها} two {تعذّرت إزالة شخصين منها} few {تعذّرت إزالة # أشخاص منها} many {تعذّرت إزالة # شخصًا منها} other {تعذّرت إزالة # شخص منها}}، لذا لا تزال مفتوحة. يواصل النظام المحاولة، ويمكنك أيضًا الإزالة من الهاتف.",
         "numberRemoved": "أُزيل رقم WhatsApp الذي يستضيف هذه المجموعة. لا يستطيع أحد الإرسال.",
@@ -8934,6 +9265,7 @@
         "notFound": "لم تعد هذه المجموعة موجودة.",
         "rateLimited": "ترسل بسرعة كبيرة. انتظر دقيقة.",
         "gateway": "لم يقبل WhatsApp الرسالة.",
+        "notStored": "لم تُرسل: حدثت مشكلة في النظام. حاول مرة أخرى.",
         "tooLong": "الرسالة فارغة أو طويلة جداً.",
         "unknown": "تعذّر إرسال الرسالة.",
         "maybeSent": "لا يوجد رد: ربما أُرسلت الرسالة. تحقّق من المحادثة قبل إرسالها مرة أخرى.",
@@ -8942,10 +9274,13 @@
       "endTitle": "إنهاء هذه المجموعة؟",
       "endBody": "تنتهي المجموعة {ref} الآن: لا يستطيع أحد الإرسال، وتُفتح رسائلها فقط عبر الأرشيف المسجَّل.",
       "endDone": "انتهت المجموعة.",
+      "endCloseDeferred": "انتهت المجموعة هنا. مجموعة WhatsApp لا تزال مفتوحة وستُغلق قريبًا.",
+      "endCloseFailed": "انتهت المجموعة هنا، لكن تعذّر إغلاق مجموعة WhatsApp حتى الآن.",
       "endFailed": "تعذّر إنهاء المجموعة.",
       "retryTitle": "إعادة محاولة إنشاء مجموعة WhatsApp؟",
       "retryBody": "سنطلب من WhatsApp إنشاء المجموعة مرة أخرى.",
       "retryDone": "طُلب من WhatsApp إنشاء المجموعة مرة أخرى.",
+      "retryPending": "لا يزال قيد الانتظار: لم تُنشأ مجموعة WhatsApp بعد.",
       "retryFailed": "تعذّرت إعادة المحاولة.",
       "inviteResendDone": "أُرسل رابط الدعوة إلى العميل مرة أخرى.",
       "inviteResendFailed": "تعذّرت إعادة إرسال الدعوة.",
@@ -8973,6 +9308,7 @@
       "search": "ابحث بالشركة أو جهة الاتصال أو المرجع",
       "count": "{count, plural, one {# طلب} other {# طلبات}}",
       "countMore": "{count, plural, one {+# طلب} other {+# طلبات}}",
+      "endedUnread": "منتهية، رسائل جديدة",
       "myGroups": "مجموعاتي",
       "myGroupsHint": "عرض الطلبات التي أنت ضمنها فقط",
       "contactLine": "جهة الاتصال: {name}",
@@ -9033,7 +9369,26 @@
       "copyLink": "نسخ الرابط",
       "copied": "تم نسخ رابط المجموعة.",
       "copyFailed": "تعذّر نسخ الرابط.",
-      "failed": "تعذّرت إضافة الرقم. حاول مرة أخرى."
+      "failed": "تعذّرت إضافة الرقم. حاول مرة أخرى.",
+      "maybeAdded": "لا يوجد رد: ربما أُضيف الرقم. تحقّق من المجموعة قبل المحاولة مرة أخرى."
+    },
+    "refusals": {
+      "not_found": "المجموعة غير موجودة.",
+      "not_active": "انتهت هذه المجموعة.",
+      "not_allowed": "لست ضمن هذه المجموعة.",
+      "no_whatsapp": "لا توجد مجموعة واتساب لهذه الحالة.",
+      "no_group_yet": "لم تُنشأ مجموعة واتساب بعد.",
+      "detached": "أُزيل رقم واتساب أو جهة الاتصال.",
+      "bad_phone": "أدخل رقمًا واحدًا مع رمز الدولة، مثل +971 50 123 4567.",
+      "own_number": "هذا هو رقم واتساب الخاص بالمجموعة.",
+      "opted_out": "ألغى هذا العميل اشتراكه، لذلك لم يُرسل شيء.",
+      "do_not_contact": "هذا العميل مُعلَّم بعدم التواصل، لذلك لم يُرسل شيء.",
+      "no_phone": "ليس لدى العميل رقم هاتف.",
+      "already_joined": "العميل موجود في المجموعة بالفعل.",
+      "in_progress": "يجري إضافة هذا الرقم بالفعل. انتظر قليلًا.",
+      "too_many": "أُضيف 10 أرقام إلى هذه المجموعة خلال آخر 24 ساعة.",
+      "too_soon": "أُرسلت دعوة، أو جرت محاولة، خلال آخر 10 دقائق. حاول لاحقًا.",
+      "unknown": "تعذّر إتمام ذلك. حاول مرة أخرى."
     }
   },
   "CallStatsPage": {
@@ -9484,6 +9839,7 @@
       "compass": "تتم إدارته في Compass."
     },
     "actions": {
+      "addReason": "إضافة سبب",
       "move": "نقل المرحلة",
       "edit": "تعديل التفاصيل",
       "reassign": "إعادة الإسناد",
@@ -9737,6 +10093,7 @@
       "title": "تعديل التفاصيل",
       "body": "تُسجَّل التغييرات في سجل الملف.",
       "pickBank": "اختر بنكًا",
+      "banksFailed": "تعذّر تحميل البنوك.",
       "amountAed": "المبلغ (AED)",
       "clearDue": "مسح",
       "saved": "تم حفظ التفاصيل"
@@ -9752,6 +10109,10 @@
       "done": "تمت إعادة الإسناد إلى {name}"
     },
     "docs": {
+      "recentTitle": "سبق الطلب",
+      "recentBody": "طلبها {name} في {time}. هل تريد الإرسال مرة أخرى؟",
+      "sendAgain": "إرسال مرة أخرى",
+      "unconfirmed": "ربما أُرسل الطلب. تحقق من تبويب المحادثة قبل الإرسال مرة أخرى.",
       "title": "طلب المستندات الناقصة",
       "body": "يتلقى العميل رسالة واحدة في مجموعة WhatsApp الخاصة بالملف تسرد كل مستند مطلوب لم يُستلم بعد.",
       "confirm": "إرسال الطلب",
@@ -9780,6 +10141,7 @@
       "priorityInvalid": "هذه الأولوية غير صالحة.",
       "dueInvalid": "تاريخ الاستحقاق هذا غير صالح.",
       "amountInvalid": "أدخل المبلغ كرقم، بمنزلتين عشريتين كحد أقصى.",
+      "cannotEmpty": "لا يمكن إفراغ «{field}» هنا.",
       "reasonInvalid": "اختر سببًا.",
       "reasonTooLong": "التفاصيل طويلة جدًا (500 حرف كحد أقصى).",
       "reasonNotDeclined": "لا يمكن تسجيل سبب إلا لملف مرفوض أو مسحوب.",
@@ -9791,7 +10153,8 @@
       "unknown": "حدث خطأ ما. حاول مرة أخرى.",
       "presubReentry": "لا يمكن لملف مقدَّم أن يعود إلى مرحلة سابقة للتقديم.",
       "submissionRequired": "تتطلب هذه المرحلة تقديم الطلب إلى البنك أولًا. يمكن فقط سحب العميل المحتمل.",
-      "managedExternally": "تتم إدارة هذا الملف في Compass. غيّره هناك."
+      "managedExternally": "تتم إدارة هذا الملف في Compass. غيّره هناك.",
+      "stageChanged": "تغيّرت المرحلة في هذه الأثناء (الآن: {stage})"
     },
     "timeline": {
       "includeMessages": "تضمين رسائل WhatsApp",
@@ -9810,6 +10173,7 @@
         "group_open": "فتح مجموعة WhatsApp",
         "group_end": "إنهاء مجموعة WhatsApp",
         "conversation_archived": "أرشفة المحادثة",
+        "messages_cut": "رسائل المجموعة الأقدم لا تظهر هنا",
         "group_message": "رسالة WhatsApp",
         "message": "رسالة WhatsApp",
         "call": "مكالمة"
@@ -9833,6 +10197,7 @@
       }
     },
     "conversation": {
+      "olderNotShown": "لا تظهر الرسائل الأقدم هنا؛ <link>افتح المجموعة</link>.",
       "gateBody": "محادثة WhatsApp الخاصة بالعميل في هذا الملف.",
       "auditNote": "يُسجَّل فتح المحادثة للمشرفين.",
       "show": "عرض المحادثة",
@@ -10474,7 +10839,12 @@
         "firstFinal": "لا يجوز أن تكون المرحلة الأولى مرحلة نهائية («{stage}»). انقل مرحلة عمل إلى الأعلى.",
         "finalSpelling": "اكتب المرحلة النهائية تماماً هكذا: «{stage}».",
         "missingFinal": "«{stage}» مفقودة. يجب أن تكون Approved وDeclined وWithdrawn وClosed كلها في القائمة."
-      }
+      },
+      "dropTitle": "مراحل لا تزال مستخدمة",
+      "dropMappings": "حالات Compass التي تنقل الملف إلى مرحلة محذوفة: {list}.",
+      "dropSla": "قواعد المواعيد على مرحلة محذوفة: {list}.",
+      "dropBody": "ستتوقف عن العمل إذا حفظت. هل تريد الحفظ على أي حال؟",
+      "dropConfirm": "حفظ على أي حال"
     },
     "templates": {
       "help": "مهام يستطيع الموظفون إضافتها إلى ملف في هذا البنك بنقرة واحدة.",
@@ -10552,8 +10922,10 @@
       "stageNotConfigured": "هذه المرحلة لم تعد في قائمة هذا البنك. أعد التحميل وحاول مرة أخرى.",
       "invalid": "هذه القيمة غير مسموحة.",
       "notAllowed": "يستطيع المالكون والمسؤولون فقط تغيير هذه الإعدادات.",
-      "generic": "تعذّر الحفظ: {error}"
-    }
+      "generic": "تعذّر الحفظ: {error}",
+      "stagesChanged": "غيّر مسؤول آخر هذه القائمة. أعد التحميل لرؤيتها ثم أجرِ تغييرك مجدداً."
+    },
+    "reload": "إعادة التحميل"
   },
   "CaseRules": {
     "settings": {
@@ -10780,6 +11152,7 @@
       "approved": "معتمدة",
       "waiting": "بانتظار اعتماد المالك",
       "noWording": "لا صياغة بعد",
+      "storedNow": "المحفوظ الآن: {body}",
       "placeholders": "يمكنك استخدام: {list}",
       "save": "حفظ الصياغة",
       "approve": "اعتماد",
@@ -10809,7 +11182,9 @@
       "notAllowed": "المالكون والمسؤولون فقط يستطيعون تغيير هذا.",
       "selfApproval": "يجب أن يعتمد مالك آخر الصياغة التي عدّلتها.",
       "templateInvalid": "هذه الصياغة غير صالحة. اكتب من 1 إلى 1,000 حرف.",
-      "generic": "تعذّر الحفظ ({error})."
+      "generic": "تعذّر الحفظ ({error}).",
+      "specChanged": "غيّر مسؤول آخر هذه المواصفات. أعد التحميل لرؤيتها ثم أجرِ تغييرك مجدداً.",
+      "templateChanged": "تغيّرت الصياغة في هذه الأثناء. اقرأ النص الجديد قبل اعتماده."
     },
     "spec": {
       "title": "ملفات المستندات",
@@ -11009,6 +11384,7 @@
       "shareError": "تعذرت مشاركة هذه المحادثة.",
       "revokeError": "تعذر إلغاء المشاركة.",
       "loadError": "تعذر تحميل المنسقين.",
+      "retry": "إعادة المحاولة",
       "sharedLabel": "مشاركة · {bank}",
       "fromSubTag": "اختير من الوسم الفرعي للمحادثة."
     },
@@ -11024,6 +11400,7 @@
       "cancel": "إلغاء",
       "saved": "تم حفظ بنوك المنسق.",
       "saveError": "تعذر حفظ بنوك المنسق.",
+      "changedMeanwhile": "غيّر مشرف آخر هذه البنوك. يظهر تغييره الآن؛ أعد تغييرك.",
       "phoneLabel": "رقم WhatsApp",
       "phoneHelp": "يُضاف إلى مجموعة WhatsApp لكل طلب مقدَّم لبنوك هذا الشخص.",
       "phoneInvalid": "أدخل رقم هاتف صحيحاً مع رمز الدولة، مثل +971 50 123 4567.",
@@ -11127,6 +11504,7 @@
     "tasks": {
       "title": "المهام المفتوحة",
       "empty": "لا توجد مهام مفتوحة",
+      "more": "المزيد في صفحة العميل",
       "failed": "تعذر تحميل المهام",
       "due": "الاستحقاق {when}",
       "overdue": "متأخرة · {when}",
@@ -11772,6 +12150,7 @@
     "searching": "جارٍ البحث في جهات الاتصال…",
     "empty": "ابدأ الكتابة للبحث.",
     "noResults": "لا شيء يطابق “{query}”.",
+    "contactsFailed": "تعذّر البحث في جهات الاتصال. غيّر النص للمحاولة مرة أخرى.",
     "hintMove": "الأسهم لأعلى ولأسفل للتنقل",
     "hintOpen": "Enter للفتح",
     "hintClose": "Esc للإغلاق",
@@ -12110,7 +12489,9 @@
     "showFewer": "عرض أقل",
     "sidebarLabel": "المستندات",
     "sidebarCount": "{count, plural, one {# ملف} other {# ملفات}}",
-    "sidebarLink": "فتح مستندات هذا العميل"
+    "sidebarLink": "فتح مستندات هذا العميل",
+    "showNewest": "عرض أحدث {count}",
+    "newestOnly": "تُعرض هنا أحدث {count} من المستندات فقط."
   },
   "CaseFiles": {
     "useAgain": "استخدم هذا مجددًا",
@@ -12173,6 +12554,7 @@
     "uploaded": "رُفع لـ {label}.",
     "checkedPassed": "فُحص كـ {label}.",
     "checkedFailed": "فُحص كـ {label}، لكنه فشل في فحوصه.",
+    "checkedSuperseded": "فُحص كـ {label}، لكن قُبل مستند أحدث في الأثناء. حُفظ هذا كإصدار سابق.",
     "download": "تنزيل",
     "buildTitle": "حزمة الملف المجمّعة",
     "assemble": "تجميع حزمة الملف",
@@ -12191,7 +12573,8 @@
       "BUILD_TOO_LARGE": "ستكون حزمة الملف أكبر من أن تُخزَّن (أكثر من 50 ميغابايت). استبدل أكبر المستندات بنسخ أصغر، أو جمّع الفهرس فقط.",
       "FILE_NOT_FOUND": "تعذّر العثور على هذا الملف.",
       "NOT_CONFIGURED": "التنزيلات غير مُعدّة على هذا الخادم.",
-      "generic": "حدث خطأ ما. حاول مرة أخرى."
+      "generic": "حدث خطأ ما. حاول مرة أخرى.",
+      "FORM_NOT_FLATTENED": "تعذّرت قراءة النموذج في «{document}» كاملاً، لذلك لم تُجمَّع حزمة الملف. اطبع النموذج إلى ملف PDF جديد وارفعه ثم حاول مرة أخرى."
     },
     "checks": {
       "detail": {
@@ -12231,7 +12614,9 @@
       "REUSE_WOULD_FAIL": "هذه نسخة سابقة لن تجتاز الفحوصات الآن، لذلك لم يتغير شيء.",
       "STORAGE_UNAVAILABLE": "لم يستجب مخزن الملفات. حاول مرة أخرى بعد قليل.",
       "generic": "حدث خطأ ما. حاول مرة أخرى."
-    }
+    },
+    "downloadBlocked": "حظر المتصفح علامة التبويب الجديدة. اسمح بالنوافذ المنبثقة لهذا الموقع وحاول مجدداً.",
+    "buildLoadFailed": "تعذّر تحميل ملف الحالة المجمّع."
   },
   "CaseSnooze": {
     "snooze": "تأجيل",
@@ -12274,12 +12659,15 @@
     "slashNoMatch": "لا توجد ردود سريعة تطابق «{query}»",
     "slashNone": "لا توجد ردود سريعة بعد. أضف بعضها في الإعدادات ← الردود السريعة.",
     "searchQuickReplies": "بحث في الردود السريعة",
-    "searchNoMatch": "لا توجد ردود سريعة تطابق بحثك."
+    "searchNoMatch": "لا توجد ردود سريعة تطابق بحثك.",
+    "quickRepliesFailed": "تعذّر تحميل الردود السريعة.",
+    "quickRepliesRetry": "حاول مرة أخرى"
   },
   "ContactSearch": {
     "similar": "مشابه",
     "closeMatches": "مطابقات قريبة",
-    "similarHint": "مطابقة قريبة: ليست مطابقة تامة لبحثك"
+    "similarHint": "مطابقة قريبة: ليست مطابقة تامة لبحثك",
+    "contactsFailed": "تعذّر البحث في جهات الاتصال، لذا قد تكون بعض المحادثات ناقصة هنا."
   },
   "Hr": {
     "inbox": {
@@ -12378,7 +12766,10 @@
       "taskDone": "تمت",
       "markDone": "تحديد “{title}” كمنجزة",
       "taskFailed": "تعذر تحديث المهمة.",
-      "staffConversation": "محادثة الموظف"
+      "staffConversation": "محادثة الموظف",
+      "loadFailed": "تعذر تحميل بيانات الموارد البشرية لهذه المحادثة.",
+      "tasksLoadFailed": "تعذر تحميل مهام الموارد البشرية.",
+      "retry": "إعادة المحاولة"
     },
     "pane": {
       "conversation": "المحادثة",
@@ -12411,6 +12802,7 @@
       "anyStage": "أي مرحلة",
       "mine": "خاصتي",
       "refresh": "تحديث",
+      "capped": "يُعرض أول {n} فقط",
       "loadFailed": "تعذر تحميل المرشحين. حاول مرة أخرى.",
       "empty": "لا أحد يحتاج إلى إجراء الآن",
       "rank": "#",
@@ -12521,7 +12913,10 @@
         "saved": "تم حفظ خطوط الموارد البشرية.",
         "loadFailed": "تعذر تحميل خطوط الموارد البشرية.",
         "stale": "غيّر شخص آخر خطوط الموارد البشرية. أُعيد تحميل القائمة؛ راجعها واحفظ مرة أخرى.",
-        "numberRemoved": "أُزيل رقم. أُعيد تحميل القائمة؛ راجعها واحفظ مرة أخرى."
+        "numberRemoved": "أُزيل رقم. أُعيد تحميل القائمة؛ راجعها واحفظ مرة أخرى.",
+        "ownerNotHr": "هذا الرقم ربطه {owner}، وهو خارج قسم الموارد البشرية، لذا قد لا يرى القسم من يراسلونه. انقل {owner} إلى قسم الموارد البشرية من الإعدادات ← الأعضاء، أو أزل تحديد الرقم.",
+        "ownerUnknown": "شخص غير معروف",
+        "ownerNotHrRefused": "لم يُحفظ: أحد الأرقام المحددة ربطه شخص خارج قسم الموارد البشرية، فلن يرى القسم من يراسلونه. انقل هذا الشخص إلى قسم الموارد البشرية من الإعدادات ← الأعضاء، أو أزل تحديد الرقم."
       }
     },
     "list": {
@@ -12740,6 +13135,7 @@
         "NOT_ALLOWED": "ليس لديك صلاحية لتغيير هذا.",
         "INVALID": "هذه القيمة غير مسموح بها هنا.",
         "LIMIT": "يجب أن يكون الحد اليومي بين 1 و20.",
+        "STALE": "حفظ شخص آخر هذا القالب في هذه الأثناء، فلم يُحفظ شيء. نصّك باقٍ.",
         "UNKNOWN": "حدث خطأ ما. حاول مرة أخرى."
       },
       "templates": {
@@ -12762,6 +13158,8 @@
         },
         "save": "حفظ القالب",
         "saved": "تم حفظ القالب",
+        "changed": "حفظ شخص آخر هذا القالب في هذه الأثناء. تعرض إعادة التحميل نصّه وتحذف نصّك.",
+        "reload": "إعادة التحميل",
         "channelTabs": "قناة القالب",
         "rcsReadOnly": "قوالب RCS للعرض فقط بحسب دورك.",
         "rcsNotConnected": "لا يوجد مزوّد RCS متصل بعد. يمكن تجهيز قوالب RCS الآن؛ ولن يُرسل شيء عبر RCS حتى يتصل مزوّد.",
@@ -12795,6 +13193,7 @@
       },
       "history": {
         "title": "السجل",
+        "capped": "يظهر أحدث {n} فقط.",
         "filter": {
           "all": "الكل",
           "queued": "في الانتظار",
@@ -13080,7 +13479,9 @@
     "result": {
       "case": "الملف",
       "code": "رمز التعليق",
-      "replayed": "(سبق رفعه؛ هذه هي النتيجة الأولى)"
+      "replayed": "(سبق رفعه؛ هذه هي النتيجة الأولى)",
+      "replayedDifferent": "تم رفعه سابقاً بالبيانات التالية: {what}. لم تُطبَّق تعديلاتك؛ عدّله من «ملفاتي المرفوعة». إعادة الرفع تضيف ملفاً ثانياً.",
+      "noDetails": "البيانات التي أرسلتها أولاً"
     },
     "reason": {
       "NO_KIND": "لم يُختر نوع.",
@@ -13090,6 +13491,7 @@
       "CASE_NOT_FOUND": "لا يوجد ملف مفتوح يطابق هذا الرقم أو الرمز.",
       "BANK_MISMATCH": "الملف لدى بنك مختلف.",
       "CASE_EXISTS_NAME_MISMATCH": "هذه الرخصة مسجلة باسم شركة أخرى.",
+      "COMPANY_RESTRICTED": "هذه الشركة أو هذا العميل لدى زميل آخر. سيتولى مسؤول الفرز حفظ الملف.",
       "OTHER": "تعذر حفظه تلقائياً."
     },
     "actions": {
@@ -13170,7 +13572,8 @@
         "pro": "مندوب المعاملات (PRO)",
         "accountant": "المحاسب",
         "other": "أخرى"
-      }
+      },
+      "capped": "يُعرض أول {count} فقط. اكتب المزيد من الاسم أو الرخصة للعثور على غيرها."
     },
     "tray": {
       "intro": "مستندات العملاء من WhatsApp التي تعذر حفظها بيقين. لا يوجد اختيار مسبق: اختر الملف بنفسك.",
@@ -13196,6 +13599,12 @@
       "dismissReason": "لماذا لا يخص أي ملف؟",
       "dismiss": "تجاهل",
       "dismissed": "تم التجاهل",
+      "openChat": "فتح المحادثة",
+      "shown": "{shown} من {total}، الأقدم أولاً",
+      "loadMore": "عرض المزيد",
+      "waiting": "هذا المستند بانتظار الفرز في الطابور بالفعل.",
+      "filedElsewhere": "تم حفظ هذا المستند سابقاً في {caseNumber}.",
+      "filedAlready": "تم حفظ هذا المستند سابقاً في ملف آخر.",
       "reasons": {
         "unknown_sender": "المرسل غير مرتبط بأي شركة",
         "no_open_case": "لا يوجد ملف مفتوح لشركات المرسل",
@@ -13203,7 +13612,8 @@
         "many_cases": "عدة ملفات مفتوحة، ولم يُذكر رقم ملف",
         "evidence_conflict": "الرسالة المقتبسة والتعليق يذكران ملفين مختلفين",
         "other_person": "أرسله شخص غير عميل الملف",
-        "file_refused": "لم يقبل الملف هذا المستند"
+        "file_refused": "لم يقبل الملف هذا المستند",
+        "copy_failed": "تعذر نسخ المستند تلقائياً: افتح الأصل في المحادثة"
       },
       "why": {
         "quoted": "مقتبسة",
@@ -13228,7 +13638,8 @@
       "noNumbers": "لا توجد أرقام WhatsApp للشركة متصلة.",
       "escalate": "تصعيد المستند المنتظر بعد (دقائق)",
       "save": "حفظ",
-      "saved": "تم حفظ التوجيه"
+      "saved": "تم حفظ التوجيه",
+      "storedNow": "المحفوظ الآن: {enabled, select, yes {التوجيه مفعّل} other {التوجيه متوقف}}؛ أرقام المكتب: {numbers}؛ التصعيد بعد {minutes} دقيقة."
     },
     "banks": {
       "title": "البنوك والمستندات",
@@ -13297,7 +13708,8 @@
       "sendHour": "الإرسال من (الساعة، بتوقيت دبي)",
       "gapDays": "الأيام بين التذكيرات",
       "save": "حفظ",
-      "saved": "تم حفظ التذكيرات"
+      "saved": "تم حفظ التذكيرات",
+      "storedNow": "المحفوظ الآن: {enabled, select, yes {التذكيرات مفعّلة} other {التذكيرات متوقفة}}؛ القالب {template} ({language})؛ من الساعة {hour}:00؛ الأيام بين التذكيرات: {days}."
     },
     "worklist": {
       "title": "مكتب الملفات",
@@ -13307,7 +13719,8 @@
       "tasks": "{count, plural, one {# متابعة للمكتب} other {# متابعات للمكتب}} لك",
       "oldest": "الأقدم {age}",
       "open": "فتح مكتب الملفات"
-    }
+    },
+    "settingsChanged": "غيّر شخص آخر هذه الإعدادات منذ أن فتحتها. لم تُحفظ تغييراتك."
   },
   "DeskPreview": {
     "title": "الملف: {name}",
@@ -13454,7 +13867,17 @@
       },
       "apply": "تطبيق: التنظيف اليومي يحذف ويُفرغ",
       "dryRun": "معاينة فقط: التنظيف اليومي يحصي ولا يغيّر شيئاً",
-      "saved": "تم حفظ إعدادات الاحتفاظ"
+      "saved": "تم حفظ إعدادات الاحتفاظ",
+      "lastDryRun": "آخر تشغيل {at}: معاينة. سيحذف أو يُفرغ {rows, plural, one {# صف} other {# صفوف}} و{files, plural, one {# ملف} other {# ملفات}}.",
+      "lastApply": "آخر تشغيل {at}: حُذف أو أُفرغ {rows, plural, one {# صف} other {# صفوف}}، و{files, plural, one {# ملف} other {# ملفات}} في انتظار الحذف.",
+      "lastMore": "ما زال هناك المزيد؛ يستمر تلقائياً.",
+      "lastFailed": "فشل آخر تشغيل {at} ({code}). تُعاد المحاولة تلقائياً، وقد أُبلغ المالكون.",
+      "confirmTitle": "تشغيل الحذف؟",
+      "confirmBody": "ابتداءً من التنظيف اليومي التالي تُزال هذه البيانات نهائياً ولا يمكن استعادتها:",
+      "confirmNone": "لم يُختر أي نوع من البيانات بعد، فلن يُزال شيء الآن. كل نوع تختاره لاحقاً يُزال دون معاينة.",
+      "confirmDelete": "{kind}: تُحذف بعد {days} يوم",
+      "confirmBlank": "{kind}: تُفرغ بعد {days} يوم",
+      "confirm": "الحذف من الآن فصاعداً"
     },
     "ai": {
       "title": "إرسال نص العميل إلى مزوّدي الذكاء الاصطناعي",
@@ -13475,11 +13898,26 @@
       "requireIncomplete": "ما دام هذا مفعّلاً والأساس غير مكتمل، تتوقف كل ميزات الذكاء الاصطناعي في مساحة العمل هذه.",
       "stats": "آخر 30 يوماً: سُجّل {calls} استدعاء للذكاء الاصطناعي، ورُفض {refused}.",
       "saved": "تم الحفظ"
+    },
+    "cancel": "إلغاء",
+    "reload": "إعادة التحميل",
+    "errors": {
+      "generic": "حدث خطأ ما. حاول مرة أخرى.",
+      "network": "تعذر الوصول إلى الخادم. تحقق من اتصالك وحاول مرة أخرى.",
+      "NOT_ALLOWED": "هذا متاح للمالكين والمسؤولين فقط.",
+      "NOT_FOUND": "لم يُعثر على العميل.",
+      "INVALID": "هذا الطلب غير صالح.",
+      "CONFIRM_REQUIRED": "اكتب نص التأكيد حرفياً للمسح.",
+      "REASON_REQUIRED": "السبب مطلوب.",
+      "LEGAL_HOLD": "هذا العميل تحت حجز قانوني؛ لم يُمسح شيء.",
+      "STALE": "غيّر شخص آخر هذه الإعدادات. لم يُحفظ شيء وما كتبته باقٍ؛ أعد التحميل لرؤية الأحدث."
     }
   },
   "CaseReview": {
     "title": "ملاحظة المراجع",
     "none": "لا ملاحظة بعد.",
+    "decideFailed": "تعذّر حفظ قرارك. حاول مرة أخرى.",
+    "loadFailed": "تعذّر تحميل ملاحظة المراجع.",
     "aiWritten": "كتبها الذكاء الاصطناعي، غير مُتحقَّق منها",
     "checklist": "قائمة التحقق التي أُعطيت له",
     "approve": "أوافق",
@@ -13510,6 +13948,7 @@
     "saveFailed": "تعذر حفظ الملاحظة",
     "tooLong": "يمكن أن تصل الملاحظات إلى {max} حرف",
     "mentionListLabel": "الأشخاص الذين يمكنهم رؤية هذه المحادثة",
+    "namesFailed": "تعذّر تحميل الأسماء، ولن يصل إشعار إلى أحد. اكتب @ مرة أخرى لإعادة المحاولة.",
     "you": "أنت",
     "someone": "أحد الزملاء",
     "edited": "معدّلة",
@@ -13519,6 +13958,7 @@
     "cancel": "إلغاء",
     "saveEdit": "حفظ",
     "editFailed": "تعذر حفظ تغييرك",
+    "changedMeanwhile": "تغيّرت هذه الملاحظة في هذه الأثناء. سيحل الحفظ محل: {body}",
     "deleteFailed": "تعذر حذف الملاحظة",
     "deleteTitle": "حذف هذه الملاحظة؟",
     "deleteBody": "لن يراها فريقك بعد الآن. لا يمكن التراجع عن هذا.",
@@ -13531,17 +13971,72 @@
     "assignTo": "إسناد إلى",
     "me": " (أنا)",
     "unknownAgent": "موظف غير معروف",
-    "assignFailed": "تعذر إسناد هذه المحادثة. حاول مرة أخرى."
+    "assignFailed": "تعذر إسناد هذه المحادثة. حاول مرة أخرى.",
+    "assignMoved": "انتقلت هذه المحادثة. أعد تحميل الصفحة.",
+    "assignChanged": "لم يتغيّر شيء: غيّر شخص آخر إسناد المحادثة مع {customer}.",
+    "meanwhileReassign": "أُسندت المحادثة مع {customer} إلى {current} في هذه الأثناء. هل تريد إسنادها إلى {name} بدلاً من ذلك؟",
+    "meanwhileAssign": "أُلغي إسناد المحادثة مع {customer} في هذه الأثناء. هل تريد إسنادها إلى {name}؟",
+    "meanwhileUnassign": "أُسندت المحادثة مع {customer} إلى {current} في هذه الأثناء. هل تريد إلغاء الإسناد رغم ذلك؟"
   },
   "KbLearn": {
     "title": "التعلّم من إجابات الفريق",
-    "description": "مرة كل أسبوع، تُكتب مسودة إجابة للمواضيع المفتوحة من ردود فريقك في المحادثات. مسودات فقط: لا يُرسل شيء قبل أن يعتمده مسؤول.",
-    "notApplied": "غير متاح بعد: طبّق ترحيل قاعدة البيانات 278.",
+    "description": "مرة كل أسبوع، تُكتب مسودة إجابة للمواضيع المفتوحة من ردود فريقك في المحادثات. مسودات فقط: لا يُرسل شيء قبل أن يعتمده مسؤول. يعمل فقط عندما يكون مساعد الذكاء الاصطناعي مفعّلاً.",
+    "notApplied": "غير متاح بعد: طبّق ترحيل قاعدة البيانات 290.",
     "lastRun": "آخر تشغيل {when}.",
+    "lastRunDrafts": "آخر تشغيل {when}. مسودات جديدة: {count}.",
     "notRunYet": "يبدأ التشغيل الأول خلال ساعة.",
-    "loadFailed": "تعذّر تحميل إعداد التعلّم",
+    "loadFailed": "تعذّر تحميل إعداد التعلّم.",
     "saveFailed": "تعذّر حفظ إعداد التعلّم",
     "switchedOn": "التعلّم من إجابات الفريق مفعّل",
-    "switchedOff": "التعلّم من إجابات الفريق متوقف"
+    "switchedOff": "التعلّم من إجابات الفريق متوقف",
+    "runningNow": "التشغيل جارٍ الآن.",
+    "failedNoAi": "فشل آخر تشغيل: مساعد الذكاء الاصطناعي متوقف أو مفتاحه غير موجود.",
+    "failedRead": "فشل آخر تشغيل: تعذّرت قراءة بعض المحادثات أو الإعدادات.",
+    "failedTime": "انتهى وقت آخر تشغيل قبل أن يكتمل.",
+    "failedModel": "فشل آخر تشغيل: لم تستجب خدمة الذكاء الاصطناعي.",
+    "failedOther": "فشل آخر تشغيل: حدث خطأ ما.",
+    "failedStopped": "توقف آخر تشغيل قبل أن يكتمل.",
+    "triesAgain": "تُعاد المحاولة بعد {when}.",
+    "triesSoon": "تُعاد المحاولة خلال ساعة.",
+    "usageLabel": "إجابات متعلَّمة",
+    "skills": {
+      "title": "ما تعلّمه ({count} مفعّلة)",
+      "description": "قواعد مستخلصة من طريقة اعتماد المسؤولين للمسودات السابقة أو تعديلها أو رفضها. تؤثر فقط على المسودات الجديدة. أوقف القاعدة الخاطئة: لن تُستخدم ولن تُتعلّم من جديد.",
+      "loading": "جارٍ التحميل…",
+      "empty": "لا شيء بعد. تظهر القواعد بعد أن يراجع المسؤولون بعض المسودات المستفادة.",
+      "loadFailed": "تعذّر تحميل ما تعلّمه",
+      "saveFailed": "تعذّر حفظ القاعدة",
+      "retire": "إيقاف",
+      "restore": "استعادة",
+      "when": "متى: {when}",
+      "kind": {
+        "general": "كل إجابة",
+        "category": "فئة",
+        "categoryNamed": "{category}",
+        "mistake": "خطأ يجب تجنّبه"
+      },
+      "titlePlain": "ما تعلّمه",
+      "capReached": "عدد القواعد المفعّلة كبير جدًا. أوقف قاعدة أخرى أولًا (24 كحد أقصى).",
+      "gone": "هذه القاعدة لم تعد موجودة. تم تحديث القائمة."
+    }
+  },
+  "AiUsage": {
+    "title": "استهلاك الرموز",
+    "description": "الرموز المستهلكة على مفتاح مزوّدك بواسطة المسودات وروبوت الرد التلقائي. أعداد فقط، ولا يُخزَّن هنا أي محتوى رسائل.",
+    "lastDays": "آخر {days} يومًا",
+    "empty": "لا يوجد استخدام للذكاء الاصطناعي في آخر {days} يومًا حتى الآن.",
+    "emptyHint": "يمتلئ هذا مع صياغة المساعد للمسودات وردوده التلقائية.",
+    "totalTokens": "إجمالي الرموز",
+    "llmCalls": "استدعاءات النموذج",
+    "autoReply": "الرد التلقائي",
+    "drafts": "المسودات",
+    "translations": "الترجمات",
+    "hrDrafts": "مسودات وكيل الموارد البشرية",
+    "tokensPerDay": "الرموز في اليوم",
+    "tokensSeries": "الرموز",
+    "byModel": "حسب النموذج",
+    "modelRow": "{tokens} رمز · {calls, plural, one {# استدعاء} other {# استدعاءات}}",
+    "truncated": "يُعرض جزء من الفترة فقط: الاستخدام مرتفع بحيث تُلخَّص هنا أحدث السجلات فقط.",
+    "loadFailed": "تعذّر تحميل الاستخدام"
   }
 }

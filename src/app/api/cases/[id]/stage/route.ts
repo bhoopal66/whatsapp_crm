@@ -1,7 +1,9 @@
 // ============================================================
 // POST /api/cases/[id]/stage — move a case to a stage (018c).
 //
-// `{ stage, outcome? }`. A final-stage move ends the submission group
+// `{ stage, outcome?, from? }`. `from` is the stage the person saw: when
+// the case has left it meanwhile, 409 STAGE_CHANGED with the stage it is
+// in now, and nothing moves. A final-stage move ends the submission group
 // through the account's 115 service, so the store is built with the
 // account id. Answers the store's StageResult as is: `groupEnd.end`
 // carries `closeError` / `closeDeferred`, which the UI shows as "the
@@ -42,6 +44,15 @@ export async function POST(request: Request, { params }: Params) {
     if (body.outcome !== undefined && body.outcome !== null) {
       outcome = parseText(body.outcome);
       if (outcome === null) throw badRequest('outcome is not valid');
+    }
+    if (body.from !== undefined && body.from !== null) {
+      const from = parseText(body.from);
+      if (from === null) throw badRequest('from is not valid');
+      if (from !== c.stage)
+        throw new CaseHttpError(409, 'The stage changed meanwhile', {
+          code: 'STAGE_CHANGED',
+          stage: c.stage,
+        });
     }
 
     const result = await store.setStage(c.id, ctx.userId, stage, outcome);

@@ -70,6 +70,7 @@ import {
 } from '@/lib/team-activity/report';
 import { assessReport, type PersonAssessment } from '@/lib/team-activity/risk';
 import type { SafetyEntry } from '@/lib/team-activity/safety';
+import { shownReport } from '@/lib/reports/shown-report';
 import { cn } from '@/lib/utils';
 
 interface Loaded {
@@ -128,7 +129,9 @@ function TeamActivityPageInner() {
 
   const [preset, setPreset] = useState<RangePreset>('7d');
   const [channel, setChannel] = useState<string>(ALL);
-  const [loaded, setLoaded] = useState<Loaded | null>(null);
+  const [loadedRaw, setLoaded] = useState<(Loaded & { key: string }) | null>(
+    null
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -152,11 +155,18 @@ function TeamActivityPageInner() {
     return `/api/team-activity/export?${params}`;
   };
 
-  useEffect(() => {
-    let cancelled = false;
+  // The report's own query: what the figures on screen were fetched for.
+  const queryKey = (() => {
     const params = new URLSearchParams({ range: preset, tz: viewerZone() });
     if (channel !== ALL) params.set('channel', channel);
-    void fetch(`/api/team-activity?${params}`)
+    return params.toString();
+  })();
+  const loaded = shownReport(loadedRaw, queryKey);
+
+  useEffect(() => {
+    let cancelled = false;
+    const key = queryKey;
+    void fetch(`/api/team-activity?${key}`)
       .then(async (res) => {
         const body = (await res.json().catch(() => null)) as
           (Loaded & { error?: string }) | null;
@@ -166,7 +176,7 @@ function TeamActivityPageInner() {
           return;
         }
         setError(null);
-        setLoaded({ report: body.report, range: body.range });
+        setLoaded({ report: body.report, range: body.range, key });
       })
       .catch(() => {
         if (!cancelled) setError(t('loadFailed'));
@@ -177,7 +187,7 @@ function TeamActivityPageInner() {
     return () => {
       cancelled = true;
     };
-  }, [preset, channel, reloadKey, t]);
+  }, [queryKey, reloadKey, t]);
 
   // The Safety Meter, once per visit (the server caches it). Admins only.
   useEffect(() => {
@@ -208,10 +218,23 @@ function TeamActivityPageInner() {
   }, []);
 
   // Blocked sends for the report's own range (migration 204).
-  const [blocks, setBlocks] = useState<TeamBlock[] | null>(null);
-  const [blocksError, setBlocksError] = useState(false);
+  // Keyed to that range, as the report is to its query: a filter change
+  // that fails or is still loading shows no rows of the old period.
+  const [blocksRaw, setBlocks] = useState<{
+    key: string;
+    rows: TeamBlock[];
+  } | null>(null);
+  const [blocksFailed, setBlocksFailed] = useState<string | null>(null);
   const rangeFrom = loaded?.range.from;
   const rangeTo = loaded?.range.to;
+  const blocksRange = rangeFrom && rangeTo ? `${rangeFrom} ${rangeTo}` : '';
+  const blocks = blocksRange
+    ? (shownReport(blocksRaw, blocksRange)?.rows ?? null)
+    : null;
+  // No range and no report under way: the report itself failed.
+  const blocksError = blocksRange
+    ? blocksFailed === blocksRange
+    : !loading && error !== null;
   const [blocksKey, setBlocksKey] = useState(0);
   useEffect(() => {
     if (!rangeFrom || !rangeTo) return;
@@ -222,14 +245,14 @@ function TeamActivityPageInner() {
         const body: unknown = await res.json().catch(() => null);
         if (cancelled) return;
         if (!res.ok) {
-          setBlocksError(true);
+          setBlocksFailed(`${rangeFrom} ${rangeTo}`);
           return;
         }
-        setBlocksError(false);
-        setBlocks(parseBlocks(body));
+        setBlocksFailed(null);
+        setBlocks({ key: `${rangeFrom} ${rangeTo}`, rows: parseBlocks(body) });
       })
       .catch(() => {
-        if (!cancelled) setBlocksError(true);
+        if (!cancelled) setBlocksFailed(`${rangeFrom} ${rangeTo}`);
       });
     return () => {
       cancelled = true;
@@ -584,7 +607,10 @@ function TeamActivityPageInner() {
           <BlocksTab
             blocks={blocks}
             error={blocksError}
-            onRetry={() => setBlocksKey((k) => k + 1)}
+            onRetry={() => {
+              if (!blocksRange) reload();
+              else setBlocksKey((k) => k + 1);
+            }}
             nameOf={nameOf}
             numberOf={numberOf}
           />

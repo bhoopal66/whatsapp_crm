@@ -1,10 +1,11 @@
 // A group's managers and their saved numbers move together: a person
 // made a manager has their saved number (`staff_saved_phone`, from
 // `coordinator_phones`) added to the WhatsApp group, and a manager who
-// is dropped has it removed. The reverse direction (a saved number
-// that joins the group becomes a manager) is a trigger in migration
-// 219. This module is the pure decision; the managers route does the
-// I/O. Nothing here may fail the manager write itself.
+// is dropped has it removed (`staff_removal_phone`, 299). The reverse
+// direction (a saved number that joins the group becomes a manager) is a
+// trigger in migration 219. This module is the pure decision;
+// `manager-sync.ts` does the I/O. Nothing here may fail the manager write
+// itself.
 
 import type { GroupActionBlock } from './access';
 
@@ -22,7 +23,7 @@ export interface ManagerNumberPlan {
   add: ManagerNumberChange[];
   remove: ManagerNumberChange[];
   /** People whose number would have changed but can't (block). */
-  skipped: { name: string; reason: NumberBlock }[];
+  skipped: { name: string; reason: NumberBlock | 'number_unconfirmed' }[];
 }
 
 /** The numbers report the managers PUT answers with. */
@@ -51,10 +52,12 @@ const digitsOf = (value: string | null | undefined): string =>
 
 /**
  * Which saved numbers to add to or remove from the WhatsApp group.
- * A person with no saved number is left out (they send from the app as
- * before). Our own number is never touched; an added number already in
- * the group and a removed number not in it need nothing. A participant
- * WhatsApp shows only by its LID (`<digits>@lid`) never matches.
+ * A person with no saved number is left out (an added one sends from the
+ * app as before; the route reports a removed one). Our own number is
+ * never touched; an added number already in the group and a removed
+ * number not in it need nothing. A participant WhatsApp shows only by its
+ * LID (`<digits>@lid`) never matches: a removed number not found beside
+ * such a participant may be them, so it is reported `number_unconfirmed`.
  */
 export function planManagerNumbers(args: {
   added: readonly string[];
@@ -70,12 +73,18 @@ export function planManagerNumbers(args: {
 }): ManagerNumberPlan {
   const present = new Set(args.participants.filter((w) => /^\d+$/.test(w)));
   const ours = digitsOf(args.ourNumber);
+  const hidden = args.participants.some((w) => w.endsWith('@lid'));
   const plan: ManagerNumberPlan = { add: [], remove: [], skipped: [] };
   const consider = (userId: string, adding: boolean) => {
     const waId = digitsOf(args.phones.get(userId));
     if (!waId || waId === ours) return;
-    if (present.has(waId) === adding) return;
     const name = args.names.get(userId) ?? '';
+    if (present.has(waId) === adding) {
+      if (!adding && hidden) {
+        plan.skipped.push({ name, reason: 'number_unconfirmed' });
+      }
+      return;
+    }
     if (args.block) {
       plan.skipped.push({ name, reason: args.block });
       return;

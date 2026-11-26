@@ -82,6 +82,8 @@ import {
   caseStatusView,
   contactPersonLine,
   EMPTY_FILTERS,
+  effectiveSnoozed,
+  snoozedDefault,
   formatAed,
   stageFilterOptions,
   inboxUrl,
@@ -918,8 +920,10 @@ function FilterBar({
             onChange={(includeClosed) => setFilters({ includeClosed })}
           />
           <SnoozedControl
-            value={f.snoozed}
-            onChange={(snoozed) => setFilters({ snoozed })}
+            value={effectiveSnoozed(f)}
+            onChange={(m) =>
+              setFilters({ snoozed: m === snoozedDefault(f.q) ? null : m })
+            }
           />
           <MentionsChip
             on={f.mentionedMe}
