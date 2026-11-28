@@ -913,6 +913,8 @@ export const NOT_PERSONAL: Readonly<Record<string, string>> =
             'ai_insight_settings',
             // 290: the learn-from-team-answers switch and its last run.
             'kb_learn_settings',
+            // 321: the in-chat AI assistant's per-workspace switch.
+            'inbox_assistant_settings',
             'assignment_settings',
             'automations',
             'automation_steps',

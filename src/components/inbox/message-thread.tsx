@@ -2128,6 +2128,18 @@ export function MessageThread({
     };
   }, [conversation?.id]);
 
+  // The Assistant panel's draft (migration 321): into this chat's reply
+  // box, Reply mode, for the agent to edit and send. Never sent here; a
+  // draft for a chat no longer open is dropped.
+  const placeAssistantDraft = useCallback(
+    (chatId: string, text: string) => {
+      if (!chatId || chatId !== conversationId) return;
+      setComposerMode({ conversationId: chatId, mode: 'reply' });
+      composerDraftRef.current?.insertDraft(text);
+    },
+    [conversationId]
+  );
+
   const handleAssignChange = useCallback(
     async (
       agentId: string | null,
@@ -2286,6 +2298,7 @@ export function MessageThread({
           onToggleContactPanel={onToggleContactPanel}
           sharedBank={sharedBank}
           serviceWindowCountdown={windowCountdown}
+          onUseAssistantDraft={placeAssistantDraft}
         />
 
         {/* A chat the AI handed to a person (migration 078): its banner

@@ -12,6 +12,29 @@ and polish.
 
 ## [Unreleased]
 
+### Added: the Assistant panel in the inbox
+
+An open chat gets an **Assistant** button among the chat header's actions
+(on a phone, in the Chat actions menu). It opens a side panel that can
+summarise the chat (who, what they want, what is pending, the last promise
+made), draft a reply in the chat's language into the reply box for you to
+edit and send, answer a question about the chat, and suggest actions: set a
+chat tag, create a follow-up task, assign the chat, add an internal note.
+Each suggestion is a card that changes nothing until you press Confirm. The
+assistant never sends anything to a customer.
+
+It is **off until an owner or admin switches it on** (the switch is at the
+top of the panel, which owners and admins always see), and it is for agents
+and up. It reads only the chats you can see, at most the last 60 messages,
+uses the workspace's own AI key (AI Agents → Assistant) and its spend shows
+as "Chat assistant" in Token usage. It is the first user of the assistant
+safety layer (migration 120): every suggested change is a pending action the
+person must confirm, rate-limited and audited.
+
+**Migration required: 321** (`321_chat_assist.sql`, after 290; apply in
+order, once: re-running 154, 202 or 290 afterwards drops the new usage
+mode).
+
 ### Fixed: going back to an earlier case document had no effect
 
 Attaching a good document again after a bad upload, or one whose expiry date

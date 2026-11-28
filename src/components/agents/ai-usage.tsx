@@ -9,6 +9,7 @@ import {
   BriefcaseBusiness,
   GraduationCap,
   Languages,
+  MessagesSquare,
   PencilLine,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
@@ -52,6 +53,8 @@ interface UsageResponse {
     hr_agent?: { calls: number; tokens: number };
     // Learned knowledge-base drafts (migration 290); absent from older servers.
     kb_learn?: { calls: number; tokens: number };
+    // The in-chat assistant panel (migration 321); absent from older servers.
+    chat_assist?: { calls: number; tokens: number };
   };
   by_model: {
     model: string;
@@ -161,7 +164,7 @@ export function AiUsageCard() {
           </div>
         ) : (
           <>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-8">
               <Stat
                 label={t('totalTokens')}
                 value={formatCompactNumber(data.totals.total_tokens)}
@@ -191,6 +194,13 @@ export function AiUsageCard() {
                 label={tLearn('usageLabel')}
                 value={formatCompactNumber(data.by_mode.kb_learn?.tokens ?? 0)}
                 icon={GraduationCap}
+              />
+              <Stat
+                label={t('chatAssistant')}
+                value={formatCompactNumber(
+                  data.by_mode.chat_assist?.tokens ?? 0
+                )}
+                icon={MessagesSquare}
               />
             </div>
 
