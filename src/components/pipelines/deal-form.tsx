@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
+import { useStageLabel } from '@/hooks/use-stage-label';
 import { deleteRows, updateRow } from '@/lib/supabase/changed-rows';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
@@ -62,6 +63,7 @@ export function DealForm({
   onSaved,
 }: DealFormProps) {
   const t = useTranslations('Pipelines.form');
+  const showStage = useStageLabel();
   const supabase = createClient();
   const { accountId, defaultCurrency } = useAuth();
 
@@ -399,7 +401,7 @@ export function DealForm({
               >
                 {stages.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {s.name}
+                    {showStage(s.name)}
                   </option>
                 ))}
               </select>

@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { Briefcase } from 'lucide-react';
 import { useLocale, useTranslations } from 'next-intl';
 
+import { useStageLabel } from '@/hooks/use-stage-label';
 import { hasMinRole, type AccountRole } from '@/lib/auth/roles';
 import {
   caseStatusView,
@@ -137,6 +138,7 @@ export function CasesCard({ cases, role, className }: CasesCardProps) {
 function UrgentList({ rows }: { rows: InboxRow[] }) {
   const t = useTranslations('Dashboard.home.cases');
   const tCases = useTranslations('Cases');
+  const showStage = useStageLabel();
   const locale = useLocale();
   return (
     <div className="min-w-0">
@@ -158,7 +160,7 @@ function UrgentList({ rows }: { rows: InboxRow[] }) {
                   </p>
                   <p className="text-muted-foreground truncate text-xs">
                     {r.bankName ?? r.bankCode ?? t('noBank')} ·{' '}
-                    {caseStatusView(r).text}
+                    {caseStatusView(r, showStage).text}
                   </p>
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-1">
@@ -190,6 +192,7 @@ function StageBars({
   className?: string;
 }) {
   const t = useTranslations('Dashboard.home.cases');
+  const showStage = useStageLabel();
   return (
     <div className={cn('min-w-0', className)}>
       <h3 className="text-muted-foreground mb-2 text-xs font-semibold">
@@ -201,7 +204,7 @@ function StageBars({
             <span
               className={cn(CHIP, 'w-36 shrink-0', stageChipClass(s.stage))}
             >
-              {s.stage}
+              {showStage(s.stage)}
             </span>
             <span className="bg-card-2 h-2 min-w-0 flex-1 overflow-hidden rounded-full">
               <span

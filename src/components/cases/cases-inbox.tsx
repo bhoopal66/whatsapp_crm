@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 
+import { useStageLabel } from '@/hooks/use-stage-label';
 import {
   CaseViewsMenu,
   MentionsChip,
@@ -738,6 +739,7 @@ function FilterBar({
   rows: readonly { stage: string }[];
 }) {
   const t = useTranslations('Cases');
+  const showStage = useStageLabel();
 
   // The day count being typed; it reaches the URL on blur or Enter.
   const urlDays = f.noActivityDays === null ? '' : String(f.noActivityDays);
@@ -809,7 +811,7 @@ function FilterBar({
           value={f.stage}
           options={stageFilterOptions(rows, f.stage).map((s) => ({
             value: s,
-            label: s,
+            label: showStage(s),
           }))}
           onChange={(stage) => setFilters({ stage })}
         />
@@ -1047,7 +1049,8 @@ function useCaseRowMenu(ref: RefObject<Element | null>, row: InboxRow) {
 function Chips({ row, now }: { row: InboxRow; now: Date }) {
   const t = useTranslations('Cases');
   const priority = PRIORITY_CHIP[row.priority];
-  const status = caseStatusView(row);
+  const showStage = useStageLabel();
+  const status = caseStatusView(row, showStage);
   return (
     <span className="flex flex-wrap items-center gap-1.5">
       <span className={cn(chip, status.chipClass)}>{status.text}</span>

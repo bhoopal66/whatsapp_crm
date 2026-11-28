@@ -14053,5 +14053,26 @@
     "modelRow": "{tokens} tok · {calls, plural, one {# call} other {# calls}}",
     "truncated": "Showing a partial window — usage is high enough that only the most recent records are summarized here.",
     "loadFailed": "Failed to load usage"
+  },
+  "StageNames": {
+    "newLead": "New Lead",
+    "qualified": "Qualified",
+    "proposalSent": "Proposal Sent",
+    "negotiation": "Negotiation",
+    "won": "Won",
+    "interested": "Interested",
+    "dataCollection": "Data collection",
+    "review": "Review",
+    "submitted": "Submitted",
+    "bankAcknowledged": "Bank acknowledged",
+    "documentsRequested": "Documents requested",
+    "documentsReceived": "Documents received",
+    "underReview": "Under review",
+    "queryRaised": "Query raised",
+    "queryAnswered": "Query answered",
+    "approved": "Approved",
+    "declined": "Declined",
+    "withdrawn": "Withdrawn",
+    "closed": "Closed"
   }
 }

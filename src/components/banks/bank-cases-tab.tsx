@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useLocale, useTranslations } from 'next-intl';
 
+import { useStageLabel } from '@/hooks/use-stage-label';
 import { useWorkspaceMembers } from '@/components/meetings/use-workspace-members';
 import { Button } from '@/components/ui/button';
 import {
@@ -113,7 +114,8 @@ function SlaChip({ c, nextDue }: { c: BankCase; nextDue: string | null }) {
 
 function StageChip({ c }: { c: BankCase }) {
   const t = useTranslations('Banks.cases');
-  const status = caseStatusView(c);
+  const showStage = useStageLabel();
+  const status = caseStatusView(c, showStage);
   return (
     <span className="flex flex-wrap items-center gap-1.5">
       <span className={cn(chip, status.chipClass)}>
@@ -137,6 +139,7 @@ function StageChip({ c }: { c: BankCase }) {
 export function BankCasesTab({ bankWsId }: { bankWsId: string }) {
   const t = useTranslations('Banks.cases');
   const tb = useTranslations('Banks');
+  const showStage = useStageLabel();
   const view = useRowView();
   const [cases, setCases] = useState<BankCase[] | null | 'error'>(null);
   const [filter, setFilter] = useState<CaseFilter>('all');
@@ -236,7 +239,8 @@ export function BankCasesTab({ bankWsId }: { bankWsId: string }) {
                         <Link
                           href={`/cases/${c.caseId}`}
                           aria-label={t('openCase', {
-                            stage: caseStatusView(c).text || t('noStage'),
+                            stage:
+                              caseStatusView(c, showStage).text || t('noStage'),
                           })}
                           className="after:absolute after:inset-0 after:content-[''] focus-visible:underline"
                         >
@@ -282,7 +286,8 @@ export function BankCasesTab({ bankWsId }: { bankWsId: string }) {
                     <Link
                       href={`/cases/${c.caseId}`}
                       aria-label={t('openCase', {
-                        stage: caseStatusView(c).text || t('noStage'),
+                        stage:
+                          caseStatusView(c, showStage).text || t('noStage'),
                       })}
                       className="after:absolute after:inset-0 after:rounded-xl after:content-[''] focus-visible:underline"
                     >

@@ -9,6 +9,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useLocale, useTranslations } from 'next-intl';
 
+import { useStageLabel } from '@/hooks/use-stage-label';
 import {
   LEAD_CHIP,
   parseContactCases,
@@ -44,6 +45,7 @@ function useCaseBanks(): CaseBankOption[] | null {
 
 export function CasesCard({ contactId }: { contactId: string }) {
   const t = useTranslations('CustomerCases');
+  const showStage = useStageLabel();
   const locale = useLocale();
   const banks = useCaseBanks();
   const [cases, setCases] = useState<ContactCase[] | null>(null);
@@ -80,7 +82,7 @@ export function CasesCard({ contactId }: { contactId: string }) {
         <ul className="space-y-2">
           {cases.map((c) => {
             const amount = formatAed(c.amount, locale);
-            const status = caseStatusView(c);
+            const status = caseStatusView(c, showStage);
             return (
               <li key={c.id}>
                 <Link

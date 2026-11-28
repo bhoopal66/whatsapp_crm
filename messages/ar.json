@@ -14053,5 +14053,26 @@
     "modelRow": "{tokens} رمز · {calls, plural, one {# استدعاء} other {# استدعاءات}}",
     "truncated": "يُعرض جزء من الفترة فقط: الاستخدام مرتفع بحيث تُلخَّص هنا أحدث السجلات فقط.",
     "loadFailed": "تعذّر تحميل الاستخدام"
+  },
+  "StageNames": {
+    "newLead": "عميل محتمل جديد",
+    "qualified": "مؤهَّل",
+    "proposalSent": "تم إرسال العرض",
+    "negotiation": "تفاوض",
+    "won": "تم الفوز",
+    "interested": "مهتم",
+    "dataCollection": "جمع البيانات",
+    "review": "مراجعة",
+    "submitted": "تم التقديم",
+    "bankAcknowledged": "أكّد البنك الاستلام",
+    "documentsRequested": "طُلبت المستندات",
+    "documentsReceived": "استُلمت المستندات",
+    "underReview": "قيد المراجعة",
+    "queryRaised": "تم طرح استفسار",
+    "queryAnswered": "تمت الإجابة على الاستفسار",
+    "approved": "تمت الموافقة",
+    "declined": "مرفوض",
+    "withdrawn": "مسحوب",
+    "closed": "مغلق"
   }
 }

@@ -14053,5 +14053,26 @@
     "modelRow": "{tokens} 토큰 · {calls, plural, other {호출 #회}}",
     "truncated": "일부 기간만 표시합니다. 사용량이 많아 최근 기록만 여기에 요약됩니다.",
     "loadFailed": "사용량을 불러오지 못했습니다"
+  },
+  "StageNames": {
+    "newLead": "신규 리드",
+    "qualified": "검증됨",
+    "proposalSent": "제안서 발송",
+    "negotiation": "협상",
+    "won": "성사",
+    "interested": "관심 있음",
+    "dataCollection": "자료 수집",
+    "review": "검토",
+    "submitted": "제출됨",
+    "bankAcknowledged": "은행 접수 확인",
+    "documentsRequested": "서류 요청됨",
+    "documentsReceived": "서류 접수됨",
+    "underReview": "심사 중",
+    "queryRaised": "문의 제기됨",
+    "queryAnswered": "문의 답변됨",
+    "approved": "승인됨",
+    "declined": "거절됨",
+    "withdrawn": "철회됨",
+    "closed": "종료됨"
   }
 }
