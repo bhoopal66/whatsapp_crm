@@ -18,6 +18,7 @@ import { documentCaption, mediaFilename } from '@/lib/media/filename';
 import { useMediaBlobUrl } from '@/hooks/use-media-blob-url';
 import { useNearViewport } from '@/hooks/use-near-viewport';
 import { VoiceNotePlayer } from './voice-note-player';
+import { chatMediaDisplayUrl } from '@/lib/storage/chat-media-url';
 
 /**
  * The media renderers behind `<MessageBubble>`'s image / video / audio /
@@ -231,7 +232,7 @@ export function MediaVideoBubble({
       {/* Plain URL, not a blob: the element should stream rather than wait
           for up to 16 MB to land. */}
       <video
-        src={message.media_url}
+        src={chatMediaDisplayUrl(message.media_url)}
         controls
         preload="metadata"
         className={cn(MEDIA_BOX, 'rounded-lg')}
@@ -302,7 +303,7 @@ export function MediaDocumentBubble({
     <div>
       <div className="flex items-center gap-2">
         <a
-          href={message.media_url}
+          href={chatMediaDisplayUrl(message.media_url)}
           target="_blank"
           rel="noopener noreferrer"
           className="bg-wa-quote flex min-w-0 flex-1 items-center gap-2 rounded-lg px-3 py-2.5 text-sm hover:opacity-90"

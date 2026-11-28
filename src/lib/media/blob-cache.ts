@@ -23,6 +23,8 @@
  * object URL keeps its blob's data alive by itself.
  */
 
+import { chatMediaDisplayUrl } from '@/lib/storage/chat-media-url';
+
 /** Prefix of the auth-gated proxy — these need a credentialed fetch. */
 const PROXY_PREFIX = "/api/whatsapp/media/";
 
@@ -90,6 +92,8 @@ export async function loadMediaBlob(
   url: string,
   fetchImpl: MediaFetch = defaultFetch,
 ): Promise<Blob> {
+  // Our own chat-media link goes through the app route (migration 321).
+  url = chatMediaDisplayUrl(url);
   if (!isProxiedMediaUrl(url)) {
     const res = await fetchImpl(url);
     if (!res.ok) throw new MediaResponseError(res.status);

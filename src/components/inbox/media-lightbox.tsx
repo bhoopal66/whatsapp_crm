@@ -31,6 +31,7 @@ import {
   type MediaGalleryItem,
 } from '@/lib/media/gallery';
 import type { Message } from '@/types';
+import { chatMediaDisplayUrl } from '@/lib/storage/chat-media-url';
 
 /**
  * Full-size viewer for the images and videos in the open conversation
@@ -153,7 +154,7 @@ export function MediaLightbox({
               />
             )}
             <a
-              href={item.url}
+              href={chatMediaDisplayUrl(item.url)}
               target="_blank"
               rel="noopener noreferrer"
               aria-label={t('openOriginal')}
@@ -182,7 +183,7 @@ export function MediaLightbox({
           ) : (
             <video
               // Plain URL, never a blob — the player should stream.
-              src={item.url}
+              src={chatMediaDisplayUrl(item.url)}
               controls
               preload="metadata"
               className={cn(MEDIA_MAX_HEIGHT, 'max-w-full rounded-lg')}

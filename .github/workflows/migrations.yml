@@ -1656,3 +1656,8 @@ jobs:
       # and two admins cannot overwrite each other. Rolled back.
       - name: Assert number access and expected lists (314)
         run: supabase db query --local --file supabase/ci/verify-number-access.sql
+
+      # Migration 321: chat-media (customer attachments) is private, and
+      # re-applying 023 or 039 keeps it private.
+      - name: Verify chat-media is private (321)
+        run: supabase db query --local --file supabase/ci/verify-chat-media-private.sql

@@ -106,7 +106,10 @@ export type Download = (mediaUrl: string) => Promise<Downloaded>;
 /** A private Storage object, fetched with the service key. */
 export type StorageDownload = (
   bucket: string | null,
-  path: string | null
+  path: string | null,
+  /** The object one of our own chat-media links names (321): the one
+   *  case where chat-media is read. A row's own storage pair never is. */
+  opts?: { ownChatMedia?: boolean }
 ) => Promise<Downloaded>;
 
 /** The file system calls the worker makes; tests may swap them. */
@@ -426,6 +429,39 @@ export function fileNameFor(
 // ------------------------------------------------------------ download
 
 const PUBLIC_CHAT_MEDIA = '/storage/v1/object/public/chat-media/';
+/** chat-media is private since migration 321. */
+const CHAT_MEDIA_BUCKET = 'chat-media';
+
+/**
+ * The object path of one of our own stored chat-media links, or null.
+ * Since 321 that link no longer opens without a key, so the worker reads
+ * the object with the service key (makeStorageDownload), the one request
+ * that carries it, to our own Storage only. Matched on the path, as
+ * resolveMediaUrl does; a dot segment refuses the link.
+ */
+export function ownChatMediaPath(mediaUrl: string): string | null {
+  let u: URL;
+  try {
+    u = new URL(mediaUrl);
+  } catch {
+    return null;
+  }
+  const at = u.pathname.indexOf(PUBLIC_CHAT_MEDIA);
+  if (at < 0) return null;
+  let path: string;
+  try {
+    path = u.pathname
+      .slice(at + PUBLIC_CHAT_MEDIA.length)
+      .split('/')
+      .map((s) => decodeURIComponent(s))
+      .join('/');
+  } catch {
+    return null;
+  }
+  if (!path || path.split('/').some((s) => s === '' || s === '.' || s === '..'))
+    return null;
+  return path;
+}
 const MAX_REDIRECTS = 3;
 
 // Private, loopback, link-local and unique-local ranges (plus "this
@@ -606,9 +642,14 @@ export const CASE_FILES_BUCKET = 'case-files';
 export function storageObjectUrl(
   baseUrl: string,
   bucket: string | null,
-  path: string | null
+  path: string | null,
+  allowChatMedia = false
 ): string | null {
-  if (bucket !== CASE_FILES_BUCKET) return null;
+  if (
+    bucket !== CASE_FILES_BUCKET &&
+    !(allowChatMedia && bucket === CHAT_MEDIA_BUCKET)
+  )
+    return null;
   if (typeof path !== 'string') return null;
   if (/^\s*$/.test(path) || path.startsWith('/')) return null;
   if (/(^|\/)\.\.(\/|$)/.test(path)) return null;
@@ -637,8 +678,13 @@ export function makeStorageDownload(opts: {
     outcome: 'failed',
     error: 'unsupported storage location',
   };
-  return async (bucket, path) => {
-    const url = storageObjectUrl(opts.baseUrl, bucket, path);
+  return async (bucket, path, how) => {
+    const url = storageObjectUrl(
+      opts.baseUrl,
+      bucket,
+      path,
+      how?.ownChatMedia === true
+    );
     if (url === null) return unsupported;
     try {
       const res = await fetchImpl(url, {
@@ -968,7 +1014,13 @@ async function processRow(
   // A customer's document has a media_url; a staff upload or case build
   // (180) has a storage pair instead. A row with neither is refused.
   let got: Downloaded;
-  if (typeof doc.media_url === 'string') {
+  const ownPath =
+    typeof doc.media_url === 'string' ? ownChatMediaPath(doc.media_url) : null;
+  if (ownPath !== null) {
+    got = await deps.storageDownload(CHAT_MEDIA_BUCKET, ownPath, {
+      ownChatMedia: true,
+    });
+  } else if (typeof doc.media_url === 'string') {
     got = await deps.download(doc.media_url);
   } else if (doc.storage_bucket != null || doc.storage_path != null) {
     got = await deps.storageDownload(

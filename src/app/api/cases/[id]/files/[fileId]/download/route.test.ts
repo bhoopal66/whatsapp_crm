@@ -85,21 +85,26 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe('GET files/[fileId]/download', () => {
-  it('returns a chat-media document on the public origin and marks issued', async () => {
+  it('signs a chat-media document for 600 s (private since 321) and marks issued', async () => {
     const res = await get();
     expect(res.status).toBe(200);
     expect(res.headers.get('cache-control')).toBe('no-store');
-    expect(await res.json()).toEqual({
-      url: 'https://pub.example/supabase/storage/v1/object/public/chat-media/account-1/inbound/a.pdf',
-      expiresAt: null,
-    });
+    const body = await res.json();
+    expect(body.url).toBe(
+      'https://pub.example/supabase/storage/v1/object/sign/case-files/cases/x/a.pdf?token=t'
+    );
+    expect(typeof body.expiresAt).toBe('string');
+    expect(m.from).toHaveBeenCalledWith('chat-media');
+    expect(m.createSignedUrl).toHaveBeenCalledWith(
+      'account-1/inbound/a.pdf',
+      600
+    );
     expect(m.recordFileDownload).toHaveBeenCalledWith(
       'u-1',
       F,
       expect.any(Date)
     );
     expect(m.getDocument).toHaveBeenCalledWith('doc-1');
-    expect(m.createSignedUrl).not.toHaveBeenCalled();
     expect(m.markDownloadIssued).toHaveBeenCalledWith('d-1');
   });
 

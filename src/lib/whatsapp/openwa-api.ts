@@ -468,7 +468,10 @@ export async function assertGatewayFetchableUrl(
   if (
     base &&
     (url.protocol === 'https:' || url.protocol === 'http:') &&
-    url.href.startsWith(`${base}/storage/v1/object/public/`) &&
+    // Our own Storage: a public object, or a link signed for this send
+    // (chat-media is private since migration 321).
+    (url.href.startsWith(`${base}/storage/v1/object/public/`) ||
+      url.href.startsWith(`${base}/storage/v1/object/sign/`)) &&
     // An encoded slash, backslash or dot survives URL normalisation, and
     // a proxy that decodes it could walk out of the storage prefix.
     !/%(2f|5c|2e)/i.test(url.pathname)
