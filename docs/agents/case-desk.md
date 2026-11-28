@@ -121,6 +121,19 @@ package 035a-c. `docs/case-desk.md` is the contract.
   asked on demand by `suggestTrayCase`; `readJudgment` suggests only at
   p ≥ 0.6 and a 0.1 margin. Advice only: never files, never pre-selects.
   `verify-desk-worklist-suggest.sql`.
+- **Group intake (324, CC group wall slice A).** `desk_group_links`
+  (group -> bank, intake / replies, replies only with intake; owner,
+  admin or team leader who sees the group; never a 299 mirror) and
+  `desk_group_intake` (one row per group message, first write wins,
+  outcome + reason code + intake item; reply claim off -> pending once,
+  never for `chat`). `desk_group_can_see` restates 299's
+  `whatsapp_group_visible_ids` with an explicit actor, staff only: change
+  one, change both (the verify file compares them).
+  `desk_group_staff_for_phone` is 230's exactly-one-live-staff rule keyed
+  by digits. `GROUP_INTAKE_OUTCOMES` / `GROUP_REPLY_STATES` are pinned to
+  the CHECKs by `group-intake-store.test.ts`. `desk_group_intake` is
+  NOT_PERSONAL (ids and codes; the item is 220's).
+  `verify-desk-group-intake.sql`.
 - **`privacy_extensions` (229).** 221's export and 222's erase call
   every registered `export_fn(account, contact) -> jsonb` /
   `erase_fn(account, contact) -> {counts, objects}` (the erase ones run

@@ -1673,3 +1673,11 @@ jobs:
       # 'chat_assist' and keeps 290's list. Rolled back.
       - name: Verify chat assistant (323)
         run: supabase db query --local --file supabase/ci/verify-chat-assist.sql
+
+      # Migration 324: WhatsApp groups linked to a bank for desk intake.
+      # Linking refusals (agent, a submission group's mirror, replies
+      # without intake), the one-staff-per-number rule, first write wins,
+      # a reply claimed once, the wall's visibility and queue alerts, and
+      # outcomes that follow a later filing. Rolled back.
+      - name: Verify desk group intake (324)
+        run: supabase db query --local --file supabase/ci/verify-desk-group-intake.sql

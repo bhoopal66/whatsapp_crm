@@ -271,6 +271,42 @@ and up):
   no-bank queue goes to the lead at 2 hours. One task per bank, level
   and Dubai day, from the automations cron.
 
+## WhatsApp groups linked to a bank
+
+Migration 324 (the CC group wall, slice A: database only; the inbound
+hook and the screen follow).
+
+- **Link.** Owners, admins and team leaders who can see a WhatsApp group
+  link it to one bank (`desk_group_link_set`; several groups may feed one
+  bank; no bank removes the link). *Intake* and *replies* are separate
+  switches, replies only with intake (`INVALID`). A submission group's
+  mirror is never linked (`GROUP_NOT_FOUND`, as for a group the person
+  cannot see); an unknown bank is `BANK_NOT_FOUND`.
+- **Who posted.** `desk_group_staff_for_phone` answers the one live staff
+  member (agent and up, not deactivated) whose saved number has the
+  sender's digits; none, or two people on one number, is nobody.
+- **What became of a file.** `desk_group_intake_record` keeps one row per
+  group message: an outcome (`filed`, `new_case`, `queued`, `duplicate`,
+  `refused`, `unknown_sender`, `no_copy`, `file_type`, `chat`), a reason
+  code (never free text) and the desk upload it became. The first record
+  wins; a message of an unlinked group is `NOT_LINKED`.
+  `desk_group_outcomes` reads the upload's state *now*, so a queued file
+  a coordinator files later shows filed, with its case number.
+- **Replies.** `desk_group_reply_claim` hands out a reply at most once per
+  message, only while the link has replies on and never for `chat`;
+  `desk_group_reply_settle` records sent (with our message id) or failed.
+  A failed reply is not retried.
+- **The wall.** `desk_group_wall` gives, per linked group the person can
+  see (others are left out without an error), the bank and its desk
+  code, the primary and second coordinator, the bank's files filed today
+  (Dubai day, any channel), its sorting queue and oldest wait, and the
+  alert: `no_coordinator` (no primary and no second) first, then `lead`
+  at 4 hours, `second` at 2 hours.
+- Who sees a group is the groups screen's rule (owner and admin every
+  group; otherwise the groups the person, or for a team leader their
+  team, created or manages), staff only: viewers and bank guests see
+  nothing here. `verify-desk-group-intake.sql`.
+
 ## Follow-ups and suggestions
 
 Migration 235 (design 035 D8 and D12).

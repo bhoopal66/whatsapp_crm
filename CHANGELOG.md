@@ -12,6 +12,24 @@ and polish.
 
 ## [Unreleased]
 
+### Added: WhatsApp groups linked to a bank for the case desk (database)
+
+The groundwork for the CC group wall. Owners, admins and team leaders can
+link a WhatsApp group they can see to one of the workspace's banks
+(several groups may feed one bank), with file intake and, only with
+intake, replies in the group switched on separately; a submission group
+is never linked. Each file a staff member posts in a linked group will
+record what became of it (filed, new case, queued, duplicate, refused,
+sender not recognised, and so on) against the desk upload it became, so
+a queued file reads as filed once a coordinator files it. The sender is
+the one live staff member with that saved number; two people sharing a
+number are nobody. The wall's per-group figures (files of the bank filed
+today, the bank's sorting queue and the same 2 h / 4 h queue alerts as
+the desk overview) read only groups the person can see. Nothing uses it
+yet: the inbound hook and the screen come next.
+
+**Migration required: 324** (`324_desk_group_intake.sql`, after 323).
+
 ### Added: the Assistant panel in the inbox
 
 An open chat gets an **Assistant** button among the chat header's actions
