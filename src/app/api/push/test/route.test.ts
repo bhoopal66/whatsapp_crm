@@ -29,7 +29,12 @@ const pass = (rows: Row[]) =>
   });
 
 describe('POST /api/push/test', () => {
+  // The limiter is module state: a fresh minute for every test.
+  let clock = Date.parse('2026-11-28T00:00:00Z');
   beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    clock += 120_000;
+    vi.setSystemTime(clock);
     vi.clearAllMocks();
     vi.spyOn(console, 'error').mockImplementation(() => {});
     mocks.getCurrentAccount.mockResolvedValue({
@@ -100,5 +105,34 @@ describe('POST /api/push/test', () => {
     mocks.rpc.mockResolvedValue({ data: null, error: { message: 'boom' } });
     expect((await POST()).status).toBe(500);
     expect(mocks.dispatchPush).not.toHaveBeenCalled();
+  });
+
+  it('answers 429 with Retry-After on the 4th call in a minute, no dispatch', async () => {
+    for (let i = 0; i < 3; i++) expect((await POST()).status).toBe(200);
+    mocks.dispatchPush.mockClear();
+    mocks.rpc.mockClear();
+    const res = await POST();
+    expect(res.status).toBe(429);
+    expect(await res.json()).toEqual({
+      error: 'Too many test notifications. Try again in a minute.',
+    });
+    expect(Number(res.headers.get('Retry-After'))).toBeGreaterThan(0);
+    expect(mocks.dispatchPush).not.toHaveBeenCalled();
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it('counts per user and frees the budget after the window', async () => {
+    for (let i = 0; i < 3; i++) await POST();
+    mocks.getCurrentAccount.mockResolvedValue({
+      userId: 'user-9',
+      accountId: 'acct-1',
+    });
+    expect((await POST()).status).toBe(200);
+    mocks.getCurrentAccount.mockResolvedValue({
+      userId: 'user-1',
+      accountId: 'acct-1',
+    });
+    vi.setSystemTime(clock + 61_000);
+    expect((await POST()).status).toBe(200);
   });
 });
