@@ -156,7 +156,17 @@ describe('runServiceDetails', () => {
     }
   });
 
-  it('records but never sends while switched off or without a template', async () => {
+  it('switched off: reads the settings only, no lookup, no ledger row', async () => {
+    const off = ports({
+      loadSettings: vi.fn(async () => ({ ...on, enabled: false })),
+    });
+    expect(await runServiceDetails(off, call())).toBe('switched_off');
+    expect(off.findContacts).not.toHaveBeenCalled();
+    expect(off.claim).not.toHaveBeenCalled();
+    expect(off.send).not.toHaveBeenCalled();
+  });
+
+  it('records but never sends without a template', async () => {
     const off = ports({
       loadSettings: vi.fn(async () => ({ ...on, enabled: false })),
     });

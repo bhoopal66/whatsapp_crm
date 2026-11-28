@@ -166,6 +166,10 @@ export async function runServiceDetails(
     (await ports.claim(call, o, contactId)) === 'claimed' ? o : 'duplicate';
   try {
     const s = await ports.loadSettings(call.accountId);
+    // Switched off: one settings read per call and nothing else (no contact
+    // lookup, no ledger row), so an account that never turns this on pays
+    // nothing on its call ends.
+    if (!s.enabled) return 'switched_off';
     const q = qualifyCall(call, s);
     if (typeof q === 'string') return await record(q);
     const hits = await ports.findContacts(call.accountId, q.phone);
@@ -174,7 +178,6 @@ export async function runServiceDetails(
     const c = hits[0];
     contactId = c.id;
     if (c.optedOutAt || c.doNotContactAt) return await record('opted_out');
-    if (!s.enabled) return await record('switched_off');
     if (!s.templateName) return await record('no_template');
     const label = pickServiceLabel(call, await ports.loadMap(call.accountId));
     // The claim is the once-per-call gate and the cap slot: nothing goes
