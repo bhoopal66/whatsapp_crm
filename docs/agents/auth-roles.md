@@ -80,9 +80,11 @@
   A session inserts an `account_invitations` / `api_keys` row only with itself
   as the creator; no UPDATE on the first, only `revoked_at` on the second (a
   column grant: a new session-writable column joins it). The app calls
-  `redeem_invitation_token` / `peek_invitation_token`; the hash-taking pair is
-  for the previous build and loses its grants once that is gone.
-  `verify-admin-rules.sql`.
+  `redeem_invitation_token` / `peek_invitation_token`; the hash-taking pair
+  has no client grant since 322 (only the wrappers run it), and an older
+  file re-grants it only while the wrappers are missing. A verify file that
+  calls the pair as a role grants it inside its own rollback.
+  `verify-admin-rules.sql`, `verify-invitation-lockdown.sql`.
 - **Handing over a leaver's work (migration 266)** is
   `/api/account/members/[id]/handover` (GET counts, POST `{ to, what }`) and
   `/api/account/members/left-work`, on `member_work_counts`,

@@ -1661,3 +1661,9 @@ jobs:
       # re-applying 023 or 039 keeps it private.
       - name: Verify chat-media is private (321)
         run: supabase db query --local --file supabase/ci/verify-chat-media-private.sql
+
+      # Migration 322: an invitation opens only by its link's token; the
+      # hash-taking calls are closed, and re-applying an older file keeps
+      # them closed.
+      - name: Verify invitations open only by token (322)
+        run: supabase db query --local --file supabase/ci/verify-invitation-lockdown.sql

@@ -258,7 +258,13 @@ END;
 $$;
 
 REVOKE ALL ON FUNCTION public.redeem_invitation(text) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.redeem_invitation(text) TO authenticated, service_role;
+-- Since 322 only the token-taking wrappers (287) are callable: re-applying
+-- this file must not reopen the hash-taking form.
+DO $grant$ BEGIN
+  IF to_regprocedure('public.redeem_invitation_token(text)') IS NULL THEN
+    GRANT EXECUTE ON FUNCTION public.redeem_invitation(text) TO authenticated, service_role;
+  END IF;
+END $grant$;
 
 -- Invite links. is_account_member reads the caller's ACTIVE, live,
 -- non-guest row, so a leader reaches only the workspace they are working
