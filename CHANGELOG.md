@@ -12,6 +12,81 @@ and polish.
 
 ## [Unreleased]
 
+### Added: the gaps from the package releases 030-034
+
+**Migration required:** apply `334` to `339` in order, as a superuser
+or BYPASSRLS role (`scripts/apply-migrations.sh 334 339`). 335, 336, 337
+and 339 restate earlier functions: apply in order, once. Apply them
+before deploying this build.
+
+- **Number protection can hold sends** (package 017b). Settings →
+  WhatsApp → Number protection has an owner-only **Enforce** switch, off
+  by default. While it is off every send goes ahead and each decision is
+  only logged. When it is on, broadcasts, automation templates, HR
+  automated messages, desk reminders, CSAT requests and call service
+  details are checked first: an opted-out customer is never sent to, and
+  a banned or restricted number, a paused template, a customer who
+  ignored 3 marketing messages or whose messages failed twice in 30
+  days, the daily marketing limit (Meta's tier, capped by the owner's
+  daily count) and a daily marketing spend cap hold or skip the send.
+  Replies typed by staff in the inbox are never held. Whapi and OpenWA
+  numbers get the opt-out, no-reply, failure and spend checks only. The
+  card shows the last 50 decisions. What to do if Meta restricts the
+  number: `docs/runbook-meta-restriction.md`. **Migration required: 334.**
+- **A daily AI spend cap** (in USD, on the same card). When it is set,
+  an AI call that would go over it does not run and the feature reports
+  AI as unavailable. Claude model prices are built in; any other model
+  counts $0.001 a call.
+- **WhatsApp service details after a phone call** (package 028; any
+  customer, from Yeastar calls). Settings → Phone system: off by
+  default; pick an approved utility template (customer name and service),
+  the minimum talk time, inbound and outbound, and the service names by
+  queue, dialled number or extension. It counts in the daily limit of 3
+  automated messages, and opted-out customers never get it.
+  **Migration required: 336** (apply in order, once).
+- **The inbox Assistant can use the second brain**: it searches it to
+  answer a question and can offer to save a note, which is saved only
+  after you confirm. Only while the second brain is switched on. CRM
+  memory still never goes to the AI.
+- **HR**
+  - Rules can have an Arabic task title, shown to Arabic users.
+    **Migration required: 335** (apply in order, once).
+  - A promotional HR template body is refused when it is saved, not
+    only when it is sent. **Migration required: 337** (apply in order,
+    once).
+  - Recruitment chats take an interview time, and the interview reminder
+    goes out within the 24 hours before it (template slot = the time in
+    Dubai). **Migration required: 339** (apply in order, once).
+  - An opt-out as a candidate's first message no longer opens a
+    recruitment chat or sends "CV received".
+  - AI drafts retry once after a short provider error (rate limit or a
+    5xx).
+  - Each department topic has its own colour, staff chats show the staff
+    ring, and an empty staff inbox says so.
+- **Applied migrations are recorded** (package 033a).
+  `scripts/apply-migrations.sh` keeps a ledger of applied files with
+  their hash, refuses a file that changed after it was applied (unless
+  `ALLOW_DRIFT=1`), allows one run at a time, and `--status FROM TO`
+  lists what is applied. The Apply migrations workflow's check shows the
+  same. **Migration required: 338** (apply it through the script so the
+  runs after it are recorded).
+- **Case files are checked when read** (033b): a stored document whose
+  fingerprint no longer matches is refused, and a bundle with one fails
+  with `FILE_INTEGRITY`. Download links now last 5 minutes, the public
+  API's case-file link included (`docs/public-api.md`).
+- **OpenWA sends carry an idempotency key** (034a), so a retried send
+  cannot reach the customer twice. `docs/openwa.md` now says to keep
+  OpenWA's MCP server off, and spells out the ban risk.
+- **API requests** (033d): every response carries an `X-Request-Id`;
+  `/api` routes are rate-limited per person and per IP, per app
+  instance, with no database call (webhooks, `/api/v1`, crons and health
+  checks are exempt; `EDGE_API_LIMIT_PER_USER`, `EDGE_API_LIMIT_PER_IP`);
+  `EDGE_REQUEST_LOG=1` writes one log line per API request without the
+  query string, headers, tokens or bodies (`docs/security.md`).
+- **Yeastar self-test**: `scripts/pbx-yeastar-selftest.mjs` sends signed
+  sample call events to your app (`docs/yeastar.md`). Use a test number:
+  the samples create real call records.
+
 ### Closed: the open items from the 22 Nov release
 
 - **Time-Based automations run.** Each one now names a chat tag and runs
