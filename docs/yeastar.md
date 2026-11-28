@@ -331,6 +331,25 @@ alerts, and a quiet night does not either. The PBX cron checks every
 pass (section 10); `pbx_connection_silence()` moves the state and rings
 in one statement, so overlapping passes ring once.
 
+### Self-test
+
+`scripts/pbx-yeastar-selftest.mjs` posts a signed sample call (ringing,
+answered, call end), a missed call and one badly signed push to the
+webhook, and prints PASS or FAIL per step from the HTTP answers (200,
+200, 200, 200, 401). It needs the path token from the webhook URL and the
+webhook secret; it prints neither (the token masked). The samples create
+real call records and a call-back task for the caller number, so pass a
+test number:
+
+```bash
+PBX_WEBHOOK_SECRET=<32-char secret> node scripts/pbx-yeastar-selftest.mjs \
+  --base-url https://crm.example.com --token <path token> --caller <test number>
+```
+
+`--help` lists the options (`SELFTEST_BASE_URL` and `PBX_WEBHOOK_TOKEN`
+are read too). Needs Node 20 or later; the exit code is 0 when every step
+passes.
+
 ## 7. Running the gateway
 
 Firmware without webhook push (before 84.20.0.21) relays events through
