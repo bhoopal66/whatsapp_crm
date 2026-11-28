@@ -155,7 +155,8 @@
     "hr": "HR",
     "groupHasCurrentPage": "현재 보고 있는 페이지가 이 그룹에 있습니다",
     "workspaceSwitching": "전환 중…",
-    "workspaceCurrent": "현재 워크스페이스"
+    "workspaceCurrent": "현재 워크스페이스",
+    "groupWall": "Group wall"
   },
   "Header": {
     "dashboard": "대시보드",
@@ -212,7 +213,8 @@
     "liveView": "Live view",
     "reports": "보고서",
     "chatTagReport": "채팅 태그 보고서",
-    "funnelReport": "판매 퍼널"
+    "funnelReport": "판매 퍼널",
+    "groupWall": "Group wall"
   },
   "Notifications": {
     "title": "알림",
@@ -9126,6 +9128,46 @@
     "deleteLeftFailed": "그룹을 삭제하지 못했습니다: {reason}",
     "deleteLeftRefused": "제출 그룹 {count}개는 삭제되지 않았습니다",
     "customerNotInGroup": "고객이 그룹에 없음"
+  },
+  "GroupWall": {
+    "title": "Group wall",
+    "subtitle": "Several groups side by side, live. Reading here does not mark them read.",
+    "choose": "Choose groups",
+    "chosenCount": "{count} of {max} chosen",
+    "search": "Search groups",
+    "listLoading": "Loading your groups…",
+    "listFailed": "Couldn't load your groups.",
+    "noGroups": "You have no groups to show.",
+    "noMatches": "No groups match.",
+    "tooMany": "At most {max} groups fit on the wall. Untick one first.",
+    "done": "Done",
+    "emptyTitle": "No groups on the wall yet",
+    "emptyBody": "Choose up to {max} groups to follow them side by side.",
+    "filterLabel": "Show",
+    "filterAll": "All messages",
+    "filterFiles": "Files only",
+    "refreshAll": "Refresh all",
+    "readOnly": "Read-only",
+    "members": "{count, plural, =1 {# member} other {# members}}",
+    "lastAt": "Last message {time}",
+    "noLast": "No messages yet",
+    "openToReply": "Open to reply",
+    "loading": "Loading…",
+    "loadFailed": "Couldn't load",
+    "retry": "Try again",
+    "empty": "No messages yet.",
+    "emptyFiles": "No files in the latest messages.",
+    "open": "Open",
+    "kinds": {
+      "image": "Photo",
+      "video": "Video",
+      "audio": "Audio",
+      "voice": "Voice message",
+      "document": "Document",
+      "sticker": "Sticker",
+      "location": "Location",
+      "other": "Attachment"
+    }
   },
   "SubmissionGroups": {
     "title": "제출 그룹",

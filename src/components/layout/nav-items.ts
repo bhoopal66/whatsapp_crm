@@ -26,6 +26,7 @@ import {
   Gauge,
   Video,
   CalendarDays,
+  Columns3,
   Workflow,
   Zap,
   type LucideIcon,
@@ -265,6 +266,14 @@ export const NAV_GROUPS: NavGroup[] = [
         href: '/groups',
         labelKey: 'whatsappGroups',
         icon: UsersRound,
+        guarded: true,
+      },
+      // Several groups side by side, live and read-only (never marks
+      // read). Same guards and visibility as /groups.
+      {
+        href: '/group-wall',
+        labelKey: 'groupWall',
+        icon: Columns3,
         guarded: true,
       },
     ],
