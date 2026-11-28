@@ -555,7 +555,7 @@ export function SubmissionGroupPage({
     detail.access.find((a) => a.user_id === user?.id)?.name ??
     profile?.full_name ??
     null;
-  const sentAs = sentAsPreview(myName, group.my_label);
+  const sentAs = sentAsPreview(myName, detail.send_label ?? group.my_label);
 
   const side = (
     <>

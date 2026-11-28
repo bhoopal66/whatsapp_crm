@@ -192,10 +192,15 @@ describe('sentAsPreview', () => {
     expect(sentAsPreview('Mona', 'team_lead')).toBe('Mona (Team Lead)');
   });
 
+  it('previews an unlisted owner or admin (333)', () => {
+    expect(sentAsPreview('Mona', 'owner')).toBe('Mona (Owner)');
+    expect(sentAsPreview('Mona', 'admin')).toBe('Mona (Admin)');
+  });
+
   it('is null without a name or label', () => {
     expect(sentAsPreview('', 'agent')).toBeNull();
     expect(sentAsPreview('Ali', null)).toBeNull();
-    expect(sentAsPreview('Ali', 'owner' as never)).toBeNull();
+    expect(sentAsPreview('Ali', 'viewer' as never)).toBeNull();
   });
 });
 

@@ -256,11 +256,28 @@ describe('GET /api/submission-groups/[id]', () => {
     'lets an %s off the list read and send to an ACTIVE group (333)',
     async (role) => {
       as(role, 'u-admin');
+      resolved = role;
       const body = await (await get()).json();
       expect(body).toMatchObject({ can_send: true, can_manage: true });
       expect(body.group.my_label).toBeNull();
+      expect(body.send_label).toBe(role);
     }
   );
+
+  it.each(['admin', 'owner'])(
+    'answers a null send_label for an %s on an ENDED group',
+    async (role) => {
+      as(role, 'u-admin');
+      resolved = role;
+      endIt();
+      readable = true;
+      expect((await (await get()).json()).send_label).toBeNull();
+    }
+  );
+
+  it('answers a listed agent their list label as send_label', async () => {
+    expect((await (await get()).json()).send_label).toBe('agent');
+  });
 
   it('keeps an unlisted agent unable to send', async () => {
     as('agent', 'u-other');

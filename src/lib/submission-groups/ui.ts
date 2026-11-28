@@ -12,7 +12,9 @@ import {
   ROLE_LABELS,
   SEND_NOT_STORED,
   STAFF_LABELS,
+  isArchiveRole,
   isStaffLabel,
+  type GroupRole,
   type StaffLabel,
 } from './rules';
 
@@ -120,6 +122,8 @@ export interface SgDetail {
   archive_available: boolean;
   can_send: boolean;
   can_manage: boolean;
+  /** 333: the label a send is prefixed with (staff label, or owner/admin); null when it cannot send. */
+  send_label?: GroupRole | null;
   /** The group's case, or null when none was opened yet. */
   caseId: string | null;
 }
@@ -283,9 +287,10 @@ export function staffSenderLine(
  */
 export function sentAsPreview(
   name: string | null | undefined,
-  label: StaffLabel | null | undefined
+  label: GroupRole | null | undefined
 ): string | null {
-  if (!name || !name.trim() || !label || !isStaffLabel(label)) return null;
+  if (!name || !name.trim() || !label) return null;
+  if (!isStaffLabel(label) && !isArchiveRole(label)) return null;
   return prefixMessage(name, ROLE_LABELS[label], '').replace(/: $/, '');
 }
 
