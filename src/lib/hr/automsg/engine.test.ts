@@ -4,6 +4,7 @@ import { MetaError } from '@/lib/whatsapp/meta-api';
 import { HrSendRefusal } from './failure';
 import { MemoryAutoMsgStore, type MemoryContext } from './memory-store';
 import type { EngineDeps, SendPort, TemplateSendRequest } from './ports';
+import { formatInterviewSlot } from './slot';
 import { SEED_TEMPLATES, SLOT_FALLBACK } from './templates';
 import { DEFAULT_SETTINGS, type OutboxRow } from './types';
 
@@ -97,6 +98,51 @@ describe('processRow', () => {
       claimState: null,
       bodyRendered: sent[0].body,
     });
+  });
+
+  it('an interview reminder names its time in Dubai time, in the template language', async () => {
+    const { ctx, store, sent, deps } = rig();
+    ctx.template = {
+      kind: 'interview_reminder',
+      language: 'ar',
+      body: SEED_TEMPLATES.interview_reminder.text.ar,
+      metaTemplateName: 'hr_interview_reminder',
+      approvalStatus: 'approved',
+      category: 'utility',
+    };
+    const r = row('r1', {
+      trigger: 'interview_reminder',
+      templateKind: 'interview_reminder',
+      language: 'ar',
+      params: { interview_at: '2026-11-15T07:30:00Z' },
+      dedupeKey: 'interview:c1:1794727800',
+    });
+    store.add(r);
+    expect(await processRow(r, deps)).toBe('sent');
+    const slot = formatInterviewSlot('2026-11-15T07:30:00Z', 'ar');
+    expect(slot).not.toBe(SLOT_FALLBACK);
+    expect(sent[0].params).toEqual({ name: 'Sara x', slot });
+    expect(sent[0].body).toBe(
+      SEED_TEMPLATES.interview_reminder.text.ar
+        .replace('{name}', 'Sara x')
+        .replace('{slot}', slot)
+    );
+  });
+
+  it('an interview reminder without a time falls back', async () => {
+    const { ctx, store, sent, deps } = rig();
+    ctx.template = {
+      ...ctx.template!,
+      kind: 'interview_reminder',
+      body: SEED_TEMPLATES.interview_reminder.text.en,
+    };
+    const r = row('r1', {
+      trigger: 'interview_reminder',
+      templateKind: 'interview_reminder',
+    });
+    store.add(r);
+    expect(await processRow(r, deps)).toBe('sent');
+    expect(sent[0].params.slot).toBe(SLOT_FALLBACK);
   });
 
   it('an empty name falls back to "there"', async () => {

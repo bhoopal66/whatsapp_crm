@@ -25,11 +25,11 @@ import {
 } from './ports';
 import {
   NAME_FALLBACK,
-  SLOT_FALLBACK,
   placeholders,
   render,
   sanitizeParam,
 } from './templates';
+import { slotFor } from './slot';
 import {
   MAX_ATTEMPTS,
   MAX_HELD_HOURS,
@@ -157,7 +157,9 @@ export async function processRow(
 
   const params = {
     name: sanitizeParam(st.contactName, NAME_FALLBACK),
-    slot: SLOT_FALLBACK,
+    // An interview reminder names its time (339's params.interview_at),
+    // in the template's language; every other row keeps the fallback.
+    slot: slotFor(cur, tpl.language),
   };
   let body: string;
   let sent: { providerMessageId: string | null; messageId: string | null };
