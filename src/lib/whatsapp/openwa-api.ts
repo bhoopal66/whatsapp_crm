@@ -21,6 +21,8 @@
  * Contract: OpenWA v0.25.0 `openapi.json` / `docs/06-api-specification.md`.
  */
 
+import { createHash, randomUUID } from 'node:crypto';
+
 import type { MessageTemplate } from '@/types';
 
 import { renderTemplateBody } from './template-body';
@@ -122,6 +124,8 @@ export class OpenWAError extends Error {
    * error). Retryable; says nothing about whether the number is linked.
    */
   get isNotReady(): boolean {
+    // Not an Idempotency-Key 409: that send may have gone out.
+    if (this.isIdempotencyOutcomeUnknown) return false;
     return this.status === 409 || this.status === 503;
   }
 
@@ -146,6 +150,29 @@ export class OpenWAError extends Error {
   /** The gateway says a send cut short may have gone out (a 409). */
   get mayHaveBeenSent(): boolean {
     return /may (or may not )?have been sent/.test(this.message);
+  }
+
+  /**
+   * The gateway cannot say whether the send under this `Idempotency-Key`
+   * went out: another request with the key is still running (409
+   * IDEMPOTENCY_KEY_IN_PROGRESS) or the first one was cut short (409
+   * IDEMPOTENCY_OUTCOME_UNKNOWN). Unconfirmed, like a timeout.
+   */
+  get isIdempotencyOutcomeUnknown(): boolean {
+    return (
+      this.status === 409 &&
+      (this.code === 'IDEMPOTENCY_KEY_IN_PROGRESS' ||
+        this.code === 'IDEMPOTENCY_OUTCOME_UNKNOWN')
+    );
+  }
+
+  /**
+   * 422 IDEMPOTENCY_KEY_REUSED: the key already carried this logical send
+   * (with a body that differs, e.g. a re-signed media link), so it went
+   * out once and the gateway refused to send it again.
+   */
+  get isIdempotencyKeyReused(): boolean {
+    return this.status === 422 && this.code === 'IDEMPOTENCY_KEY_REUSED';
   }
 
   /**
@@ -256,6 +283,12 @@ interface OpenWARequestArgs {
   body?: unknown;
   timeoutMs?: number;
   route?: 'session' | 'message';
+  /**
+   * Sent as `Idempotency-Key`. One value for every attempt of the call,
+   * so a repeated send is answered with the first one's result instead
+   * of reaching the customer again.
+   */
+  idempotencyKey?: string;
 }
 
 function sessionUrl(sessionId: string, path: string): string {
@@ -273,6 +306,7 @@ export async function openwaRequest<T>(args: OpenWARequestArgs): Promise<T> {
     timeoutMs,
     route = 'session',
     apiPath,
+    idempotencyKey,
   } = args;
 
   // Refused before any request, so a retry can never double-send.
@@ -286,6 +320,7 @@ export async function openwaRequest<T>(args: OpenWARequestArgs): Promise<T> {
     Accept: 'application/json',
   };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
+  if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
 
   for (let attempt = 0; ; attempt++) {
     let response: Response;
@@ -377,7 +412,30 @@ interface Credentials {
   sessionId: string;
 }
 
-export interface SendTextMessageArgs extends Credentials {
+interface SendIdempotency {
+  /**
+   * Stable for one logical send (the caller's own dedupe key), so a retry
+   * of it carries the same `Idempotency-Key`. Without one, the key is
+   * minted once per call and only that call's own retries share it.
+   */
+  idempotencyKey?: string;
+}
+
+/**
+ * The `Idempotency-Key` for one send to one chat: 1-255 visible ASCII, as
+ * the gateway requires. The chat is part of it because a phone-number
+ * variant tried after a refused one is another request, which the
+ * gateway would otherwise answer IDEMPOTENCY_KEY_REUSED.
+ */
+export function openwaSendKey(
+  idempotencyKey: string | undefined,
+  chatId: string
+): string {
+  const base = idempotencyKey || randomUUID();
+  return `crm-${createHash('sha256').update(`${base}\n${chatId}`).digest('hex')}`;
+}
+
+export interface SendTextMessageArgs extends Credentials, SendIdempotency {
   to: string;
   text: string;
   quotedMessageId?: string | null;
@@ -389,7 +447,8 @@ export async function sendTextMessage(
   args: SendTextMessageArgs
 ): Promise<OpenWASendResult> {
   const { apiKey, sessionId, to, text, quotedMessageId, linkPreview } = args;
-  const body: Record<string, unknown> = { chatId: toOpenWAChatId(to), text };
+  const chatId = toOpenWAChatId(to);
+  const body: Record<string, unknown> = { chatId, text };
   if (quotedMessageId) body.quotedMessageId = quotedMessageId;
   if (linkPreview !== undefined) body.linkPreview = linkPreview;
 
@@ -399,6 +458,7 @@ export async function sendTextMessage(
     path: '/messages/send-text',
     method: 'POST',
     body,
+    idempotencyKey: openwaSendKey(args.idempotencyKey, chatId),
   });
   return { messageId: readMessageId(data, 'text message') };
 }
@@ -406,7 +466,7 @@ export async function sendTextMessage(
 export type MediaKind =
   'image' | 'video' | 'document' | 'audio' | 'voice' | 'sticker';
 
-export interface SendMediaMessageArgs extends Credentials {
+export interface SendMediaMessageArgs extends Credentials, SendIdempotency {
   to: string;
   kind: MediaKind;
   /** Public URL the gateway fetches, or a `data:` base64 string. */
@@ -537,6 +597,7 @@ export async function sendMediaMessage(
     path: `/messages/send-${endpoint}`,
     method: 'POST',
     body,
+    idempotencyKey: openwaSendKey(args.idempotencyKey, body.chatId as string),
   });
   return { messageId: readMessageId(data, `${kind} message`) };
 }
@@ -616,7 +677,8 @@ export interface InteractiveButton {
   title: string;
 }
 
-export interface SendInteractiveButtonsArgs extends Credentials {
+export interface SendInteractiveButtonsArgs
+  extends Credentials, SendIdempotency {
   to: string;
   bodyText: string;
   headerText?: string;
@@ -651,7 +713,7 @@ export interface InteractiveListSection {
   rows: Array<{ id: string; title: string; description?: string }>;
 }
 
-export interface SendInteractiveListArgs extends Credentials {
+export interface SendInteractiveListArgs extends Credentials, SendIdempotency {
   to: string;
   bodyText: string;
   /** Unused: a text message has no tap-to-expand button to label. */
@@ -692,7 +754,7 @@ export async function sendInteractiveList(
 // Templates — rendered locally, like Whapi
 // ============================================================
 
-export interface SendTemplateMessageArgs extends Credentials {
+export interface SendTemplateMessageArgs extends Credentials, SendIdempotency {
   to: string;
   template: MessageTemplate;
   bodyParams?: string[];

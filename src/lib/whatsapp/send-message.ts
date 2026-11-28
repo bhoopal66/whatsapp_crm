@@ -271,6 +271,12 @@ export interface SendMessageParams {
    * never got this far is not taken for one the customer may have.
    */
   beforeGateway?: () => Promise<void>;
+  /**
+   * The caller's own dedupe key for this logical send (the public API's
+   * Idempotency-Key). OpenWA receives it as its `Idempotency-Key`, so a
+   * repeat of the same send is not delivered twice.
+   */
+  idempotencyKey?: string;
 }
 
 export interface SendMessageResult {
@@ -590,6 +596,7 @@ export async function sendMessageToConversation(
     respectConsent = false,
     enforceNumberDailyLimit = false,
     beforeGateway,
+    idempotencyKey,
   } = params;
 
   if (!conversationId) {
@@ -962,6 +969,7 @@ export async function sendMessageToConversation(
       const result = await sendTemplate({
         channel,
         to: phone,
+        idempotencyKey,
         template: templateRow!,
         bodyParams: templateBodyParams(templateParams, templateMessageParams),
         messageParams: templateMessageParams,
@@ -973,6 +981,7 @@ export async function sendMessageToConversation(
       const result = await sendMedia({
         channel,
         to: phone,
+        idempotencyKey,
         kind: messageType as ProviderMediaKind,
         link: mediaUrl!,
         caption: contentText || undefined,
@@ -987,6 +996,7 @@ export async function sendMessageToConversation(
         const result = await sendInteractiveButtons({
           channel,
           to: phone,
+          idempotencyKey,
           bodyText: p.body,
           headerText: p.header || undefined,
           footerText: p.footer || undefined,
@@ -998,6 +1008,7 @@ export async function sendMessageToConversation(
       const result = await sendInteractiveList({
         channel,
         to: phone,
+        idempotencyKey,
         bodyText: p.body,
         buttonLabel: p.button_label,
         headerText: p.header || undefined,
@@ -1010,6 +1021,7 @@ export async function sendMessageToConversation(
     const result = await sendText({
       channel,
       to: phone,
+      idempotencyKey,
       text: contentText!,
       quotedMessageId,
     });

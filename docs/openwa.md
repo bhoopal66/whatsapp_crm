@@ -70,6 +70,25 @@ setup (Docker):
   allowance counts from when the number was linked to OpenWA, not from the
   number's real age, so an established number may want a more generous
   `SEND_PACING_WARMUP_SCHEDULE`.
+- Keep OpenWA's built-in MCP server **off** (`MCP_ENABLED=false`, the
+  default). It lets an AI agent act on the WhatsApp session directly,
+  sending included, so anything that can reach it bypasses the CRM: no
+  routing, consent, limits or `messages` row. Inbound WhatsApp text an
+  agent reads there can prompt-inject it into sending.
+
+**Terms of Service and ban risk.** WhatsApp's Terms of Service prohibit
+unofficial automated access, and WhatsApp can ban a number used through
+unofficial automation at any time and without notice. That applies to
+every number on OpenWA, not only a new one: treat each as one you can
+lose.
+
+**Idempotency-Key.** Every send carries an `Idempotency-Key` header: the
+public API's own `Idempotency-Key` (per API key) where the caller gave
+one, otherwise one minted per send. A retry with the same key is answered
+with the first send's result instead of reaching the customer again. A
+409 `IDEMPOTENCY_KEY_IN_PROGRESS` / `IDEMPOTENCY_OUTCOME_UNKNOWN` is
+treated like a timeout (it may have gone out, and is not offered for a
+retry), and a 422 `IDEMPOTENCY_KEY_REUSED` as already sent.
 
 ### Updates
 

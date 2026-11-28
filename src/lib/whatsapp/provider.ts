@@ -104,6 +104,11 @@ function unknownProvider(provider: never): never {
 }
 
 export interface SendTextArgs {
+  /**
+   * OpenWA only: stable for one logical send, so a retry of it carries
+   * the same `Idempotency-Key` (`openwaSendKey`). Whapi and Meta ignore it.
+   */
+  idempotencyKey?: string;
   channel: WhatsAppChannel;
   to: string;
   text: string;
@@ -138,6 +143,7 @@ export async function sendText(
     case 'openwa': {
       const res = await openwa.sendTextMessage({
         ...openwaCredentials(channel),
+        idempotencyKey: args.idempotencyKey,
         to,
         text,
         quotedMessageId,
@@ -150,6 +156,11 @@ export async function sendText(
 }
 
 export interface SendMediaArgs {
+  /**
+   * OpenWA only: stable for one logical send, so a retry of it carries
+   * the same `Idempotency-Key` (`openwaSendKey`). Whapi and Meta ignore it.
+   */
+  idempotencyKey?: string;
   channel: WhatsAppChannel;
   to: string;
   kind: ProviderMediaKind;
@@ -198,6 +209,7 @@ export async function sendMedia(
       // Same six kinds as Whapi, voice notes and stickers included.
       const res = await openwa.sendMediaMessage({
         ...openwaCredentials(channel),
+        idempotencyKey: args.idempotencyKey,
         to,
         kind,
         link,
@@ -213,6 +225,11 @@ export async function sendMedia(
 }
 
 export interface SendTemplateArgs {
+  /**
+   * OpenWA only: stable for one logical send, so a retry of it carries
+   * the same `Idempotency-Key` (`openwaSendKey`). Whapi and Meta ignore it.
+   */
+  idempotencyKey?: string;
   channel: WhatsAppChannel;
   to: string;
   /** The local `message_templates` row driving both providers. */
@@ -295,6 +312,7 @@ export async function sendTemplate(
       // shape) only the header's value has a place here.
       const res = await openwa.sendTemplateMessage({
         ...openwaCredentials(channel),
+        idempotencyKey: args.idempotencyKey,
         to,
         template: renderedForLinkedDevice(template, messageParams),
         bodyParams,
@@ -354,6 +372,11 @@ export interface InteractiveListSection {
 }
 
 export interface SendInteractiveButtonsArgs {
+  /**
+   * OpenWA only: stable for one logical send, so a retry of it carries
+   * the same `Idempotency-Key` (`openwaSendKey`). Whapi and Meta ignore it.
+   */
+  idempotencyKey?: string;
   channel: WhatsAppChannel;
   to: string;
   bodyText: string;
@@ -406,6 +429,7 @@ export async function sendInteractiveButtons(
       // The client sends these as numbered text options.
       const res = await openwa.sendInteractiveButtons({
         ...openwaCredentials(channel),
+        idempotencyKey: args.idempotencyKey,
         to,
         bodyText,
         headerText,
@@ -421,6 +445,11 @@ export async function sendInteractiveButtons(
 }
 
 export interface SendInteractiveListArgs {
+  /**
+   * OpenWA only: stable for one logical send, so a retry of it carries
+   * the same `Idempotency-Key` (`openwaSendKey`). Whapi and Meta ignore it.
+   */
+  idempotencyKey?: string;
   channel: WhatsAppChannel;
   to: string;
   bodyText: string;
@@ -477,6 +506,7 @@ export async function sendInteractiveList(
       // Numbered text options, like the buttons; `buttonLabel` is unused.
       const res = await openwa.sendInteractiveList({
         ...openwaCredentials(channel),
+        idempotencyKey: args.idempotencyKey,
         to,
         bodyText,
         buttonLabel,
@@ -889,7 +919,10 @@ export function isGatewayUnavailable(err: unknown): boolean {
  * OpenWA follows the same rule: its 409 ("engine not ready") and 429
  * (pacing) are refusals before anything was sent, while its synthetic
  * 503 (lost connection, timeout) and 502 (no message id) are not, nor is
- * the 409 of a send cut short, which says it may have been sent.
+ * the 409 of a send cut short, which says it may have been sent, nor
+ * its Idempotency-Key answers: 409 IDEMPOTENCY_KEY_IN_PROGRESS /
+ * IDEMPOTENCY_OUTCOME_UNKNOWN (unconfirmed, like a timeout) and 422
+ * IDEMPOTENCY_KEY_REUSED (the key's first send went out).
  *
  * A retry decision reads this. Read off the raw error, never the
  * `describeSendFailure` wording.
@@ -897,6 +930,13 @@ export function isGatewayUnavailable(err: unknown): boolean {
 export function isDefiniteSendRefusal(err: unknown): boolean {
   if (neverConnected(err)) return true;
   if (err instanceof openwa.OpenWAError && err.mayHaveBeenSent) return false;
+  // Idempotency-Key answers: unknown is a timeout, reused means it went out.
+  if (
+    err instanceof openwa.OpenWAError &&
+    (err.isIdempotencyOutcomeUnknown || err.isIdempotencyKeyReused)
+  ) {
+    return false;
+  }
   if (
     err instanceof whapi.WhapiError ||
     err instanceof meta.MetaError ||
@@ -985,6 +1025,18 @@ export function describeSendFailure(error: unknown): string {
       return (
         "OpenWA's sending limits for this number have been reached; " +
         (minutes ? `retry in about ${minutes} minutes.` : 'retry later.')
+      );
+    }
+    if (error.isIdempotencyKeyReused) {
+      return (
+        'OpenWA already sent this message once, so it was not sent again; ' +
+        'check the chat before sending it another time.'
+      );
+    }
+    if (error.isIdempotencyOutcomeUnknown) {
+      return (
+        'OpenWA could not confirm whether this message was sent; check the ' +
+        'chat before sending it again.'
       );
     }
     if (error.isNotReady || error.isSessionNotConnected) {

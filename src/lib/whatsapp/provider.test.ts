@@ -676,6 +676,35 @@ describe('OpenWA channels use the OpenWA client', () => {
     expect(res).toEqual({ messageId: 'owa.1', provider: 'openwa' });
   });
 
+  it("passes the caller's dedupe key to OpenWA as its idempotency key", async () => {
+    await sendText({
+      channel: openwaChannel(),
+      to: '+971501111111',
+      text: 'hi',
+      idempotencyKey: 'v1:a:k:order-7',
+    });
+    expect(openwaMock.sendTextMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ idempotencyKey: 'v1:a:k:order-7' })
+    );
+  });
+
+  it('never offers a retry on an OpenWA idempotency answer', () => {
+    const answer = (status: number, code: string) =>
+      new OpenWAError('refused', status, { code });
+    expect(
+      isDefiniteSendRefusal(answer(409, 'IDEMPOTENCY_OUTCOME_UNKNOWN'))
+    ).toBe(false);
+    expect(
+      isDefiniteSendRefusal(answer(409, 'IDEMPOTENCY_KEY_IN_PROGRESS'))
+    ).toBe(false);
+    expect(isDefiniteSendRefusal(answer(422, 'IDEMPOTENCY_KEY_REUSED'))).toBe(
+      false
+    );
+    expect(isDefiniteSendRefusal(answer(409, 'ENGINE_PAGE_RELOADING'))).toBe(
+      true
+    );
+  });
+
   it('sendMedia passes the kind through (voice stays a voice note)', async () => {
     const res = await sendMedia({
       channel: openwaChannel(),

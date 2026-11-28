@@ -220,6 +220,9 @@ export async function POST(request: Request) {
           typeof body.reply_to_message_id === 'string'
             ? body.reply_to_message_id
             : null,
+        // Per API key, as the claim is: OpenWA dedupes on it too.
+        idempotencyKey:
+          key === null ? undefined : `v1:${ctx.accountId}:${ctx.keyId}:${key}`,
         beforeGateway: held
           ? async () => {
               await held.handOver(resolved.contactId);

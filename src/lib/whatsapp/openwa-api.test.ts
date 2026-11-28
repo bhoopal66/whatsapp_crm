@@ -820,3 +820,89 @@ describe('updateWebhookEvents', () => {
     ]);
   });
 });
+
+describe('Idempotency-Key on sends', () => {
+  /** The key each request carried, read when it was made. */
+  function recordKeys(...answers: Response[]): string[] {
+    const keys: string[] = [];
+    fetchMock.mockImplementation(async (_url, init: RequestInit) => {
+      keys.push((init.headers as Record<string, string>)['Idempotency-Key']);
+      return answers.shift() ?? json(201, { messageId: 'm-x' });
+    });
+    return keys;
+  }
+
+  it('carries one key on every attempt of a send', async () => {
+    vi.useFakeTimers();
+    try {
+      const keys = recordKeys(
+        json(
+          429,
+          { statusCode: 429, message: 'ThrottlerException: Too Many Requests' },
+          { 'retry-after': '1' }
+        ),
+        json(201, { messageId: 'm-1' })
+      );
+      const call = sendTextMessage({ ...creds, to: '1', text: 'x' });
+      await vi.advanceTimersByTimeAsync(60_000);
+      await expect(call).resolves.toMatchObject({ messageId: 'm-1' });
+      expect(keys).toHaveLength(2);
+      expect(keys[0]).toMatch(/^[\x21-\x7e]{1,255}$/);
+      expect(keys[1]).toBe(keys[0]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("derives the key from the caller's dedupe key and the chat", async () => {
+    const keys = recordKeys();
+    const send = { ...creds, text: 'x', idempotencyKey: 'v1:a:k:order-7' };
+    await sendTextMessage({ ...send, to: '+971501234567' });
+    await sendTextMessage({ ...send, to: '+971501234567' });
+    await sendTextMessage({ ...send, to: '+971509999999' });
+    await sendMediaMessage({
+      ...send,
+      to: '+971501234567',
+      kind: 'image',
+      link: 'data:image/png;base64,AAAA',
+    });
+    expect(keys[1]).toBe(keys[0]);
+    expect(keys[2]).not.toBe(keys[0]);
+    expect(keys[3]).toBe(keys[0]);
+  });
+
+  it('mints a new key for each send without a dedupe key', async () => {
+    const keys = recordKeys();
+    await sendTextMessage({ ...creds, to: '1', text: 'x' });
+    await sendTextMessage({ ...creds, to: '1', text: 'x' });
+    expect(keys[0]).toBeTruthy();
+    expect(keys[1]).not.toBe(keys[0]);
+  });
+
+  it("reads the gateway's idempotency answers", async () => {
+    const answer = async (status: number, code: string) => {
+      fetchMock.mockResolvedValueOnce(
+        json(status, { statusCode: status, message: 'refused', code })
+      );
+      return sendTextMessage({ ...creds, to: '1', text: 'x' }).then(
+        unexpected,
+        asOpenWAError
+      );
+    };
+    for (const code of [
+      'IDEMPOTENCY_KEY_IN_PROGRESS',
+      'IDEMPOTENCY_OUTCOME_UNKNOWN',
+    ]) {
+      const err = await answer(409, code);
+      expect(err.isIdempotencyOutcomeUnknown).toBe(true);
+      expect(err.isNotReady).toBe(false);
+      expect(err.isIdempotencyKeyReused).toBe(false);
+    }
+    const reused = await answer(422, 'IDEMPOTENCY_KEY_REUSED');
+    expect(reused.isIdempotencyKeyReused).toBe(true);
+    expect(reused.isIdempotencyOutcomeUnknown).toBe(false);
+    const plain = await answer(409, 'ENGINE_PAGE_RELOADING');
+    expect(plain.isIdempotencyOutcomeUnknown).toBe(false);
+    expect(plain.isNotReady).toBe(true);
+  });
+});
