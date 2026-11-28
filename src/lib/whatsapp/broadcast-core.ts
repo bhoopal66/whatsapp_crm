@@ -62,6 +62,16 @@ import {
   companyConversationId,
   campaignDailyLimitMessage,
 } from '@/lib/team-activity/auto-guard';
+import {
+  checkSend,
+  refundSendReservation,
+  type SendReservation,
+} from '@/lib/whatsapp/meta-health/check-send';
+import {
+  GUARD_REASONS,
+  type GuardReason,
+  type TemplateCategory,
+} from '@/lib/whatsapp/meta-health/guard';
 
 /** Thrown by createBroadcast on a caller-visible failure; route maps it. */
 export class BroadcastError extends Error {
@@ -244,6 +254,29 @@ export const QUIET_HOURS_STOP_PREFIX = 'Stopped for quiet hours';
 
 export function quietHoursMessage(quiet: QuietHours): string {
   return `${QUIET_HOURS_STOP_PREFIX}: nothing is sent between ${quiet.start} and ${quiet.end} (${quiet.tz}). Resume after ${quiet.end} to send the rest.`;
+}
+
+/**
+ * Stored on the recipient a pass stopped at when the send guard's daily
+ * marketing ramp is used up: the rest stay pending for a Resume.
+ */
+export const SEND_PROTECTION_RAMP_MESSAGE =
+  "This number reached today's marketing send limit (send protection). Press Resume tomorrow to send the rest.";
+
+/** The failure reason stamped on a recipient the send guard refused. */
+export function sendProtectionReason(reason: GuardReason): string {
+  return `Not sent - send protection: ${reason}`;
+}
+
+const GUARD_KINDS: Record<MessageTemplate['category'], TemplateCategory> = {
+  Marketing: 'MARKETING',
+  Utility: 'UTILITY',
+  Authentication: 'AUTHENTICATION',
+};
+
+/** An unknown category is guarded as marketing, the strictest kind. */
+function guardKind(category: string | null | undefined): TemplateCategory {
+  return GUARD_KINDS[category as MessageTemplate['category']] ?? 'MARKETING';
 }
 
 /**
@@ -705,6 +738,49 @@ export async function deliverBroadcast(
       }
     }
 
+    // The send guard (meta-health/check-send.ts). While its owner's
+    // `enforce` is off it always allows and only logs. Spend it reserves
+    // is given back below wherever the message certainly did not go out.
+    let reservation: SendReservation | undefined;
+    if (recipient.contactId && plan.channel.accountId) {
+      let guard: Awaited<ReturnType<typeof checkSend>>;
+      try {
+        guard = await checkSend(supabaseAdmin(), {
+          accountId: plan.channel.accountId,
+          configId: plan.channel.id,
+          contactId: recipient.contactId,
+          kind: guardKind(plan.templateRow.category),
+          templateName: plan.templateRow.name,
+        });
+      } catch {
+        stopped = 'the send protection check failed';
+        break;
+      }
+      if (!guard.allow) {
+        if (guard.reason === GUARD_REASONS.RAMP_CAP_REACHED) {
+          // Like the daily new-chat limit: every later marketing send
+          // would be refused too, so stop and leave the rest for Resume.
+          dailyLimit = SEND_PROTECTION_RAMP_MESSAGE;
+          await db
+            .from('broadcast_recipients')
+            .update({ error_message: dailyLimit })
+            .eq('id', recipient.recipientRowId)
+            .in('status', ['pending', 'failed']);
+          break;
+        }
+        await db
+          .from('broadcast_recipients')
+          .update({
+            status: 'failed',
+            error_message: sendProtectionReason(guard.reason),
+          })
+          .eq('id', recipient.recipientRowId);
+        continue;
+      }
+      reservation = guard.reservation;
+    }
+    const refund = () => refundSendReservation(supabaseAdmin(), reservation);
+
     // Write-ahead: the row says "may have been sent" BEFORE the gateway is
     // asked, so a pass that dies mid-send leaves a row the next plan fails
     // instead of sending again. Conditional, so a row another pass already
@@ -718,10 +794,12 @@ export async function deliverBroadcast(
       .or(RESENDABLE_FILTER)
       .select('id');
     if (markError) {
+      await refund();
       stopped = `the next send could not be recorded: ${markError.message}`;
       break;
     }
     if (!marked || marked.length === 0) {
+      await refund();
       // Nothing is marked either once the campaign is no longer 'sending'
       // (the trigger of migration 301): then the whole pass ends.
       if (await noLongerSending(db, plan.broadcastId)) {
@@ -785,6 +863,7 @@ export async function deliverBroadcast(
       // alert. The status filter keeps a concurrent pass's 'sent'
       // stamp from getting a stale reason. A later successful stamp
       // clears it.
+      await refund();
       await db
         .from('broadcast_recipients')
         .update({ error_message: describeSendFailure(channelFailure) })
@@ -818,6 +897,9 @@ export async function deliverBroadcast(
         break;
       }
     } else {
+      // A definite refusal certainly did not go out; an unconfirmed send
+      // may have, so its spend stays charged.
+      if (lastError !== SEND_UNCONFIRMED_REASON) await refund();
       await db
         .from('broadcast_recipients')
         .update({
