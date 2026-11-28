@@ -8,6 +8,7 @@ import {
   hrMemberSet,
   hrRuleSet,
   hrRulesList,
+  hrSetInterview,
   hrSetStage,
 } from './api';
 
@@ -82,6 +83,38 @@ describe('hrSetStage', () => {
     await expect(hrSetStage(sb, 'c1', 'cv_review')).resolves.toEqual({
       error: 'UNKNOWN',
     });
+  });
+});
+
+describe('hrSetInterview (339)', () => {
+  it('calls hr_set_interview with the contract parameter names', async () => {
+    const row = { conversation_id: 'c1', interview_at: '2026-12-01T07:00:00Z' };
+    const { sb, rpc } = fakeClient({ data: row });
+    await expect(
+      hrSetInterview(sb, 'c1', '2026-12-01T07:00:00.000Z')
+    ).resolves.toEqual({ data: row });
+    expect(rpc).toHaveBeenCalledWith('hr_set_interview', {
+      p_conversation_id: 'c1',
+      p_at: '2026-12-01T07:00:00.000Z',
+    });
+  });
+
+  it('sends a cleared time as null', async () => {
+    const { sb, rpc } = fakeClient({ data: {} });
+    await hrSetInterview(sb, 'c1', null);
+    expect(rpc.mock.calls[0][1]).toEqual({
+      p_conversation_id: 'c1',
+      p_at: null,
+    });
+  });
+
+  it('returns the refusal code instead of throwing', async () => {
+    for (const hint of ['CLOSED', 'INVALID', 'NOT_ALLOWED'] as const) {
+      const { sb } = fakeClient({ error: { message: 'no', hint } });
+      await expect(hrSetInterview(sb, 'c1', null)).resolves.toEqual({
+        error: hint,
+      });
+    }
   });
 });
 

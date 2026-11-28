@@ -40,6 +40,7 @@ function row(over: Partial<HrConversation> = {}): HrConversation {
     reply_state: 'new',
     outcome: null,
     closed_at: null,
+    interview_at: null,
     created_at: '2026-11-16T00:00:00Z',
     created_by: null,
     updated_at: '2026-11-16T00:00:00Z',

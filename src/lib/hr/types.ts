@@ -141,6 +141,8 @@ export interface HrConversation {
   outcome: HrOutcome | null;
   /** HR closure; separate from `conversations.status`. */
   closed_at: string | null;
+  /** 339: the recruitment chat's next interview (ISO); NULL = none set. */
+  interview_at: string | null;
   created_at: string;
   created_by: string | null;
   updated_at: string;

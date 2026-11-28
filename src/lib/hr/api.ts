@@ -132,6 +132,22 @@ export function hrReopen(
   });
 }
 
+/**
+ * 339: sets a recruitment chat's interview time (ISO); `null` clears it.
+ * Refused as CLOSED for a closed chat and INVALID for a department chat
+ * or a time that is not in the future.
+ */
+export function hrSetInterview(
+  sb: SupabaseClient,
+  conversationId: string,
+  at: string | null
+): Promise<HrResult<HrConversation>> {
+  return call(sb, 'hr_set_interview', {
+    p_conversation_id: conversationId,
+    p_at: at,
+  });
+}
+
 /** Admin only. A `null` role takes the person off that inbox. */
 export async function hrMemberSet(
   sb: SupabaseClient,
