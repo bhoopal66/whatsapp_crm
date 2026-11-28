@@ -8,9 +8,22 @@ guard and an audit. This is the operator contract for module 019a
 **Who calls it.** The inbox's Assistant panel (migration 323,
 `src/lib/chat-assist/*`, `docs/ai-agent.md`) is the one caller. It builds
 a guard and a router per request with its own registry
-(`CHAT_ASSIST_TOOL_SPECS`): `chat_read` (READ) and `chat_set_tag`,
-`chat_create_task`, `chat_assign`, `chat_add_note` (WRITE), each with a
-handler that writes as the signed-in person through the app's usual path.
+(`CHAT_ASSIST_TOOL_SPECS`): `chat_read` and `brain_search` (READ) and
+`chat_set_tag`, `chat_create_task`, `chat_assign`, `chat_add_note`,
+`brain_remember` (WRITE), each with a handler that writes as the
+signed-in person through the app's usual path. The two brain tools
+(`src/lib/chat-assist/brain.ts`) exist only while the account's second
+brain is on, the person has sales access at agent level or above, and
+the AI transfer check (`assertAiTransfer`, purposes `brain_search` /
+`brain_remember`) allows it; each handler checks all three again before
+it runs. `brain_search` runs for an "ask" with the person's question
+(first 300 characters) under the `/brain` search route's rate limit and
+visibility, and its hits reach the model as a quoted `<brain>` block
+labelled `[B1]`, `[B2]`… with no ids. `brain_remember` is a suggestion
+card: the text is redacted when the card is made, so the card shows
+exactly what will be stored, and nothing is stored until the person
+confirms. CRM memory (`src/lib/memory/*`) is never given to the
+Assistant (owner decision, 2026-11-28).
 No tool is DANGEROUS and none sends to a customer. Every call runs in the
 `supervised` mode, so every WRITE waits for the person: the panel shows
 it as a card, Confirm goes to `POST /api/assist/pending/[id]` and then

@@ -65,6 +65,17 @@ applies, and a link to its case. **Remember this** stores a short note
 (up to 4000 characters, redacted) against a case you can read, or against
 nobody (then only you and the admins see it).
 
+## In the inbox Assistant
+
+The inbox Assistant can search the second brain and offer to save a note
+to it (`brain_search`, `brain_remember`; `docs/assistant-safety.md`).
+Both appear only while the second brain is switched on for the account,
+for staff who can use `/brain`, and when the AI transfer check allows it.
+A search sees only what the person could find on `/brain` and counts
+against the same per-minute limit. A note is saved only after the person
+confirms the card, redacted exactly as "Remember this" is. CRM memory is
+not given to the Assistant.
+
 ## Case summaries (Brain tab)
 
 Each case, contact and bank has a summary page built from its stored

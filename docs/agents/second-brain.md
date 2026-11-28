@@ -8,6 +8,11 @@ extractive case/contact/bank summary pages and a per-person daily digest
 (`/brain`, `/digest`, the case Brain tab). Ported from package 022.
 `docs/second-brain.md` is the contract.
 
+- **Inbox Assistant tools** (`lib/chat-assist/brain.ts`,
+  `brain-server.ts`): `brain_search` (READ) and `brain_remember` (WRITE,
+  confirmed card). Hidden and refused unless `brain_enabled`, sales
+  access at agent or up, and `assertAiTransfer` all pass; search shares
+  the `brain.search` rate bucket. CRM memory stays out of the Assistant.
 - **Off by default.** `case_account_settings.brain_enabled`
   (`case_settings_set_brain`, owner/admin); while off `brain_item_upsert`
   stores nothing, routes answer 403 `brain_disabled`, the nav rows hide.

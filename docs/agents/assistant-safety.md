@@ -6,8 +6,9 @@ The gate for a future AI assistant's tool calls. `docs/assistant-safety.md`
 is the contract.
 
 - **One caller: the inbox Assistant panel (323, `lib/chat-assist/*`).**
-  Its own registry (`CHAT_ASSIST_TOOL_SPECS`: `chat_read` READ; tag,
-  task, assign, note WRITE; nothing DANGEROUS, nothing that sends), a
+  Its own registry (`CHAT_ASSIST_TOOL_SPECS`: `chat_read` and
+  `brain_search` READ; tag, task, assign, note and `brain_remember`
+  WRITE; nothing DANGEROUS, nothing that sends), a
   guard and router per request, every call `supervised` (so every WRITE
   waits for the person). Handlers run on the caller's RLS client through
   the app's usual writers. Cards carry the nonce to the person only
