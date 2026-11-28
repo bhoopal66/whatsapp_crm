@@ -1358,6 +1358,12 @@ jobs:
       - name: Verify chat tag report
         run: supabase db query --local --file supabase/ci/verify-chat-tag-report.sql
 
+      # Migration 330: deactivating a person keeps their report grants
+      # (they open nothing meanwhile) and reactivating restores them;
+      # someone never granted gets nothing.
+      - name: Verify report access reactivation
+        run: supabase db query --local --file supabase/ci/verify-report-access-reactivation.sql
+
       # Migration 256: review fixes for 236-255. Broadcast drafts are
       # owners/admins only and in PDPL; a note mention never rings
       # through a personal-number arm; the recycle helper, web form,

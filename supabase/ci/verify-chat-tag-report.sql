@@ -221,14 +221,15 @@ BEGIN
     failed := array_append(failed, 'a deactivated grantee still opened the tag report');
   END IF;
   UPDATE profiles SET deactivated_at = NULL WHERE user_id = u_agent;
-  -- Deactivation ended the grant: reactivating restores nothing.
+  -- Since 330 deactivation keeps the grant: reactivating restores it
+  -- (verify-report-access-reactivation.sql covers the rest).
   n := n + 1;
-  IF EXISTS (SELECT 1 FROM report_access WHERE user_id = u_agent) THEN
-    failed := array_append(failed, 'a deactivated grantee kept their report_access row');
+  IF NOT EXISTS (SELECT 1 FROM report_access WHERE user_id = u_agent) THEN
+    failed := array_append(failed, 'deactivation deleted the grantee''s report_access row');
   END IF;
   n := n + 1;
-  IF pg_temp.tr_try(u_agent, format('SELECT chat_tag_report(%L, %L)::text', v_from, v_to)) NOT LIKE 'ERROR:%' THEN
-    failed := array_append(failed, 'a reactivated grantee got the tag report back');
+  IF pg_temp.tr_try(u_agent, format('SELECT chat_tag_report(%L, %L)::text', v_from, v_to)) LIKE 'ERROR:%' THEN
+    failed := array_append(failed, 'a reactivated grantee did not get the tag report back');
   END IF;
   n := n + 1;
   r := pg_temp.tr_try(u_other, format('SELECT chat_tag_report(%L, %L)::text', v_from, v_to));
