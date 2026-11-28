@@ -142,8 +142,9 @@ documents** shows a company across its banks.
 - **Consent per bank.** Linking into another bank's case needs the
   company's consent for that bank, recorded with its evidence (for
   example "WhatsApp reply 21 Nov: yes") and revoked with a reason. The
-  history is kept; nothing is deleted. Whether a WhatsApp reply is
-  enough evidence is for legal sign-off (design section 8).
+  history is kept; nothing is deleted. A WhatsApp reply is enough
+  evidence, and every bank's agreement allows reuse (owner's decision,
+  28 Nov 2026; see Legal decisions below).
 - **The database refuses a cross-customer file** on every insert, by
   any writer: a case file must be the case customer's document or, for a
   desk case, a document of a person who acts for the same company.
@@ -245,8 +246,9 @@ application number and `{{2}}` for what is missing, for example:
   limit for automatic senders): over it the reminder fails with
   `number_daily_limit` and may queue again the next day (263). Opt-out and
   do-not-contact are checked again right before each send (`opted_out`).
-- Whether a reminder is a transactional message is for legal sign-off
-  (design section 8). HR automated messages do not yet count reminders
+- A reminder is a service message, not marketing (owner's decision,
+  28 Nov 2026), so it needs no marketing opt-in; STOP, opt-out and quiet
+  hours still apply. HR automated messages do not yet count reminders
   toward their own cap (a person could get 3 HR messages and a
   reminder in one day).
 
@@ -374,3 +376,21 @@ Refusals answer `{ error, code }`.
 - Not ported from the package: its `bank_desks` roster and 035d's desk
   visibility (the repo's bank holders, 133/161, already do both) and
   035e's judge shadow (the repo's Jev judgments cover it).
+
+## Legal decisions (design section 8)
+
+Answered by the owner on 28 Nov 2026. Confirm them with counsel before
+relying on them.
+
+1. **Consent evidence.** A customer's WhatsApp reply is enough evidence
+   of consent to reuse a document for another bank. Built as is.
+2. **Bank agreements.** Every bank's agreement allows reusing documents
+   collected for another bank. No per-bank block is needed.
+3. **Data role.** Taamul is the controller: it decides how customer data
+   is used and answers export and erase requests itself (Privacy screen).
+4. **KYC/AML retention.** Case records are kept for 5 years after the
+   case closes; an erase request does not remove them before then. Not
+   built yet: today bank cases and their files are kept with no end
+   date, and no sweep removes them once the 5 years have passed.
+5. **Reminders.** A pending-document reminder is a service message, not
+   marketing. Built as is (off by default).

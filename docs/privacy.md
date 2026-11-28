@@ -59,6 +59,9 @@ What erase does:
 - **Kept, by your decision (KYC/AML):** bank cases and everything filed
   to them (stage history, notes, documents, files, tasks), the case's
   WhatsApp group and its messages, desk uploads and company records.
+  The owner set the period at 5 years after the case closes (28 Nov
+  2026; `case-desk.md`, Legal decisions). Nothing removes them yet once
+  that period ends.
 - **Kept as records:** consent and opt-out history, audit trails, the
   legal hold itself.
 - **The contact** stays as "Erased customer" with no name, email or phone,
