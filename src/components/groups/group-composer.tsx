@@ -73,6 +73,7 @@ import {
 } from '@/lib/storage/upload-media';
 import { cn } from '@/lib/utils';
 import type { QuickReply } from '@/types';
+import { chatMediaDisplayUrl } from '@/lib/storage/chat-media-url';
 
 export type { GroupMediaSendPayload } from '@/lib/groups/composer';
 
@@ -690,7 +691,7 @@ function GroupDraftPreview({
           <Trash2 className="h-5 w-5" />
         </button>
         <VoiceNotePlayer
-          src={draft.url}
+          src={chatMediaDisplayUrl(draft.url)}
           seed={draft.path}
           tone="in"
           badge={false}
@@ -717,13 +718,17 @@ function GroupDraftPreview({
           {draft.kind === 'image' && (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={draft.url}
+              src={chatMediaDisplayUrl(draft.url)}
               alt={draft.filename}
               className="max-h-40 rounded-lg object-cover"
             />
           )}
           {draft.kind === 'video' && (
-            <video src={draft.url} controls className="max-h-40 rounded-lg" />
+            <video
+              src={chatMediaDisplayUrl(draft.url)}
+              controls
+              className="max-h-40 rounded-lg"
+            />
           )}
           {draft.kind === 'document' && (
             <div className="text-wa-text flex items-center gap-2 text-sm">

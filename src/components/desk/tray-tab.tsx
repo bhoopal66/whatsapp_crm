@@ -36,6 +36,7 @@ import { FilePreview } from './file-preview';
 import { DisabledHint } from './disabled-hint';
 import { LoadFailed } from './load-failed';
 import { TrayCaseFinder } from './tray-case-finder';
+import { chatMediaDisplayUrl } from '@/lib/storage/chat-media-url';
 
 export function TrayTab({ isLead }: { isLead: boolean }) {
   const t = useTranslations('Desk');
@@ -283,7 +284,7 @@ function TrayCard({
         <div className="flex flex-wrap items-center gap-2">
           {item.mediaUrl && (
             <a
-              href={item.mediaUrl}
+              href={chatMediaDisplayUrl(item.mediaUrl)}
               target="_blank"
               rel="noreferrer"
               className="text-primary text-sm underline underline-offset-2"

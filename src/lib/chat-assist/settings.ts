@@ -1,5 +1,5 @@
 /**
- * Reading and setting the workspace's chat-assistant switch (321).
+ * Reading and setting the workspace's chat-assistant switch (323).
  * Reads go through the caller's client (members read it under RLS);
  * the only writer is `inbox_assistant_set_enabled()`, which checks admin+ of
  * the ACTIVE account in SQL. A read that fails is treated as off: the

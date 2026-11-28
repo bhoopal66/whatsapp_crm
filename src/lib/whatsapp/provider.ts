@@ -37,6 +37,7 @@
 //     from the same `message_templates` row. OpenWA is Whapi's case.
 // ============================================================
 
+import { gatewayMediaLink } from '@/lib/storage/chat-media-sign';
 import { streamCapped, streamDeadline } from '@/lib/media/capped-body';
 import type { MessageTemplate } from '@/types';
 
@@ -162,7 +163,10 @@ export interface SendMediaArgs {
 export async function sendMedia(
   args: SendMediaArgs
 ): Promise<ProviderSendResult> {
-  const { channel, to, kind, link, caption, filename, quotedMessageId } = args;
+  const { channel, to, kind, caption, filename, quotedMessageId } = args;
+  // chat-media is private (migration 321): the gateway gets a link signed
+  // for this send, never the stored one (lib/storage/chat-media-sign.ts).
+  const link = await gatewayMediaLink(args.link);
 
   switch (channel.provider) {
     case 'whapi': {
@@ -235,15 +239,15 @@ export interface SendTemplateArgs {
 export async function sendTemplate(
   args: SendTemplateArgs
 ): Promise<ProviderSendResult> {
-  const {
-    channel,
-    to,
-    template,
-    bodyParams = [],
-    messageParams,
-    headerMediaUrl,
-    quotedMessageId,
-  } = args;
+  const { channel, to, bodyParams = [], quotedMessageId } = args;
+  // A media header is fetched by the gateway too, from whichever of these
+  // the provider reads: each of our chat-media links is signed for this
+  // send. Text headers and other links pass through unchanged.
+  const headerMediaUrl = args.headerMediaUrl
+    ? await gatewayMediaLink(args.headerMediaUrl)
+    : args.headerMediaUrl;
+  const template = await withSignedHeaderLinks(args.template);
+  const messageParams = await withSignedParamsLink(args.messageParams);
 
   switch (channel.provider) {
     case 'whapi': {
@@ -302,6 +306,35 @@ export async function sendTemplate(
     default:
       return unknownProvider(channel.provider);
   }
+}
+
+async function withSignedHeaderLinks(
+  template: MessageTemplate
+): Promise<MessageTemplate> {
+  const row = template as MessageTemplate & {
+    header_media_url?: string | null;
+    header_content?: string | null;
+  };
+  const media = row.header_media_url
+    ? await gatewayMediaLink(row.header_media_url)
+    : row.header_media_url;
+  const content = row.header_content
+    ? await gatewayMediaLink(row.header_content)
+    : row.header_content;
+  if (media === row.header_media_url && content === row.header_content)
+    return template;
+  return { ...row, header_media_url: media, header_content: content };
+}
+
+async function withSignedParamsLink(params: unknown): Promise<unknown> {
+  if (!params || typeof params !== 'object' || Array.isArray(params))
+    return params;
+  const p = params as { headerMediaUrl?: unknown };
+  if (typeof p.headerMediaUrl !== 'string' || !p.headerMediaUrl) return params;
+  const signed = await gatewayMediaLink(p.headerMediaUrl);
+  return signed === p.headerMediaUrl
+    ? params
+    : { ...p, headerMediaUrl: signed };
 }
 
 export interface InteractiveButton {

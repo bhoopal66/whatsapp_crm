@@ -256,12 +256,32 @@ Webhooks, delivery statuses, automations, merges and erasure use the
 service role or definer functions and are not affected. Refusals are
 `42501`.
 
-## WhatsApp media in Storage (migration 283)
+## WhatsApp media in Storage (migrations 283, 321)
 
-`chat-media` and `flow-media` are public buckets, because the WhatsApp
-gateways fetch a file by its link: whoever holds an object's full link can
-open it. Everything else about an object goes through RLS on
-`storage.objects`:
+`chat-media` holds every attachment customers send (IDs, licences,
+statements), what staff send, contact pictures and voice notes. Since
+**321 it is private**: a stored link (`…/object/public/chat-media/…`) no
+longer opens on its own, and nothing is rewritten. Every reader gets a
+short-lived signed link instead (`lib/storage/chat-media-sign.ts`):
+
+- **A WhatsApp gateway** gets a link signed for 6 hours at the moment of
+  sending: `lib/whatsapp/provider.ts` (`sendMedia`, template headers)
+  and `lib/whatsapp/groups.ts` swap our stored link for it. Any other
+  link is sent as it is.
+- **A person in the app** sees `/api/media/chat/<path>`
+  (`chatMediaDisplayUrl` in `lib/storage/chat-media-url.ts`, applied in
+  the message, group, voice-note, avatar, composer and template
+  previews and the download helper). The route admits staff of the
+  object's workspace only (its first folder is `account-<active id>`;
+  a bank guest is refused), then redirects to a link signed for 5
+  minutes. It does not narrow by chat: an object path does not name its
+  conversation, and the names carry the provider's random media id.
+- **Case files and the desk tray** sign the document (600 s / 300 s).
+- **The public API** returns our links signed for 1 hour
+  (`lib/api/v1/media-links.ts`).
+- **The NAS copier** reads the object with the service key.
+
+What a signed-in person can do directly through Storage is unchanged:
 
 - A signed-in person lists, reads, replaces, moves and removes only the
   objects they uploaded (`owner_id`, or `owner` on a row an older Storage
@@ -279,6 +299,16 @@ open it. Everything else about an object goes through RLS on
   library does.
 
 `verify-chat-media-owner.sql`.
+
+Only agents and up write either bucket from a session (migration 322):
+an upload, a change or a removal needs `is_account_member(<id>, 'agent')`
+for the `account-<id>` folder it names, so a viewer, a deactivated
+member, a bank guest, a member whose active workspace is another one and
+a folder that is not `account-<uuid>` are all refused (`42501`). The
+three policies are RESTRICTIVE, so they hold even if 020, 023 or 057,
+which restate the older, wider permissive policies, is re-applied.
+Reads and the service role are not affected.
+`verify-media-upload-role.sql`.
 
 ## Housekeeping
 

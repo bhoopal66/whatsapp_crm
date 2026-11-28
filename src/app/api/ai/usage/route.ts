@@ -111,7 +111,7 @@ export async function GET(request: Request) {
       completionTokens += r.completion_tokens
       totalTokens += r.total_tokens
 
-      // `mode` is DB-CHECK-constrained to these six values (321).
+      // `mode` is DB-CHECK-constrained to these six values (323).
       byMode[r.mode].calls += 1
       byMode[r.mode].tokens += r.total_tokens
 

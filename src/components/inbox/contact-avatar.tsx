@@ -4,6 +4,7 @@ import { UserRound } from 'lucide-react';
 import { avatarTint } from '@/lib/chat/view';
 import { cn } from '@/lib/utils';
 import type { Contact } from '@/types';
+import { chatMediaDisplayUrl } from '@/lib/storage/chat-media-url';
 
 /**
  * A contact's round avatar, the same everywhere in the inbox: the photo
@@ -31,7 +32,7 @@ export function ContactAvatar({
     return (
       // eslint-disable-next-line @next/next/no-img-element
       <img
-        src={contact.avatar_url}
+        src={chatMediaDisplayUrl(contact.avatar_url)}
         alt={name}
         width={size}
         height={size}

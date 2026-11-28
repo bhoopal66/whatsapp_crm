@@ -59,18 +59,22 @@ beforeEach(() => {
 });
 
 describe('GET /api/desk/tray/[id]/preview', () => {
-  it('serves a public chat-media document on the public origin', async () => {
+  it('signs a chat-media document for 300 s (private since 321)', async () => {
     m.rpc.mockResolvedValue(doc({}));
     const res = await get();
     expect(res.status).toBe(200);
     expect(res.headers.get('Cache-Control')).toBe('no-store');
-    expect(await res.json()).toEqual({
-      url: 'https://pub.example/storage/v1/object/public/chat-media/account-1/inbound/a.jpg',
-      expiresAt: null,
+    expect(await res.json()).toMatchObject({
+      url: 'https://pub.example/storage/v1/object/sign/case-files/docs/a.pdf?token=t',
       mime: 'image/jpeg',
       name: 'id.jpg',
       kind: 'image',
     });
+    expect(m.from).toHaveBeenCalledWith('chat-media');
+    expect(m.createSignedUrl).toHaveBeenCalledWith(
+      'account-1/inbound/a.jpg',
+      300
+    );
     expect(m.rpc).toHaveBeenCalledWith(
       'desk_tray_file_for_preview',
       expect.objectContaining({
@@ -79,7 +83,6 @@ describe('GET /api/desk/tray/[id]/preview', () => {
         p_tray: TRAY,
       })
     );
-    expect(m.createSignedUrl).not.toHaveBeenCalled();
   });
 
   it('signs a case-files copy for 300 s', async () => {

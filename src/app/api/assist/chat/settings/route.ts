@@ -1,6 +1,6 @@
 // ============================================================
 // /api/assist/chat/settings — the workspace's chat-assistant switch
-// (migration 321).
+// (migration 323).
 //
 // GET (any member) → { enabled, canUse, canToggle }: the panel shows its
 // button to agents and up while it is on, and to owners and admins

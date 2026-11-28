@@ -1,6 +1,7 @@
 import { NextResponse, after } from 'next/server';
 import { createHash } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
+import { readTextCapped } from '@/lib/edge/read-capped';
 import { decrypt } from '@/lib/whatsapp/encryption';
 import {
   normalizeOpenWAWebhook,
@@ -58,6 +59,12 @@ import {
 // so give it headroom beyond the platform default.
 export const maxDuration = 60;
 
+// A message event can carry its media inline as base64 (`media.data`,
+// up to the gateway's own inline cap; never read here). The largest
+// accepted media is the 16 MB `chat-media` limit, about 22 MB as base64,
+// so the cap leaves room for that plus the JSON around it.
+const MAX_BODY_BYTES = 24 * 1024 * 1024;
+
 // Lazy-initialized to avoid build-time crash when env vars are missing
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _adminClient: any = null;
@@ -106,7 +113,12 @@ function edgeCtx(): ScreenCtx {
 export async function POST(request: Request) {
   // The signature is over the EXACT bytes OpenWA sent. Re-serialising a
   // parsed object changes key order and whitespace and will never match.
-  const rawBody = await request.text();
+  // Capped first: the body is unauthenticated until the signature below.
+  // 413, never 429.
+  const rawBody = await readTextCapped(request, MAX_BODY_BYTES);
+  if (rawBody === null) {
+    return NextResponse.json({ error: 'payload_too_large' }, { status: 413 });
+  }
   const signature = request.headers.get('x-openwa-signature');
 
   let parsed: unknown;

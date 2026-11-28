@@ -1,5 +1,5 @@
 -- ============================================================
--- 321: the in-chat AI assistant (inbox side panel)
+-- 323: the in-chat AI assistant (inbox side panel)
 --
 -- The first caller of 019a's assistant safety layer (migration 120):
 -- an Assistant panel on an open chat summarises it, drafts a reply into
@@ -26,7 +26,7 @@
 -- Re-runnable: IF NOT EXISTS, CREATE OR REPLACE, DROP POLICY IF EXISTS,
 -- and the CHECK is rebuilt from a fixed list. Apply after 290; a
 -- re-run of 154, 202 or 290 afterwards drops 'chat_assist' again, so
--- apply in order, once (re-running 321 itself is safe). The refusal
+-- apply in order, once (re-running 323 itself is safe). The refusal
 -- comes before the first DDL and turns the session read-only.
 -- Asserted by supabase/ci/verify-chat-assist.sql.
 -- ============================================================
@@ -38,25 +38,25 @@ DECLARE
   v_refusal text := '';
 BEGIN
   IF to_regprocedure('public.is_account_member(uuid, account_role_enum)') IS NULL THEN
-    v_refusal := '321: is_account_member() is missing; apply the earlier migrations first';
+    v_refusal := '323: is_account_member() is missing; apply the earlier migrations first';
   ELSIF (SELECT count(*) FROM pg_constraint
           WHERE conrelid = 'public.ai_usage_log'::regclass
             AND conname = 'ai_usage_log_mode_check' AND contype = 'c'
             AND pg_get_constraintdef(oid) LIKE '%kb_learn%') <> 1 THEN
-    v_refusal := '321: ai_usage_log_mode_check is not the list 290 leaves; apply 290_kb_learn.sql first';
+    v_refusal := '323: ai_usage_log_mode_check is not the list 290 leaves; apply 290_kb_learn.sql first';
   ELSIF EXISTS (SELECT 1 FROM public.ai_usage_log
                  WHERE mode NOT IN ('auto_reply', 'draft', 'translate', 'hr_agent', 'kb_learn', 'chat_assist')) THEN
-    v_refusal := '321: ai_usage_log holds a mode this list does not name; look at it first';
+    v_refusal := '323: ai_usage_log holds a mode this list does not name; look at it first';
   END IF;
-  PERFORM set_config('ca321.refusal', v_refusal, false);
+  PERFORM set_config('ca323.refusal', v_refusal, false);
   IF v_refusal <> '' THEN
     PERFORM set_config('default_transaction_read_only', 'on', false);
   END IF;
 END $$;
 
 DO $$ BEGIN
-  IF coalesce(current_setting('ca321.refusal', true), '') <> '' THEN
-    RAISE EXCEPTION '%', current_setting('ca321.refusal');
+  IF coalesce(current_setting('ca323.refusal', true), '') <> '' THEN
+    RAISE EXCEPTION '%', current_setting('ca323.refusal');
   END IF;
 END $$;
 
@@ -82,7 +82,7 @@ CREATE TABLE IF NOT EXISTS public.inbox_assistant_settings (
 );
 
 COMMENT ON TABLE public.inbox_assistant_settings IS
-  'In-chat AI assistant (321): off by default, no row = off. Written only by inbox_assistant_set_enabled() (admin+ of the active account). Mirrored by CHAT_ASSIST_DEFAULT_ENABLED in src/lib/chat-assist/gate.ts.';
+  'In-chat AI assistant (323): off by default, no row = off. Written only by inbox_assistant_set_enabled() (admin+ of the active account). Mirrored by CHAT_ASSIST_DEFAULT_ENABLED in src/lib/chat-assist/gate.ts.';
 
 ALTER TABLE public.inbox_assistant_settings ENABLE ROW LEVEL SECURITY;
 

@@ -1,5 +1,5 @@
 /**
- * The in-chat assistant's prompts (migration 321). Pure, so what leaves
+ * The in-chat assistant's prompts (migration 323). Pure, so what leaves
  * for the model is tested without a provider.
  *
  * Rules every prompt here keeps:

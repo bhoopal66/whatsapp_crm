@@ -34,7 +34,8 @@ parser, signature check, WebSocket helpers, token manager and CDR helpers.
   store them.
 - **Events** come by webhook (`/api/pbx/yeastar/events/[token]`: the path
   token finds the connection, `X-Signature` is an HMAC-SHA256 of the raw body,
-  fail closed) or from the WebSocket gateway (`scripts/pbx-gateway.mjs`, which
+  fail closed; over `webhook.pbx`, 100/s per token, it answers 200 and
+  processes nothing, never 429) or from the WebSocket gateway (`scripts/pbx-gateway.mjs`, which
   never holds PBX credentials). `ingestPbxEvent` (`process.ts`) dedupes on a
   `pbx_events_raw` hash upsert, then writes `calls`, live state, presence, a
   `missed_call` task and a `call_missed` bell, and settles call-backs; a bad

@@ -53,7 +53,7 @@ interface UsageResponse {
     hr_agent?: { calls: number; tokens: number };
     // Learned knowledge-base drafts (migration 290); absent from older servers.
     kb_learn?: { calls: number; tokens: number };
-    // The in-chat assistant panel (migration 321); absent from older servers.
+    // The in-chat assistant panel (migration 323); absent from older servers.
     chat_assist?: { calls: number; tokens: number };
   };
   by_model: {

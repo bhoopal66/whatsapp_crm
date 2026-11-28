@@ -1,7 +1,7 @@
 'use client';
 
 // ============================================================
-// The chat's Assistant panel (migration 321, docs/ai-agent.md).
+// The chat's Assistant panel (migration 323, docs/ai-agent.md).
 //
 // A button in the chat header's actions opens a side sheet (full width
 // on a phone). It is shown to agents and up while the workspace has the

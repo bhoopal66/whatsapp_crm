@@ -1,4 +1,5 @@
 import { uploadResumableMedia } from '@/lib/whatsapp/meta-api'
+import { gatewayMediaLink } from '@/lib/storage/chat-media-sign'
 import type { TemplatePayload } from '@/lib/whatsapp/template-validators'
 import { isDeliverableUrl, safeFetch } from '@/lib/webhooks/ssrf'
 import { BodyTooLargeError, readCapped } from '@/lib/media/capped-body'
@@ -43,7 +44,10 @@ export async function ensureImageHeaderHandle(
   // the unreachable-host message keeps the failure from being an oracle.
   // safeFetch below re-vets the address it connects to (DNS rebinding),
   // and its refusal lands in the same catch, so it reads the same too.
-  if (!(await isDeliverableUrl(payload.header_media_url))) {
+  // Our own uploaded header (chat-media, private since migration 321) is
+  // read through a link signed for this upload; any other link as given.
+  const headerUrl = await gatewayMediaLink(payload.header_media_url)
+  if (!(await isDeliverableUrl(headerUrl))) {
     throw new Error('Could not fetch the header image URL. Make sure it is publicly reachable.')
   }
 
@@ -51,7 +55,7 @@ export async function ensureImageHeaderHandle(
   // and for a manually-pasted public link).
   let res: Response
   try {
-    res = await safeFetch(payload.header_media_url, {
+    res = await safeFetch(headerUrl, {
       // Do NOT follow redirects — a public URL could 3xx-bounce to an
       // internal address, defeating the guard above. Bound the request so
       // a hung host can't tie up the template-submit handler.

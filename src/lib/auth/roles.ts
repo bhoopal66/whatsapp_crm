@@ -213,7 +213,7 @@ export function canEditSettings(role: AccountRole): boolean {
 }
 
 /**
- * Agent and up: use the in-chat AI assistant (migration 321) while the
+ * Agent and up: use the in-chat AI assistant (migration 323) while the
  * workspace has it on. Its writes still run on the caller's own client,
  * so the database decides each one.
  */

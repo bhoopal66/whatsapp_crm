@@ -1,5 +1,5 @@
 /**
- * Who may use the in-chat AI assistant, and when (migration 321).
+ * Who may use the in-chat AI assistant, and when (migration 323).
  *
  * Two conditions, both required: the workspace switch is on
  * (`inbox_assistant_settings.enabled`, off by default, no row = off) and the
@@ -13,7 +13,7 @@ import {
   type AccountRole,
 } from '@/lib/auth/roles';
 
-/** Mirrors 321's column default: a workspace starts with it off. */
+/** Mirrors 323's column default: a workspace starts with it off. */
 export const CHAT_ASSIST_DEFAULT_ENABLED = false;
 
 export type ChatAssistRefusal = 'off' | 'role';

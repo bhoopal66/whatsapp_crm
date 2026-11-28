@@ -8,7 +8,7 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   BATCH_SIZE,
@@ -420,8 +420,8 @@ describe('processBatch', () => {
     mime: 'application/pdf',
     original_name: 'Passport.pdf',
     caption: null,
-    media_url:
-      'https://tunnel.example.com/storage/v1/object/public/chat-media/x.pdf',
+    // A gateway link; our own chat-media links are read from Storage (321).
+    media_url: 'https://gate.whapi.cloud/media/x.pdf',
     received_at: '2026-03-04T21:30:00Z',
     attempts: 1,
     claimed_at: CLAIMED_AT,
@@ -461,6 +461,32 @@ describe('processBatch', () => {
   });
   afterEach(async () => {
     await rm(mount, { recursive: true, force: true });
+  });
+
+  it('reads our own chat-media link from Storage with the key, never by its public link (321)', async () => {
+    rows = [
+      row({
+        media_url:
+          'https://tunnel.example.com/supabase/storage/v1/object/public/chat-media/account-1/inbound/x%20y.pdf',
+      }),
+    ];
+    const download = vi.fn(okDownload('never'));
+    const storageCalls: unknown[][] = [];
+    const r = await processBatch({
+      config,
+      rpc,
+      download,
+      storageDownload: async (...args) => {
+        storageCalls.push(args);
+        return { ok: true as const, bytes: bytesOf('PDF-own') };
+      },
+      readMountInfo: mountinfo,
+    });
+    expect(download).not.toHaveBeenCalled();
+    expect(storageCalls).toEqual([
+      ['chat-media', 'account-1/inbound/x y.pdf', { ownChatMedia: true }],
+    ]);
+    expect(r).toMatchObject({ stored: 1 });
   });
 
   it('stores the file under the ref with the dated name', async () => {
@@ -536,9 +562,11 @@ describe('processBatch', () => {
   });
 
   it('retries a download error and fails an oversize file, batch continues', async () => {
+    const own =
+      'https://tunnel.example.com/storage/v1/object/public/chat-media/x.pdf';
     rows = [
-      row({ id: 'a1' }),
-      row({ id: 'b2' }),
+      row({ id: 'a1', media_url: own }),
+      row({ id: 'b2', media_url: own }),
       row({ id: 'c3', media_url: 'http://x.example/a.pdf' }),
     ];
     const fetchImpl = async (url: string) => {
@@ -554,10 +582,17 @@ describe('processBatch', () => {
       fetchImpl,
       maxBytes: 10,
     });
+    const storageDownload = makeStorageDownload({
+      baseUrl: config.baseUrl,
+      serviceKey: 'svc-key',
+      fetchImpl,
+      maxBytes: 10,
+    });
     const r = await processBatch({
       config,
       rpc,
       download,
+      storageDownload,
       readMountInfo: mountinfo,
     });
     expect(r).toMatchObject({ claimed: 3, retry: 1, failed: 2, stored: 0 });
@@ -832,7 +867,13 @@ describe('processBatch', () => {
       });
     });
 
-    it('still fetches a media_url row with no key', async () => {
+    it('reads our own chat-media row from Storage with the key (321)', async () => {
+      rows = [
+        row({
+          media_url:
+            'https://tunnel.example.com/storage/v1/object/public/chat-media/x.pdf',
+        }),
+      ];
       const r = await processBatch({
         config,
         rpc,
@@ -842,11 +883,10 @@ describe('processBatch', () => {
       expect(r).toMatchObject({ stored: 1 });
       expect(fetched).toHaveLength(1);
       expect(fetched[0].url).toBe(
-        'http://127.0.0.1:8000/storage/v1/object/public/chat-media/x.pdf'
+        'http://127.0.0.1:8000/storage/v1/object/chat-media/x.pdf'
       );
       const headers = new Headers(fetched[0].init?.headers);
-      expect(headers.has('apikey')).toBe(false);
-      expect(headers.has('authorization')).toBe(false);
+      expect(headers.get('apikey')).toBe('svc-key');
     });
   });
 

@@ -122,7 +122,7 @@ export interface ThreadHeaderProps {
    */
   serviceWindowCountdown?: { hours: number; minutes: number } | null;
   /**
-   * The Assistant panel's "Put in reply box" (migration 321): the draft
+   * The Assistant panel's "Put in reply box" (migration 323): the draft
    * joins this chat's composer, never sent by itself. The panel renders
    * only when this is provided.
    */
@@ -558,7 +558,7 @@ export function ThreadHeader({
                   currentUserId={currentUserId}
                 />
               )}
-              {/* The AI assistant (321): shows itself only while the
+              {/* The AI assistant (323): shows itself only while the
               workspace has it on, or to an owner/admin who can switch it
               on. Not for a share-only coordinator, like the task button. */}
               {!shareOnly && onUseAssistantDraft && (

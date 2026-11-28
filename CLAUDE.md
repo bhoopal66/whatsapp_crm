@@ -169,7 +169,7 @@ module gets its own file and one line here; don't grow this file.
 - **OpenDesk / Taamul sales** (`lib/taamul-sales/*`, 139) → `opendesk.md`. HMAC before parsing; synchronous on purpose; never log a payload.
 - **Coordinators** (`lib/coordinators/*`, 133) → `coordinators.md`. Not a role; `can_view_conversation`/`can_view_contact` deliberately unchanged.
 - **CRM memory and vault** (`lib/memory/*`, `lib/vault/*`, 121, 129) → `memory-vault.md`. Redact (and tokenise) before storing; the app encrypts, never the DB.
-- **Assistant safety** (`lib/assist/*`, `lib/chat-assist/*`, 120, 132, 321) → `assistant-safety.md`. Called only by the inbox Assistant panel, always supervised (every WRITE waits for the person); fail closed; the model never sees the nonce.
+- **Assistant safety** (`lib/assist/*`, `lib/chat-assist/*`, 120, 132, 323) → `assistant-safety.md`. Called only by the inbox Assistant panel, always supervised (every WRITE waits for the person); fail closed; the model never sees the nonce.
 - **Video meetings** (`lib/meetings/*`, 106, 111–112, 176) → `meetings.md`. The session owns the call; background effects fail closed; keep the pre-176 fallback.
 - **Calendar and web push** (`lib/calendar/*`, `lib/push/*`, 108–110, 117, 197) → `calendar-push.md`. Only the organiser edits; push routes 503 without VAPID keys.
 - **Smart insights** (`lib/insights/*`, 147–153, 197) → `smart-insights.md`. Off until switched on; ordinal keys and redacted text only; a person always wins.

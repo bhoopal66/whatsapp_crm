@@ -5,7 +5,7 @@ would go through: risk levels, human confirmation, rate limits, a loop
 guard and an audit. This is the operator contract for module 019a
 (migration 120, `lib/assist/*`).
 
-**Who calls it.** The inbox's Assistant panel (migration 321,
+**Who calls it.** The inbox's Assistant panel (migration 323,
 `src/lib/chat-assist/*`, `docs/ai-agent.md`) is the one caller. It builds
 a guard and a router per request with its own registry
 (`CHAT_ASSIST_TOOL_SPECS`): `chat_read` (READ) and `chat_set_tag`,

@@ -59,14 +59,18 @@ describe("loadMediaBlob", () => {
     expect(a).toBe(b);
   });
 
-  it("does not cache public bucket URLs", async () => {
+  it("does not cache bucket URLs, and fetches them through the app route", async () => {
     // The browser's HTTP cache already covers these, and a 16 MB video has
-    // no business being pinned in JS memory.
+    // no business being pinned in JS memory. chat-media is private
+    // (migration 321): the stored link is fetched as the app's route.
     const fetchImpl = trackingFetch();
     await loadMediaBlob(BUCKET, fetchImpl);
     await loadMediaBlob(BUCKET, fetchImpl);
 
-    expect(fetchImpl.calls).toEqual([BUCKET, BUCKET]);
+    expect(fetchImpl.calls).toEqual([
+      "/api/media/chat/a/1-p.png",
+      "/api/media/chat/a/1-p.png",
+    ]);
   });
 
   it("evicts the least-recently-used entry past the cap", async () => {

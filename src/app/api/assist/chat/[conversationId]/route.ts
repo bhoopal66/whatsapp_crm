@@ -1,6 +1,6 @@
 // ============================================================
 // POST /api/assist/chat/[conversationId] — the inbox's Assistant panel
-// (migration 321, docs/ai-agent.md).
+// (migration 323, docs/ai-agent.md).
 //
 // Body: { task: 'summary' | 'draft' | 'ask' | 'suggest', question?, locale? }
 //   summary  → { text }   who, what they want, what is pending, last promise

@@ -31,9 +31,47 @@ as "Chat assistant" in Token usage. It is the first user of the assistant
 safety layer (migration 120): every suggested change is a pending action the
 person must confirm, rate-limited and audited.
 
-**Migration required: 321** (`321_chat_assist.sql`, after 290; apply in
+**Migration required: 323** (`323_chat_assist.sql`, after 322; apply in
 order, once: re-running 154, 202 or 290 afterwards drops the new usage
 mode).
+
+### Security: six small fixes from the 28 Nov security scan
+
+- Only agents and up can upload, change or delete WhatsApp and flow media
+  from the app; a viewer could upload before. The rule also holds if an
+  older migration is re-run.
+- Editing or deleting a message template is refused for non-admins with a
+  clear message; before, a refused delete said "deleted". A failed delete
+  no longer shows database error text.
+- Uploaded media is stored with a safe file type and a plain extension,
+  whatever the browser claims.
+- "Send test notification" is limited to 3 a minute per person.
+- The phone system webhook answers 200 instead of 429 when flooded (over
+  100 pushes a second); those pushes are dropped, not replayed.
+- The Meta and OpenWA webhooks refuse an oversized request (over 3 MB and
+  24 MB) before reading it.
+
+**Migration required: 322** (`322_media_upload_role.sql`, after 321).
+
+### Security: customer attachments are private
+
+**Migration required:** `321_chat_media_private.sql`, **together with
+this build** (not before: the previous build hands out the old public
+links, which stop opening).
+- Everything customers send on WhatsApp (IDs, licences, statements), the
+  files staff send, contact pictures and voice notes used to be readable
+  by anyone holding a file's link, without signing in, forever. They are
+  now private.
+- In the app nothing changes for staff: files open as before, through
+  the app, for staff of the workspace only.
+- WhatsApp still receives what you send: each send carries a link signed
+  for a few hours.
+- **Integrations:** a `media_url` or `avatar_url` from the public API is
+  now a signed link valid for one hour (docs/public-api.md).
+- The NAS copier, case-file downloads and the case desk preview read the
+  files the new way.
+- Re-applying migrations 023 or 039 no longer makes the bucket public
+  again.
 
 ### Fixed: going back to an earlier case document had no effect
 

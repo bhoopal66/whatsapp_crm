@@ -1,4 +1,4 @@
--- Behavioural regression suite for migration 321: the in-chat AI
+-- Behavioural regression suite for migration 323: the in-chat AI
 -- assistant's switch and usage mode.
 --
 -- Asserts: the switch is off by default (no row, and a fresh row is
@@ -9,15 +9,15 @@
 -- setter; the usage log takes 'chat_assist' and keeps 290's list.
 --
 -- ONE statement on purpose (the pinned CLI rejects several); fixtures
--- are rolled back through a sentinel. Fixture emails: ca321-*.
+-- are rolled back through a sentinel. Fixture emails: ca323-*.
 
 DO $verify$
 DECLARE
-  u_owner  UUID := '00000000-0000-4000-8000-000000321001';
-  u_admin  UUID := '00000000-0000-4000-8000-000000321002';
-  u_agent  UUID := '00000000-0000-4000-8000-000000321003';
-  u_leader UUID := '00000000-0000-4000-8000-000000321004';
-  u_owner2 UUID := '00000000-0000-4000-8000-000000321005';
+  u_owner  UUID := '00000000-0000-4000-8000-000000323001';
+  u_admin  UUID := '00000000-0000-4000-8000-000000323002';
+  u_agent  UUID := '00000000-0000-4000-8000-000000323003';
+  u_leader UUID := '00000000-0000-4000-8000-000000323004';
+  u_owner2 UUID := '00000000-0000-4000-8000-000000323005';
   a_acct UUID; b_acct UUID;
   r TEXT;
   n INT := 0;
@@ -55,11 +55,11 @@ BEGIN
   $fn$;
 
   INSERT INTO auth.users (id, email) VALUES
-    (u_owner,  'ca321-owner@example.invalid'),
-    (u_admin,  'ca321-admin@example.invalid'),
-    (u_agent,  'ca321-agent@example.invalid'),
-    (u_leader, 'ca321-leader@example.invalid'),
-    (u_owner2, 'ca321-owner2@example.invalid')
+    (u_owner,  'ca323-owner@example.invalid'),
+    (u_admin,  'ca323-admin@example.invalid'),
+    (u_agent,  'ca323-agent@example.invalid'),
+    (u_leader, 'ca323-leader@example.invalid'),
+    (u_owner2, 'ca323-owner2@example.invalid')
   ON CONFLICT DO NOTHING;
   SELECT account_id INTO a_acct FROM profiles WHERE user_id = u_owner;
   SELECT account_id INTO b_acct FROM profiles WHERE user_id = u_owner2;

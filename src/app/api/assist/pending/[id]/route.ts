@@ -6,7 +6,7 @@
 // user: the HumanOrigin is minted here, from the authenticated
 // session, and nowhere on the model's tool-call path. The gate's SQL
 // re-checks user, account, nonce, status and expiry in one atomic
-// update. The inbox Assistant panel (migration 321) calls it from a
+// update. The inbox Assistant panel (migration 323) calls it from a
 // suggestion card's Confirm / Dismiss.
 // ============================================================
 

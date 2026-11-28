@@ -1,4 +1,4 @@
-// The panel's routes refuse while the workspace switch is off (321), for
+// The panel's routes refuse while the workspace switch is off (323), for
 // every role, before reading the chat, the AI key or calling a model; and
 // a viewer is refused even while it is on.
 import { beforeEach, describe, expect, it, vi } from 'vitest';

@@ -2128,7 +2128,7 @@ export function MessageThread({
     };
   }, [conversation?.id]);
 
-  // The Assistant panel's draft (migration 321): into this chat's reply
+  // The Assistant panel's draft (migration 323): into this chat's reply
   // box, Reply mode, for the agent to edit and send. Never sent here; a
   // draft for a chat no longer open is dropped.
   const placeAssistantDraft = useCallback(

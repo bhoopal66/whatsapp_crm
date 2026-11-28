@@ -12,6 +12,7 @@
 // normalised to a wa_id before anything reaches the gateway, and every
 // failure is worded through `describeGroupFailure`.
 
+import { gatewayMediaLink } from '@/lib/storage/chat-media-sign';
 import type { WhatsAppChannel } from './channels';
 import { isValidE164, normalizePhone } from './phone-utils';
 import * as whapi from './whapi-api';
@@ -1098,6 +1099,23 @@ export function sendGroupMedia(
 ): Promise<{ messageId: string }> {
   const gw = gatewayFor(args.channel);
   const to = groupRecipient(gw, args.groupId);
+  // chat-media is private (migration 321): sign the link for this send.
+  return gatewayMediaLink(args.link).then((link) =>
+    sendGroupMediaLinked({ ...args, link }, gw, to)
+  );
+}
+
+function sendGroupMediaLinked(
+  args: GroupRef & {
+    kind: whapi.MediaKind;
+    link: string;
+    caption?: string;
+    filename?: string;
+    mimeType?: string;
+  },
+  gw: ReturnType<typeof gatewayFor>,
+  to: string
+): Promise<{ messageId: string }> {
   if (gw.kind === 'openwa') {
     return openwaApi.sendMediaMessage({
       ...gw.creds,

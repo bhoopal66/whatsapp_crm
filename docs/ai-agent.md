@@ -391,7 +391,7 @@ document or video, only a reply that quotes the original question counts
 made of nothing but holding words ("please wait 3 working days" is an
 answer).
 
-## The Assistant panel (migration 321)
+## The Assistant panel (migration 323)
 
 A side panel on an open inbox chat, for the person working it. It is
 **off** until an owner or admin switches it on for the workspace (the
