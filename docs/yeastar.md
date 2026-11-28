@@ -202,7 +202,9 @@ in Settings). Each request must carry `X-Signature`, the Base64
 HMAC-SHA256 of the raw body with the webhook's 32-character secret; a
 connection with no secret stored refuses every push. Optionally set
 `PBX_WEBHOOK_ALLOWED_IPS` (comma list, read through
-`EDGE_CLIENT_IP_HEADER`) to accept the PBX's address only.
+`EDGE_CLIENT_IP_HEADER`) to accept the PBX's address only. Over 100
+pushes a second for one webhook URL, the push is answered 200 and not
+processed (never 429: the PBX would only resend sooner).
 
 - **Workspace.** An inbound call belongs to the workspace its dialled
   number routes to. A number with no route files the call under the

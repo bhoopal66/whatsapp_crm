@@ -210,6 +210,22 @@ beforeEach(() => {
 });
 
 describe('OpenWA webhook: request validation', () => {
+  it('answers 413 to a body over 24 MB, before the lookup or any check', async () => {
+    const raw = 'a'.repeat(24 * 1024 * 1024 + 1);
+    expect((await post(null, { raw })).status).toBe(413);
+    const declared = await POST(
+      new Request('https://crm.example.com/api/whatsapp/openwa/webhook', {
+        method: 'POST',
+        headers: { 'content-length': String(25 * 1024 * 1024) },
+        body: '{}',
+      })
+    );
+    expect(declared.status).toBe(413);
+    expect(h.lookups).toHaveLength(0);
+    expect(h.screenWebhook).not.toHaveBeenCalled();
+    expect(h.processMessage).not.toHaveBeenCalled();
+  });
+
   it('answers 400 to a body that is not JSON', async () => {
     const res = await post(null, { raw: '{not json' });
     expect(res.status).toBe(400);
