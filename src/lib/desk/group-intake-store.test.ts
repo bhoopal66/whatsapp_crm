@@ -32,6 +32,7 @@ describe('migration 324', () => {
     );
     expect([...hints].sort()).toEqual([
       'BANK_NOT_FOUND',
+      'GROUP_ALREADY_LINKED',
       'GROUP_NOT_FOUND',
       'INVALID',
       'NOT_ALLOWED',

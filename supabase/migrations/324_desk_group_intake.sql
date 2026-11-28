@@ -16,14 +16,15 @@
 --    digits; none or more than one is NULL (never guessed), as 230's
 --    desk_staff_for_contact.
 --  * desk_group_intake: one row per group message, written only by
---    desk_group_intake_record (first write wins). It holds the outcome, a
+--    desk_group_intake_record (first write wins, but a no_copy gives way to
+--    a call that brings an intake item). It holds the outcome, a
 --    reason code (never free text) and the intake item (220) the file
 --    became; the item's state is read live, so a queued file a
 --    coordinator later files shows filed (desk_group_outcomes).
 --  * Replies: desk_group_reply_claim moves off -> pending at most once
 --    per message, only while the link has replies on and the outcome is
---    not 'chat'; desk_group_reply_settle records sent or failed. A failed
---    reply is not retried.
+--    filed, new_case, queued, duplicate or refused; desk_group_reply_settle
+--    records sent or failed. A failed reply is not retried.
 --  * The wall (desk_group_wall): per linked group the actor can see, the
 --    bank, its primary and second coordinator (232), files of the bank
 --    filed today (Asia/Dubai, any channel), its sorting queue and the
@@ -34,7 +35,7 @@
 --    only: viewers and bank guests see nothing here.
 --
 -- Refusals (HINT): INVALID, NOT_ALLOWED, GROUP_NOT_FOUND, BANK_NOT_FOUND,
--- NOT_LINKED.
+-- NOT_LINKED, GROUP_ALREADY_LINKED.
 --
 -- PRIVILEGES: SECURITY DEFINER, search_path '', service_role only; the
 -- tables force RLS with no policy and no grants. Called with the
@@ -186,6 +187,12 @@ BEGIN
   IF p_intake IS NULL OR p_replies IS NULL OR (p_replies AND NOT p_intake) THEN
     PERFORM public.desk_refuse('desk_group_link_set', 'INVALID', 'replies only with intake on');
   END IF;
+  -- Each of our numbers keeps its own whatsapp_groups row for one WhatsApp
+  -- group and message ids differ per gateway: a second linked row would
+  -- file and reply twice.
+  IF EXISTS (SELECT 1 FROM public.whatsapp_groups g, public.whatsapp_groups o, public.desk_group_links ol WHERE g.id = p_group AND g.account_id = p_account AND o.account_id = g.account_id AND o.wa_group_id = g.wa_group_id AND o.id <> g.id AND ol.account_id = o.account_id AND ol.group_id = o.id) THEN
+    PERFORM public.desk_refuse('desk_group_link_set', 'GROUP_ALREADY_LINKED', 'a group not linked through another of our numbers');
+  END IF;
   INSERT INTO public.desk_group_links AS l (account_id, group_id, bank_code, intake_enabled, replies_enabled,
                                             updated_by, updated_at)
   VALUES (p_account, p_group, p_bank_code, p_intake, p_replies, p_actor, coalesce(p_now, now()))
@@ -258,7 +265,8 @@ $$;
 -- ---------- 5. Recording a group file ----------
 
 -- The inbound hook: what became of a group message. First write wins;
--- answers the stored outcome. The group must be linked (not a mirror).
+-- answers the stored outcome (a no_copy gives way to a call that brings an
+-- intake item). The group must be linked (not a mirror).
 CREATE OR REPLACE FUNCTION public.desk_group_intake_record(p_account uuid, p_group_message_id uuid, p_outcome text,
   p_intake_item_id uuid, p_detail text, p_now timestamptz DEFAULT NULL)
 RETURNS text
@@ -294,6 +302,14 @@ BEGIN
   VALUES (p_account, p_group_message_id, v_group, v_bank, p_outcome, p_intake_item_id, p_detail,
           coalesce(p_now, now()), coalesce(p_now, now()))
   ON CONFLICT (group_message_id) DO NOTHING;
+  -- A no_copy is the one outcome that may be superseded: the copy of the
+  -- file can arrive later, and a retry that files it must not be locked out.
+  IF p_intake_item_id IS NOT NULL THEN
+    UPDATE public.desk_group_intake d
+       SET outcome = p_outcome, intake_item_id = p_intake_item_id, detail = p_detail,
+           updated_at = coalesce(p_now, now())
+     WHERE d.group_message_id = p_group_message_id AND d.account_id = p_account AND d.outcome = 'no_copy';
+  END IF;
   SELECT d.outcome INTO v_out FROM public.desk_group_intake d
    WHERE d.group_message_id = p_group_message_id AND d.account_id = p_account;
   RETURN v_out;
@@ -301,7 +317,8 @@ END;
 $$;
 
 -- off -> pending, at most once per message: only while the group's link
--- has replies on, and never for 'chat'. The row lock of the UPDATE makes
+-- has replies on, and only for an outcome the group is told of (not chat,
+-- unknown_sender, no_copy or file_type). The row lock of the UPDATE makes
 -- two callers race to one winner.
 CREATE OR REPLACE FUNCTION public.desk_group_reply_claim(p_account uuid, p_group_message_id uuid,
   p_now timestamptz DEFAULT NULL)
@@ -317,7 +334,8 @@ BEGIN
   UPDATE public.desk_group_intake d
      SET reply_state = 'pending', updated_at = coalesce(p_now, now())
    WHERE d.group_message_id = p_group_message_id AND d.account_id = p_account
-     AND d.reply_state = 'off' AND d.outcome <> 'chat'
+     AND d.reply_state = 'off'
+     AND d.outcome IN ('filed', 'new_case', 'queued', 'duplicate', 'refused')
      AND EXISTS (SELECT 1 FROM public.desk_group_links l
                   WHERE l.account_id = d.account_id AND l.group_id = d.group_id
                     AND l.intake_enabled AND l.replies_enabled)

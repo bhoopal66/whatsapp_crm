@@ -98,6 +98,10 @@ export const DESK_REFUSAL_HTTP: Readonly<
   GROUP_NOT_FOUND: { status: 404, text: 'Group not found' },
   BANK_NOT_FOUND: { status: 404, text: 'Bank not found' },
   NOT_LINKED: { status: 409, text: 'This group is not linked to a bank' },
+  GROUP_ALREADY_LINKED: {
+    status: 409,
+    text: 'This group is already linked through another of our numbers. Unlink it there first.',
+  },
 };
 
 /** A body or form field the route refuses before any database call. */

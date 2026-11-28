@@ -9237,6 +9237,7 @@
           "NOT_ALLOWED": "Only owners, admins and team leaders can link a group",
           "GROUP_NOT_FOUND": "This group cannot be linked, or you cannot see it",
           "BANK_NOT_FOUND": "That bank is no longer on the desk",
+          "GROUP_ALREADY_LINKED": "This group is already linked through another of our numbers. Unlink it there first.",
           "INVALID": "Replies need filing switched on",
           "other": "The link could not be saved. Try again."
         }

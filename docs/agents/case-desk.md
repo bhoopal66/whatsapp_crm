@@ -124,9 +124,12 @@ package 035a-c. `docs/case-desk.md` is the contract.
 - **Group intake (324, CC group wall slice A).** `desk_group_links`
   (group -> bank, intake / replies, replies only with intake; owner,
   admin or team leader who sees the group; never a 299 mirror) and
-  `desk_group_intake` (one row per group message, first write wins,
+  `desk_group_intake` (one row per group message, first write wins
+  except that a `no_copy` gives way to a record with an intake item;
   outcome + reason code + intake item; reply claim off -> pending once,
-  never for `chat`). `desk_group_can_see` restates 299's
+  only for filed, new_case, queued, duplicate or refused). A WhatsApp
+  group links through one number only (`GROUP_ALREADY_LINKED`).
+  `desk_group_can_see` restates 299's
   `whatsapp_group_visible_ids` with an explicit actor, staff only: change
   one, change both (the verify file compares them).
   `desk_group_staff_for_phone` is 230's exactly-one-live-staff rule keyed
@@ -139,7 +142,7 @@ package 035a-c. `docs/case-desk.md` is the contract.
   `runGroupMessage` chains `processGroupFile` after
   `copyGroupMessageMedia` (in `later`, inline for the drain); never
   throws, logs codes only. Inbound files only, of a link with intake on
-  (read through `desk_group_link_list` as one live owner/admin: the
+  (read through `desk_group_link_for_group` with the service role: the
   tables have no grants); text is never recorded. Bytes only from our own
   chat-media (`no_copy` otherwise), pdf/jpeg/png before the download
   (`file_type`). Item id and idem key derive from account + WhatsApp

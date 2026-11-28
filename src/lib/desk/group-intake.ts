@@ -207,12 +207,12 @@ function replyFor(
       const bank = result?.queueBankCode ?? null;
       return {
         kind: 'queued',
+        // Only the linked bank's name is read; no bank, or another one,
+        // is "the sorting queue".
         queueName:
-          bank === null
-            ? 'no-bank'
-            : bank === link.bankCode
-              ? link.bankName || bank
-              : bank,
+          bank !== null && bank === link.bankCode
+            ? link.bankName || null
+            : null,
         reason: result?.queueReason ?? null,
       };
     }

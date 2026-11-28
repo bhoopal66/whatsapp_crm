@@ -77,6 +77,7 @@ export const DESK_REFUSALS = [
   'GROUP_NOT_FOUND',
   'BANK_NOT_FOUND',
   'NOT_LINKED',
+  'GROUP_ALREADY_LINKED',
 ] as const;
 export type DeskRefusal = (typeof DESK_REFUSALS)[number];
 const REFUSALS: ReadonlySet<string> = new Set(DESK_REFUSALS);

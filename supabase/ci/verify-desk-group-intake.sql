@@ -40,6 +40,13 @@ DECLARE
   g2       UUID;
   g3       UUID;
   g_mir    UUID;
+  g1b      UUID;
+  w2       UUID;
+  m5       UUID;
+  m6       UUID;
+  m7       UUID;
+  m8       UUID;
+  i_f      UUID := gen_random_uuid();
   m1       UUID;
   m2       UUID;
   m3       UUID;
@@ -325,6 +332,64 @@ BEGIN
   n := n + 1; failed := failed || pg_temp.dg_check('more than 500 outcome ids were accepted', NULL,
     format('SELECT count(*)::text FROM desk_group_outcomes(%L, %L, array_fill(%L::uuid, ARRAY[501]))', u_agent, a_acct, m1),
     'ERROR % INVALID:%');
+
+  -- ---------- 7b. one linked row per WhatsApp group ----------
+  -- A second number of ours holds its own row for the same WhatsApp group.
+  INSERT INTO whatsapp_config (user_id, account_id, provider, phone_number_id, access_token, status, is_primary, waba_id)
+  VALUES (u_owner, a_acct, 'whapi', 'DGI-2', 'x', 'connected', false, '+971 50 032 4001')
+  RETURNING id INTO w2;
+  INSERT INTO whatsapp_groups (account_id, channel_id, wa_group_id, name, created_by, our_role) VALUES
+    (a_acct, w2, '120363000000324001@g.us', 'DGI one (second number)', u_agent, 'admin') RETURNING id INTO g1b;
+  n := n + 1; failed := failed || pg_temp.dg_check('a second row of a linked WhatsApp group was linked', NULL,
+    format('SELECT desk_group_link_set(%L, %L, %L, ''RAK'', true, false)::text', u_owner, a_acct, g1b),
+    'ERROR % GROUP_ALREADY_LINKED:%');
+  PERFORM desk_group_link_set(u_owner, a_acct, g1, NULL, NULL, NULL, v_now);
+  PERFORM desk_group_link_set(u_owner, a_acct, g1b, 'RAK', true, false, v_now);
+  n := n + 1; failed := failed || pg_temp.dg_ok(
+    EXISTS (SELECT 1 FROM desk_group_links l WHERE l.group_id = g1b) AND NOT EXISTS (SELECT 1 FROM desk_group_links l WHERE l.group_id = g1),
+    'the second row did not link once the first was unlinked');
+  n := n + 1; failed := failed || pg_temp.dg_check('the first row was linked back while the second is', NULL,
+    format('SELECT desk_group_link_set(%L, %L, %L, ''RAK'', true, true)::text', u_owner, a_acct, g1),
+    'ERROR % GROUP_ALREADY_LINKED:%');
+  PERFORM desk_group_link_set(u_owner, a_acct, g1b, NULL, NULL, NULL, v_now);
+  PERFORM desk_group_link_set(u_lead, a_acct, g1, 'RAK', true, true, v_now);
+
+  -- ---------- 7c. replies only for what the group is told of; a no_copy gives way ----------
+  INSERT INTO whatsapp_group_messages (account_id, group_id, wa_message_id, direction, sender_wa_id, type, created_at)
+  VALUES (a_acct, g1, 'dgi-m5', 'in', '971500324051', 'document', v_now) RETURNING id INTO m5;
+  INSERT INTO whatsapp_group_messages (account_id, group_id, wa_message_id, direction, sender_wa_id, type, created_at)
+  VALUES (a_acct, g1, 'dgi-m6', 'in', '971500324999', 'document', v_now) RETURNING id INTO m6;
+  INSERT INTO whatsapp_group_messages (account_id, group_id, wa_message_id, direction, sender_wa_id, type, created_at)
+  VALUES (a_acct, g1, 'dgi-m7', 'in', '971500324051', 'video', v_now) RETURNING id INTO m7;
+  INSERT INTO whatsapp_group_messages (account_id, group_id, wa_message_id, direction, sender_wa_id, type, created_at)
+  VALUES (a_acct, g1, 'dgi-m8', 'in', '971500324051', 'document', v_now) RETURNING id INTO m8;
+  PERFORM intake_submit(u_agent, a_acct, i_f, 'dgi-000003', NULL, 'RAK', NULL, NULL, NULL, NULL, NULL, NULL,
+                        'after no_copy', NULL, NULL, NULL, NULL, NULL, v_now);
+  PERFORM desk_group_intake_record(a_acct, m6, 'unknown_sender', NULL, NULL, v_now);
+  PERFORM desk_group_intake_record(a_acct, m7, 'file_type', NULL, 'FILE_INVALID', v_now);
+  PERFORM desk_group_intake_record(a_acct, m5, 'no_copy', NULL, NULL, v_now);
+  n := n + 1; failed := failed || pg_temp.dg_ok(NOT desk_group_reply_claim(a_acct, m6, v_now), 'an unknown sender claimed a reply');
+  n := n + 1; failed := failed || pg_temp.dg_ok(NOT desk_group_reply_claim(a_acct, m5, v_now), 'a no_copy claimed a reply');
+  n := n + 1; failed := failed || pg_temp.dg_ok(NOT desk_group_reply_claim(a_acct, m7, v_now), 'a file_type claimed a reply');
+  -- no_copy gives way only to a call with an intake item
+  v := desk_group_intake_record(a_acct, m5, 'refused', NULL, 'BANK_SCOPE', v_now);
+  n := n + 1; failed := failed || pg_temp.dg_ok(v = 'no_copy'
+    AND (SELECT d.outcome FROM desk_group_intake d WHERE d.group_message_id = m5) = 'no_copy',
+    'a no_copy was overwritten by a record with no intake item');
+  v := desk_group_intake_record(a_acct, m5, 'queued', i_f, 'NO_KIND', v_now + interval '1 minute');
+  n := n + 1; failed := failed || pg_temp.dg_ok(v = 'queued'
+    AND (SELECT d.outcome || '|' || d.intake_item_id || '|' || d.detail || '|' || (d.updated_at = v_now + interval '1 minute')
+           FROM desk_group_intake d WHERE d.group_message_id = m5) = 'queued|' || i_f || '|NO_KIND|true',
+    'a no_copy did not give way to a record with an intake item');
+  n := n + 1; failed := failed || pg_temp.dg_ok(desk_group_reply_claim(a_acct, m5, v_now), 'the superseding outcome could not claim a reply');
+  -- every other outcome stays first-write-wins, even with an intake item
+  PERFORM desk_group_intake_record(a_acct, m8, 'refused', NULL, 'BANK_SCOPE', v_now);
+  v := desk_group_intake_record(a_acct, m8, 'filed', i_f, NULL, v_now);
+  n := n + 1; failed := failed || pg_temp.dg_ok(v = 'refused'
+    AND (SELECT d.intake_item_id IS NULL FROM desk_group_intake d WHERE d.group_message_id = m8),
+    'a refused row was overwritten');
+  v := desk_group_intake_record(a_acct, m6, 'filed', i_f, NULL, v_now);
+  n := n + 1; failed := failed || pg_temp.dg_ok(v = 'unknown_sender', 'an unknown_sender row was overwritten');
 
   -- ---------- 8. closed to the API roles ----------
   n := n + 1; failed := failed || pg_temp.dg_check('authenticated read desk_group_links', 'authenticated',

@@ -22,6 +22,7 @@ const REFUSALS = [
   'NOT_ALLOWED',
   'GROUP_NOT_FOUND',
   'BANK_NOT_FOUND',
+  'GROUP_ALREADY_LINKED',
   'INVALID',
 ] as const;
 

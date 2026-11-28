@@ -347,6 +347,46 @@ describe('through the desk', () => {
     );
   });
 
+  it('a queue with no bank, or another bank, reads "the sorting queue"', async () => {
+    for (const queueBankCode of [null, 'ENBD']) {
+      h.send.mockClear();
+      db.row = { data: messageRow({ body: 'see attached' }), error: null };
+      desk.whatsappIntake.mockResolvedValueOnce(
+        result({ state: 'untagged', queueBankCode, queueReason: 'NO_KIND' })
+      );
+      await processGroupFile(deps(), REF);
+      expect(h.send.mock.calls[0][0].text).toBe(
+        'Sent to the sorting queue: the caption does not say what the file is.'
+      );
+    }
+  });
+
+  it('a retry after no_copy files, and the stored outcome becomes the filed one', async () => {
+    db.row = {
+      data: messageRow({
+        media: {
+          link: 'https://s3.whapi.cloud/media/a.pdf',
+          mime_type: 'application/pdf',
+        },
+      }),
+      error: null,
+    };
+    await processGroupFile(deps(), REF);
+    expect(recorded()[0].outcome).toBe('no_copy');
+    expect(groupStore.claimReply).not.toHaveBeenCalled();
+
+    // the copy has arrived: 324 lets the item supersede the no_copy row
+    db.row = { data: messageRow(), error: null };
+    groupStore.record.mockClear();
+    await processGroupFile(deps(), REF);
+    expect(groupStore.record).toHaveBeenCalledWith(
+      ACCOUNT,
+      expect.objectContaining({ outcome: 'filed', intakeItemId: 'item-1' })
+    );
+    expect(groupStore.claimReply).toHaveBeenCalledTimes(1);
+    expect(h.send).toHaveBeenCalledTimes(1);
+  });
+
   it("a NEW caption's desk code wins over the link's bank: new_case", async () => {
     db.row = {
       data: messageRow({ body: 'NEW ENB Acme Trading 12345' }),

@@ -281,7 +281,10 @@ screen (`docs/whatsapp-groups.md`, "Group wall").
   bank; no bank removes the link). *Intake* and *replies* are separate
   switches, replies only with intake (`INVALID`). A submission group's
   mirror is never linked (`GROUP_NOT_FOUND`, as for a group the person
-  cannot see); an unknown bank is `BANK_NOT_FOUND`.
+  cannot see); an unknown bank is `BANK_NOT_FOUND`. A WhatsApp group is
+  linked through ONE of our numbers only (`GROUP_ALREADY_LINKED`: unlink
+  it on the other number first), as each number keeps its own row for the
+  group and would otherwise file and reply twice.
 - **Who posted.** `desk_group_staff_for_phone` answers the one live staff
   member (agent and up, not deactivated) whose saved number has the
   sender's digits; none, or two people on one number, is nobody.
@@ -293,7 +296,8 @@ screen (`docs/whatsapp-groups.md`, "Group wall").
   `desk_group_outcomes` reads the upload's state *now*, so a queued file
   a coordinator files later shows filed, with its case number.
 - **Replies.** `desk_group_reply_claim` hands out a reply at most once per
-  message, only while the link has replies on and never for `chat`;
+  message, only while the link has replies on and the outcome is one the group is
+  told of (not `chat`, `unknown_sender`, `no_copy` or `file_type`);
   `desk_group_reply_settle` records sent (with our message id) or failed.
   A failed reply is not retried.
 - **The wall.** `desk_group_wall` gives, per linked group the person can
@@ -319,8 +323,9 @@ gets the group's bank.
 - **Who must have a saved number.** The poster is matched by phone to
   the one live staff member (agent and up) whose saved number
   (the coordinator number in Settings → Members) has those digits. Anyone
-  else, two people sharing a number, or a member WhatsApp hides the
-  number of, is recorded as *sender not recognised* and nothing is filed.
+  else, two people sharing a number, or a member WhatsApp shows only as a
+  private id (`@lid`), is treated as not a staff number: recorded as
+  *sender not recognised*, and nothing is filed.
   Customers and bank staff in the group are never filed.
 - **Whapi needs mirroring on.** The desk reads a file only from this
   install's own storage. A Whapi number copies group files only when the
