@@ -170,6 +170,12 @@ in the install's own public Supabase Storage bucket, which a
 self-hosted dev install may serve over plain `http://`. `template`
 needs a `template` object:
 
+> **Attachment links in answers.** Customer attachments are private
+> (migration 321). A `media_url` (messages) or `avatar_url` (contacts)
+> that points at the install's own files is returned as a **signed link
+> valid for one hour**; fetch the file within that hour, or read the
+> resource again for a fresh link. Store the file, not the link.
+
 ```jsonc
 {
   "to": "+14155550123",

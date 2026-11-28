@@ -13,6 +13,7 @@
 // silently gets an unfiltered list.
 // ============================================================
 
+import { withSignedMediaLinks } from '@/lib/api/v1/media-links';
 import { requireApiKey } from '@/lib/auth/api-context';
 import {
   ok,
@@ -82,7 +83,11 @@ export async function GET(request: Request) {
       limit
     );
     return okList(
-      items.map((r) => serializeContact(r as Record<string, unknown>)),
+      await withSignedMediaLinks(
+        items.map((r) => serializeContact(r as Record<string, unknown>)),
+        ['avatar_url'],
+        ctx.accountId
+      ),
       nextCursor
     );
   } catch (err) {

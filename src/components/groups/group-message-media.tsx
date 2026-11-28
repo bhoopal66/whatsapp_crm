@@ -11,6 +11,7 @@ import {
   type GroupMediaView,
 } from '@/lib/groups/group-media';
 import { cn } from '@/lib/utils';
+import { chatMediaDisplayUrl } from '@/lib/storage/chat-media-url';
 
 /**
  * A group message's attachment, drawn like the inbox draws one (photo,
@@ -34,7 +35,8 @@ export function GroupMessageMedia({
 }) {
   const t = useTranslations('Inbox.bubble');
   const [broken, setBroken] = useState(false);
-  const url = broken ? null : view.url;
+  // Our own stored links go through the app route (migration 321).
+  const url = broken ? null : chatMediaDisplayUrl(view.url);
   const onError = () => setBroken(true);
 
   let content: React.ReactNode;

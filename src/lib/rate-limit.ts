@@ -166,6 +166,10 @@ export const RATE_LIMITS = {
   groupAddNumber: { limit: 120, windowMs: 3_600_000 },
   /** WhatsApp groups created on one number, per day. */
   groupCreateNumber: { limit: 10, windowMs: 86_400_000 },
+  /** Opening chat attachments (`/api/media/chat/*`), per person. A busy
+   *  thread shows dozens at once and the browser reuses each redirect for
+   *  4 minutes; 600/min still stops a script walking the bucket. */
+  mediaView: { limit: 600, windowMs: 60_000 },
   /** Case desk uploads, per person: each one stores a file. */
   deskUpload: { limit: 60, windowMs: 60_000 },
   /** Invitation peek (public, per-IP). 30/min lets a forwarded link

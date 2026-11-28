@@ -1,5 +1,5 @@
 -- ============================================================
--- 321_media_upload_role.sql — only agents and up write chat-media and
+-- 322_media_upload_role.sql — only agents and up write chat-media and
 -- flow-media from a session
 --
 -- 083's permissive policies on storage.objects (restating 023, 020 and
@@ -51,7 +51,7 @@ DECLARE
 BEGIN
   -- Before the first DDL: nothing is half applied.
   IF to_regprocedure('public.is_account_member(uuid, public.account_role_enum)') IS NULL THEN
-    RAISE EXCEPTION 'public.is_account_member(uuid, account_role_enum) is missing: apply 083 before 321';
+    RAISE EXCEPTION 'public.is_account_member(uuid, account_role_enum) is missing: apply 083 before 322';
   END IF;
 
   -- foldername() drops the file name; [1] is NULL for a file at the top

@@ -39,6 +39,7 @@ import {
   Upload,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import { chatMediaDisplayUrl } from '@/lib/storage/chat-media-url';
 
 interface Step3Audience {
   type: 'all' | 'chat_tags' | 'custom_field' | 'csv' | 'compass';
@@ -468,7 +469,7 @@ export function Step3Personalize({
             headerMediaUrl.trim() && (
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={headerMediaUrl.trim()}
+                src={chatMediaDisplayUrl(headerMediaUrl.trim())}
                 alt="Header preview"
                 className="border-border mt-3 max-h-40 rounded-lg border object-contain"
               />
@@ -477,7 +478,7 @@ export function Step3Personalize({
             headerMediaError === null &&
             headerMediaUrl.trim() && (
               <video
-                src={headerMediaUrl.trim()}
+                src={chatMediaDisplayUrl(headerMediaUrl.trim())}
                 controls
                 preload="metadata"
                 className="border-border mt-3 max-h-48 rounded-lg border bg-black"

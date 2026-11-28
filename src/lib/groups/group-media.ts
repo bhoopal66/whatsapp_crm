@@ -1,3 +1,4 @@
+import { CHAT_MEDIA_PROXY_PREFIX } from '@/lib/storage/chat-media-url';
 import type { SharedContact } from '@/lib/whatsapp/contact-card';
 
 /**
@@ -69,6 +70,10 @@ export function safeMediaUrl(v: unknown): string | null {
  */
 export function groupDownloadUrl(url: string, filename: string | null): string {
   if (!filename) return url;
+  // The app's chat-media route (migration 321) passes `download` on to
+  // the signed link it redirects to.
+  if (url.startsWith(CHAT_MEDIA_PROXY_PREFIX))
+    return `${url.split('?')[0]}?download=${encodeURIComponent(filename)}`;
   const u = new URL(url);
   if (!u.pathname.includes('/storage/v1/object/public/')) return url;
   u.searchParams.set('download', filename);

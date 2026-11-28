@@ -28,7 +28,27 @@ and polish.
 - The Meta and OpenWA webhooks refuse an oversized request (over 3 MB and
   24 MB) before reading it.
 
-**Migration required: 321** (`321_media_upload_role.sql`, after 283).
+**Migration required: 322** (`322_media_upload_role.sql`, after 321).
+
+### Security: customer attachments are private
+
+**Migration required:** `321_chat_media_private.sql`, **together with
+this build** (not before: the previous build hands out the old public
+links, which stop opening).
+- Everything customers send on WhatsApp (IDs, licences, statements), the
+  files staff send, contact pictures and voice notes used to be readable
+  by anyone holding a file's link, without signing in, forever. They are
+  now private.
+- In the app nothing changes for staff: files open as before, through
+  the app, for staff of the workspace only.
+- WhatsApp still receives what you send: each send carries a link signed
+  for a few hours.
+- **Integrations:** a `media_url` or `avatar_url` from the public API is
+  now a signed link valid for one hour (docs/public-api.md).
+- The NAS copier, case-file downloads and the case desk preview read the
+  files the new way.
+- Re-applying migrations 023 or 039 no longer makes the bucket public
+  again.
 
 ### Fixed: going back to an earlier case document had no effect
 

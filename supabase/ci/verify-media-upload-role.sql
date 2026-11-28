@@ -1,4 +1,4 @@
--- Behavioural suite for migration 321: in chat-media and flow-media a
+-- Behavioural suite for migration 322: in chat-media and flow-media a
 -- signed-in person uploads, changes and removes objects only as an
 -- agent or above of the workspace the first folder names, and only
 -- while that workspace is their active one. A viewer, a deactivated
@@ -10,13 +10,13 @@
 
 DO $verify$
 DECLARE
-  u_owner  UUID := '00000000-0000-4000-8000-000000321001';
-  u_agent  UUID := '00000000-0000-4000-8000-000000321002';
-  u_viewer UUID := '00000000-0000-4000-8000-000000321003';
-  u_gone   UUID := '00000000-0000-4000-8000-000000321004';
-  u_guest  UUID := '00000000-0000-4000-8000-000000321005';
-  u_multi  UUID := '00000000-0000-4000-8000-000000321006';
-  u_bown   UUID := '00000000-0000-4000-8000-000000321007';
+  u_owner  UUID := '00000000-0000-4000-8000-000000322001';
+  u_agent  UUID := '00000000-0000-4000-8000-000000322002';
+  u_viewer UUID := '00000000-0000-4000-8000-000000322003';
+  u_gone   UUID := '00000000-0000-4000-8000-000000322004';
+  u_guest  UUID := '00000000-0000-4000-8000-000000322005';
+  u_multi  UUID := '00000000-0000-4000-8000-000000322006';
+  u_bown   UUID := '00000000-0000-4000-8000-000000322007';
   acct     UUID;
   acct_b   UUID;
   dir      TEXT;
@@ -102,13 +102,13 @@ BEGIN
 
   -- ---------- fixtures ----------
   INSERT INTO auth.users (id, email) VALUES
-    (u_owner,  'mur321-owner@example.invalid'),
-    (u_agent,  'mur321-agent@example.invalid'),
-    (u_viewer, 'mur321-viewer@example.invalid'),
-    (u_gone,   'mur321-gone@example.invalid'),
-    (u_guest,  'mur321-guest@example.invalid'),
-    (u_multi,  'mur321-multi@example.invalid'),
-    (u_bown,   'mur321-bown@example.invalid')
+    (u_owner,  'mur322-owner@example.invalid'),
+    (u_agent,  'mur322-agent@example.invalid'),
+    (u_viewer, 'mur322-viewer@example.invalid'),
+    (u_gone,   'mur322-gone@example.invalid'),
+    (u_guest,  'mur322-guest@example.invalid'),
+    (u_multi,  'mur322-multi@example.invalid'),
+    (u_bown,   'mur322-bown@example.invalid')
   ON CONFLICT DO NOTHING;
   SELECT id INTO acct FROM accounts WHERE owner_user_id = u_owner;
   SELECT id INTO acct_b FROM accounts WHERE owner_user_id = u_bown;
@@ -123,7 +123,7 @@ BEGIN
    WHERE user_id = u_guest;
   -- u_multi is an agent of B too, but A is their active workspace.
   INSERT INTO profiles (user_id, full_name, email, account_id, account_role, is_active)
-  VALUES (u_multi, '', 'mur321-multi@example.invalid', acct_b, 'agent', false);
+  VALUES (u_multi, '', 'mur322-multi@example.invalid', acct_b, 'agent', false);
   IF (SELECT count(*) FROM profiles WHERE account_id = acct AND is_active
          AND user_id IN (u_owner, u_agent, u_viewer, u_gone, u_guest, u_multi)) <> 6 THEN
     RAISE EXCEPTION 'fixture: the six people are not active members of A';
@@ -137,39 +137,39 @@ BEGIN
   dir_b := 'account-' || acct_b || '/';
   -- Each person's own upload (283 leaves an object to its uploader).
   INSERT INTO storage.objects (bucket_id, name, owner, owner_id) VALUES
-    ('chat-media', dir || 'staged/1-agent321.jpg',  u_agent,  u_agent::text),
-    ('chat-media', dir || 'staged/1-viewer321.jpg', u_viewer, u_viewer::text),
-    ('chat-media', dir || 'staged/1-gone321.jpg',   u_gone,   u_gone::text),
-    ('chat-media', dir_b || 'staged/1-multi321.jpg', u_multi, u_multi::text),
-    ('flow-media', dir || '1-agent321.jpg',         u_agent,  u_agent::text),
-    ('flow-media', dir || '1-viewer321.jpg',        u_viewer, u_viewer::text),
-    ('flow-media', u_viewer || '/1-viewer321.jpg',  u_viewer, u_viewer::text);
+    ('chat-media', dir || 'staged/1-agent322.jpg',  u_agent,  u_agent::text),
+    ('chat-media', dir || 'staged/1-viewer322.jpg', u_viewer, u_viewer::text),
+    ('chat-media', dir || 'staged/1-gone322.jpg',   u_gone,   u_gone::text),
+    ('chat-media', dir_b || 'staged/1-multi322.jpg', u_multi, u_multi::text),
+    ('flow-media', dir || '1-agent322.jpg',         u_agent,  u_agent::text),
+    ('flow-media', dir || '1-viewer322.jpg',        u_viewer, u_viewer::text),
+    ('flow-media', u_viewer || '/1-viewer322.jpg',  u_viewer, u_viewer::text);
 
   -- ---------- uploads ----------
   FOR it IN SELECT * FROM (VALUES
       -- who, label, bucket, path, ok
-      (u_agent,  'agent',       'chat-media', dir || 'x321.png',          true),
-      (u_agent,  'agent',       'chat-media', dir || 'staged/x321.png',   true),
-      (u_agent,  'agent',       'chat-media', dir || 'groups/x321.png',   true),
-      (u_agent,  'agent',       'flow-media', dir || 'x321.png',          true),
-      (u_owner,  'owner',       'chat-media', dir || 'staged/x321.png',   true),
-      (u_owner,  'owner',       'flow-media', dir || 'x321.png',          true),
-      (u_viewer, 'viewer',      'chat-media', dir || 'x321.png',          false),
-      (u_viewer, 'viewer',      'chat-media', dir || 'staged/x321.png',   false),
-      (u_viewer, 'viewer',      'flow-media', dir || 'x321.png',          false),
-      (u_viewer, 'viewer',      'flow-media', u_viewer || '/x321.png',    false),
-      (u_gone,   'deactivated', 'chat-media', dir || 'staged/x321.png',   false),
-      (u_gone,   'deactivated', 'flow-media', dir || 'x321.png',          false),
-      (u_guest,  'guest',       'chat-media', dir || 'staged/x321.png',   false),
-      (u_guest,  'guest',       'flow-media', dir || 'x321.png',          false),
-      (u_multi,  'agent of A',  'chat-media', dir || 'staged/x321.png',   true),
-      (u_multi,  'agent of B (A active)', 'chat-media', dir_b || 'staged/x321.png', false),
-      (u_multi,  'agent of B (A active)', 'flow-media', dir_b || 'x321.png',        false),
-      (u_agent,  'agent',       'chat-media', 'account-nope/x321.png',    false),
-      (u_agent,  'agent',       'flow-media', 'account-nope/x321.png',    false),
-      (u_agent,  'agent',       'flow-media', 'x321.png',                 false),
-      (u_agent,  'agent',       'flow-media', upper(dir) || 'x321.png',   false),
-      (u_agent,  'agent',       'flow-media', u_agent || '/x321.png',     false)
+      (u_agent,  'agent',       'chat-media', dir || 'x322.png',          true),
+      (u_agent,  'agent',       'chat-media', dir || 'staged/x322.png',   true),
+      (u_agent,  'agent',       'chat-media', dir || 'groups/x322.png',   true),
+      (u_agent,  'agent',       'flow-media', dir || 'x322.png',          true),
+      (u_owner,  'owner',       'chat-media', dir || 'staged/x322.png',   true),
+      (u_owner,  'owner',       'flow-media', dir || 'x322.png',          true),
+      (u_viewer, 'viewer',      'chat-media', dir || 'x322.png',          false),
+      (u_viewer, 'viewer',      'chat-media', dir || 'staged/x322.png',   false),
+      (u_viewer, 'viewer',      'flow-media', dir || 'x322.png',          false),
+      (u_viewer, 'viewer',      'flow-media', u_viewer || '/x322.png',    false),
+      (u_gone,   'deactivated', 'chat-media', dir || 'staged/x322.png',   false),
+      (u_gone,   'deactivated', 'flow-media', dir || 'x322.png',          false),
+      (u_guest,  'guest',       'chat-media', dir || 'staged/x322.png',   false),
+      (u_guest,  'guest',       'flow-media', dir || 'x322.png',          false),
+      (u_multi,  'agent of A',  'chat-media', dir || 'staged/x322.png',   true),
+      (u_multi,  'agent of B (A active)', 'chat-media', dir_b || 'staged/x322.png', false),
+      (u_multi,  'agent of B (A active)', 'flow-media', dir_b || 'x322.png',        false),
+      (u_agent,  'agent',       'chat-media', 'account-nope/x322.png',    false),
+      (u_agent,  'agent',       'flow-media', 'account-nope/x322.png',    false),
+      (u_agent,  'agent',       'flow-media', 'x322.png',                 false),
+      (u_agent,  'agent',       'flow-media', upper(dir) || 'x322.png',   false),
+      (u_agent,  'agent',       'flow-media', u_agent || '/x322.png',     false)
     ) v(uid, label, bucket, path, ok)
   LOOP
     r := pg_temp.mur_dry(it.uid, format(
@@ -187,13 +187,13 @@ BEGIN
 
   -- ---------- changes and removals of one's own upload ----------
   FOR it IN SELECT * FROM (VALUES
-      (u_agent,  'agent',       'chat-media', dir || 'staged/1-agent321.jpg',   '1'),
-      (u_agent,  'agent',       'flow-media', dir || '1-agent321.jpg',          '1'),
-      (u_viewer, 'viewer',      'chat-media', dir || 'staged/1-viewer321.jpg',  '0'),
-      (u_viewer, 'viewer',      'flow-media', dir || '1-viewer321.jpg',         '0'),
-      (u_viewer, 'viewer',      'flow-media', u_viewer || '/1-viewer321.jpg',   '0'),
-      (u_gone,   'deactivated', 'chat-media', dir || 'staged/1-gone321.jpg',    '0'),
-      (u_multi,  'agent of B (A active)', 'chat-media', dir_b || 'staged/1-multi321.jpg', '0')
+      (u_agent,  'agent',       'chat-media', dir || 'staged/1-agent322.jpg',   '1'),
+      (u_agent,  'agent',       'flow-media', dir || '1-agent322.jpg',          '1'),
+      (u_viewer, 'viewer',      'chat-media', dir || 'staged/1-viewer322.jpg',  '0'),
+      (u_viewer, 'viewer',      'flow-media', dir || '1-viewer322.jpg',         '0'),
+      (u_viewer, 'viewer',      'flow-media', u_viewer || '/1-viewer322.jpg',   '0'),
+      (u_gone,   'deactivated', 'chat-media', dir || 'staged/1-gone322.jpg',    '0'),
+      (u_multi,  'agent of B (A active)', 'chat-media', dir_b || 'staged/1-multi322.jpg', '0')
     ) v(uid, label, bucket, path, want)
   LOOP
     r := pg_temp.mur_dry(it.uid, format(
@@ -227,13 +227,13 @@ BEGIN
   END IF;
   -- An agent's move: within A, never into B or a malformed folder.
   FOR it IN SELECT * FROM (VALUES
-      (dir || 'groups/2-mv321.jpg', true),
-      (dir_b || 'staged/2-mv321.jpg', false),
-      ('account-nope/2-mv321.jpg', false)) v(path, ok)
+      (dir || 'groups/2-mv322.jpg', true),
+      (dir_b || 'staged/2-mv322.jpg', false),
+      ('account-nope/2-mv322.jpg', false)) v(path, ok)
   LOOP
     r := pg_temp.mur_dry(u_agent, format(
       'UPDATE storage.objects SET name = %L WHERE bucket_id = ''chat-media'' AND name = %L',
-      it.path, dir || 'staged/1-agent321.jpg'));
+      it.path, dir || 'staged/1-agent322.jpg'));
     n := n + 1;
     IF it.ok AND r <> '1' THEN
       failed := array_append(failed, format('the agent cannot move their file to %s: %s', it.path, r));
@@ -247,33 +247,33 @@ BEGIN
   -- avatars (008): a viewer still uploads into their own folder.
   r := pg_temp.mur_dry(u_viewer, format(
     'INSERT INTO storage.objects (bucket_id, name, owner_id) VALUES (''avatars'', %L, %L)',
-    u_viewer || '/1-me321.png', u_viewer));
+    u_viewer || '/1-me322.png', u_viewer));
   n := n + 1;
-  IF r <> '1' THEN failed := array_append(failed, '321 touches avatars: a viewer uploads their avatar: ' || r); END IF;
+  IF r <> '1' THEN failed := array_append(failed, '322 touches avatars: a viewer uploads their avatar: ' || r); END IF;
   -- Every bucket but the two: the three policies pass a viewer's write
   -- at a folder that is no account. A permissive policy made here for it
   -- is the only one that decides.
-  INSERT INTO storage.objects (bucket_id, name) VALUES ('chat-files', 'm321/x.pdf');
-  EXECUTE $p$CREATE POLICY "mur321 chat-files probe" ON storage.objects FOR ALL TO authenticated
-            USING (bucket_id = 'chat-files' AND name LIKE 'm321/%')
-            WITH CHECK (bucket_id = 'chat-files' AND name LIKE 'm321/%')$p$;
+  INSERT INTO storage.objects (bucket_id, name) VALUES ('chat-files', 'm322/x.pdf');
+  EXECUTE $p$CREATE POLICY "mur322 chat-files probe" ON storage.objects FOR ALL TO authenticated
+            USING (bucket_id = 'chat-files' AND name LIKE 'm322/%')
+            WITH CHECK (bucket_id = 'chat-files' AND name LIKE 'm322/%')$p$;
   FOR it IN SELECT * FROM (VALUES
-      ('insert', 'INSERT INTO storage.objects (bucket_id, name) VALUES (''chat-files'', ''m321/y.pdf'')'),
-      ('update', 'UPDATE storage.objects SET name = ''m321/z.pdf'' WHERE bucket_id = ''chat-files'' AND name = ''m321/x.pdf'''),
-      ('delete', 'DELETE FROM storage.objects WHERE bucket_id = ''chat-files'' AND name = ''m321/x.pdf''')) v(op, sql)
+      ('insert', 'INSERT INTO storage.objects (bucket_id, name) VALUES (''chat-files'', ''m322/y.pdf'')'),
+      ('update', 'UPDATE storage.objects SET name = ''m322/z.pdf'' WHERE bucket_id = ''chat-files'' AND name = ''m322/x.pdf'''),
+      ('delete', 'DELETE FROM storage.objects WHERE bucket_id = ''chat-files'' AND name = ''m322/x.pdf''')) v(op, sql)
   LOOP
     FOR who IN SELECT * FROM (VALUES ('viewer', u_viewer), ('agent', u_agent)) v(label, uid)
     LOOP
       r := pg_temp.mur_dry(who.uid, it.sql);
       n := n + 1;
       IF r <> '1' THEN
-        failed := array_append(failed, format('321 touches another bucket: %s chat-files %s: %s', who.label, it.op, r));
+        failed := array_append(failed, format('322 touches another bucket: %s chat-files %s: %s', who.label, it.op, r));
       END IF;
     END LOOP;
   END LOOP;
 
-  RAISE EXCEPTION USING ERRCODE = 'ZT321', MESSAGE = 'verify-media-upload-role rollback';
-  EXCEPTION WHEN SQLSTATE 'ZT321' THEN
+  RAISE EXCEPTION USING ERRCODE = 'ZT322', MESSAGE = 'verify-media-upload-role rollback';
+  EXCEPTION WHEN SQLSTATE 'ZT322' THEN
     NULL;
   END;
 

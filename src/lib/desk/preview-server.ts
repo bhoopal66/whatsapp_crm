@@ -133,12 +133,13 @@ function safeObjectPath(path: string | null): path is string {
 async function signCaseFiles(
   signer: CaseFilesSigner,
   objectPath: string,
-  now: Date
+  now: Date,
+  bucket: string = CASE_FILES_BUCKET
 ): Promise<SignedPreview> {
   let signed: { data: { signedUrl: string } | null; error: unknown };
   try {
     signed = await signer
-      .from(CASE_FILES_BUCKET)
+      .from(bucket)
       .createSignedUrl(objectPath, PREVIEW_URL_TTL_SECONDS);
   } catch {
     throw new DeskStoreError('storage.createSignedUrl', null);
@@ -165,10 +166,9 @@ export async function intakePreviewUrl(
 }
 
 /**
- * A tray document's URL: a 'case-files' object is signed for 300 s; a
- * public chat-media object (already public) is served on the public
- * origin; anything else has no preview (null), so the server never hands
- * out an arbitrary link.
+ * A tray document's URL: a 'case-files' object, and a chat-media object
+ * (private since migration 321), are signed for 300 s; anything else has
+ * no preview (null), so the server never hands out an arbitrary link.
  */
 export async function trayPreviewUrl(
   file: TrayPreviewFile,
@@ -180,6 +180,7 @@ export async function trayPreviewUrl(
     return signCaseFiles(signer, file.storagePath, now);
   }
   if (file.storageBucket) return null;
-  if (!file.mediaUrl || !chatMediaObjectPath(file.mediaUrl)) return null;
-  return { url: toPublicSupabaseUrl(file.mediaUrl), expiresAt: null };
+  const chatPath = file.mediaUrl ? chatMediaObjectPath(file.mediaUrl) : null;
+  if (!chatPath) return null;
+  return signCaseFiles(signer, chatPath, now, 'chat-media');
 }

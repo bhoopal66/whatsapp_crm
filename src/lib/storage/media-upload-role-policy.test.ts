@@ -3,17 +3,17 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-// Migration 321 lets a signed-in person write chat-media and flow-media
+// Migration 322 lets a signed-in person write chat-media and flow-media
 // only as an agent or above of the account folder's workspace. The
 // browser's uploaders all write account-<id>/ (uploadAccountMedia), so a
 // change to who may write, or to the folder test, fails here first.
 
 const SQL = readFileSync(
-  join(process.cwd(), 'supabase/migrations/321_media_upload_role.sql'),
+  join(process.cwd(), 'supabase/migrations/322_media_upload_role.sql'),
   'utf8'
 );
 
-describe('321: who writes WhatsApp media from a session', () => {
+describe('322: who writes WhatsApp media from a session', () => {
   it('is three restrictive policies, one per write', () => {
     const made = [
       ...SQL.matchAll(

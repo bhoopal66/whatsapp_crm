@@ -9,6 +9,7 @@
 // does not start failing.
 // ============================================================
 
+import { withSignedMediaLinks } from '@/lib/api/v1/media-links';
 import { requireApiKey } from '@/lib/auth/api-context';
 import { ok, fail, toApiErrorResponse } from '@/lib/api/v1/respond';
 import { getContactById, ContactError } from '@/lib/api/v1/contacts';
@@ -22,7 +23,12 @@ export async function GET(
     const { id } = await params;
     const contact = await getContactById(ctx.supabase, ctx.accountId, id);
     if (!contact) return fail('not_found', 'Contact not found', 404);
-    return ok(contact);
+    const [signed] = await withSignedMediaLinks(
+      [contact],
+      ['avatar_url'],
+      ctx.accountId
+    );
+    return ok(signed);
   } catch (err) {
     return toApiErrorResponse(err);
   }
