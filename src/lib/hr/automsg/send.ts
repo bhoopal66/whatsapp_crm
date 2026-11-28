@@ -17,7 +17,11 @@
  * Server-only.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { sendTemplate, sendText } from '@/lib/whatsapp/provider';
+import {
+  isDefiniteSendRefusal,
+  sendTemplate,
+  sendText,
+} from '@/lib/whatsapp/provider';
 import {
   loadChannels,
   resolveSendChannel,
@@ -30,6 +34,11 @@ import {
   sanitizePhoneForMeta,
 } from '@/lib/whatsapp/phone-utils';
 import { resolveTemplateRow } from '@/lib/whatsapp/template-body';
+import {
+  checkSend,
+  refundSendReservation,
+} from '@/lib/whatsapp/meta-health/check-send';
+import { GUARD_REASONS } from '@/lib/whatsapp/meta-health/guard';
 import { HrSendRefusal } from './failure';
 import type { SendPort, TemplateSendRequest } from './ports';
 
@@ -193,7 +202,33 @@ async function prepareSend(db: SupabaseClient, req: TemplateSendRequest) {
     }
   }
 
+  // The send guard (meta-health/check-send.ts), as the automation sender
+  // runs it: an HR message is a utility template whichever provider
+  // carries it. While the owner's `enforce` is off it always allows (the
+  // decision is only logged). A refusal sends nothing and is recorded with
+  // the guard's reason; the outbox cannot hold a claimed row, nor hold it
+  // for a reason outside its fixed list, so it fails: terminal, unless it
+  // is a deferral or the guard could not read its state.
+  const verdict = await checkSend(db, {
+    accountId: req.accountId,
+    configId: channel.id,
+    contactId: contact.id,
+    kind: 'UTILITY',
+    templateName: req.metaTemplateName,
+  });
+  if (!verdict.allow) {
+    throw new HrSendRefusal(
+      `send_protection_${verdict.reason.toLowerCase()}`,
+      `send protection refused the send (${verdict.reason}` +
+        (verdict.deferUntil ? `, retry after ${verdict.deferUntil}` : '') +
+        ')',
+      Boolean(verdict.deferUntil) ||
+        verdict.reason === GUARD_REASONS.STATE_UNAVAILABLE
+    );
+  }
+
   return {
+    reservation: verdict.reservation,
     contactId: contact.id,
     sanitized,
     channel,
@@ -209,6 +244,7 @@ async function sendHrTemplate(
   req: TemplateSendRequest
 ): Promise<{ providerMessageId: string | null; messageId: string | null }> {
   const {
+    reservation,
     contactId,
     sanitized,
     channel,
@@ -232,25 +268,36 @@ async function sendHrTemplate(
   let workingPhone = sanitized;
   let waMessageId = '';
   let lastError: unknown = null;
-  for (const v of phoneVariants(sanitized)) {
-    try {
-      waMessageId = await attempt(v);
-      workingPhone = v;
-      lastError = null;
-      break;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (!isRecipientNotAllowedError(msg)) throw err;
-      lastError = err;
+  try {
+    for (const v of phoneVariants(sanitized)) {
+      try {
+        waMessageId = await attempt(v);
+        workingPhone = v;
+        lastError = null;
+        break;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (!isRecipientNotAllowedError(msg)) throw err;
+        lastError = err;
+      }
     }
+  } catch (err) {
+    // Any held spend goes back only when the gateway certainly did not
+    // send it; a timeout or a 5xx may have reached the candidate.
+    if (isDefiniteSendRefusal(err))
+      await refundSendReservation(db, reservation);
+    throw err;
   }
   // Every variant was refused as not a WhatsApp recipient: the number is
   // wrong, and the next attempt would be refused the same way.
-  if (lastError)
+  if (lastError) {
+    if (isDefiniteSendRefusal(lastError))
+      await refundSendReservation(db, reservation);
     throw new HrSendRefusal(
       'invalid_number',
       lastError instanceof Error ? lastError.message : String(lastError)
     );
+  }
 
   // The gateway has the message: nothing below may turn this into a
   // failure, or the engine would mark a delivered message failed.

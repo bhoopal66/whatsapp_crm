@@ -4,6 +4,11 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 vi.mock('@/lib/whatsapp/provider', () => ({
   sendTemplate: vi.fn(),
   sendText: vi.fn(),
+  isDefiniteSendRefusal: vi.fn(),
+}));
+vi.mock('@/lib/whatsapp/meta-health/check-send', () => ({
+  checkSend: vi.fn(),
+  refundSendReservation: vi.fn(),
 }));
 vi.mock('@/lib/whatsapp/channels', () => ({
   loadChannels: vi.fn(),
@@ -13,10 +18,18 @@ vi.mock('@/lib/whatsapp/template-body', () => ({
   resolveTemplateRow: vi.fn(),
 }));
 
-import { sendTemplate, sendText } from '@/lib/whatsapp/provider';
+import {
+  isDefiniteSendRefusal,
+  sendTemplate,
+  sendText,
+} from '@/lib/whatsapp/provider';
 import { loadChannels, resolveSendChannel } from '@/lib/whatsapp/channels';
 import type { WhatsAppChannel } from '@/lib/whatsapp/channels';
 import { resolveTemplateRow } from '@/lib/whatsapp/template-body';
+import {
+  checkSend,
+  refundSendReservation,
+} from '@/lib/whatsapp/meta-health/check-send';
 import type { TemplateSendRequest } from './ports';
 import { createHrSendPort } from './send';
 import { HrSendRefusal, classifySendFailure } from './failure';
@@ -145,6 +158,12 @@ beforeEach(() => {
   } as unknown as Awaited<ReturnType<typeof resolveTemplateRow>>);
   vi.mocked(sendTemplate).mockResolvedValue({ messageId: 'wamid-1' } as never);
   vi.mocked(sendText).mockResolvedValue({ messageId: 'wamid-t' } as never);
+  // Watch mode: the guard logs and allows.
+  vi.mocked(checkSend).mockResolvedValue({
+    allow: true,
+    reason: 'ALLOWED',
+    enforced: false,
+  });
   vi.spyOn(console, 'error').mockImplementation(() => undefined);
 });
 
@@ -456,5 +475,102 @@ describe('createHrSendPort: typed refusals (029a)', () => {
       reason: 'invalid_number',
     });
     expect(vi.mocked(sendTemplate).mock.calls.length).toBeGreaterThan(1);
+  });
+});
+
+describe('createHrSendPort: send protection', () => {
+  it('with enforce off the guard is asked as a utility send and the message goes out', async () => {
+    const { db } = fakeDb({});
+    const out = await createHrSendPort(db).send(req());
+    expect(out.providerMessageId).toBe('wamid-1');
+    expect(checkSend).toHaveBeenCalledWith(db, {
+      accountId: ACCOUNT,
+      configId: 'ch-own',
+      contactId: CONTACT,
+      kind: 'UTILITY',
+      templateName: 'hr_hr_interview_invite',
+    });
+    expect(vi.mocked(checkSend).mock.invocationCallOrder[0]!).toBeLessThan(
+      vi.mocked(sendTemplate).mock.invocationCallOrder[0]!
+    );
+  });
+
+  it('a linked-device send is guarded too', async () => {
+    vi.mocked(loadChannels).mockResolvedValue([channel({ provider: 'whapi' })]);
+    vi.mocked(checkSend).mockResolvedValue({
+      allow: false,
+      reason: 'OPTED_OUT',
+      enforced: true,
+    });
+    const { db } = fakeDb({});
+    await expect(createHrSendPort(db).send(req())).rejects.toBeInstanceOf(
+      HrSendRefusal
+    );
+    expect(gateway()).toBe(0);
+  });
+
+  it.each([
+    ['TEMPLATE_PAUSED', 'send_protection_template_paused'],
+    ['TOTAL_BLOCK', 'send_protection_total_block'],
+    ['OPTED_OUT', 'send_protection_opted_out'],
+  ] as const)(
+    'a %s refusal sends nothing and is terminal with its reason',
+    async (reason, code) => {
+      vi.mocked(checkSend).mockResolvedValue({
+        allow: false,
+        reason,
+        enforced: true,
+      });
+      const { db, inserts } = fakeDb({});
+      const err = await createHrSendPort(db)
+        .send(req())
+        .catch((e: unknown) => e);
+      expect(classifySendFailure(err)).toEqual({
+        retryable: false,
+        reason: code,
+      });
+      expect(gateway()).toBe(0);
+      expect(inserts).toEqual([]);
+    }
+  );
+
+  it('a guard that cannot read its state is worth another try', async () => {
+    vi.mocked(checkSend).mockResolvedValue({
+      allow: false,
+      reason: 'STATE_UNAVAILABLE',
+      enforced: true,
+    });
+    const { db } = fakeDb({});
+    const err = await createHrSendPort(db)
+      .send(req())
+      .catch((e: unknown) => e);
+    expect(classifySendFailure(err)).toEqual({
+      retryable: true,
+      reason: 'send_protection_state_unavailable',
+    });
+    expect(gateway()).toBe(0);
+  });
+
+  it('refunds a reservation only on a definite gateway refusal', async () => {
+    const reservation = {
+      accountId: ACCOUNT,
+      scope: 'wa.marketing.daily' as const,
+      day: '2026-11-28',
+      micros: 10,
+    };
+    vi.mocked(checkSend).mockResolvedValue({
+      allow: true,
+      reason: 'ALLOWED',
+      enforced: true,
+      reservation,
+    });
+    vi.mocked(sendTemplate).mockRejectedValue(new Error('boom'));
+    const { db } = fakeDb({});
+    vi.mocked(isDefiniteSendRefusal).mockReturnValue(false);
+    await expect(createHrSendPort(db).send(req())).rejects.toThrow('boom');
+    expect(refundSendReservation).not.toHaveBeenCalled();
+    vi.mocked(isDefiniteSendRefusal).mockReturnValue(true);
+    await expect(createHrSendPort(db).send(req())).rejects.toThrow('boom');
+    expect(refundSendReservation).toHaveBeenCalledWith(db, reservation);
   });
 });
