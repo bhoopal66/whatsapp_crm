@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useStageLabel } from '@/hooks/use-stage-label';
 import { BackLink } from '@/components/layout/back-link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useLocale, useTranslations } from 'next-intl';
@@ -133,6 +134,7 @@ function CopyableId({ label, value }: { label: string; value: string }) {
 export function CasePage({ caseId }: { caseId: string }) {
   const t = useTranslations('CasePage');
   const ts = useTranslations('CaseSnooze');
+  const showStage = useStageLabel();
   const locale = useLocale();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -439,10 +441,10 @@ export function CasePage({ caseId }: { caseId: string }) {
               <span
                 className={cn(
                   'inline-flex shrink-0 items-center rounded-full px-2.5 py-0.5 text-xs font-medium',
-                  caseStatusView(c).chipClass
+                  caseStatusView(c, showStage).chipClass
                 )}
               >
-                {caseStatusView(c).text}
+                {caseStatusView(c, showStage).text}
               </span>
               {closed && (
                 <Badge variant="outline">

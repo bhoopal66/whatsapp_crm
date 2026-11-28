@@ -8,6 +8,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useLocale, useTranslations } from 'next-intl';
 
+import { useStageLabel } from '@/hooks/use-stage-label';
 import { useAuth } from '@/hooks/use-auth';
 import { canSendMessages } from '@/lib/auth/roles';
 import {
@@ -28,6 +29,7 @@ const chip =
 
 export function ContactCasesMini({ contactId }: { contactId: string }) {
   const t = useTranslations('CallContext.cases');
+  const showStage = useStageLabel();
   const locale = useLocale();
   const { accountRole, salesRestricted } = useAuth();
   const allowed =
@@ -82,7 +84,7 @@ export function ContactCasesMini({ contactId }: { contactId: string }) {
       <ul className="divide-border divide-y">
         {cases.map((c) => {
           const amount = formatAed(c.amount, locale);
-          const status = caseStatusView(c);
+          const status = caseStatusView(c, showStage);
           return (
             <li key={c.id}>
               <Link

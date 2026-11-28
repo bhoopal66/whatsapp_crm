@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
+import { useStageLabel } from '@/hooks/use-stage-label';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -97,6 +98,7 @@ export function MoveStageDialog({
   reasonFor?: string;
 }) {
   const t = useTranslations('CasePage');
+  const showStage = useStageLabel();
   const c = detail.case;
   const [step, setStep] = useState<MoveStep>(reasonFor ? 'reason' : 'pick');
   const [stage, setStage] = useState('');
@@ -202,12 +204,14 @@ export function MoveStageDialog({
               onValueChange={(v) => setStage(String(v ?? ''))}
             >
               <SelectTrigger id="case-move-stage" className="w-full">
-                <SelectValue>{stage || t('move.pick')}</SelectValue>
+                <SelectValue>
+                  {stage ? showStage(stage) : t('move.pick')}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {choices.map((s) => (
                   <SelectItem key={s} value={s}>
-                    {s}
+                    {showStage(s)}
                   </SelectItem>
                 ))}
               </SelectContent>

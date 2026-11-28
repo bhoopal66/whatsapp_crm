@@ -10,6 +10,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import { Loader2, Pencil, Plus } from 'lucide-react';
 
+import { useStageLabel } from '@/hooks/use-stage-label';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -221,6 +222,7 @@ export function DetailsCard({
 export function DealsCard({ contactId }: { contactId: string }) {
   const t = useTranslations('Contacts.detailView');
   const tl = useTranslations('CustomerTimeline');
+  const showStage = useStageLabel();
   const { defaultCurrency } = useAuth();
   const [deals, setDeals] = useState<DealRowInput[] | 'failed' | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -284,7 +286,7 @@ export function DealsCard({ contactId }: { contactId: string }) {
                         : undefined
                     }
                   >
-                    {d.stage}
+                    {showStage(d.stage)}
                   </span>
                 )}
               </div>

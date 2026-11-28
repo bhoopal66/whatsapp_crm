@@ -9,6 +9,7 @@
 import { CircleAlert, CircleCheck, Info, Loader2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
+import { useStageLabel } from '@/hooks/use-stage-label';
 import type { DeskBank } from '@/lib/desk/store';
 
 import type { CaseLookupState } from './use-case-lookup';
@@ -21,6 +22,7 @@ export function CaseRefStatus({
   banks: readonly DeskBank[];
 }) {
   const t = useTranslations('DeskForms');
+  const showStage = useStageLabel();
   if (lookup.status === 'idle') return null;
 
   if (lookup.status === 'typing') {
@@ -62,7 +64,7 @@ export function CaseRefStatus({
         <Row label={t('lookup.customer')} value={c.companyName ?? '—'} />
         <Row label={t('lookup.bank')} value={bank} />
         {c.product && <Row label={t('lookup.product')} value={c.product} />}
-        <Row label={t('lookup.stage')} value={c.stage} />
+        <Row label={t('lookup.stage')} value={showStage(c.stage)} />
       </dl>
     </div>
   );
