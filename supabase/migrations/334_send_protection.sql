@@ -176,15 +176,20 @@ $$;
 
 -- Add p_micros to today's (UTC) p_scope only if the total stays within
 -- p_hard_cap (NULL = no cap). One conditional UPDATE does check-and-add.
--- Returns whether it was recorded and the total after (unchanged when refused).
+-- Returns whether it was recorded, the total after (unchanged when refused)
+-- and the UTC day it used: a refund passes that day back, so a reservation
+-- made just before midnight is not refunded against the next day.
+-- use_column: the OUT column "day" would make ON CONFLICT (…, day, …)
+-- ambiguous.
 CREATE OR REPLACE FUNCTION public.send_protection_spend_add(p_account uuid, p_scope text,
   p_micros bigint, p_hard_cap bigint)
-RETURNS TABLE (allowed boolean, total_micros bigint)
+RETURNS TABLE (allowed boolean, total_micros bigint, day date)
 LANGUAGE plpgsql
 VOLATILE
 SECURITY DEFINER
 SET search_path = ''
 AS $$
+#variable_conflict use_column
 DECLARE
   v_day date := (now() AT TIME ZONE 'UTC')::date;
   v_total bigint;
@@ -201,12 +206,12 @@ BEGIN
      AND (p_hard_cap IS NULL OR s.amount_micros + p_micros <= p_hard_cap)
   RETURNING s.amount_micros INTO v_total;
   IF FOUND THEN
-    RETURN QUERY SELECT true, v_total;
+    RETURN QUERY SELECT true, v_total, v_day;
     RETURN;
   END IF;
   SELECT s.amount_micros INTO v_total FROM public.send_protection_spend s
    WHERE s.account_id = p_account AND s.day = v_day AND s.scope = p_scope;
-  RETURN QUERY SELECT false, v_total;
+  RETURN QUERY SELECT false, v_total, v_day;
 END;
 $$;
 

@@ -19,6 +19,7 @@ DECLARE
   cv      UUID;
   ok      BOOLEAN;
   tot     BIGINT;
+  d       DATE;
   r       TEXT;
   n       INT := 0;
   failed  TEXT[] := '{}';
@@ -103,8 +104,9 @@ BEGIN
   failed := failed || pg_temp.sp_ok(r LIKE 'ERROR%', format('a signed-in admin recorded a decision (%s)', r));
 
   -- ---------- (b) spend ledger ----------
-  SELECT s.allowed, s.total_micros INTO ok, tot FROM send_protection_spend_add(a_acct, 'ai.daily', 700, 1000) s;
+  SELECT s.allowed, s.total_micros, s.day INTO ok, tot, d FROM send_protection_spend_add(a_acct, 'ai.daily', 700, 1000) s;
   n := n + 1; failed := failed || pg_temp.sp_ok(ok AND tot = 700, format('first add: %s %s', ok, tot));
+  n := n + 1; failed := failed || pg_temp.sp_ok(d = (now() AT TIME ZONE 'UTC')::date, format('add returned day %s', d));
   SELECT s.allowed, s.total_micros INTO ok, tot FROM send_protection_spend_add(a_acct, 'ai.daily', 400, 1000) s;
   n := n + 1; failed := failed || pg_temp.sp_ok(NOT ok AND tot = 700, format('add past the cap: %s %s', ok, tot));
   SELECT amount_micros INTO tot FROM send_protection_spend

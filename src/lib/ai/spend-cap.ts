@@ -42,6 +42,17 @@ function firstRow(data: unknown): Record<string, unknown> | null {
     : null;
 }
 
+/**
+ * The UTC day send_protection_spend_add charged (it returns it), so the
+ * refund hits the same day even across midnight. Only an unreadable reply
+ * falls back to our clock.
+ */
+export function spendDay(raw: unknown, now: () => Date): string {
+  return typeof raw === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw)
+    ? raw
+    : now().toISOString().slice(0, 10);
+}
+
 const denyDegraded: AiSpendDecision = {
   allowed: false,
   degraded: true,
@@ -70,7 +81,6 @@ export async function reserveAiSpend(
   }
   if (cap === null) return { allowed: true, reservation: null };
 
-  const day = now().toISOString().slice(0, 10);
   try {
     const { data, error } = await client.rpc('send_protection_spend_add', {
       p_account: accountId,
@@ -81,6 +91,7 @@ export async function reserveAiSpend(
     const row = firstRow(data);
     if (error || !row || typeof row.allowed !== 'boolean') return denyDegraded;
     const totalMicros = Number(row.total_micros);
+    const day = spendDay(row.day, now);
     return row.allowed
       ? { allowed: true, totalMicros, reservation: { accountId, day, micros } }
       : { allowed: false, totalMicros, reservation: null };

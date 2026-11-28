@@ -53,6 +53,27 @@ describe('reserveAiSpend', () => {
     });
   });
 
+  it('refunds against the day the database charged, not our clock', async () => {
+    const { c } = client({
+      send_protection_caps_get: cap(1000),
+      send_protection_spend_add: () => ({
+        data: [{ allowed: true, total_micros: 500, day: '2026-11-29' }],
+        error: null,
+      }),
+    });
+    const d = await reserveAiSpend(
+      c,
+      'acc',
+      500,
+      () => new Date('2026-11-28T23:59:59.900Z')
+    );
+    expect(d.reservation).toEqual({
+      accountId: 'acc',
+      day: '2026-11-29',
+      micros: 500,
+    });
+  });
+
   it('cap reached: denied, nothing held', async () => {
     const { c } = client({
       send_protection_caps_get: cap(1000),
