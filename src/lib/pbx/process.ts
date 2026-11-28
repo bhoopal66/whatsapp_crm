@@ -20,6 +20,7 @@ import { settleCallbackCall } from './callbacks';
 import { DEFAULT_TIME_ZONE } from './calls';
 import { LATE_AFTER_MS, isAllBye, precedesBye, withBye } from './event-retry';
 import { foldedCallIds, missedCallNote, missedCallOwner } from './missed-call';
+import { sendCallServiceDetails } from './service-details-store';
 import { clock, missedDraftOffer } from './timeline';
 import { digitsOnly } from './extensions';
 import {
@@ -1482,6 +1483,32 @@ async function trySpokenClose(ctx: Ctx, call: CallEndWrite): Promise<void> {
 }
 
 /**
+ * The customer's service details message (migration 336), once the calls
+ * row is written. Nothing escapes: the route runs this inside after().
+ */
+async function tryServiceDetails(ctx: Ctx, call: CallEndWrite): Promise<void> {
+  try {
+    const { merged, remote } = call;
+    await sendCallServiceDetails(ctx.db, {
+      callRowId: call.callRowId,
+      accountId: call.ws.accountId,
+      direction: merged.direction ?? 'inbound',
+      answered: merged.answered,
+      agentExtension: merged.extension,
+      agentKnown: merged.userId != null,
+      talkSeconds: merged.talkSeconds,
+      customerNumber: remote && !remote.internal ? `+${remote.number}` : null,
+      queue: null,
+      did: call.ws.didNumber,
+    });
+  } catch (err) {
+    console.error(
+      `[pbx] call ${call.callRowId}: service details: ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
+}
+
+/**
  * A call with this missed call's customer, started after it, in which
  * somebody spoke to them: nobody owes a call back. A missed call's end
  * can be handled long after it (the retry sweep, a lost event found in
@@ -1681,6 +1708,7 @@ async function onCallEnd(ctx: Ctx, ev: CallEndEvent): Promise<void> {
   if (!isMissedCall(merged.direction, merged.pbxStatus)) {
     await closeOwnMissedTask(ctx, ws.accountId, callRowId);
     await trySpokenClose(ctx, written);
+    await tryServiceDetails(ctx, written);
     return;
   }
   const conversationId = match.contactId ? match.conversationId : null;
