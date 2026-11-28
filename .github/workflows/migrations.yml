@@ -1666,3 +1666,9 @@ jobs:
       # re-applying 023 or 039 keeps it private.
       - name: Verify chat-media is private (321)
         run: supabase db query --local --file supabase/ci/verify-chat-media-private.sql
+
+      # Migration 326: a reply that later fails restarts the customer's
+      # wait from their first unanswered message; a delivery that corrects
+      # the failure ends it again. Rolled back.
+      - name: Verify a failed reply restarts the wait (326)
+        run: supabase db query --local --file supabase/ci/verify-failed-reply-waiting.sql
