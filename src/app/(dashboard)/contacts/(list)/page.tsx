@@ -130,6 +130,7 @@ import {
 import { contactSearchArgs, isSearchCapped } from '@/lib/contacts/search-rpc';
 import { pruneSelection } from '@/lib/contacts/selection';
 import { SortHeader } from '@/components/contacts/sort-header';
+import { MobileSort } from '@/components/contacts/mobile-sort';
 import { PhoneCell } from '@/components/contacts/phone-cell';
 import { ColumnsMenu } from '@/components/contacts/columns-menu';
 import { SourceFilter } from '@/components/contacts/source-filter';
@@ -165,6 +166,7 @@ import {
 import {
   DEFAULT_CONTACT_SORT,
   isServerSortKey,
+  mobileSortKeys,
   nextContactSort,
   parseContactSort,
   sortToParams,
@@ -759,7 +761,12 @@ export function ContactsPageInner({
   }, []);
 
   function changeSort(key: ContactSortKey) {
-    const next = nextContactSort(sort, key);
+    applySort(nextContactSort(sort, key));
+  }
+
+  // The one place a new order is applied; the column headers and the
+  // phone sort control both end here.
+  function applySort(next: ContactSort) {
     setSort(next);
     setPage(0);
     try {
@@ -1274,6 +1281,20 @@ export function ContactsPageInner({
       {!rankedBySearch && serverSortMissing && isServerSortKey(sort.sort) && (
         <p className="text-muted-foreground text-xs">{serverSortHint}</p>
       )}
+
+      {/* The headers past Name are hidden below lg; this stands in. */}
+      <MobileSort
+        keys={mobileSortKeys({
+          owner: show('owner'),
+          assignee: show('assignedTo'),
+          activity: show('lastActivity'),
+          created: show('createdAt'),
+        })}
+        current={sort}
+        onChange={applySort}
+        disabled={rankedBySearch}
+        serverSortMissing={serverSortMissing}
+      />
 
       {/* Bulk action bar */}
       {selected.size > 0 && (

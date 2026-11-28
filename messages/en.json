@@ -1257,6 +1257,9 @@
   "ContactsTable": {
     "sortedByRelevance": "While you search, results are ordered by best match.",
     "sortUnavailable": "Sorting by this column needs a database update. The list is shown newest first.",
+    "sortBy": "Sort by",
+    "sortAscending": "Sort ascending",
+    "sortDescending": "Sort descending",
     "copyNumber": "Copy the phone number of {name}",
     "copyNumberShort": "Copy number",
     "addToCampaign": "Add to campaign",
