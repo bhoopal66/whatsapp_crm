@@ -53,6 +53,10 @@ person may open.
   rows add up to the tag's arrivals. Moving only the sub-tag
   (Interested · ADCB to Interested · HSBC) is not an arrival. The daily
   chart counts main-tag arrivals per day.
+- **Nothing before the tag log began** (the day 255 was applied; the
+  screen says the date). Before 255 the app kept only each chat's current
+  tag, never when it was set, so earlier periods are empty and there is
+  no backfill: any date for them would be invented.
 - **Days are in the account's time zone** (the one saved in Team activity
   settings, else the viewer's, else UTC), so "Today" and the daily chart
   agree with the rest of the app. Periods: today, yesterday, the last 7,
