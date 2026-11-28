@@ -6,6 +6,9 @@
  * coordinator (read-only), who covers today, and each holder's leave.
  * `CoverRolesEditor` is the owners' and admins' half, in Settings -> Case
  * desk: it names the primary and second coordinator of each bank.
+ * `MyLeaveCard` (328) is every staff member's own leave, under My uploads:
+ * an agent cannot read the cover list, so this is where they add, change
+ * and cancel theirs.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
@@ -15,7 +18,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import type { BankCover, CoverHolder } from '@/lib/desk/cover';
+import { useAuth } from '@/hooks/use-auth';
+import type { BankCover, CoverHolder, LeaveRange } from '@/lib/desk/cover';
 
 import { deskApi } from './desk-api';
 import { DeskSelect } from './desk-select';
@@ -190,6 +194,180 @@ export function HolderLeave({
         </Button>
       </span>
     </li>
+  );
+}
+
+export function MyLeaveCard() {
+  const t = useTranslations('Desk');
+  const { user } = useAuth();
+  const [leave, setLeave] = useState<LeaveRange[] | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [first, setFirst] = useState('');
+  const [last, setLast] = useState('');
+  const [busy, setBusy] = useState(false);
+  // A ref too: a second click can arrive before the disabled render.
+  const working = useRef(false);
+  const load = useCallback(
+    () =>
+      deskApi.myLeave().then((r) => {
+        setFailed(!r.ok);
+        if (r.ok) setLeave(r.data);
+        else toast.error(r.error);
+      }),
+    []
+  );
+  useEffect(() => {
+    void load();
+  }, [load]);
+  const run = async (
+    act: () => Promise<{ ok: boolean; error?: string }>,
+    after?: () => void
+  ) => {
+    if (working.current) return;
+    working.current = true;
+    setBusy(true);
+    const r = await act();
+    if (!r.ok) toast.error(r.error ?? '');
+    else {
+      toast.success(t('cover.saved'));
+      after?.();
+    }
+    await load();
+    working.current = false;
+    setBusy(false);
+  };
+
+  if (!leave) {
+    if (!failed) return null;
+    return (
+      <Card>
+        <CardContent>
+          <LoadFailed title={t('cover.myTitle')} onRetry={load} />
+        </CardContent>
+      </Card>
+    );
+  }
+  return (
+    <Card>
+      <CardContent className="space-y-3 text-sm">
+        <div>
+          <h2 className="text-foreground text-base font-semibold">
+            {t('cover.myTitle')}
+          </h2>
+          <p className="text-muted-foreground">{t('cover.myIntro')}</p>
+        </div>
+        {leave.length === 0 && (
+          <p className="text-muted-foreground">{t('cover.myNone')}</p>
+        )}
+        <ul className="space-y-2">
+          {leave.map((l) => (
+            <MyLeaveRow
+              key={`${l.id}:${l.firstDay}:${l.lastDay}`}
+              leave={l}
+              busy={busy}
+              onSave={(firstDay, lastDay) =>
+                void run(() => deskApi.changeLeave(l.id, { firstDay, lastDay }))
+              }
+              onRemove={() => void run(() => deskApi.removeLeave(l.id))}
+            />
+          ))}
+        </ul>
+        <div className="flex flex-wrap items-center gap-1">
+          <DayRange
+            first={first}
+            last={last}
+            onFirst={setFirst}
+            onLast={setLast}
+          />
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={busy || !user || !first || !last}
+            onClick={() =>
+              void run(
+                () =>
+                  deskApi.addLeave({
+                    userId: user?.id ?? '',
+                    firstDay: first,
+                    lastDay: last,
+                  }),
+                () => {
+                  setFirst('');
+                  setLast('');
+                }
+              )
+            }
+          >
+            {t('cover.addLeave')}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function MyLeaveRow({
+  leave,
+  busy,
+  onSave,
+  onRemove,
+}: {
+  leave: LeaveRange;
+  busy: boolean;
+  onSave: (firstDay: string, lastDay: string) => void;
+  onRemove: () => void;
+}) {
+  const t = useTranslations('Desk');
+  const [first, setFirst] = useState(leave.firstDay);
+  const [last, setLast] = useState(leave.lastDay);
+  const changed = first !== leave.firstDay || last !== leave.lastDay;
+  return (
+    <li className="flex flex-wrap items-center gap-1">
+      <DayRange first={first} last={last} onFirst={setFirst} onLast={setLast} />
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={busy || !changed || !first || !last}
+        onClick={() => onSave(first, last)}
+      >
+        {t('cover.save')}
+      </Button>
+      <Button size="sm" variant="ghost" disabled={busy} onClick={onRemove}>
+        {t('cover.remove')}
+      </Button>
+    </li>
+  );
+}
+
+function DayRange({
+  first,
+  last,
+  onFirst,
+  onLast,
+}: {
+  first: string;
+  last: string;
+  onFirst: (v: string) => void;
+  onLast: (v: string) => void;
+}) {
+  const t = useTranslations('Desk');
+  return (
+    <>
+      <Input
+        type="date"
+        className="w-36"
+        aria-label={t('cover.from')}
+        value={first}
+        onChange={(e) => onFirst(e.target.value)}
+      />
+      <Input
+        type="date"
+        className="w-36"
+        aria-label={t('cover.to')}
+        value={last}
+        onChange={(e) => onLast(e.target.value)}
+      />
+    </>
   );
 }
 

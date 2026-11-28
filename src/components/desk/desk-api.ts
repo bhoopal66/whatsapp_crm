@@ -14,7 +14,7 @@ import type {
   OverviewRow,
   QueueItem,
 } from '@/lib/desk/store';
-import type { BankCover } from '@/lib/desk/cover';
+import type { BankCover, LeaveRange } from '@/lib/desk/cover';
 import type {
   ApplicationChecklist,
   CompanyOverview,
@@ -204,6 +204,15 @@ export const deskApi = {
     call('/api/desk/leave', json('POST', body), () => true),
   removeLeave: (id: string) =>
     call(`/api/desk/leave/${id}`, { method: 'DELETE' }, () => true),
+  // One's own leave (migration 328)
+  myLeave: () =>
+    call('/api/desk/leave', undefined, (b) => b.leave as LeaveRange[]),
+  changeLeave: (id: string, body: { firstDay: string; lastDay: string }) =>
+    call(
+      `/api/desk/leave/${id}`,
+      json('PATCH', body),
+      (b) => b.changed === true
+    ),
   // Shared documents and reuse consent (migration 231)
   companyOverview: (customerId: string) =>
     call(

@@ -13705,7 +13705,11 @@
       "from": "From",
       "to": "To",
       "remove": "Remove",
-      "saved": "Saved"
+      "saved": "Saved",
+      "myTitle": "My leave",
+      "myIntro": "Enter your days off so the second coordinator or the lead covers your bank while you are away. Leave changes no access.",
+      "myNone": "No leave recorded.",
+      "save": "Save"
     },
     "digest": {
       "title": "Daily reminder to customers",
