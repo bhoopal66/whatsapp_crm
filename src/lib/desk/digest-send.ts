@@ -11,7 +11,8 @@
  * A contact opted out since the claim is refused ('opted_out'), and on a
  * linked device so is a start over the number's daily limit of new chats
  * ('number_daily_limit', migration 204). Team activity's other send
- * checks are not run.
+ * checks are not run. The send guard (meta-health/check-send.ts) runs
+ * last, as a utility send ('send_protection_<reason>' when it refuses).
  *
  * Server-only.
  */
@@ -29,7 +30,15 @@ import {
   phoneVariants,
   sanitizePhoneForMeta,
 } from '@/lib/whatsapp/phone-utils';
-import { sendTemplate, sendText } from '@/lib/whatsapp/provider';
+import {
+  checkSend,
+  refundSendReservation,
+} from '@/lib/whatsapp/meta-health/check-send';
+import {
+  isDefiniteSendRefusal,
+  sendTemplate,
+  sendText,
+} from '@/lib/whatsapp/provider';
 import {
   renderTemplateBody,
   resolveTemplateRow,
@@ -154,20 +163,47 @@ export async function sendDeskDigest(
   // No held state here: this one fails, and counts as a try for gap_days.
   if (check.blocked) throw new DigestRefusal('number_daily_limit');
 
+  // The send guard (meta-health/check-send.ts), as the automation sender
+  // runs it: a digest is a utility template whichever provider carries
+  // it. While the owner's `enforce` is off it always allows (the decision
+  // is only logged). A refusal fails like the daily limit above, with the
+  // guard's reason.
+  const verdict = await checkSend(db, {
+    accountId: claim.accountId,
+    configId: channel.id,
+    contactId: claim.contactId,
+    kind: 'UTILITY',
+    templateName: claim.templateName,
+  });
+  if (!verdict.allow)
+    throw new DigestRefusal(`send_protection_${verdict.reason.toLowerCase()}`);
+
   let waMessageId = '';
-  let refused = false;
-  for (const v of phoneVariants(sanitized)) {
-    try {
-      waMessageId = await attempt(v);
-      refused = false;
-      break;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (!isRecipientNotAllowedError(msg)) throw err;
-      refused = true;
+  let lastError: unknown = null;
+  try {
+    for (const v of phoneVariants(sanitized)) {
+      try {
+        waMessageId = await attempt(v);
+        lastError = null;
+        break;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (!isRecipientNotAllowedError(msg)) throw err;
+        lastError = err;
+      }
     }
+  } catch (err) {
+    // Any held spend goes back only when the gateway certainly did not
+    // send it; a timeout or a 5xx may have reached the customer.
+    if (isDefiniteSendRefusal(err))
+      await refundSendReservation(db, verdict.reservation);
+    throw err;
   }
-  if (refused) throw new DigestRefusal('invalid_number');
+  if (lastError) {
+    if (isDefiniteSendRefusal(lastError))
+      await refundSendReservation(db, verdict.reservation);
+    throw new DigestRefusal('invalid_number');
+  }
 
   // The gateway has the message: nothing below may turn it into a failure.
   try {

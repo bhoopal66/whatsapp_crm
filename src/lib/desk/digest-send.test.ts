@@ -5,6 +5,9 @@ const h = vi.hoisted(() => ({
   loadChannels: vi.fn(),
   sendText: vi.fn(),
   sendTemplate: vi.fn(),
+  checkSend: vi.fn(),
+  refund: vi.fn(),
+  definite: vi.fn(),
   contact: {} as Record<string, unknown>,
 }));
 
@@ -18,6 +21,11 @@ vi.mock('@/lib/whatsapp/channels', () => ({
 vi.mock('@/lib/whatsapp/provider', () => ({
   sendText: h.sendText,
   sendTemplate: h.sendTemplate,
+  isDefiniteSendRefusal: h.definite,
+}));
+vi.mock('@/lib/whatsapp/meta-health/check-send', () => ({
+  checkSend: h.checkSend,
+  refundSendReservation: h.refund,
 }));
 vi.mock('@/lib/whatsapp/template-body', () => ({
   renderTemplateBody: () => 'body',
@@ -93,6 +101,12 @@ beforeEach(() => {
   h.loadChannels.mockResolvedValue([CHANNEL]);
   h.sendText.mockResolvedValue({ messageId: 'w1' });
   h.check.mockResolvedValue({ blocked: false });
+  // Watch mode: the guard logs and allows.
+  h.checkSend.mockResolvedValue({
+    allow: true,
+    reason: 'ALLOWED',
+    enforced: false,
+  });
 });
 
 describe('sendDeskDigest', () => {
@@ -107,6 +121,62 @@ describe('sendDeskDigest', () => {
     expect(h.check.mock.invocationCallOrder[0]!).toBeLessThan(
       h.sendText.mock.invocationCallOrder[0]!
     );
+  });
+
+  it('with enforce off the guard is asked as a utility send right before the gateway', async () => {
+    const d = db();
+    expect(await sendDeskDigest(d, CLAIM)).toMatchObject({
+      providerMessageId: 'w1',
+    });
+    expect(h.checkSend).toHaveBeenCalledWith(d, {
+      accountId: 'a1',
+      configId: 'n1',
+      contactId: 'c1',
+      kind: 'UTILITY',
+      templateName: 'desk_digest',
+    });
+    expect(h.checkSend.mock.invocationCallOrder[0]!).toBeLessThan(
+      h.sendText.mock.invocationCallOrder[0]!
+    );
+  });
+
+  it.each([
+    ['TEMPLATE_PAUSED', 'send_protection_template_paused'],
+    ['NUMBER_ALL_PAUSED', 'send_protection_number_all_paused'],
+    ['OPTED_OUT', 'send_protection_opted_out'],
+  ])(
+    'a %s refusal sends nothing and fails with its reason',
+    async (r, code) => {
+      h.checkSend.mockResolvedValue({
+        allow: false,
+        reason: r,
+        enforced: true,
+      });
+      await expect(sendDeskDigest(db(), CLAIM)).rejects.toMatchObject({
+        name: 'DigestRefusal',
+        code,
+      });
+      expect(h.sendText).not.toHaveBeenCalled();
+      expect(h.sendTemplate).not.toHaveBeenCalled();
+    }
+  );
+
+  it('refunds a reservation only on a definite gateway refusal', async () => {
+    const reservation = { accountId: 'a1', day: '2026-11-28', micros: 10 };
+    h.checkSend.mockResolvedValue({
+      allow: true,
+      reason: 'ALLOWED',
+      enforced: true,
+      reservation,
+    });
+    h.sendText.mockRejectedValue(new Error('boom'));
+    h.definite.mockReturnValue(false);
+    await expect(sendDeskDigest(db(), CLAIM)).rejects.toThrow('boom');
+    expect(h.refund).not.toHaveBeenCalled();
+    h.definite.mockReturnValue(true);
+    const d = db();
+    await expect(sendDeskDigest(d, CLAIM)).rejects.toThrow('boom');
+    expect(h.refund).toHaveBeenCalledWith(d, reservation);
   });
 
   it('sends nothing on a number at its daily limit', async () => {
