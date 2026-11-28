@@ -149,7 +149,7 @@ BEGIN
       to_regprocedure('public.hr_rule_set(text,boolean,integer,integer,text,text)'), 'EXECUTE'),
     has_function_privilege('anon',
       to_regprocedure('public.hr_rule_set(text,boolean,integer,integer,text,text)'), 'EXECUTE'));
-  c := c || pg_temp.hr_chk('hr_rule_set grants are not authenticated-only', r, 'true/false');
+  c := c || pg_temp.hr_chk('hr_rule_set grants are not authenticated-only', r, 't/f');
 
   RAISE EXCEPTION 'verify-hr-rule-title-ar rollback' USING ERRCODE = 'P0099';
   EXCEPTION WHEN SQLSTATE 'P0099' THEN
