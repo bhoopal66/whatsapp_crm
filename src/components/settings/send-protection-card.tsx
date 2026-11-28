@@ -23,7 +23,6 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { useAuth } from '@/hooks/use-auth';
 import { useCan } from '@/hooks/use-can';
 import {
   knownReason,
@@ -244,7 +243,6 @@ function formFrom(d: ProtectionData): LimitsForm {
 
 export function SendProtectionCard() {
   const canView = useCan('edit-settings');
-  const { account } = useAuth();
   const t = useTranslations('Settings.sendProtection');
   const [data, setData] = useState<ProtectionData | null>(null);
   const [failed, setFailed] = useState(false);
@@ -342,7 +340,8 @@ export function SendProtectionCard() {
         ) : (
           <SendProtectionView
             data={data}
-            currency={account?.default_currency ?? 'USD'}
+            // Meta rates (051) and AI prices are in USD, so the caps are too.
+            currency="USD"
             form={form}
             saveState={saveState}
             enforceBusy={enforceBusy}
