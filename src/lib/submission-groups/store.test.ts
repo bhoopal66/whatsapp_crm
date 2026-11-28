@@ -348,6 +348,12 @@ describe('openAccessLabel (163 bank, 173 team lead fallback)', () => {
     expect(await store('owner', []).s.openAccessLabel('g1', 'u1')).toBeNull();
     expect(await store(null, []).s.openAccessLabel('g1', 'u1')).toBeNull();
   });
+  it('sendLabel: an unlisted owner/admin sends as their role (333)', async () => {
+    expect(await store('admin', []).s.sendLabel('g1', 'u1')).toBe('admin');
+    expect(await store('owner', []).s.sendLabel('g1', 'u1')).toBe('owner');
+    expect(await store('agent', []).s.sendLabel('g1', 'u1')).toBeNull();
+    expect(await store(null, []).s.sendLabel('g1', 'u1')).toBeNull();
+  });
 });
 
 describe('adoptionRivals', () => {

@@ -7,10 +7,17 @@
  * comes back to it. Never cached across visits (people's figures move
  * by the minute). The layout is the team-leader-and-up guard.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { LiveView } from '@/components/live-view/live-view';
 import { useAuth } from '@/hooks/use-auth';
+import { useLiveTeams } from '@/hooks/use-live-teams';
+import { hasMinRole } from '@/lib/auth/roles';
+import {
+  ALL_TEAMS,
+  filterLivePeople,
+  normalizeSelection,
+} from '@/lib/live-view/team-filter';
 import {
   LIVE_REFRESH_MS,
   loadLiveTeamView,
@@ -26,7 +33,9 @@ interface Loaded {
 }
 
 export default function LivePage() {
-  const { accountId } = useAuth();
+  const { accountId, accountRole, user } = useAuth();
+  const teams = useLiveTeams();
+  const [pickedTeam, setPickedTeam] = useState<string>(ALL_TEAMS);
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const inFlight = useRef(false);
@@ -75,9 +84,27 @@ export default function LivePage() {
 
   const current = loaded && loaded.accountId === accountId ? loaded : null;
 
+  // A narrowing of the people the RPC returned, never a second read.
+  const teamId = normalizeSelection(pickedTeam, teams);
+  const shown = useMemo(() => {
+    const view = current?.view ?? null;
+    if (!view) return null;
+    return {
+      ...view,
+      people: filterLivePeople(view.people, teams, teamId, {
+        userId: user?.id ?? null,
+        role: accountRole,
+      }),
+    };
+  }, [current?.view, teams, teamId, user?.id, accountRole]);
+
   return (
     <LiveView
-      view={current?.view ?? null}
+      view={shown}
+      teams={teams}
+      teamId={teamId}
+      onTeamChange={setPickedTeam}
+      canPickAnyTeam={!!accountRole && hasMinRole(accountRole, 'admin')}
       error={current?.error ?? null}
       now={current?.at ?? 0}
       updatedLabel={

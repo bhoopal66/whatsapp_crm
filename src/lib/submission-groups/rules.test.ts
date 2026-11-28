@@ -78,6 +78,15 @@ describe('canSend', () => {
     expect(canSend(null, 'ACTIVE', true)).toBe(false);
     expect(canSend('team_lead', 'ENDED', true)).toBe(false);
   });
+  it('333: an owner/admin sends to an ACTIVE group unlisted, never to an ENDED one', () => {
+    expect(canSend('owner', 'ACTIVE', false)).toBe(true);
+    expect(canSend('admin', 'ACTIVE', false)).toBe(true);
+    expect(canSend('owner', 'ENDED', false)).toBe(false);
+    expect(canSend('admin', 'ENDED', true)).toBe(false);
+    expect(canSend('agent', 'ACTIVE', false)).toBe(false);
+    expect(canSend(null, 'ACTIVE', false)).toBe(false);
+    expect(canSend('agent', 'ACTIVE', true)).toBe(true);
+  });
 });
 
 describe('shouldEnd', () => {

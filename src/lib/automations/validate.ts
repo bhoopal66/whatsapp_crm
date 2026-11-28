@@ -3,6 +3,7 @@ import { validateInteractivePayload } from '@/lib/whatsapp/interactive'
 import { isConditionContactField } from './contact-fields'
 import { TRIGGER_META, triggerRuns } from './trigger-meta'
 import { TEAM_CHAT_BODY_MAX } from './team-chat-post'
+import { parseCron } from './time-based'
 import { validateIntentTriggerConfig } from '@/lib/insights/meaning-config'
 
 // ------------------------------------------------------------
@@ -264,6 +265,21 @@ export function validateTriggerForActivation(
           message: 'a sub-tag needs its main tag',
         })
       }
+    }
+  } else if (triggerType === 'time_based') {
+    // Read the way the cron reads it (`time-based.ts`): a schedule it
+    // cannot read never comes round.
+    if (!parseCron(typeof cfg.schedule === 'string' ? cfg.schedule : null)) {
+      issues.push({
+        path: 'trigger.schedule',
+        message: 'the schedule is not a valid 5-field cron expression',
+      })
+    }
+    if (!nonEmpty(cfg.chat_tag_id)) {
+      issues.push({
+        path: 'trigger.chat_tag_id',
+        message: 'chat tag is required: the automation runs for the chats at it',
+      })
     }
   } else if (triggerType === 'interactive_reply') {
     const ids = cfg.reply_ids

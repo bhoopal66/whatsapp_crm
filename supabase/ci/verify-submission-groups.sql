@@ -341,9 +341,11 @@ BEGIN
   IF sg_send_begin(g2, u_coord, 'x', 'C (Coordinator): x') IS NOT NULL THEN
     failed := failed || 'an off-list user began a send'::text;
   END IF;
+  -- 333: an owner/admin of the account may send to any ACTIVE group
+  -- without being on its list (verify-sg-admin-send.sql has the rest).
   n := n + 1;
-  IF sg_send_begin(g2, u_admin, 'x', 'A: x') IS NOT NULL THEN
-    failed := failed || 'an off-list admin began a send'::text;
+  IF sg_send_begin(g2, u_admin, 'x', 'A (Admin): x') IS NULL THEN
+    failed := failed || 'an off-list admin could not begin a send (333)'::text;
   END IF;
   n := n + 1;
   IF sg_send_begin(g2, u_gone, 'x', 'G (Agent): x') IS NOT NULL THEN

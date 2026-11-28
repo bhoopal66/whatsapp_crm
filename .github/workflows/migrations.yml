@@ -1014,6 +1014,12 @@ jobs:
       - name: Verify contact search filters
         run: supabase db query --local --file supabase/ci/verify-contact-search-filters.sql
 
+      # Migration 331: the lead-source filter's 'unknown' (no source
+      # recorded) in the sorted page and the search, under the caller's
+      # RLS; a named source still works; another account's never show.
+      - name: Verify contacts unknown source
+        run: supabase db query --local --file supabase/ci/verify-contacts-unknown-source.sql
+
       # Migration 194: second brain store. The switch is off by default
       # and only an owner/admin turns it on; the upsert is idempotent and
       # refuses unredacted numbers, blank or long text, unknown kinds and
@@ -1164,6 +1170,15 @@ jobs:
         env:
           CI_DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
 
+      # Migration 329: the tray searched by the customer's name (Arabic
+      # too) or phone digits, literal text, never wider than the caller's
+      # tray; no search answers what 303 did.
+      - name: Verify desk tray search
+        # Several statements: `supabase db query` takes one.
+        run: psql "$CI_DB_URL" -v ON_ERROR_STOP=1 -q -f supabase/ci/verify-desk-tray-search.sql
+        env:
+          CI_DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+
       # Migration 231: one document across a company's bank cases (design
       # 035 slice B). A trigger refuses a cross-customer case file on
       # every insert; desk_doc_link needs the same company and a live
@@ -1177,6 +1192,11 @@ jobs:
       # (2 h to the second, 4 h and the no-bank queue to the lead).
       - name: Verify desk cover and queue alerts
         run: supabase db query --local --file supabase/ci/verify-desk-bank-cover.sql
+
+      # Migration 328: any live staff reads, changes and cancels their own
+      # desk leave; an agent never someone else's; viewer and guest none.
+      - name: Verify desk own leave
+        run: supabase db query --local --file supabase/ci/verify-desk-own-leave.sql
 
       # Migration 233: the application across its banks. One merged
       # checklist of the readable cases' required documents (strictest
@@ -1300,6 +1320,13 @@ jobs:
       - name: Verify conversation notes
         run: supabase db query --local --file supabase/ci/verify-conversation-notes.sql
 
+      # Migration 332: a deleted note is a tombstone (deleted_at set, text
+      # and mentions cleared) so Realtime delivers the delete to open
+      # chats; members still select it, the list and export leave it out,
+      # only the author makes one, it is final, its bells and pushes go.
+      - name: Verify note tombstones
+        run: supabase db query --local --file supabase/ci/verify-note-tombstones.sql
+
       # Migration 242: the voice-note library. Every member reads the
       # workspace's library, agents and up add, the author or an admin
       # deletes, another workspace sees nothing, entries are never
@@ -1357,6 +1384,12 @@ jobs:
       # read workspace-wide counts, aggregates only; nobody else.
       - name: Verify chat tag report
         run: supabase db query --local --file supabase/ci/verify-chat-tag-report.sql
+
+      # Migration 330: deactivating a person keeps their report grants
+      # (they open nothing meanwhile) and reactivating restores them;
+      # someone never granted gets nothing.
+      - name: Verify report access reactivation
+        run: supabase db query --local --file supabase/ci/verify-report-access-reactivation.sql
 
       # Migration 256: review fixes for 236-255. Broadcast drafts are
       # owners/admins only and in PDPL; a note mention never rings
@@ -1673,3 +1706,27 @@ jobs:
       # 'chat_assist' and keeps 290's list. Rolled back.
       - name: Verify chat assistant (323)
         run: supabase db query --local --file supabase/ci/verify-chat-assist.sql
+
+      # Migration 324: a time-based automation claims each (chat,
+      # occurrence) once; a second claim writes nothing. Rolled back.
+      - name: Verify time-based automation claims (324)
+        run: supabase db query --local --file supabase/ci/verify-time-based-automations.sql
+
+      # Migration 326: a reply that later fails restarts the customer's
+      # wait from their first unanswered message; a delivery that corrects
+      # the failure ends it again. Rolled back.
+      - name: Verify a failed reply restarts the wait (326)
+        run: supabase db query --local --file supabase/ci/verify-failed-reply-waiting.sql
+
+      # Migration 327: one daily cap of 3 automated messages per person
+      # across HR messages, desk digests and CSAT requests (HR holds, the
+      # desk cancels, CSAT holds to the next day). Rolled back.
+      - name: Verify the shared daily cap (327)
+        run: supabase db query --local --file supabase/ci/verify-shared-daily-cap.sql
+
+      # Migration 333: an owner or admin of a submission group's account
+      # sends to any ACTIVE group of it unlisted; ENDED groups, unlisted
+      # agents and viewers, deactivated admins and other workspaces'
+      # admins still cannot; a listed agent still can. Rolled back.
+      - name: Verify owner/admin send to submission groups (333)
+        run: supabase db query --local --file supabase/ci/verify-sg-admin-send.sql

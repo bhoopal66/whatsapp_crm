@@ -21,6 +21,11 @@ submission app. `docs/submission-groups.md` is the contract.
   audited `sg_read_archive` (audit row and messages in one statement; a
   refusal writes nothing); its metadata is listed to the same readers
   unaudited. The list branch also requires live staff (`sg_is_staff`).
+- **Who sends (333).** ACTIVE only: the open list, the case agent's
+  leader, a bank holder, or (333) a live owner/admin of the group's account
+  unlisted (`sg_archive_role` inside `sg_can_send`; prefix label
+  'Owner'/'Admin' via `sendLabel`). `canSend` in `rules.ts` mirrors it.
+  Apply 333 after 173, once. `verify-sg-admin-send.sql`.
 - **Send** writes the `out` row first (`sg_send_begin`, pending), then
   the gateway call, then settles once (`sent` / `blocked` / `failed`);
   the cron fails pending rows older than 10 minutes. An echo of our own

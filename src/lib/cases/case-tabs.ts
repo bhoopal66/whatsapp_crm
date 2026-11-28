@@ -283,6 +283,22 @@ export function conversationView(
   return c.waMode === 'none' ? 'noWhatsappGroup' : 'group';
 }
 
+/**
+ * Under a group's messages: the composer, the "cannot send" line, or
+ * nothing (an ended group, unless it ended while in view, or no group).
+ * The composer follows `canSendToGroup` (333's sg_can_send: an unlisted
+ * owner/admin sends too), never `canWrite`, which is the case write rule.
+ */
+export function conversationFooter(o: {
+  archived: boolean;
+  endedInView: boolean;
+  noGroup: boolean;
+  permissions: { canWrite: boolean; canSendToGroup: boolean };
+}): 'composer' | 'cannotSend' | null {
+  if ((o.archived && !o.endedInView) || o.noGroup) return null;
+  return o.permissions.canSendToGroup ? 'composer' : 'cannotSend';
+}
+
 // ------------------------------------------------------------ Audit
 
 export interface CaseAuditRow {

@@ -171,8 +171,9 @@ BEGIN
   n := n + 1; failed := failed || pg_temp.cn_check('an admin edited someone else''s note', 'authenticated', u_admin,
     format('WITH x AS (UPDATE conversation_notes SET body = ''hijack'' WHERE id::text = %L RETURNING 1) SELECT count(*)::text FROM x', note1),
     '0');
+  -- 332: a delete is a tombstone (UPDATE of deleted_at), not a DELETE.
   n := n + 1; failed := failed || pg_temp.cn_check('an admin deleted someone else''s note', 'authenticated', u_admin,
-    format('WITH x AS (DELETE FROM conversation_notes WHERE id::text = %L RETURNING 1) SELECT count(*)::text FROM x', note1), '0');
+    format('WITH x AS (UPDATE conversation_notes SET deleted_at = now() WHERE id::text = %L RETURNING 1) SELECT count(*)::text FROM x', note1), '0');
   n := n + 1; failed := failed || pg_temp.cn_check('the author could not edit the note', 'authenticated', u_agent,
     format('WITH x AS (UPDATE conversation_notes SET body = ''called, no answer'' WHERE id::text = %L RETURNING 1) SELECT count(*)::text FROM x', note1),
     '1');
@@ -199,7 +200,7 @@ BEGIN
     'true');
 
   n := n + 1; failed := failed || pg_temp.cn_check('the author could not delete the note', 'authenticated', u_agent,
-    format('WITH x AS (DELETE FROM conversation_notes WHERE id::text = %L RETURNING 1) SELECT count(*)::text FROM x', note1), '1');
+    format('WITH x AS (UPDATE conversation_notes SET deleted_at = now() WHERE id::text = %L RETURNING 1) SELECT count(*)::text FROM x', note1), '1');
   n := n + 1; failed := failed || pg_temp.cn_check('a deleted note kept its bell', NULL, NULL,
     format('SELECT count(*)::text FROM notifications WHERE type = ''chat_note_mention'' AND meta->>''note_id'' = %L', note1), '0');
   n := n + 1; failed := failed || pg_temp.cn_check('a deleted note kept its queued push', NULL, NULL,

@@ -30,3 +30,11 @@ The one body is now in 298: the 193 candidate signature wraps it, so
 re-run 298 after re-running 193. The tag condition is read by
 `search_contacts` under the caller's `conversations_select` and handed
 down as contact ids; the definer lookup never reads `conversations`.
+
+Unknown source (331): the lead-source filter value `'unknown'`
+(`UNKNOWN_LEAD_SOURCE`, never stored) means `lead_source IS NULL`. 331
+restates 298's 5-argument `search_contact_candidates` and 257's
+`contacts_sorted_page` with that one term changed (the visibility term is
+untouched, the sources term still ANDed after it): apply in order, once,
+and re-run 331 after re-running 257 or 298. The plain list's
+`narrowByLeadSource` (`list-query.ts`) is the same condition client side.

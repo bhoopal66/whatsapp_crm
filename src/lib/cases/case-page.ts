@@ -90,6 +90,8 @@ export interface CaseDetail {
     canWrite: boolean;
     canReassign: boolean;
     canSeeAudit: boolean;
+    /** 333: sg_can_send for the case's group; gates the composer, not canWrite. */
+    canSendToGroup: boolean;
   };
   stages: string[];
   history: {
@@ -190,6 +192,7 @@ export function parseCaseDetail(json: unknown): CaseDetail | null {
       canWrite: perms.canWrite === true,
       canReassign: perms.canReassign === true,
       canSeeAudit: perms.canSeeAudit === true,
+      canSendToGroup: perms.canSendToGroup === true,
     },
     stages: list(root.stages).filter(
       (s): s is string => typeof s === 'string' && s.length > 0

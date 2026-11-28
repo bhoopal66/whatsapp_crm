@@ -6,7 +6,10 @@
  */
 
 import { isOptionalColumn, type OptionalColumn } from '@/lib/contacts/columns';
-import { parseLeadSources, type LeadSource } from '@/lib/contacts/lead-source';
+import {
+  parseLeadSources,
+  type LeadSourceFilterValue,
+} from '@/lib/contacts/lead-source';
 import {
   DEFAULT_CONTACT_SORT,
   parseContactSort,
@@ -17,7 +20,8 @@ import {
 export interface ContactsViewFilters {
   search: string;
   chatTagIds: string[];
-  sources: LeadSource[];
+  /** Lead-source filter values, Unknown included. */
+  sources: LeadSourceFilterValue[];
   sort: ContactSortKey;
   dir: SortDir;
   /** Absent = leave the user's column choice alone. */

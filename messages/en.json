@@ -1257,6 +1257,9 @@
   "ContactsTable": {
     "sortedByRelevance": "While you search, results are ordered by best match.",
     "sortUnavailable": "Sorting by this column needs a database update. The list is shown newest first.",
+    "sortBy": "Sort by",
+    "sortAscending": "Sort ascending",
+    "sortDescending": "Sort descending",
     "copyNumber": "Copy the phone number of {name}",
     "copyNumberShort": "Copy number",
     "addToCampaign": "Add to campaign",
@@ -1287,6 +1290,7 @@
     "hideEmpty": "Hide empty columns",
     "clearSources": "Clear",
     "filterBySource": "Source",
+    "sourceUnknownFilter": "Unknown (no source recorded)",
     "source": {
       "ad": "Ad",
       "broadcast": "Broadcast",
@@ -1875,7 +1879,7 @@
         },
         "time_based": {
           "label": "Time-Based",
-          "hint": "On a recurring schedule"
+          "hint": "On a schedule, for every chat at a chat tag"
         }
       },
       "trigger": "Trigger",
@@ -1895,6 +1899,8 @@
       },
       "scheduleAt": "At",
       "scheduleCustomLabel": "Cron expression",
+      "scheduleAudience": "For the chats at",
+      "scheduleRunsHint": "At each time on the schedule (Dubai time), the automation runs once for every chat at this tag. The automations cron checks once a minute, so a run starts within a minute or two of the time; a time missed by more than an hour is skipped, not caught up. Customers who opted out or are marked do not contact are left out.",
       "timeHour": "Hour",
       "timeMinute": "Minute",
       "active": "Active",
@@ -12353,6 +12359,9 @@
     "help": "Who is online and how their customers are doing. Updates every 30 seconds and when you come back to this tab.",
     "scopeAll": "Everyone in this workspace",
     "scopeTeam": "The teams you lead, and you",
+    "teamFilter": "Team",
+    "allTeams": "All teams",
+    "allMyTeams": "All my teams",
     "refresh": "Refresh",
     "refreshing": "Refreshing...",
     "updated": "Updated {time}",
@@ -13586,6 +13595,8 @@
       "takeDuty": "Put me on duty",
       "clearDuty": "Clear",
       "empty": "Nothing is waiting in the tray.",
+      "search": "Search by name or number",
+      "noMatch": "No document in the tray matches this name or number.",
       "unknownSender": "Unknown sender",
       "actsFor": "Acts for {companies}",
       "received": "{age} ago",
@@ -13697,7 +13708,11 @@
       "from": "From",
       "to": "To",
       "remove": "Remove",
-      "saved": "Saved"
+      "saved": "Saved",
+      "myTitle": "My leave",
+      "myIntro": "Enter your days off so the second coordinator or the lead covers your bank while you are away. Leave changes no access.",
+      "myNone": "No leave recorded.",
+      "save": "Save"
     },
     "digest": {
       "title": "Daily reminder to customers",
@@ -14039,6 +14054,27 @@
     "modelRow": "{tokens} tok · {calls, plural, one {# call} other {# calls}}",
     "truncated": "Showing a partial window — usage is high enough that only the most recent records are summarized here.",
     "loadFailed": "Failed to load usage"
+  },
+  "StageNames": {
+    "newLead": "New Lead",
+    "qualified": "Qualified",
+    "proposalSent": "Proposal Sent",
+    "negotiation": "Negotiation",
+    "won": "Won",
+    "interested": "Interested",
+    "dataCollection": "Data collection",
+    "review": "Review",
+    "submitted": "Submitted",
+    "bankAcknowledged": "Bank acknowledged",
+    "documentsRequested": "Documents requested",
+    "documentsReceived": "Documents received",
+    "underReview": "Under review",
+    "queryRaised": "Query raised",
+    "queryAnswered": "Query answered",
+    "approved": "Approved",
+    "declined": "Declined",
+    "withdrawn": "Withdrawn",
+    "closed": "Closed"
   },
   "ChatAssist": {
     "open": "Assistant",

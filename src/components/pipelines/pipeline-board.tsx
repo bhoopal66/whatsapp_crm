@@ -2,6 +2,7 @@
 
 import { useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useStageLabel } from '@/hooks/use-stage-label';
 import { useChatTags } from '@/hooks/use-chat-tags';
 import { chatTagChipStyle } from '@/lib/chat-tags/style';
 import {
@@ -234,6 +235,7 @@ function StageColumn({
   onDealMoved: (dealId: string, newStageId: string) => void;
 }) {
   const t = useTranslations('Pipelines.board');
+  const showStage = useStageLabel();
   const { setNodeRef, isOver } = useDroppable({ id: stage.id });
   const { tags } = useChatTags();
   const linkedTag = stage.auto_chat_tag_id
@@ -255,7 +257,7 @@ function StageColumn({
       />
       <div className="flex items-center justify-between pt-3">
         <h2 className="text-foreground truncate text-sm font-semibold">
-          {stage.name}
+          {showStage(stage.name)}
         </h2>
         <span className="bg-muted text-muted-foreground shrink-0 rounded-full px-2 py-0.5 text-xs font-medium">
           {deals.length}
@@ -347,6 +349,7 @@ function DraggableDealCard({
   // does (gated the same way: none on a read-only board), and the
   // customer page when the board's own query could read the contact.
   const tMenu = useTranslations('ContextMenu');
+  const showStage = useStageLabel();
   const router = useRouter();
   const cardRef = useRef<HTMLDivElement | null>(null);
   useContextMenuItems(cardRef, (): ContextMenuEntry[] => {
@@ -366,7 +369,7 @@ function DraggableDealCard({
         icon: ArrowRightLeft,
         items: targets.map((s) => ({
           id: `stage:${s.id}`,
-          label: s.name,
+          label: showStage(s.name),
           onSelect: () => onMove(deal.id, s.id),
         })),
       });

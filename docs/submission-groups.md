@@ -305,10 +305,15 @@ filename?, mimeType? } }` to `POST /api/submission-groups/[id]/messages`.
 
 ## Who reads and sends, and when
 
-| State      | Read                                                                                                         | Send                                                                                  |
-| ---------- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
-| **ACTIVE** | anyone on the open access list; the team leader of the case's agent; owners and admins of the workspace      | anyone on the open list (an admin only if on it); the team leader of the case's agent |
-| **ENDED**  | owners and admins; a coordinator or team lead who was on the list at the end, for **60 days** after it ended | nobody                                                                                |
+| State      | Read                                                                                                         | Send                                                                                                   |
+| ---------- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------ |
+| **ACTIVE** | anyone on the open access list; the team leader of the case's agent; owners and admins of the workspace      | anyone on the open list; the team leader of the case's agent; owners and admins of the workspace (333) |
+| **ENDED**  | owners and admins; a coordinator or team lead who was on the list at the end, for **60 days** after it ended | nobody                                                                                                 |
+
+Since migration 333 an owner or admin of the workspace (not deactivated)
+sends to any ACTIVE group without being on its list; their messages are
+prefixed `Name (Owner):` or `Name (Admin):`. Listed, they keep their
+list label. Apply 333 after 173, once: re-running 173 reverts it.
 
 Agents never read an ENDED group. An ENDED group's **messages** are read
 only through the archive view, and **every archive view is written to an

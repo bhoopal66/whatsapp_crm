@@ -11,12 +11,15 @@ export interface CoverHolder {
   userId: string;
   name: string;
   onLeave: boolean;
-  leave: {
-    id: string;
-    firstDay: string;
-    lastDay: string;
-    note: string | null;
-  }[];
+  leave: LeaveRange[];
+}
+
+/** One leave row (232): Asia/Dubai days, inclusive. */
+export interface LeaveRange {
+  id: string;
+  firstDay: string;
+  lastDay: string;
+  note: string | null;
 }
 
 export interface BankCover {
@@ -53,22 +56,26 @@ export function parseCoverRow(r: Record<string, unknown>): BankCover {
           name: String(o.name ?? ''),
           onLeave: o.on_leave === true,
           leave: (Array.isArray(o.leave) ? o.leave : []).flatMap((l) => {
-            const x = (l ?? {}) as Record<string, unknown>;
-            return s(x.id)
-              ? [
-                  {
-                    id: String(x.id),
-                    firstDay: String(x.first_day ?? ''),
-                    lastDay: String(x.last_day ?? ''),
-                    note: s(x.note),
-                  },
-                ]
-              : [];
+            const x = parseLeaveRow(l);
+            return x ? [x] : [];
           }),
         },
       ];
     }),
   };
+}
+
+/** A leave row from SQL (`desk_cover_list`'s holders, `desk_my_leave`). */
+export function parseLeaveRow(l: unknown): LeaveRange | null {
+  const x = (l ?? {}) as Record<string, unknown>;
+  return s(x.id)
+    ? {
+        id: String(x.id),
+        firstDay: String(x.first_day ?? ''),
+        lastDay: String(x.last_day ?? ''),
+        note: s(x.note),
+      }
+    : null;
 }
 
 /** A YYYY-MM-DD date, or null. */

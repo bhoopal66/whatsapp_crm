@@ -199,7 +199,8 @@ candidates. It is for admins (everything) and Recruitment leads
   master switch, the trigger switched off, the chat closed, the
   candidate opted out, no consent (on by default: record it in the
   chat's HR panel), quiet hours (21:00–08:00 Asia/Dubai), no approved
-  template, the daily cap (3 per candidate). A closed chat or an
+  template, the daily cap (3 per candidate a day, counting desk
+  reminders and CSAT rating requests too, 327). A closed chat or an
   opt-out cancels the message instead.
 - **Delivery.** The automations cron drains due messages every minute.
   Each message is claimed before it is sent, so two runs never send it

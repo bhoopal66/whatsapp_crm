@@ -417,9 +417,12 @@ BEGIN
   UPDATE profiles SET deactivated_at = now() WHERE user_id = u_agent AND account_id = a_acct;
   UPDATE profiles SET account_id = b_acct WHERE user_id = u_lead;
   DELETE FROM profiles WHERE user_id = u_viewer AND account_id = a_acct;
-  n := n + 1; failed := failed || pg_temp.rf_ok(NOT EXISTS (
+  -- 330: deactivation keeps the grant (it grants nothing while
+  -- deactivated, verify-report-access-reactivation.sql) so reactivating
+  -- gives it back; leaving the workspace still deletes it (below).
+  n := n + 1; failed := failed || pg_temp.rf_ok(EXISTS (
     SELECT 1 FROM report_access WHERE account_id = a_acct AND user_id = u_agent),
-    '7: a deactivated person kept a report grant');
+    '7: a deactivated person''s report grant was not kept (330)');
   n := n + 1; failed := failed || pg_temp.rf_ok(NOT EXISTS (
     SELECT 1 FROM report_access WHERE account_id = a_acct AND user_id = u_lead),
     '7: a person who left kept a report grant');

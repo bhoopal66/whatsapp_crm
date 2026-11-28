@@ -18,6 +18,12 @@ time, and is **never sent to the customer**.
 - **Edit and delete:** only the note's author. Only the text can change;
   an edited note shows that it was edited. Admins cannot edit or delete
   someone else's note.
+- **Deleting is immediate for everyone.** The note disappears at once
+  from every open copy of the chat, not only the author's, and its
+  text and mentions are gone from the database at once: the row is kept
+  only as an empty marker (`deleted_at`, migration 332) so open chats
+  hear about the delete. A deleted note cannot be edited or restored,
+  and it is never shown, counted or exported.
 
 ## @mentions
 
@@ -59,5 +65,7 @@ their notes and an erase deletes them (registered through
 Nothing to switch on: notes are available to every workspace once the
 migration is applied.
 
-Requires migration `241_conversation_notes.sql` (after 229). Verify with
-`supabase/ci/verify-conversation-notes.sql`.
+Requires migrations `241_conversation_notes.sql` (after 229) and
+`332_note_tombstones.sql` (after 241; apply in order, once). Verify with
+`supabase/ci/verify-conversation-notes.sql` and
+`supabase/ci/verify-note-tombstones.sql`.

@@ -164,7 +164,12 @@ export type EdgeRefusal =
   | 'webhook_duplicate'
   | 'signin_locked'
   | 'signin_rate_limited'
-  | 'api_rate_limited';
+  | 'api_rate_limited'
+  | 'webform_rate_limited'
+  | 'webform_origin_refused'
+  | 'webform_too_large'
+  | 'webform_honeypot'
+  | 'webform_not_found';
 
 export function edgeRefusals(): Counter {
   return metricsRegistry().counter(

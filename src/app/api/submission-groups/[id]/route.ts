@@ -36,7 +36,12 @@ import {
   submissionGroupStore,
   supabaseAdmin,
 } from '@/lib/submission-groups/server';
-import type { StaffLabel } from '@/lib/submission-groups/rules';
+import {
+  canSend,
+  isArchiveRole,
+  isStaffLabel,
+  type StaffLabel,
+} from '@/lib/submission-groups/rules';
 import { toMessage } from '@/lib/submission-groups/store';
 import {
   loadBanks,
@@ -131,21 +136,28 @@ export async function GET(request: Request, { params }: Params) {
     const active = group.status === 'ACTIVE';
     // 163: no open row, but a held bank can still make the caller a
     // coordinator of an ACTIVE group (sg_resolve_role decides).
+    // 333: sendLabel adds 'owner' / 'admin' for an unlisted owner/admin;
+    // my_label stays the staff-label part, send_label is what the server
+    // will prefix a send with (ACTIVE only).
+    const sendLabel = active
+      ? await submissionGroupStore(admin).sendLabel(group.id, ctx.userId)
+      : null;
     const myLabel: StaffLabel | null =
       access.find((a) => a.userId === ctx.userId)?.label ??
-      (active
-        ? await submissionGroupStore(admin).openAccessLabel(
-            group.id,
-            ctx.userId
-          )
-        : null);
+      (sendLabel !== null && isStaffLabel(sendLabel) ? sendLabel : null);
     return NextResponse.json({
       group: toDetailGroup(group, { ...refs, banks, myLabel }),
+      send_label: sendLabel,
       access: access.map((a) => toAccessView(a, names)),
       messages: messages.map((m) => toMessageView(m, names)),
       ...paging,
       archive_available: !active,
-      can_send: active && myLabel !== null,
+      // 333: an owner/admin of the account sends to an ACTIVE group unlisted.
+      can_send: canSend(
+        isArchiveRole(ctx.role) ? ctx.role : myLabel,
+        group.status,
+        myLabel !== null
+      ),
       can_manage: canManageSubmissionGroups(ctx.role),
       caseId,
     });

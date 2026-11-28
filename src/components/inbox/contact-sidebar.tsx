@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
+import { useStageLabel } from '@/hooks/use-stage-label';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
 import type { ContactNote } from '@/types';
@@ -75,6 +76,7 @@ export function ContactSidebar({
   const tSidebar = useTranslations('Inbox.sidebar');
   const tNotes = useTranslations('Contacts.detailView.notesTab');
   const tThread = useTranslations('Inbox.messageThread');
+  const showStage = useStageLabel();
 
   const { accountId, user } = useAuth();
   const [copied, setCopied] = useState(false);
@@ -277,7 +279,7 @@ export function ContactSidebar({
                             color: deal.stage.color,
                           }}
                         >
-                          {deal.stage.name}
+                          {showStage(deal.stage.name)}
                         </span>
                       )}
                     </div>

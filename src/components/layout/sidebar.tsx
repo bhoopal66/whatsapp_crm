@@ -11,6 +11,7 @@ import { LiveDot } from '@/components/meetings/meeting-status-badge';
 import { useActiveCall } from '@/components/meetings/session/meeting-session-provider';
 import { isInCall } from '@/lib/meetings/session/session';
 import { useAuth } from '@/hooks/use-auth';
+import { useMediaQuery } from '@/hooks/use-media-query';
 import {
   sumGroupBadge,
   teamInboxBadgeCount,
@@ -236,6 +237,14 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
   // it (the top bar's menu button or the bottom bar's More). Body scroll
   // is locked. No-ops on desktop because the sidebar isn't a drawer there.
   const asideRef = useRef<HTMLElement>(null);
+  // Closed on a phone the drawer is only slid off screen, so its links
+  // would stay in the tab order and the screen reader's reading order.
+  // `inert` removes both. The server render (and the first paint) counts
+  // as a desktop, where the sidebar is always on screen: an inert first
+  // paint would leave a desktop sidebar unclickable until hydration (the
+  // 700 ms tunnel). A phone's closed drawer turns inert once hydrated.
+  const isPhone = useMediaQuery('(max-width: 1023px)');
+  const drawerHidden = !open && isPhone;
   useEffect(() => {
     if (!open) return;
     const aside = asideRef.current;
@@ -421,6 +430,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
         type="button"
         aria-label={t('closeMenu')}
         onClick={onClose}
+        inert={!open}
         className={cn(
           'bg-background/70 fixed inset-0 z-30 backdrop-blur-sm transition-opacity lg:hidden',
           open
@@ -431,6 +441,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
 
       <aside
         ref={asideRef}
+        inert={drawerHidden}
         className={cn(
           // Mobile: fixed drawer that slides in from the start side.
           'border-sidebar-border bg-sidebar fixed inset-y-0 start-0 z-40 flex h-full w-64 flex-row border-e',

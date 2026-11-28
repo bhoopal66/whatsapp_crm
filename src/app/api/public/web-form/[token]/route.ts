@@ -30,6 +30,7 @@ import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/automations/admin-client';
 import { RateLimiter, RpcRateStore } from '@/lib/edge';
 import { clientIp } from '@/lib/edge/client-ip';
+import { countEdgeRefusal } from '@/lib/metrics/registry';
 import { decideOrigin, originOfUrl } from '@/lib/web-form/origin';
 import { loadPublicForm, submitWebForm } from '@/lib/web-form/server';
 import {
@@ -66,6 +67,17 @@ function withCors(res: NextResponse, cors: string | null): NextResponse {
     res.headers.append('Vary', 'Origin');
   }
   return res;
+}
+
+/** A 404 for a token that is malformed, unknown or switched off. */
+function notFound(): NextResponse {
+  countEdgeRefusal('webform_not_found');
+  return json(404, { error: 'not_found' });
+}
+
+function originRefused(): NextResponse {
+  countEdgeRefusal('webform_origin_refused');
+  return json(403, { error: 'origin_not_allowed' });
 }
 
 function json(status: number, body: unknown, cors: string | null = null) {
@@ -129,6 +141,7 @@ function ipOf(request: Request, token: string): string {
 }
 
 function tooMany(retryAfterMs: number): NextResponse {
+  countEdgeRefusal('webform_rate_limited');
   const res = json(429, { error: 'rate_limited' });
   res.headers.set(
     'Retry-After',
@@ -176,18 +189,18 @@ async function formRateLimited(token: string): Promise<number | null> {
 
 export async function OPTIONS(request: Request, { params }: Params) {
   const { token } = await params;
-  if (!isWellFormedToken(token)) return json(404, { error: 'not_found' });
+  if (!isWellFormedToken(token)) return notFound();
   try {
     const retryAfterMs = await preflightRateLimited(request, token);
     if (retryAfterMs !== null) return tooMany(retryAfterMs);
     const form = await loadPublicForm(supabaseAdmin(), token);
-    if (!form) return json(404, { error: 'not_found' });
+    if (!form) return notFound();
     const decision = decideOrigin({
       origin: request.headers.get('origin'),
       selfOrigins: selfOrigins(request),
       allowed: form.allowedOrigins,
     });
-    if (!decision.ok) return json(403, { error: 'origin_not_allowed' });
+    if (!decision.ok) return originRefused();
     const res = new NextResponse(null, { status: 204 });
     if (decision.cors) {
       res.headers.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -203,7 +216,7 @@ export async function OPTIONS(request: Request, { params }: Params) {
 
 export async function POST(request: Request, { params }: Params) {
   const { token } = await params;
-  if (!isWellFormedToken(token)) return json(404, { error: 'not_found' });
+  if (!isWellFormedToken(token)) return notFound();
 
   try {
     const retryAfterMs = await rateLimited(request, token);
@@ -214,17 +227,20 @@ export async function POST(request: Request, { params }: Params) {
     );
     if (!kind) return json(415, { error: 'unsupported_media_type' });
     const text = await readCapped(request, MAX_BODY_BYTES);
-    if (text === null) return json(413, { error: 'too_large' });
+    if (text === null) {
+      countEdgeRefusal('webform_too_large');
+      return json(413, { error: 'too_large' });
+    }
 
     const form = await loadPublicForm(supabaseAdmin(), token);
-    if (!form) return json(404, { error: 'not_found' });
+    if (!form) return notFound();
 
     const decision = decideOrigin({
       origin: request.headers.get('origin'),
       selfOrigins: selfOrigins(request),
       allowed: form.allowedOrigins,
     });
-    if (!decision.ok) return json(403, { error: 'origin_not_allowed' });
+    if (!decision.ok) return originRefused();
     const cors = decision.cors;
 
     const fields = readFields(kind, text);
@@ -236,7 +252,10 @@ export async function POST(request: Request, { params }: Params) {
         : json(200, { ok: true }, cors);
 
     // A bot filled the hidden field: answer as if it worked, keep nothing.
-    if (isHoneypotFilled(fields)) return success();
+    if (isHoneypotFilled(fields)) {
+      countEdgeRefusal('webform_honeypot');
+      return success();
+    }
 
     const checked = validateSubmission(fields, request.headers.get('referer'));
     if (!checked.ok) {
@@ -249,8 +268,7 @@ export async function POST(request: Request, { params }: Params) {
     if (formRetryMs !== null) return tooMany(formRetryMs);
 
     const outcome = await submitWebForm(supabaseAdmin(), token, checked.value);
-    if (outcome.status === 'not_found')
-      return json(404, { error: 'not_found' });
+    if (outcome.status === 'not_found') return notFound();
     if (outcome.status === 'bad_phone') {
       return kind === 'form'
         ? backToPage(token, 'error=bad_phone', cors)

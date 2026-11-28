@@ -58,6 +58,7 @@ import {
   prefixMessage,
   shouldEnd,
   welcomeMessage,
+  type GroupRole,
   type StaffLabel,
 } from './rules';
 import { CREATE_STOPPED } from './store';
@@ -164,6 +165,7 @@ export type GroupStore = Pick<
   | 'findByRef'
   | 'listPendingCreates'
   | 'openAccessLabel'
+  | 'sendLabel'
   | 'claimCreate'
   | 'releaseCreateClaim'
   | 'attachWaGroup'
@@ -237,10 +239,13 @@ export interface SubmissionGroupServiceDeps {
   logger?: { warn(msg: string, meta?: Record<string, unknown>): void };
 }
 
-export const STAFF_LABEL_TEXT: Record<StaffLabel, string> = {
+/** The prefix text of each label; 333: an unlisted owner/admin sends as 'Owner' / 'Admin'. */
+export const STAFF_LABEL_TEXT: Record<GroupRole, string> = {
   agent: 'Agent',
   coordinator: 'Coordinator',
   team_lead: 'Team Lead',
+  owner: 'Owner',
+  admin: 'Admin',
 };
 
 export type GroupRefusal =
@@ -1307,10 +1312,9 @@ export class SubmissionGroupService {
       .displayName(input.userId, group.accountId)
       .catch(unstored);
     if (!name) throw new SubmissionGroupSendRefusedError('UNKNOWN_USER');
-    // The prefix label is the open access row's label; sg_send_begin re-decides under the group lock.
-    const label = await store
-      .openAccessLabel(group.id, input.userId)
-      .catch(unstored);
+    // The prefix label is the open access row's label, else (333) an
+    // unlisted owner/admin's role; sg_send_begin re-decides under the group lock.
+    const label = await store.sendLabel(group.id, input.userId).catch(unstored);
     if (!label) throw new SubmissionGroupSendRefusedError('SEND_NOT_ALLOWED');
     const prefixed = compose(name, STAFF_LABEL_TEXT[label]);
 

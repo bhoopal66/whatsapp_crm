@@ -1257,6 +1257,9 @@
   "ContactsTable": {
     "sortedByRelevance": "While you search, results are ordered by best match.",
     "sortUnavailable": "Sorting by this column needs a database update. The list is shown newest first.",
+    "sortBy": "정렬 기준",
+    "sortAscending": "오름차순 정렬",
+    "sortDescending": "내림차순 정렬",
     "copyNumber": "Copy the phone number of {name}",
     "copyNumberShort": "Copy number",
     "addToCampaign": "Add to campaign",
@@ -1287,6 +1290,7 @@
     "hideEmpty": "Hide empty columns",
     "clearSources": "Clear",
     "filterBySource": "Source",
+    "sourceUnknownFilter": "알 수 없음 (기록된 출처 없음)",
     "source": {
       "ad": "Ad",
       "broadcast": "Broadcast",
@@ -1875,7 +1879,7 @@
         },
         "time_based": {
           "label": "시간 기반",
-          "hint": "반복 일정에 따라"
+          "hint": "일정에 따라, 채팅 태그가 붙은 모든 채팅에 대해"
         }
       },
       "trigger": "트리거",
@@ -1895,6 +1899,8 @@
       },
       "scheduleAt": "At",
       "scheduleCustomLabel": "Cron expression",
+      "scheduleAudience": "대상 채팅 태그",
+      "scheduleRunsHint": "일정의 각 시각(두바이 시간)마다 이 태그가 붙은 모든 채팅에 대해 자동화가 한 번씩 실행됩니다. 자동화 크론이 1분마다 확인하므로 정해진 시각으로부터 1~2분 안에 시작되며, 1시간 넘게 놓친 시각은 건너뛰고 나중에 보충하지 않습니다. 수신을 거부했거나 연락 금지로 표시된 고객은 제외됩니다.",
       "timeHour": "Hour",
       "timeMinute": "Minute",
       "active": "활성",
@@ -12353,6 +12359,9 @@
     "help": "Who is online and how their customers are doing. Updates every 30 seconds and when you come back to this tab.",
     "scopeAll": "Everyone in this workspace",
     "scopeTeam": "The teams you lead, and you",
+    "teamFilter": "팀",
+    "allTeams": "모든 팀",
+    "allMyTeams": "내 모든 팀",
     "refresh": "Refresh",
     "refreshing": "Refreshing...",
     "updated": "Updated {time}",
@@ -13586,6 +13595,8 @@
       "takeDuty": "내가 담당",
       "clearDuty": "해제",
       "empty": "트레이에 대기 중인 항목이 없습니다.",
+      "search": "이름 또는 번호로 검색",
+      "noMatch": "이 이름이나 번호와 일치하는 트레이 문서가 없습니다.",
       "unknownSender": "알 수 없는 발신자",
       "actsFor": "{companies} 대리",
       "received": "{age} 전",
@@ -13697,7 +13708,11 @@
       "from": "시작",
       "to": "종료",
       "remove": "삭제",
-      "saved": "저장됨"
+      "saved": "저장됨",
+      "myTitle": "내 휴가",
+      "myIntro": "휴가 일정을 입력하면 부재 중에 두 번째 코디네이터나 리드가 담당 은행을 대신 맡습니다. 휴가는 권한을 바꾸지 않습니다.",
+      "myNone": "등록된 휴가가 없습니다.",
+      "save": "저장"
     },
     "digest": {
       "title": "고객 일일 알림",
@@ -14039,6 +14054,27 @@
     "modelRow": "{tokens} 토큰 · {calls, plural, other {호출 #회}}",
     "truncated": "일부 기간만 표시합니다. 사용량이 많아 최근 기록만 여기에 요약됩니다.",
     "loadFailed": "사용량을 불러오지 못했습니다"
+  },
+  "StageNames": {
+    "newLead": "신규 리드",
+    "qualified": "검증됨",
+    "proposalSent": "제안서 발송",
+    "negotiation": "협상",
+    "won": "성사",
+    "interested": "관심 있음",
+    "dataCollection": "자료 수집",
+    "review": "검토",
+    "submitted": "제출됨",
+    "bankAcknowledged": "은행 접수 확인",
+    "documentsRequested": "서류 요청됨",
+    "documentsReceived": "서류 접수됨",
+    "underReview": "심사 중",
+    "queryRaised": "문의 제기됨",
+    "queryAnswered": "문의 답변됨",
+    "approved": "승인됨",
+    "declined": "거절됨",
+    "withdrawn": "철회됨",
+    "closed": "종료됨"
   },
   "ChatAssist": {
     "open": "도우미",

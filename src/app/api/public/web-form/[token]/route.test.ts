@@ -5,6 +5,8 @@ vi.mock('@/lib/automations/admin-client', () => ({
   supabaseAdmin: () => ({ rpc }),
 }));
 
+import { edgeRefusals } from '@/lib/metrics/registry';
+
 import { OPTIONS, POST } from './route';
 
 const TOKEN = 'a'.repeat(64);
@@ -249,5 +251,94 @@ describe('OPTIONS /api/public/web-form/[token]', () => {
       params()
     );
     expect(no.status).toBe(403);
+  });
+});
+
+describe('web-form refusals are counted (docs/monitoring.md)', () => {
+  const KINDS = [
+    'webform_rate_limited',
+    'webform_origin_refused',
+    'webform_too_large',
+    'webform_honeypot',
+    'webform_not_found',
+  ] as const;
+  const snap = () =>
+    Object.fromEntries(
+      KINDS.map((k) => [k, edgeRefusals().value({ kind: k })])
+    );
+  /** What each kind grew by since `before`. */
+  const delta = (before: Record<string, number>) =>
+    Object.fromEntries(
+      KINDS.map((k) => [k, edgeRefusals().value({ kind: k }) - before[k]])
+    );
+  const only = (kind: (typeof KINDS)[number]) =>
+    Object.fromEntries(KINDS.map((k) => [k, k === kind ? 1 : 0]));
+  const ok = JSON.stringify({ phone: '971501234567' });
+
+  it('a successful submission counts nothing', async () => {
+    config = { allowed_origins: [] };
+    const before = snap();
+    const res = await POST(post(ok, JSON_TYPE), params());
+    expect(res.status).toBe(200);
+    expect(delta(before)).toEqual(Object.fromEntries(KINDS.map((k) => [k, 0])));
+  });
+
+  it('each refusal counts its own kind once', async () => {
+    config = { allowed_origins: ['https://www.shop.com'] };
+    let before = snap();
+    await POST(
+      post(ok, { ...JSON_TYPE, origin: 'https://evil.example' }),
+      params()
+    );
+    expect(delta(before)).toEqual(only('webform_origin_refused'));
+
+    config = { allowed_origins: [] };
+    before = snap();
+    await POST(
+      post(
+        JSON.stringify({ phone: '9', message: 'x'.repeat(9000) }),
+        JSON_TYPE
+      ),
+      params()
+    );
+    expect(delta(before)).toEqual(only('webform_too_large'));
+
+    before = snap();
+    await POST(
+      post(JSON.stringify({ phone: '971501234567', website: 'x' }), JSON_TYPE),
+      params()
+    );
+    expect(delta(before)).toEqual(only('webform_honeypot'));
+
+    config = null;
+    before = snap();
+    await POST(post(ok, JSON_TYPE), params());
+    expect(delta(before)).toEqual(only('webform_not_found'));
+    before = snap();
+    await POST(post('{}', JSON_TYPE), params('nope'));
+    expect(delta(before)).toEqual(only('webform_not_found'));
+
+    config = { allowed_origins: [] };
+    allowed = false;
+    before = snap();
+    await POST(post(ok, JSON_TYPE), params());
+    expect(delta(before)).toEqual(only('webform_rate_limited'));
+  });
+
+  it('a failing counter never changes the answer', async () => {
+    config = { allowed_origins: ['https://www.shop.com'] };
+    const bare = () => POST(post(ok, JSON_TYPE), params());
+    const normal = await bare();
+    const spy = vi.spyOn(edgeRefusals(), 'inc').mockImplementation(() => {
+      throw new Error('metrics down');
+    });
+    try {
+      const failing = await bare();
+      expect(failing.status).toBe(normal.status);
+      expect(await failing.json()).toEqual(await normal.json());
+      expect(spy).toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

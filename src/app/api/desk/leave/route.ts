@@ -1,3 +1,5 @@
+// GET /api/desk/leave — the caller's own current and future leave
+// (migration 328), any live staff: `{ leave }`.
 // POST /api/desk/leave — `{ userId, firstDay, lastDay, note? }`
 // (YYYY-MM-DD, Asia/Dubai, inclusive) records leave for desk cover
 // (migration 232): one's own, or anyone's by a team leader and up.
@@ -15,6 +17,19 @@ import {
 } from '@/lib/desk/http';
 import { DeskStore } from '@/lib/desk/store';
 import { supabaseAdmin } from '@/lib/submission-groups/server';
+
+export async function GET() {
+  try {
+    const ctx = assertSalesAccess(await getCurrentAccount());
+    const leave = await new DeskStore(supabaseAdmin()).myLeave(
+      ctx.userId,
+      ctx.accountId
+    );
+    return NextResponse.json({ leave });
+  } catch (err) {
+    return deskErrorResponse(err, 'my leave');
+  }
+}
 
 export async function POST(request: Request) {
   try {

@@ -62,6 +62,20 @@ What deliberately does not mirror:
   hides rightwards. A closed expand arrow points in the reading direction
   (`-rotate-90 rtl:rotate-90` on a down chevron).
 
+## Stage names
+
+Built-in stage names are **shown** in the person's language but **stored**
+in English: the default pipeline's stages (New Lead, Qualified, Proposal
+Sent, Negotiation, Won) and the case stages (Interested … Closed, 130's
+`case_default_stages()`). `stageLabel` (`src/lib/i18n/stage-label.ts`,
+strings under `StageNames.*`) recognises a built-in by its exact seeded
+English name, blanks at either end ignored; any other name, one the team
+typed or renamed (a bank's own stage too), is shown exactly as typed. Only
+screens translate: filters, rules, the API, CSV exports and WhatsApp
+messages keep the stored name, and so does the stage name field in
+pipeline settings. A submission-tracker status on a case is shown word for
+word, never translated.
+
 ## The Arabic catalogue
 
 `messages/ar.json` was **machine-translated** from `en.json` into Modern

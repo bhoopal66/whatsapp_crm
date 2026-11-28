@@ -252,11 +252,39 @@ describe('GET /api/submission-groups/[id]', () => {
     expect(body.group.my_label).toBe('coordinator');
   });
 
-  it('lets an admin off the list read but not send', async () => {
-    as('admin', 'u-admin');
+  it.each(['admin', 'owner'])(
+    'lets an %s off the list read and send to an ACTIVE group (333)',
+    async (role) => {
+      as(role, 'u-admin');
+      resolved = role;
+      const body = await (await get()).json();
+      expect(body).toMatchObject({ can_send: true, can_manage: true });
+      expect(body.group.my_label).toBeNull();
+      expect(body.send_label).toBe(role);
+    }
+  );
+
+  it.each(['admin', 'owner'])(
+    'answers a null send_label for an %s on an ENDED group',
+    async (role) => {
+      as(role, 'u-admin');
+      resolved = role;
+      endIt();
+      readable = true;
+      expect((await (await get()).json()).send_label).toBeNull();
+    }
+  );
+
+  it('answers a listed agent their list label as send_label', async () => {
+    expect((await (await get()).json()).send_label).toBe('agent');
+  });
+
+  it('keeps an unlisted agent unable to send', async () => {
+    as('agent', 'u-other');
+    admin.tables.submission_group_access = [];
+    rls.tables.submission_group_access = [];
     const body = await (await get()).json();
-    expect(body).toMatchObject({ can_send: false, can_manage: true });
-    expect(body.group.my_label).toBeNull();
+    expect(body.can_send).toBe(false);
   });
 
   it("answers 404 for another account's group and checks nothing else", async () => {

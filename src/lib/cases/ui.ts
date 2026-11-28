@@ -140,17 +140,24 @@ export function stageChipClass(stage: string | null | undefined): string {
 /**
  * What a case shows as its status: the submission tracker's status word
  * for word once it has sent one, else the CRM stage (a lead, or a case
- * the tracker has not reported on yet). Nothing is translated. The chip
+ * the tracker has not reported on yet). The tracker's status is never
+ * translated; the stage is shown through `showStage` (the screen passes
+ * `stageLabel`, lib/i18n/stage-label.ts, so a built-in stage reads in the
+ * person's language). The chip
  * colour is the tracker status's own (TRACKER_STATUS_CHIP), else that of
  * the stage the status names (137's rule: `_` read as a space, case
  * ignored), else the case's stage colour, so every chip is coloured.
  */
-export function caseStatusView(c: {
-  stage: string;
-  submissionStatus: string | null;
-}): { text: string; chipClass: string } {
+export function caseStatusView(
+  c: {
+    stage: string;
+    submissionStatus: string | null;
+  },
+  showStage: (stage: string) => string = (stage) => stage
+): { text: string; chipClass: string } {
   const status = c.submissionStatus?.trim();
-  if (!status) return { text: c.stage, chipClass: stageChipClass(c.stage) };
+  if (!status)
+    return { text: showStage(c.stage), chipClass: stageChipClass(c.stage) };
   const key = statusKey(status);
   return {
     text: status,
