@@ -109,8 +109,12 @@ activity's limit for automatic senders): over it the request is **held**
 activity's other send checks are not applied. Opt-out and do-not-contact
 are checked again right before each send (`failed` / `opted_out`).
 
-The sent request is recorded in the chat as a bot message. CSAT requests do not count toward, and are not counted by, the
-daily cap shared by HR automated messages and desk digests.
+The sent request is recorded in the chat as a bot message. CSAT requests
+count toward, and are counted by, the **daily cap of 3 automated messages
+per person** (Dubai day) shared with HR automated messages and desk
+digests (327). A request over the cap is **held** (`daily_cap`) until
+the next Dubai day, then goes out within the send hours; one not sent
+within 3 days expires as before.
 
 ## Capturing the reply
 

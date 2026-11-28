@@ -1683,3 +1683,9 @@ jobs:
       # the failure ends it again. Rolled back.
       - name: Verify a failed reply restarts the wait (326)
         run: supabase db query --local --file supabase/ci/verify-failed-reply-waiting.sql
+
+      # Migration 327: one daily cap of 3 automated messages per person
+      # across HR messages, desk digests and CSAT requests (HR holds, the
+      # desk cancels, CSAT holds to the next day). Rolled back.
+      - name: Verify the shared daily cap (327)
+        run: supabase db query --local --file supabase/ci/verify-shared-daily-cap.sql
