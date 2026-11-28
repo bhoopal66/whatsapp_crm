@@ -1277,6 +1277,7 @@ async function runInboundMessage(
     const personalHr = autoOpenRecruiterChat({
       conversationId: conversation.id,
       channelId: channel.id,
+      text: contentText ?? message.text ?? '',
     })
       .catch(() => null)
       .then(() =>
@@ -1703,6 +1704,7 @@ async function runInboundMessage(
   const hrAgents = autoOpenRecruiterChat({
     conversationId: conversation.id,
     channelId: channel.id,
+    text: inboundText,
   })
     .catch(() => null)
     .then(() =>

@@ -682,9 +682,11 @@ describe('processMessage — recruiter agents hook', () => {
       const later: Promise<unknown>[] = [];
       await processMessage(message, 'acct-1', 'owner-1', ch, later);
       expect(h.autoOpen).toHaveBeenCalledTimes(1);
+      // The text goes along so opt-out text never opens the chat (026d F8).
       expect(h.autoOpen.mock.calls[0][0]).toEqual({
         conversationId: 'conv-1',
         channelId: 'ch-1',
+        text: expected.text,
       });
       // The agents hook waits on the auto-open: it runs once later settles.
       await Promise.all(later);
