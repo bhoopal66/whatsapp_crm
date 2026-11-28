@@ -73,7 +73,7 @@ import { replayDropsChange, uploadSignature } from '@/lib/desk/upload-replay';
 
 import { CaseRefStatus } from './case-ref-status';
 import { CompaniesTab } from './companies-tab';
-import { CoverCard } from './cover-card';
+import { CoverCard, MyLeaveCard } from './cover-card';
 import { FilePreview, PreviewBeside } from './file-preview';
 import { TrayTab } from './tray-tab';
 import { deskApi } from './desk-api';
@@ -182,7 +182,12 @@ export function DeskView() {
         </div>
       </Tabs>
       {tab === 'upload' && <UploadTab banks={banks} />}
-      {tab === 'mine' && <MineTab banks={banks} />}
+      {tab === 'mine' && (
+        <div className="space-y-4">
+          <MineTab banks={banks} />
+          <MyLeaveCard key={accountId ?? ''} />
+        </div>
+      )}
       {tab === 'queue' && <QueueTab banks={banks} />}
       {tab === 'tray' && <TrayTab key={accountId ?? ''} isLead={isLead} />}
       {/* Keyed by workspace: a switch never shows the last one's companies. */}

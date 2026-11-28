@@ -1178,6 +1178,11 @@ jobs:
       - name: Verify desk cover and queue alerts
         run: supabase db query --local --file supabase/ci/verify-desk-bank-cover.sql
 
+      # Migration 328: any live staff reads, changes and cancels their own
+      # desk leave; an agent never someone else's; viewer and guest none.
+      - name: Verify desk own leave
+        run: supabase db query --local --file supabase/ci/verify-desk-own-leave.sql
+
       # Migration 233: the application across its banks. One merged
       # checklist of the readable cases' required documents (strictest
       # validity, each case's own status; unreadable cases are not

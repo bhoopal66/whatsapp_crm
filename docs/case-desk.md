@@ -262,7 +262,9 @@ and up):
   coordinator from the people who hold that bank (Settings → Members).
   Someone who stops holding the bank loses the role.
 - **Leave** is entered by the person or a team leader and up (first and
-  last day, Dubai dates). It changes no access.
+  last day, Dubai dates). It changes no access. Every staff member sees
+  their own under My uploads → **My leave** (328), where they add, change
+  and cancel it; an agent never sets anyone else's.
 - **Who covers today:** the primary, else the second, else the lead
   (the desk duty owner, else the workspace owner).
 - **Queue alerts** (instead of load caps): when a bank's sorting queue
@@ -360,7 +362,8 @@ Refusals answer `{ error, code }`.
 | `POST /tray/[id]/suggest` | who may sort the item | a suggested case, advice only |
 | `GET /cover` | team leaders and up | roles, today's cover, leave |
 | `PUT /cover/[bank]` | owners and admins | `{ role, userId }` |
-| `POST /leave`, `DELETE /leave/[id]` | the person, team leaders and up | `{ userId, firstDay, lastDay, note? }` |
+| `POST /leave`, `PATCH /leave/[id]`, `DELETE /leave/[id]` | the person, team leaders and up | `{ userId, firstDay, lastDay, note? }` (PATCH: no `userId`) |
+| `GET /leave` | any staff | the caller's own current and future leave (328) |
 | `GET /tray[?state=]` | team leaders and up, a candidate bank's holders | the tray |
 | `POST /tray/[id]/file` | the same | `{ caseId, confirmCompany? }` |
 | `POST /tray/[id]/dismiss` | the same | `{ reason }` |
