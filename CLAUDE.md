@@ -239,7 +239,10 @@ one file), after `supabase/ci/classic-grants.sql` restores the default grants
 a classic Supabase project gives `anon` / `authenticated` / `service_role`,
 which the CLI's current image no longer sets and the migrations assume. A
 verify file that commits its fixtures (older ones do) leaves its users behind:
-give a new file's fixture emails a prefix of its own. Apply 082 and 083 in separate runs (a
+give a new file's fixture emails a prefix of its own. In a verify file, read
+a row back in a separate statement from the call that writes it: a subquery
+in the same expression sees the snapshot from before the call (327's cap
+check once read a held row as still queued). Apply 082 and 083 in separate runs (a
 new enum value cannot be used in the transaction that adds it); 087 and
 088 refuse to apply except as a superuser or BYPASSRLS role. A schema
 change ships as: new numbered
