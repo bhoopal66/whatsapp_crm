@@ -1730,3 +1730,10 @@ jobs:
       # admins still cannot; a listed agent still can. Rolled back.
       - name: Verify owner/admin send to submission groups (333)
         run: supabase db query --local --file supabase/ci/verify-sg-admin-send.sql
+
+      # 334: the send-protection decision log is append-only and read by
+      # owners/admins only; a spend add past the cap is refused and leaves
+      # the total unchanged; only owners/admins set caps; recipient
+      # signals count on a fixture. Rolled back.
+      - name: Verify send protection stores (334)
+        run: supabase db query --local --file supabase/ci/verify-send-protection.sql
