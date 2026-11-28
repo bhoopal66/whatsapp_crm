@@ -243,9 +243,14 @@ export const deskApi = {
       created: b.created === true,
     })),
   // WhatsApp routing and the tray (migration 230)
-  tray: (state: TrayState = 'open', limit: number = TRAY_PAGE) =>
+  tray: (
+    state: TrayState = 'open',
+    limit: number = TRAY_PAGE,
+    q: string | null = null
+  ) =>
     call(
-      `/api/desk/tray?state=${state}&limit=${limit}`,
+      `/api/desk/tray?state=${state}&limit=${limit}` +
+        (q === null ? '' : `&q=${encodeURIComponent(q)}`),
       undefined,
       (b) => b as unknown as TrayPage
     ),

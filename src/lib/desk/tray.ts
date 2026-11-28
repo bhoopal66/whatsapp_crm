@@ -73,6 +73,23 @@ export interface TrayPage {
 export const TRAY_PAGE = 100;
 export const TRAY_PAGE_MAX = 1000;
 
+/** The longest tray search (329's `p_q`) the route passes on. */
+export const TRAY_SEARCH_MAX = 100;
+
+/**
+ * The tray search as typed -> what `desk_tray_page` gets as `p_q`
+ * (migration 329): trimmed, cut to `TRAY_SEARCH_MAX` characters (whole
+ * characters, never half an Arabic or emoji pair), and null when nothing
+ * is left, which is the tray unsearched. The SQL matches the name and,
+ * for a phone-looking text, the digits; this only bounds the input.
+ */
+export function normaliseTraySearch(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const cut = Array.from(raw.trim()).slice(0, TRAY_SEARCH_MAX).join('');
+  const q = cut.trim();
+  return q === '' ? null : q;
+}
+
 export interface DeskSettings {
   routingEnabled: boolean;
   deskChannelIds: string[];

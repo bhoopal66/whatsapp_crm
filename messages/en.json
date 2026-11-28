@@ -13594,6 +13594,8 @@
       "takeDuty": "Put me on duty",
       "clearDuty": "Clear",
       "empty": "Nothing is waiting in the tray.",
+      "search": "Search by name or number",
+      "noMatch": "No document in the tray matches this name or number.",
       "unknownSender": "Unknown sender",
       "actsFor": "Acts for {companies}",
       "received": "{age} ago",

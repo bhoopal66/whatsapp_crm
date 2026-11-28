@@ -4,7 +4,13 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { DESK_REFUSALS } from './store';
-import { TRAY_REASONS, needsCompanyConfirm, parseCandidates } from './tray';
+import {
+  TRAY_REASONS,
+  TRAY_SEARCH_MAX,
+  needsCompanyConfirm,
+  normaliseTraySearch,
+  parseCandidates,
+} from './tray';
 
 const SQL = readFileSync(
   join(process.cwd(), 'supabase/migrations/230_desk_whatsapp_routing.sql'),
@@ -75,5 +81,48 @@ describe('desk tray (migration 230)', () => {
       },
     ]);
     expect(parseCandidates(null)).toEqual([]);
+  });
+});
+
+describe('tray search (migration 329)', () => {
+  it('trims, and is no search when nothing is left', () => {
+    expect(normaliseTraySearch('  أحمد  ')).toBe('أحمد');
+    expect(normaliseTraySearch(' +971 50 ')).toBe('+971 50');
+    for (const blank of ['', '   ', '\t\n', null, undefined, 42])
+      expect(normaliseTraySearch(blank)).toBeNull();
+  });
+
+  it('keeps the text as typed: the SQL escapes it', () => {
+    expect(normaliseTraySearch('50%_x\\')).toBe('50%_x\\');
+  });
+
+  it('cuts at whole characters', () => {
+    expect(normaliseTraySearch('a'.repeat(250))).toBe(
+      'a'.repeat(TRAY_SEARCH_MAX)
+    );
+    const cut = normaliseTraySearch('😀'.repeat(TRAY_SEARCH_MAX + 5))!;
+    expect(Array.from(cut)).toHaveLength(TRAY_SEARCH_MAX);
+    expect(cut.endsWith('😀')).toBe(true);
+    // A space left at the cut is trimmed too.
+    expect(normaliseTraySearch('a'.repeat(TRAY_SEARCH_MAX - 1) + ' b')).toBe(
+      'a'.repeat(TRAY_SEARCH_MAX - 1)
+    );
+  });
+
+  it('is a trailing parameter with a default, re-granted as 303 did', () => {
+    const sql = readFileSync(
+      join(process.cwd(), 'supabase/migrations/329_desk_tray_search.sql'),
+      'utf8'
+    );
+    expect(sql).toContain(
+      'DROP FUNCTION IF EXISTS public.desk_tray_page(uuid, uuid, text, integer, timestamptz);'
+    );
+    expect(sql).toContain('p_q text DEFAULT NULL)');
+    expect(sql).toMatch(
+      /REVOKE ALL ON FUNCTION public\.desk_tray_page\(uuid, uuid, text, integer, timestamptz, text\)\s+FROM PUBLIC, anon, authenticated, service_role;/
+    );
+    expect(sql).toMatch(
+      /GRANT EXECUTE ON FUNCTION public\.desk_tray_page\(uuid, uuid, text, integer, timestamptz, text\)\s+TO service_role;/
+    );
   });
 });
