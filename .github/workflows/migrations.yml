@@ -1170,6 +1170,15 @@ jobs:
         env:
           CI_DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
 
+      # Migration 329: the tray searched by the customer's name (Arabic
+      # too) or phone digits, literal text, never wider than the caller's
+      # tray; no search answers what 303 did.
+      - name: Verify desk tray search
+        # Several statements: `supabase db query` takes one.
+        run: psql "$CI_DB_URL" -v ON_ERROR_STOP=1 -q -f supabase/ci/verify-desk-tray-search.sql
+        env:
+          CI_DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+
       # Migration 231: one document across a company's bank cases (design
       # 035 slice B). A trigger refuses a cross-customer case file on
       # every insert; desk_doc_link needs the same company and a live

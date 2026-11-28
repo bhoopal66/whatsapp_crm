@@ -665,7 +665,8 @@ export class DeskStore {
     actor: string,
     account: string,
     state: TrayState = 'open',
-    limit: number = TRAY_PAGE
+    limit: number = TRAY_PAGE,
+    q: string | null = null
   ): Promise<TrayPage> {
     const [page] = await this.rpc('desk_tray_page', {
       p_actor: actor,
@@ -673,6 +674,8 @@ export class DeskStore {
       p_state: state,
       p_limit: limit,
       p_now: this.now(),
+      // 329: only a search names p_q, so an unsearched tray is 303's call.
+      ...(q === null ? {} : { p_q: q }),
     });
     if (!page || !Array.isArray(page.items))
       throw new DeskStoreError('desk_tray_page', null);

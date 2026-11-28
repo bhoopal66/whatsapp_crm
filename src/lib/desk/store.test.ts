@@ -180,3 +180,26 @@ describe('settings versions (316)', () => {
     expect(calls[0].fn).toBe('desk_digest_settings_read');
   });
 });
+
+describe('tray search (329)', () => {
+  const PAGE = { items: [], total: 0 };
+
+  it('passes a search as p_q', async () => {
+    const { store, calls } = storeAnswering({ data: [PAGE] });
+    await store.tray('u', 'a', 'open', 100, 'أحمد');
+    expect(calls[0].fn).toBe('desk_tray_page');
+    expect(calls[0].args).toMatchObject({
+      p_actor: 'u',
+      p_account: 'a',
+      p_state: 'open',
+      p_limit: 100,
+      p_q: 'أحمد',
+    });
+  });
+
+  it('names no p_q for the unsearched tray', async () => {
+    const { store, calls } = storeAnswering({ data: [PAGE] });
+    await store.tray('u', 'a');
+    expect(calls[0].args).not.toHaveProperty('p_q');
+  });
+});

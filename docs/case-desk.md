@@ -188,6 +188,9 @@ alone**:
   legal name typed. Another person's document is copied through the
   desk intake in the sorter's name. Dismissing needs a reason; the
   document stays in the customer's archive.
+- **Search the tray** by the customer's name (Arabic too) or phone
+  number: the box narrows the items you already see, never more; a
+  number matches its digits, so "+971 50" finds 97150…. (Migration 329.)
 - **Duty owner and escalation.** A team leader puts someone on duty;
   new tray items carry them. An item still open after the delay
   (default 120 minutes, 15–1440) becomes one follow-up task for the duty
@@ -364,7 +367,7 @@ Refusals answer `{ error, code }`.
 | `PUT /cover/[bank]` | owners and admins | `{ role, userId }` |
 | `POST /leave`, `PATCH /leave/[id]`, `DELETE /leave/[id]` | the person, team leaders and up | `{ userId, firstDay, lastDay, note? }` (PATCH: no `userId`) |
 | `GET /leave` | any staff | the caller's own current and future leave (328) |
-| `GET /tray[?state=]` | team leaders and up, a candidate bank's holders | the tray |
+| `GET /tray[?state=&q=]` | team leaders and up, a candidate bank's holders | the tray |
 | `POST /tray/[id]/file` | the same | `{ caseId, confirmCompany? }` |
 | `POST /tray/[id]/dismiss` | the same | `{ reason }` |
 | `GET /settings`, `PUT /settings` | staff / owners and admins | routing switch, desk numbers, escalation delay |
