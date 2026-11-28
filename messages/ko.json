@@ -4712,6 +4712,43 @@
         "title": "내선",
         "linked": "사람과 연결된 내선 {count, plural, other {#개}}",
         "manage": "내선 관리"
+      },
+      "serviceDetails": {
+        "title": "통화 후 서비스 안내",
+        "hint": "상담원이 고객의 통화를 처리하면 고객에게 승인된 유틸리티 WhatsApp 템플릿 하나가 발송됩니다. {one}은(는) 고객 이름, {two}은(는) 서비스 이름입니다. 수신 거부한 고객에게는 발송되지 않으며, 고객당 하루 3건의 공용 자동 메시지 한도에 포함됩니다.",
+        "loadFailed": "서비스 안내 설정을 불러오지 못했습니다.",
+        "retry": "다시 시도",
+        "enabled": "서비스 안내 발송",
+        "on": "켜짐",
+        "off": "꺼짐",
+        "needTemplate": "먼저 승인된 유틸리티 템플릿을 선택하세요.",
+        "template": "템플릿",
+        "chooseTemplate": "템플릿 선택",
+        "noTemplates": "아직 승인된 유틸리티 템플릿이 없습니다.",
+        "language": "템플릿 언어",
+        "minSeconds": "최소 통화 시간(초)",
+        "inbound": "수신 통화 후",
+        "outbound": "발신 통화 후",
+        "save": "저장",
+        "saved": "서비스 안내 설정을 저장했습니다.",
+        "saveFailed": "서비스 안내 설정을 저장하지 못했습니다.",
+        "map": {
+          "title": "서비스 매핑",
+          "hint": "통화가 어떤 서비스에 관한 것인지 대기열, 착신 번호(DID) 또는 내선으로 지정합니다. 일치하는 항목이 없으면 \"your enquiry\"로 표시됩니다.",
+          "type": "매칭 유형",
+          "value": "값",
+          "label": "서비스 이름(최대 60자)",
+          "save": "저장",
+          "saved": "서비스 매핑을 저장했습니다.",
+          "saveFailed": "서비스 매핑을 저장하지 못했습니다.",
+          "delete": "삭제",
+          "add": "추가",
+          "types": {
+            "queue": "대기열",
+            "did": "번호(DID)",
+            "extension": "내선"
+          }
+        }
       }
     },
     "consentRetention": {

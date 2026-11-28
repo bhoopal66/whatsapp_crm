@@ -4712,6 +4712,43 @@
         "title": "Extensions",
         "linked": "{count, plural, one {# extension} other {# extensions}} linked to people",
         "manage": "Manage extensions"
+      },
+      "serviceDetails": {
+        "title": "Service details after a call",
+        "hint": "After an agent handles a customer's call, the customer gets one approved utility WhatsApp template: {one} is the customer's name, {two} the service label. Opted-out customers get nothing, and it shares the daily cap of 3 automated messages per customer.",
+        "loadFailed": "Could not load the service details settings.",
+        "retry": "Retry",
+        "enabled": "Send service details",
+        "on": "On",
+        "off": "Off",
+        "needTemplate": "Choose an approved utility template first.",
+        "template": "Template",
+        "chooseTemplate": "Choose a template",
+        "noTemplates": "No approved utility templates yet.",
+        "language": "Template language",
+        "minSeconds": "Minimum talk time (seconds)",
+        "inbound": "After inbound calls",
+        "outbound": "After outbound calls",
+        "save": "Save",
+        "saved": "Service details settings saved.",
+        "saveFailed": "Could not save the service details settings.",
+        "map": {
+          "title": "Service map",
+          "hint": "Which service a call was about, by queue, number dialled (DID) or extension. A call with no match says \"your enquiry\".",
+          "type": "Match type",
+          "value": "Value",
+          "label": "Service label (up to 60 characters)",
+          "save": "Save",
+          "saved": "Service map saved.",
+          "saveFailed": "Could not save the service map.",
+          "delete": "Delete",
+          "add": "Add",
+          "types": {
+            "queue": "Queue",
+            "did": "Number (DID)",
+            "extension": "Extension"
+          }
+        }
       }
     },
     "consentRetention": {

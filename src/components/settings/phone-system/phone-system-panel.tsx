@@ -30,6 +30,7 @@ import { cn } from '@/lib/utils';
 
 import { SettingsPanelHead } from '../settings-panel-head';
 import { ConnectionDialog } from './connection-dialog';
+import { ServiceDetailsCard } from './service-details-card';
 import { DOT, pbxFetch, type PbxResult } from './fetch';
 import {
   OutcomeRuleCard,
@@ -312,6 +313,7 @@ function AdminPanel() {
       <RoutesCard connected={!!conn} onRoutes={setRoutes} />
       <ExtensionsLinkCard mapped={conn?.mappedExtensions ?? 0} />
       <RecordingRulesCard />
+      <ServiceDetailsCard />
 
       <ConnectionDialog
         key={formKey}
