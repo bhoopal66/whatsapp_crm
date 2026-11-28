@@ -388,9 +388,8 @@ relying on them.
    collected for another bank. No per-bank block is needed.
 3. **Data role.** Taamul is the controller: it decides how customer data
    is used and answers export and erase requests itself (Privacy screen).
-4. **KYC/AML retention.** Case records are kept for 5 years after the
-   case closes; an erase request does not remove them before then. Not
-   built yet: today bank cases and their files are kept with no end
-   date, and no sweep removes them once the 5 years have passed.
+4. **KYC/AML retention.** Case records are kept with no end date, after
+   the case closes too; an erase request never removes them. Built as is:
+   no sweep removes bank cases or their files.
 5. **Reminders.** A pending-document reminder is a service message, not
    marketing. Built as is (off by default).
