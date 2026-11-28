@@ -58,7 +58,8 @@ export async function POST(
   if (!connectionId) return refuse(404, 'Not found');
   // Over the limit: 200 and nothing processed. A webhook never answers
   // 429 (the sender would only retry sooner), so the push is dropped
-  // here; the PBX call-history sync recovers anything that was lost.
+  // here. Nothing replays it on its own: a lost call's record can be
+  // imported afterwards with scripts/pbx-import-cdr.ts (docs/yeastar.md).
   if (!rate.allowed) return Response.json({ status: 'ignored' });
 
   let secret: string | null;
