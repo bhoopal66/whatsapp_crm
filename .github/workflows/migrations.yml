@@ -1723,3 +1723,10 @@ jobs:
       # desk cancels, CSAT holds to the next day). Rolled back.
       - name: Verify the shared daily cap (327)
         run: supabase db query --local --file supabase/ci/verify-shared-daily-cap.sql
+
+      # Migration 333: an owner or admin of a submission group's account
+      # sends to any ACTIVE group of it unlisted; ENDED groups, unlisted
+      # agents and viewers, deactivated admins and other workspaces'
+      # admins still cannot; a listed agent still can. Rolled back.
+      - name: Verify owner/admin send to submission groups (333)
+        run: supabase db query --local --file supabase/ci/verify-sg-admin-send.sql

@@ -6,7 +6,13 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import type { GroupStatus, StaffLabel } from './rules';
+import {
+  isArchiveRole,
+  isStaffLabel,
+  type GroupRole,
+  type GroupStatus,
+  type StaffLabel,
+} from './rules';
 
 /** 136: whether a WhatsApp group exists (or will) for a submission. */
 export type WaMode = 'group' | 'none';
@@ -492,6 +498,17 @@ export class SubmissionGroupStore {
     groupId: string,
     userId: string
   ): Promise<StaffLabel | null> {
+    const label = await this.sendLabel(groupId, userId);
+    return label !== null && isStaffLabel(label) ? label : null;
+  }
+
+  /**
+   * The send prefix's label: openAccessLabel's, else (333) 'owner' / 'admin'
+   * for an unlisted owner/admin of the group's account, as sg_resolve_role
+   * answers. A listed owner/admin keeps the row's label. Null: no label to
+   * send with. sg_can_send still decides under the group lock.
+   */
+  async sendLabel(groupId: string, userId: string): Promise<GroupRole | null> {
     const { data, error } = await this.db
       .from('submission_group_access')
       .select('label')
@@ -503,7 +520,11 @@ export class SubmissionGroupStore {
     const label = (data as Row | null)?.label as StaffLabel | undefined;
     if (label) return label;
     const role = await this.resolveRole(groupId, userId);
-    return role === 'team_lead' || role === 'coordinator' ? role : null;
+    return role === 'team_lead' ||
+      role === 'coordinator' ||
+      (role !== null && isArchiveRole(role))
+      ? role
+      : null;
   }
 
   async resolveRole(groupId: string, userId: string): Promise<string | null> {

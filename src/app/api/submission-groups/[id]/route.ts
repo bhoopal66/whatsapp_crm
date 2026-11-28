@@ -36,7 +36,11 @@ import {
   submissionGroupStore,
   supabaseAdmin,
 } from '@/lib/submission-groups/server';
-import type { StaffLabel } from '@/lib/submission-groups/rules';
+import {
+  canSend,
+  isArchiveRole,
+  type StaffLabel,
+} from '@/lib/submission-groups/rules';
 import { toMessage } from '@/lib/submission-groups/store';
 import {
   loadBanks,
@@ -145,7 +149,12 @@ export async function GET(request: Request, { params }: Params) {
       messages: messages.map((m) => toMessageView(m, names)),
       ...paging,
       archive_available: !active,
-      can_send: active && myLabel !== null,
+      // 333: an owner/admin of the account sends to an ACTIVE group unlisted.
+      can_send: canSend(
+        isArchiveRole(ctx.role) ? ctx.role : myLabel,
+        group.status,
+        myLabel !== null
+      ),
       can_manage: canManageSubmissionGroups(ctx.role),
       caseId,
     });
