@@ -5,7 +5,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 // The phone menu (the sidebar as a drawer) is slid off screen when
 // closed, which hides it from the eye but not from Tab or a screen
 // reader. A closed drawer must carry `inert`; an open one must not.
-// useMediaQuery is false on the server, i.e. "a phone".
+// useMediaQuery is false on the server, i.e. "not a phone": the drawer
+// turns inert only once the client knows it is on a phone.
 
 const mocks = vi.hoisted(() => ({ desktop: false }));
 
@@ -19,7 +20,8 @@ vi.mock('next-intl', () => ({
 }));
 vi.mock('sonner', () => ({ toast: { error: vi.fn() } }));
 vi.mock('@/hooks/use-media-query', () => ({
-  useMediaQuery: () => mocks.desktop,
+  useMediaQuery: (query: string) =>
+    query.includes('max-width') ? !mocks.desktop : mocks.desktop,
 }));
 vi.mock('@/hooks/use-auth', () => ({
   useAuth: () => ({

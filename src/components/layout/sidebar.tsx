@@ -240,10 +240,11 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
   // Closed on a phone the drawer is only slid off screen, so its links
   // would stay in the tab order and the screen reader's reading order.
   // `inert` removes both. The server render (and the first paint) counts
-  // as a phone, so the closed drawer is inert from the first byte; on a
-  // desktop the sidebar is always on screen and never inert.
-  const isDesktop = useMediaQuery('(min-width: 1024px)');
-  const drawerHidden = !open && !isDesktop;
+  // as a desktop, where the sidebar is always on screen: an inert first
+  // paint would leave a desktop sidebar unclickable until hydration (the
+  // 700 ms tunnel). A phone's closed drawer turns inert once hydrated.
+  const isPhone = useMediaQuery('(max-width: 1023px)');
+  const drawerHidden = !open && isPhone;
   useEffect(() => {
     if (!open) return;
     const aside = asideRef.current;
