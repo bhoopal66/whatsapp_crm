@@ -174,8 +174,9 @@ describe('ConversationItem, HR row', () => {
       }),
       { hrChips: true, showAssignee: true }
     );
+    // The package's staff ring: a teal ring drawn over the avatar.
     expect(html).toMatch(
-      /role="img" aria-label="Staff" class="border-primary[^"]*"/
+      /role="img" aria-label="Staff" class="[^"]*"><div[^>]*>V<\/div><span aria-hidden="true" class="border-wa-teal [^"]*border-2"/
     );
     expect(html).toMatch(/aria-label="Topic: [^"]+"/);
     expect(html).toContain('aria-label="Reply state: Waiting on them"');
