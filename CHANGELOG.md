@@ -37,6 +37,9 @@ and polish.
 - **A deleted in-chat note disappears for everyone at once**, and its
   text is gone immediately. **Migration required: 332** (apply in order,
   once). Reload open tabs after deploying: an old tab cannot delete notes.
+- **Arabic and Korean screens show built-in stage names translated**
+  ("New Lead", "Submitted"…); names your team typed or renamed, and
+  exports, stay as stored. The translations still need a native reader.
 - Live view: a team filter.
 - Web-form refusals are counted on the monitoring page.
 - Phones: a "Sort by" control in Contacts; the closed menu can no longer
