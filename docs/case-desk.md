@@ -237,7 +237,8 @@ application number and `{{2}}` for what is missing, for example:
 - **At send time** everything is checked again: the switch and the
   template, quiet hours (none before 08:00 or from 21:00 Dubai),
   opt-out, and the **daily cap of 3 automated messages per person**,
-  counted across HR automated messages and these reminders. A send whose
+  counted across HR automated messages, these reminders and CSAT rating
+  requests (327). A reminder over the cap is cancelled. A send whose
   result never came back is marked *unconfirmed* and never resent.
 - **STOP:** replying STOP (or *unsubscribe*, *توقف*, *إيقاف*) to a
   reminder received in the last 30 days opts the person out.
@@ -248,9 +249,8 @@ application number and `{{2}}` for what is missing, for example:
   do-not-contact are checked again right before each send (`opted_out`).
 - A reminder is a service message, not marketing (owner's decision,
   28 Nov 2026), so it needs no marketing opt-in; STOP, opt-out and quiet
-  hours still apply. HR automated messages do not yet count reminders
-  toward their own cap (a person could get 3 HR messages and a
-  reminder in one day).
+  hours still apply. Since 327 HR automated messages, reminders and CSAT
+  requests all count each other toward the one cap of 3 a day.
 
 ## Coordinators, leave and cover
 
