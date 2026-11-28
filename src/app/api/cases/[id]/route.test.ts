@@ -4,6 +4,7 @@ const m = vi.hoisted(() => ({
   getCurrentAccount: vi.fn(),
   store: {} as Record<string, ReturnType<typeof vi.fn>>,
   timers: vi.fn(),
+  canSend: vi.fn(),
 }));
 
 vi.mock('@/lib/auth/account', async (importOriginal) => ({
@@ -13,6 +14,16 @@ vi.mock('@/lib/auth/account', async (importOriginal) => ({
 vi.mock('@/lib/cases/server', () => ({
   caseStore: () => m.store,
   caseSlaStore: () => ({ timers: m.timers }),
+}));
+// 333: sg_can_send through the service-role store, by group status and
+// whether the caller is listed or an owner/admin of the account.
+const group = {
+  status: 'ACTIVE',
+  listed: [] as string[],
+  admins: [] as string[],
+};
+vi.mock('@/lib/submission-groups/server', () => ({
+  submissionGroupStore: () => ({ canSend: m.canSend }),
 }));
 
 import { CaseRefusedError } from '@/lib/cases/store';
@@ -74,6 +85,14 @@ beforeEach(() => {
     setDue: vi.fn(async () => true),
   };
   m.timers.mockResolvedValue([]);
+  group.status = 'ACTIVE';
+  group.listed = [];
+  group.admins = [];
+  m.canSend.mockImplementation(
+    async (_g: string, u: string) =>
+      group.status === 'ACTIVE' &&
+      (group.listed.includes(u) || group.admins.includes(u))
+  );
   reason.data = null;
   reason.error = null;
   settings.data = null;
@@ -120,7 +139,12 @@ describe('GET /api/cases/[id]', () => {
     expect(await res.json()).toEqual({
       case: aCase(),
       role: 'coordinator',
-      permissions: { canWrite: true, canReassign: false, canSeeAudit: false },
+      permissions: {
+        canWrite: true,
+        canReassign: false,
+        canSeeAudit: false,
+        canSendToGroup: false,
+      },
       stages: ['New', 'Approved'],
       history: { stages: [], reassignments: [], details: [] },
       timers: [],
@@ -206,6 +230,60 @@ describe('GET /api/cases/[id]', () => {
       canWrite: true,
       canReassign: true,
       canSeeAudit: true,
+      canSendToGroup: false,
+    });
+  });
+
+  describe('canSendToGroup (333)', () => {
+    const perms = async () => (await (await get()).json()).permissions;
+
+    it.each([
+      ['owner', 'super_admin'],
+      ['admin', 'admin'],
+    ])(
+      'is true for an unlisted %s on an ACTIVE group, false once ENDED',
+      async (accountRole, caseRole) => {
+        m.getCurrentAccount.mockResolvedValue({
+          userId: 'u-boss',
+          accountId: 'acct-1',
+          role: accountRole,
+          supabase: { from },
+        });
+        m.store.role.mockResolvedValue(caseRole);
+        group.admins = ['u-boss'];
+        expect(await perms()).toMatchObject({
+          canWrite: true,
+          canSendToGroup: true,
+        });
+        expect(m.canSend).toHaveBeenCalledWith('g-1', 'u-boss');
+        group.status = 'ENDED';
+        expect((await perms()).canSendToGroup).toBe(false);
+      }
+    );
+
+    it('is false for an unlisted agent, and leaves canWrite as the case rule', async () => {
+      m.store.role.mockResolvedValue('agent');
+      expect(await perms()).toMatchObject({
+        canWrite: true,
+        canSendToGroup: false,
+      });
+      group.listed = ['u-me'];
+      expect((await perms()).canSendToGroup).toBe(true);
+    });
+
+    it('is false for a lead without asking, and when the check fails', async () => {
+      m.store.get.mockResolvedValue(aCase({ groupId: null }));
+      expect((await perms()).canSendToGroup).toBe(false);
+      expect(m.canSend).not.toHaveBeenCalled();
+      m.store.get.mockResolvedValue(aCase());
+      group.admins = ['u-me'];
+      const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+      m.canSend.mockRejectedValueOnce(new Error('sg_can_send: down'));
+      const res = await get();
+      expect(res.status).toBe(200);
+      expect((await res.json()).permissions.canSendToGroup).toBe(false);
+      expect(log).toHaveBeenCalled();
+      log.mockRestore();
     });
   });
 });

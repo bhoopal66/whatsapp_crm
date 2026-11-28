@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import en from '../../../messages/en.json';
 import {
   composerDone,
+  conversationFooter,
   formatDuration,
   groupTimelineByDay,
   parseAuditRows,
@@ -280,5 +281,40 @@ describe('parsers', () => {
       ],
     });
     expect(rows.map((r) => r.id)).toEqual(['2', '1']);
+  });
+});
+
+describe('conversationFooter (333)', () => {
+  const live = { archived: false, endedInView: false, noGroup: false };
+  it('shows the composer to whoever may send to the group, canWrite or not', () => {
+    expect(
+      conversationFooter({
+        ...live,
+        permissions: { canWrite: false, canSendToGroup: true },
+      })
+    ).toBe('composer');
+    expect(
+      conversationFooter({
+        ...live,
+        permissions: { canWrite: true, canSendToGroup: false },
+      })
+    ).toBe('cannotSend');
+  });
+  it('shows nothing under an ended group (unless it ended in view) or no group', () => {
+    const permissions = { canWrite: true, canSendToGroup: true };
+    expect(
+      conversationFooter({ ...live, archived: true, permissions })
+    ).toBeNull();
+    expect(
+      conversationFooter({
+        ...live,
+        archived: true,
+        endedInView: true,
+        permissions,
+      })
+    ).toBe('composer');
+    expect(
+      conversationFooter({ ...live, noGroup: true, permissions })
+    ).toBeNull();
   });
 });
