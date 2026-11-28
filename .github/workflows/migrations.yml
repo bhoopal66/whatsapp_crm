@@ -1700,6 +1700,13 @@ jobs:
       - name: Verify chat-media is private (321)
         run: supabase db query --local --file supabase/ci/verify-chat-media-private.sql
 
+      # Migration 323: the in-chat AI assistant. The switch is off by
+      # default; only an admin+ of the active account sets it; members
+      # read it, other workspaces do not; the usage log takes
+      # 'chat_assist' and keeps 290's list. Rolled back.
+      - name: Verify chat assistant (323)
+        run: supabase db query --local --file supabase/ci/verify-chat-assist.sql
+
       # Migration 324: a time-based automation claims each (chat,
       # occurrence) once; a second claim writes nothing. Rolled back.
       - name: Verify time-based automation claims (324)

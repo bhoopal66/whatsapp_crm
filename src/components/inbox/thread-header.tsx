@@ -45,6 +45,7 @@ import type {
 } from '@/lib/inbox/conversations';
 
 import { AssignConfirmDialog } from './assign-confirm-dialog';
+import { AssistantPanelButton } from './assistant-panel';
 import { ContactAvatar } from './contact-avatar';
 import { ShareToChatButton } from '@/components/chat/share-to-chat-dialog';
 import { CallButton } from '@/components/pbx/call-button';
@@ -120,6 +121,12 @@ export interface ThreadHeaderProps {
    * chats only, see MessageThread); null shows nothing.
    */
   serviceWindowCountdown?: { hours: number; minutes: number } | null;
+  /**
+   * The Assistant panel's "Put in reply box" (migration 323): the draft
+   * joins this chat's composer, never sent by itself. The panel renders
+   * only when this is provided.
+   */
+  onUseAssistantDraft?: (conversationId: string, text: string) => void;
 }
 
 export function ThreadHeader({
@@ -144,6 +151,7 @@ export function ThreadHeader({
   onToggleContactPanel,
   sharedBank = null,
   serviceWindowCountdown = null,
+  onUseAssistantDraft,
 }: ThreadHeaderProps) {
   const t = useTranslations('Inbox.messageThread');
   const tShare = useTranslations('Coordinators.share');
@@ -548,6 +556,16 @@ export function ThreadHeader({
                   customerName={displayName}
                   assignableProfiles={assignableProfiles}
                   currentUserId={currentUserId}
+                />
+              )}
+              {/* The AI assistant (323): shows itself only while the
+              workspace has it on, or to an owner/admin who can switch it
+              on. Not for a share-only coordinator, like the task button. */}
+              {!shareOnly && onUseAssistantDraft && (
+                <AssistantPanelButton
+                  key={`assist-${conversation.id}`}
+                  conversationId={conversation.id}
+                  onUseDraft={onUseAssistantDraft}
                 />
               )}
               {!shareOnly && !personalOwnerId && (

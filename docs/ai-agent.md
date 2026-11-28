@@ -391,6 +391,54 @@ document or video, only a reply that quotes the original question counts
 made of nothing but holding words ("please wait 3 working days" is an
 answer).
 
+## The Assistant panel (migration 323)
+
+A side panel on an open inbox chat, for the person working it. It is
+**off** until an owner or admin switches it on for the workspace (the
+switch is at the top of the panel; owners and admins always see the
+button, everyone else only while it is on), and it is for **agents and
+up**. It does four things:
+
+- **Summarise**: who the customer is, what they want, what is pending and
+  the last thing we promised, in the person's own app language.
+- **Draft a reply**: the composer's own draft prompt (the chat's
+  language, the knowledge base, the campaign the customer answers).
+  *Put in reply box* adds it to what is typed there; the person edits and
+  sends it. The panel never sends.
+- **Ask**: a free question about the chat ("which documents are
+  missing?", "did we promise a call back?"), answered from the chat only.
+- **Suggest actions**: up to four cards, at most one of each kind: set a
+  chat tag (main and sub), create a follow-up task (the person's own,
+  source chat), assign the chat (only to people the person's own Assign
+  menu offers), add an internal note. Nothing changes until the person
+  presses **Confirm** on a card; **Dismiss** throws it away. Cards left
+  open when the panel closes or the chat changes are dismissed.
+
+**How it is kept safe.** The panel is the first caller of the assistant
+safety layer (`docs/assistant-safety.md`). The chat is read through a
+READ tool on the person's own database client, so only what they can see
+goes in, at most the last 60 messages (each clipped); team notes never do.
+Each suggestion is a WRITE tool call made in the `supervised` mode: the
+database records a pending action (5 minutes, at most 5 open per person)
+and nothing runs. Confirm sends the person's session confirmation
+(`POST /api/assist/pending/[id]`) and then the same action, with the
+same arguments, through the guard again (`POST
+/api/assist/chat/[id]/run`), which consumes it once; the write itself
+goes through the same path the rest of the inbox uses (tags compare-and-set
+with their automations, the tasks insert, the assign write, the notes
+table), as the person, so the database still decides. No tool sends to
+a customer and none is DANGEROUS. Tags and teammates go to the model as
+ordinals (T1, T1.2, M3), never ids; the server maps them back and drops
+anything it does not recognise.
+
+**Key and cost.** The workspace's own AI key and model (AI Agents →
+Assistant), through the same provider path as the composer's draft,
+which masks identifiers and asks the transfer register first (purpose
+`chat_assist`). Spend is logged as mode `chat_assist` and shows as
+"Chat assistant" in Token usage. Requests share the AI draft's limits
+(20 a minute per person, 60 per workspace) and the safety layer's (30 tool
+calls a minute per person).
+
 ## Translate (migration 154)
 
 Two inbox buttons use the same AI key as the bot and **Draft with AI**.
