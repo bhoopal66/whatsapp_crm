@@ -1495,6 +1495,11 @@ jobs:
       - name: Verify chat media owner
         run: supabase db query --local --file supabase/ci/verify-chat-media-owner.sql
 
+      # Migration 322: only agents and up of the active workspace write
+      # chat-media and flow-media from a session. Rolled back.
+      - name: Verify media upload role
+        run: supabase db query --local --file supabase/ci/verify-media-upload-role.sql
+
       # Migration 285: automation runs, steps and flow nodes are admins'; no
       # session reads a WhatsApp number's secrets; a note is the writer's own.
       - name: Verify read rules

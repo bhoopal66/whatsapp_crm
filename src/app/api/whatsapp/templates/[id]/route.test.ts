@@ -1,19 +1,31 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const ctx = vi.hoisted(() => ({
   row: null as Record<string, unknown> | null,
   writes: [] as Record<string, unknown>[],
   /** What another request did to the row between our read and write. */
   meanwhile: null as Record<string, unknown> | null,
+  role: 'admin' as string,
+  /** What a DELETE ... RETURNING answers. */
+  deleted: { data: [{ id: 'x' }], error: null } as {
+    data: { id: string }[] | null;
+    error: { message: string } | null;
+  },
 }));
 vi.mock('@/lib/auth/account', () => {
   class E extends Error {}
   const query = () => {
     let updating = false;
+    let deleting = false;
     const q = {
       // Only the columns asked for come back, as from PostgREST.
       columns: [] as string[],
+      delete: () => {
+        deleting = true;
+        return q;
+      },
       select: (columns = '') => {
+        if (deleting) return Promise.resolve(ctx.deleted);
         if (!updating) q.columns = columns.split(', ');
         return q;
       },
@@ -59,14 +71,16 @@ vi.mock('@/lib/auth/account', () => {
     getCurrentAccount: async () => ({
       supabase: { from: query },
       accountId: 'acc-1',
+      role: ctx.role,
     }),
-    toErrorResponse: vi.fn(),
+    toErrorResponse: (e: Error) =>
+      Response.json({ error: e.message }, { status: 403 }),
     ForbiddenError: E,
     UnauthorizedError: E,
   };
 });
 
-import { PATCH } from './route';
+import { DELETE, PATCH } from './route';
 
 const ID = '11111111-1111-4111-8111-111111111111';
 const edit = (row: Record<string, unknown>) => {
@@ -152,5 +166,60 @@ describe('editing a template', () => {
     expect(res.status).toBe(409);
     expect((await res.json()).code).toBe('META_TEMPLATE');
     expect(ctx.writes).toEqual([]);
+  });
+});
+
+const del = () =>
+  DELETE(new Request('http://x', { method: 'DELETE' }), {
+    params: Promise.resolve({ id: ID }),
+  });
+
+describe('who may edit or delete a template', () => {
+  beforeEach(() => {
+    ctx.role = 'admin';
+    ctx.row = { id: ID, meta_template_id: null, status: 'APPROVED' };
+    ctx.writes = [];
+    ctx.meanwhile = null;
+    ctx.deleted = { data: [{ id: ID }], error: null };
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  it.each(['agent', 'viewer'])(
+    '%s PATCH answers 403, writes nothing',
+    async (role) => {
+      ctx.role = role;
+      const res = await patch();
+      expect(res.status).toBe(403);
+      expect(ctx.writes).toEqual([]);
+    }
+  );
+
+  it.each(['agent', 'viewer'])('%s DELETE answers 403', async (role) => {
+    ctx.role = role;
+    const res = await del();
+    expect(res.status).toBe(403);
+  });
+
+  it('an admin delete succeeds', async () => {
+    const res = await del();
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ success: true });
+  });
+
+  it('a delete that matched no row answers 404, not success', async () => {
+    ctx.deleted = { data: [], error: null };
+    const res = await del();
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: 'Template not found.' });
+  });
+
+  it('a database error answers a fixed message with no database text', async () => {
+    ctx.deleted = { data: null, error: { message: 'relation secret_tbl fk' } };
+    const res = await del();
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body).toEqual({ error: 'Failed to delete template.' });
+    expect(JSON.stringify(body)).not.toContain('secret_tbl');
+    expect(console.error).toHaveBeenCalled();
   });
 });

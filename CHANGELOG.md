@@ -12,6 +12,24 @@ and polish.
 
 ## [Unreleased]
 
+### Security: six small fixes from the 28 Nov security scan
+
+- Only agents and up can upload, change or delete WhatsApp and flow media
+  from the app; a viewer could upload before. The rule also holds if an
+  older migration is re-run.
+- Editing or deleting a message template is refused for non-admins with a
+  clear message; before, a refused delete said "deleted". A failed delete
+  no longer shows database error text.
+- Uploaded media is stored with a safe file type and a plain extension,
+  whatever the browser claims.
+- "Send test notification" is limited to 3 a minute per person.
+- The phone system webhook answers 200 instead of 429 when flooded (over
+  100 pushes a second); those pushes are dropped, not replayed.
+- The Meta and OpenWA webhooks refuse an oversized request (over 3 MB and
+  24 MB) before reading it.
+
+**Migration required: 322** (`322_media_upload_role.sql`, after 321).
+
 ### Security: customer attachments are private
 
 **Migration required:** `321_chat_media_private.sql`, **together with

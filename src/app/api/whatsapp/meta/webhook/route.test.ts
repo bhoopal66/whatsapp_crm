@@ -320,6 +320,30 @@ describe('GET — Meta subscription handshake', () => {
 });
 
 describe('POST — signature verification', () => {
+  it('answers 413 to a body over 3 MB, signed or not, before any check', async () => {
+    const { POST } = await import('./route');
+    const raw = 'a'.repeat(3 * 1024 * 1024 + 1);
+    const streamed = await POST(
+      new Request('https://crm.example.com/api/whatsapp/meta/webhook', {
+        method: 'POST',
+        headers: { 'x-hub-signature-256': sign(raw) },
+        body: raw,
+      })
+    );
+    expect(streamed.status).toBe(413);
+    const declared = await POST(
+      new Request('https://crm.example.com/api/whatsapp/meta/webhook', {
+        method: 'POST',
+        headers: { 'content-length': String(4 * 1024 * 1024) },
+        body: '{}',
+      })
+    );
+    expect(declared.status).toBe(413);
+    expect(h.screenWebhook).not.toHaveBeenCalled();
+    expect(h.processMessage).not.toHaveBeenCalled();
+    expect(h.confirmAccepted).not.toHaveBeenCalled();
+  });
+
   it('processes a correctly signed callback', async () => {
     const payload = messagePayload();
     const body = JSON.stringify(payload);
