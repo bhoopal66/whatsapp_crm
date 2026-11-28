@@ -93,8 +93,19 @@ docker run -d --env-file .env.local -e PORT=3000 -p 3000:3000 taamul-connect
   also takes them off their team and unlinks their Yeastar extension;
   reactivating restores neither.
 - Database migrations under `supabase/` are **not** run by the
-  container — apply them with the Supabase CLI as described in the
-  README.
+  container. Apply a range with
+  `DATABASE_URL=... scripts/apply-migrations.sh FROM TO` (or the
+  "Apply migrations" GitHub Action): a superuser or BYPASSRLS role over
+  a session connection (not a transaction pooler), a `pg_dump` backup
+  first unless `SKIP_BACKUP=1`, each file in its own `psql` call, one
+  run at a time per database (advisory lock). From migration 338 each
+  applied file is recorded in `public.migration_ledger` with its
+  sha256; a file edited after it was applied stops the run before
+  anything is applied unless `ALLOW_DRIFT=1`, and
+  `scripts/apply-migrations.sh --status FROM TO` lists each file as
+  applied / changed / not recorded without applying anything. Files
+  applied before 338 show as "not recorded" until they are next applied
+  by the script.
 - Received attachments are copied into the `chat-media` Supabase
   Storage bucket, because Whapi deletes media roughly 30 days after it
   arrives and the copy is the only thing that outlives that. It grows

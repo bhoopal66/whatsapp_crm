@@ -1756,3 +1756,11 @@ jobs:
       # Arabic; recruitment wording still saves. Rolled back.
       - name: Verify HR template promotional refusal (337)
         run: supabase db query --local --file supabase/ci/verify-hr-template-promo.sql
+
+      # Migration 338: the migration ledger is RLS-forced with no policies
+      # and no privilege for PUBLIC / anon / authenticated / service_role,
+      # which are refused a read and a write; the migration role inserts,
+      # reads back and upserts a row; malformed rows are refused. Rolled
+      # back.
+      - name: Verify the migration ledger (338)
+        run: supabase db query --local --file supabase/ci/verify-migration-ledger.sql

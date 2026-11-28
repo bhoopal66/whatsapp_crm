@@ -3,10 +3,14 @@
 # Run it from Actions → "Apply migrations" → Run workflow, choosing the
 # branch whose migrations you want (the files come from that branch).
 #
-#   mode = check  reads only: the connecting role and which migrations'
-#                 objects already exist. Run this first.
+#   mode = check  reads only: the connecting role, which migrations'
+#                 objects already exist, and the ledger status of FROM..TO
+#                 (scripts/apply-migrations.sh --status: applied / changed
+#                 / not recorded, migration 338). Run this first.
 #   mode = apply  runs scripts/apply-migrations.sh FROM TO: each file in
-#                 order, stopping at the first error. Needs confirm = APPLY.
+#                 order, stopping at the first error, recorded in the
+#                 ledger. Stops before applying anything if a recorded file
+#                 changed since. Needs confirm = APPLY.
 #
 # Needs the repository secret DATABASE_URL: the database connection string
 # of a superuser or BYPASSRLS role. On supabase.com use the "Session pooler"
@@ -145,8 +149,18 @@ jobs:
               ('330', exists (select 1 from src where name = 'report_access_set' and body like '%deactivated_at IS NOT NULL%')),
               ('331', exists (select 1 from src where name = 'contacts_sorted_page' and body like '%''unknown''%')),
               ('332', exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'conversation_notes' and column_name = 'deleted_at')),
-              ('333', exists (select 1 from src where name = 'sg_can_send' and body like '%sg_archive_role%'))
+              ('333', exists (select 1 from src where name = 'sg_can_send' and body like '%sg_archive_role%')),
+              ('334', to_regclass('public.send_protection_decisions') is not null),
+              ('335', exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'hr_workflow_rules' and column_name = 'title_ar')),
+              ('336', to_regclass('public.pbx_service_details_settings') is not null),
+              ('338', to_regclass('public.migration_ledger') is not null)
             ) t(m, present) order by m"
+
+      # 338 on: which files in FROM..TO the ledger records, and whether a
+      # recorded file changed since (apply then stops unless ALLOW_DRIFT).
+      - name: Show the ledger status
+        if: inputs.mode == 'check'
+        run: scripts/apply-migrations.sh --status "$FROM" "$TO"
 
       - name: Apply the migrations
         if: inputs.mode == 'apply'
