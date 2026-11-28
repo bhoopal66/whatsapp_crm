@@ -1667,6 +1667,11 @@ jobs:
       - name: Verify chat-media is private (321)
         run: supabase db query --local --file supabase/ci/verify-chat-media-private.sql
 
+      # Migration 324: a time-based automation claims each (chat,
+      # occurrence) once; a second claim writes nothing. Rolled back.
+      - name: Verify time-based automation claims (324)
+        run: supabase db query --local --file supabase/ci/verify-time-based-automations.sql
+
       # Migration 326: a reply that later fails restarts the customer's
       # wait from their first unanswered message; a delivery that corrects
       # the failure ends it again. Rolled back.

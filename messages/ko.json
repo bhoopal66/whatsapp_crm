@@ -1878,7 +1878,7 @@
         },
         "time_based": {
           "label": "시간 기반",
-          "hint": "반복 일정에 따라"
+          "hint": "일정에 따라, 채팅 태그가 붙은 모든 채팅에 대해"
         }
       },
       "trigger": "트리거",
@@ -1898,6 +1898,8 @@
       },
       "scheduleAt": "At",
       "scheduleCustomLabel": "Cron expression",
+      "scheduleAudience": "대상 채팅 태그",
+      "scheduleRunsHint": "일정의 각 시각(두바이 시간)마다 이 태그가 붙은 모든 채팅에 대해 자동화가 한 번씩 실행됩니다. 자동화 크론이 1분마다 확인하므로 정해진 시각으로부터 1~2분 안에 시작되며, 1시간 넘게 놓친 시각은 건너뛰고 나중에 보충하지 않습니다. 수신을 거부했거나 연락 금지로 표시된 고객은 제외됩니다.",
       "timeHour": "Hour",
       "timeMinute": "Minute",
       "active": "활성",

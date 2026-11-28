@@ -171,8 +171,15 @@ the agent answers only on its own number.
 ## Limits
 
 - **Timers are not in the Flow.** "Remind on day 3 if no documents"
-  is an automation (`time_based` trigger) or a follow-up campaign,
-  not a Flow node. A Flow run that hears nothing is swept after
+  is an automation or a follow-up campaign, not a Flow node. A
+  **Time-Based** automation runs on a schedule (every day or weekday at a
+  time, every hour, or a cron expression, in Dubai time) for every chat
+  at the chat tag it names, once per chat per scheduled time. The
+  automations cron (`GET /api/automations/cron`) checks once a minute, so
+  it starts within a minute or two of the time; a time missed by more
+  than an hour (the cron was not pinged) is skipped, not caught up.
+  Customers who opted out or are marked do not contact are left out, and
+  its messages go through the same checks as any automation's. A Flow run that hears nothing is swept after
   `on_timeout_hours` and the next inbound goes to the AI agent.
 - **Paid-message caps** ("one re-engagement per file") are a matter of
   what the Flow and your automations send; nothing counts them yet.
