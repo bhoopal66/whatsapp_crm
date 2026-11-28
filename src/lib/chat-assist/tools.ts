@@ -7,6 +7,14 @@
  *   chat_create_task   WRITE  a follow-up task, the person's own (source chat)
  *   chat_assign        WRITE  the inbox's assign write (assignConversation)
  *   chat_add_note      WRITE  an internal note (conversation_notes, 241)
+ *   brain_search       READ   the second brain (194), as the caller
+ *   brain_remember     WRITE  a note into the second brain, redacted
+ *
+ * The two brain tools exist only while the account's brain is on, the
+ * caller has sales access, and the AI transfer check lets brain text go
+ * to the provider (`brain.ts`): otherwise the model is never offered
+ * them and their handlers refuse. CRM memory (`lib/memory/*`) is not a
+ * tool here and never goes in a prompt (owner decision, 022b).
  *
  * No DANGEROUS tool exists here, and nothing that sends to a customer.
  * The panel runs every call in the `supervised` mode, so every WRITE
@@ -30,14 +38,17 @@ import { NOTE_MAX_LENGTH } from '@/lib/inbox/notes';
 export const CHAT_ASSIST_MODE: AutonomyMode = 'supervised';
 
 export const CHAT_ASSIST_READ_TOOL = 'chat_read';
+export const CHAT_ASSIST_READ_TOOLS = ['chat_read', 'brain_search'] as const;
 export const CHAT_ASSIST_WRITE_TOOLS = [
   'chat_set_tag',
   'chat_create_task',
   'chat_assign',
   'chat_add_note',
+  'brain_remember',
 ] as const;
 export type ChatAssistWriteTool = (typeof CHAT_ASSIST_WRITE_TOOLS)[number];
-export type ChatAssistTool = ChatAssistWriteTool | typeof CHAT_ASSIST_READ_TOOL;
+export type ChatAssistTool =
+  ChatAssistWriteTool | (typeof CHAT_ASSIST_READ_TOOLS)[number];
 
 export interface ReadArgs {
   conversationId: string;
@@ -61,6 +72,14 @@ export interface AddNoteArgs {
   conversationId: string;
   body: string;
 }
+export interface BrainSearchArgs {
+  conversationId: string;
+  query: string;
+}
+export interface BrainRememberArgs {
+  conversationId: string;
+  text: string;
+}
 
 export type ToolArgs = {
   chat_read: ReadArgs;
@@ -68,11 +87,17 @@ export type ToolArgs = {
   chat_create_task: CreateTaskArgs;
   chat_assign: AssignArgs;
   chat_add_note: AddNoteArgs;
+  brain_search: BrainSearchArgs;
+  brain_remember: BrainRememberArgs;
 };
 
 /** A note the assistant proposes: shorter than a person's (4000). */
 export const CHAT_ASSIST_NOTE_MAX = Math.min(1_000, NOTE_MAX_LENGTH);
 export const CHAT_ASSIST_TASK_TITLE_MAX = Math.min(120, TASK_TITLE_MAX);
+/** The /brain search route's query cap. */
+export const CHAT_ASSIST_BRAIN_QUERY_MAX = 300;
+/** A note the assistant proposes for the second brain (a person's: 4000). */
+export const CHAT_ASSIST_BRAIN_TEXT_MAX = 1_000;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
@@ -133,6 +158,18 @@ export function parseToolArgs<T extends ChatAssistTool>(
         isText(raw.body, CHAT_ASSIST_NOTE_MAX)
         ? (raw as unknown as ToolArgs[T])
         : null;
+    case 'brain_search':
+      return exactKeys(raw, ['conversationId', 'query']) &&
+        isId(raw.conversationId) &&
+        isText(raw.query, CHAT_ASSIST_BRAIN_QUERY_MAX)
+        ? (raw as unknown as ToolArgs[T])
+        : null;
+    case 'brain_remember':
+      return exactKeys(raw, ['conversationId', 'text']) &&
+        isId(raw.conversationId) &&
+        isText(raw.text, CHAT_ASSIST_BRAIN_TEXT_MAX)
+        ? (raw as unknown as ToolArgs[T])
+        : null;
     default:
       return null;
   }
@@ -184,6 +221,14 @@ export const CHAT_ASSIST_TOOL_SPECS: Readonly<
     risk: 'WRITE',
     displayName: 'Add an internal note',
     describeArgs: (a) => [field('note', (a as Partial<AddNoteArgs>).body)],
+  },
+  brain_search: { risk: 'READ', displayName: 'Search the second brain' },
+  brain_remember: {
+    risk: 'WRITE',
+    displayName: 'Remember in the second brain',
+    describeArgs: (a) => [
+      field('note', (a as Partial<BrainRememberArgs>).text),
+    ],
   },
 };
 

@@ -36,7 +36,10 @@ import { generateReply } from '@/lib/ai/generate';
 import { retrieveKnowledge } from '@/lib/ai/knowledge';
 import { AiError, type AiConfig, type ChatMessage } from '@/lib/ai/types';
 import { logAiUsage, logFailedAiUsage } from '@/lib/ai/usage';
+import type { BrainHit } from '@/lib/brain/ports';
 import { planActions, currentTagOrdinal } from '@/lib/chat-assist/actions';
+import { chatAssistBrainAvailable } from '@/lib/chat-assist/brain';
+import { chatAssistBrainPort } from '@/lib/chat-assist/brain-server';
 import { chatAssistGate, chatAssistRefusalBody } from '@/lib/chat-assist/gate';
 import { chatAssistHandlers } from '@/lib/chat-assist/handlers';
 import {
@@ -70,7 +73,8 @@ type Params = { params: Promise<{ conversationId: string }> };
 
 export async function POST(request: Request, { params }: Params) {
   try {
-    const { supabase, accountId, userId, role } = await getCurrentAccount();
+    const { supabase, accountId, userId, role, salesRestricted } =
+      await getCurrentAccount();
     const { conversationId } = await params;
     if (!UUID.test(conversationId))
       return NextResponse.json({ error: 'Invalid chat id' }, { status: 400 });
@@ -164,6 +168,12 @@ export async function POST(request: Request, { params }: Params) {
       );
 
     const admin = supabaseAdmin();
+    // The second brain (022b): its tools exist only while it is on, the
+    // caller has access and the AI transfer check allows it (brain.ts).
+    const brain = chatAssistBrainPort(
+      { accountId, userId, role, salesRestricted },
+      config
+    );
     const assist = createChatAssistRouter(
       admin,
       chatAssistHandlers({
@@ -172,6 +182,7 @@ export async function POST(request: Request, { params }: Params) {
         userId,
         conversationId,
         defer: (fn) => after(fn),
+        brain,
       })
     );
     const ctx = chatAssistContext({ userId, accountId });
@@ -201,7 +212,23 @@ export async function POST(request: Request, { params }: Params) {
         });
       }
       case 'ask': {
-        const p = buildAskPrompt({ rows, contactName, question, locale });
+        // brain_search as a READ tool through the guard; a refusal or a
+        // failure only leaves the brain out of the answer.
+        let hits: BrainHit[] = [];
+        if (await chatAssistBrainAvailable(brain, 'brain_search')) {
+          const found = await assist.router.execute(ctx, {
+            tool: 'brain_search',
+            args: { conversationId, query: question.slice(0, 300).trim() },
+          });
+          if (found.status === 'ok') hits = found.result as BrainHit[];
+        }
+        const p = buildAskPrompt({
+          rows,
+          contactName,
+          question,
+          locale,
+          brain: hits,
+        });
         return NextResponse.json({
           text: await generate(p.systemPrompt, p.messages),
         });
@@ -237,6 +264,7 @@ export async function POST(request: Request, { params }: Params) {
         });
       }
       case 'suggest': {
+        const brainOn = await chatAssistBrainAvailable(brain, 'brain_remember');
         const refs = await loadSuggestRefs(supabase, {
           accountId,
           userId,
@@ -253,6 +281,7 @@ export async function POST(request: Request, { params }: Params) {
             conv.chat_sub_tag_id
           ),
           locale,
+          brain: brainOn,
         });
         const text = await generate(p.systemPrompt, p.messages);
         const planned = planActions(text, {
@@ -263,6 +292,7 @@ export async function POST(request: Request, { params }: Params) {
           currentSubTagId: conv.chat_sub_tag_id,
           assignedTo: conv.assigned_agent_id,
           now: Date.now(),
+          brain: brainOn,
         });
         // Each one is held for the person; nothing runs here.
         const cards = await holdActions(assist, ctx, planned);

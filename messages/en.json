@@ -14107,6 +14107,7 @@
       "task": "Create a follow-up task: {title}",
       "assign": "Assign the chat to {name}",
       "note": "Add an internal note",
+      "remember": "Remember in the second brain",
       "due": "Due {when}"
     },
     "cardErrors": {

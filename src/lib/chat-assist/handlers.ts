@@ -14,6 +14,14 @@
  *   chat_assign       assignConversation, the inbox's assign write
  *   chat_add_note     an insert into 241's conversation_notes (never
  *                     messages): written here, never read into a prompt
+ *   brain_search      searchBrain as the caller (`scope.brain`), within
+ *                     the /brain search route's 60-a-minute bucket
+ *   brain_remember    the /brain "remember this" path (redacted), tied
+ *                     to the chat's contact
+ *
+ * The brain handlers re-check `chatAssistBrainCheck` (access, switch,
+ * AI transfer) every time: a card confirmed while the brain was on must
+ * not run once it is off. Without `scope.brain` they refuse.
  *
  * A handler runs only when the router's guard allowed it: a READ
  * directly, a WRITE only after the person's confirmation was consumed.
@@ -30,6 +38,7 @@ import { writeConversationChatTags } from '@/lib/chat-tags/server';
 import { assignConversation } from '@/lib/inbox/assign';
 import { parseCreateTaskBody } from '@/lib/tasks/requests';
 
+import { chatAssistBrainCheck, type ChatAssistBrainPort } from './brain';
 import {
   CHAT_ASSIST_MESSAGE_CAP,
   CHAT_ASSIST_MESSAGE_COLUMNS,
@@ -57,6 +66,8 @@ export interface HandlerScope {
   conversationId: string;
   /** Work after the response (Next's `after`); tests pass a stub. */
   defer: (fn: () => Promise<void>) => void;
+  /** The second brain, as the caller (`brain-server.ts`); absent: refused. */
+  brain?: ChatAssistBrainPort;
 }
 
 function argsFor<T extends ChatAssistTool>(
@@ -199,6 +210,46 @@ export function chatAssistHandlers(
           error?.code === '42501' ? 'refused' : 'failed'
         );
       return { noteId: (data as { id: string }).id };
+    },
+
+    brain_search: async (raw) => {
+      const args = argsFor('brain_search', raw, scope);
+      const check = await chatAssistBrainCheck(
+        scope.brain,
+        'brain_search',
+        args.query.length
+      );
+      if (!check.ok || !scope.brain) throw new ChatAssistActionError('refused');
+      if (!(await scope.brain.searchAllowed()))
+        throw new ChatAssistActionError('refused');
+      return scope.brain.search(args.query);
+    },
+
+    brain_remember: async (raw) => {
+      const args = argsFor('brain_remember', raw, scope);
+      const check = await chatAssistBrainCheck(
+        scope.brain,
+        'brain_remember',
+        args.text.length
+      );
+      if (!check.ok || !scope.brain) throw new ChatAssistActionError('refused');
+      // The chat must still be the caller's to see; its contact is the
+      // note's (RLS read, as the task handler does).
+      const { data: conversation, error: convErr } = await rls
+        .from('conversations')
+        .select('contact_id')
+        .eq('account_id', scope.accountId)
+        .eq('id', args.conversationId)
+        .maybeSingle();
+      if (convErr) throw new ChatAssistActionError('failed');
+      if (!conversation) throw new ChatAssistActionError('not_found');
+      const r = await scope.brain.remember(
+        args.text,
+        (conversation as { contact_id: string | null }).contact_id
+      );
+      // The redactor refused the text: nothing was stored.
+      if (!r.ok) throw new ChatAssistActionError('invalid');
+      return { itemIds: r.itemIds };
     },
   };
 }

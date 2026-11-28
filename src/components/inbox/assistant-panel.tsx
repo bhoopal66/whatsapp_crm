@@ -18,6 +18,7 @@
 // ============================================================
 
 import {
+  Brain,
   Check,
   ClipboardList,
   FileText,
@@ -493,6 +494,7 @@ const CARD_ICON = {
   task: ClipboardList,
   assign: UserPlus,
   note: NotebookPen,
+  remember: Brain,
 } as const;
 
 function SuggestionCard({
@@ -519,7 +521,9 @@ function SuggestionCard({
         ? t('cards.task', { title: v.title })
         : v.kind === 'assign'
           ? t('cards.assign', { name: v.memberName })
-          : t('cards.note');
+          : v.kind === 'note'
+            ? t('cards.note')
+            : t('cards.remember');
   const done = card.status === 'pending' ? card.done : undefined;
   return (
     <div
@@ -537,6 +541,11 @@ function SuggestionCard({
           {v.kind === 'note' && (
             <p dir="auto" className="mt-1 text-start whitespace-pre-wrap">
               {v.body}
+            </p>
+          )}
+          {v.kind === 'remember' && (
+            <p dir="auto" className="mt-1 text-start whitespace-pre-wrap">
+              {v.text}
             </p>
           )}
           {v.kind === 'task' && v.dueAt && (

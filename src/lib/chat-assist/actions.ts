@@ -12,6 +12,7 @@
  * Pure, so every rule is tested.
  */
 import { cleanText } from '@/lib/assist/confirm';
+import { brainRedact } from '@/lib/brain/redact';
 
 import {
   CHAT_ASSIST_MAX_SUGGESTIONS,
@@ -19,6 +20,7 @@ import {
   type PromptTag,
 } from './prompt';
 import {
+  CHAT_ASSIST_BRAIN_TEXT_MAX,
   CHAT_ASSIST_NOTE_MAX,
   CHAT_ASSIST_TASK_TITLE_MAX,
   parseToolArgs,
@@ -46,6 +48,11 @@ export interface SuggestionRefs {
   assignedTo: string | null;
   /** For a task's due time. */
   now: number;
+  /**
+   * The second brain's tools are on for this request (`brain.ts`). Off,
+   * a "remember" suggestion is dropped like an unknown type.
+   */
+  brain?: boolean;
 }
 
 /** What the person sees on a card (names, never ids alone). */
@@ -53,7 +60,8 @@ export type CardView =
   | { kind: 'tag'; tagName: string; subTagName: string | null }
   | { kind: 'task'; title: string; dueAt: string | null }
   | { kind: 'assign'; memberName: string }
-  | { kind: 'note'; body: string };
+  | { kind: 'note'; body: string }
+  | { kind: 'remember'; text: string };
 
 export interface PlannedAction<
   T extends ChatAssistWriteTool = ChatAssistWriteTool,
@@ -207,6 +215,25 @@ function planOne(
       const args = parseToolArgs('chat_add_note', { conversationId, body });
       return args
         ? { tool: 'chat_add_note', args, view: { kind: 'note', body }, why }
+        : null;
+    }
+    case 'remember': {
+      if (refs.brain !== true) return null;
+      // Redacted here, as the /brain "remember this" path redacts, so the
+      // card shows (and the confirmation hashes) the text that is stored;
+      // ingest redacts it again. A redactor refusal drops the suggestion.
+      const red = brainRedact(str(s.text));
+      if (!red.ok) return null;
+      const text = clip(red.text.trim(), CHAT_ASSIST_BRAIN_TEXT_MAX).trim();
+      if (!text) return null;
+      const args = parseToolArgs('brain_remember', { conversationId, text });
+      return args
+        ? {
+            tool: 'brain_remember',
+            args,
+            view: { kind: 'remember', text },
+            why,
+          }
         : null;
     }
     default:

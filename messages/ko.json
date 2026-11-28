@@ -14107,6 +14107,7 @@
       "task": "후속 작업 만들기: {title}",
       "assign": "{name}에게 채팅 배정",
       "note": "내부 메모 추가",
+      "remember": "세컨드 브레인에 기억하기",
       "due": "마감 {when}"
     },
     "cardErrors": {

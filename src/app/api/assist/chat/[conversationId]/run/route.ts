@@ -17,6 +17,8 @@ import { NextResponse, after } from 'next/server';
 
 import { getCurrentAccount, toErrorResponse } from '@/lib/auth/account';
 import { supabaseAdmin } from '@/lib/ai/admin-client';
+import { loadAiConfig } from '@/lib/ai/config';
+import { chatAssistBrainPort } from '@/lib/chat-assist/brain-server';
 import { chatAssistGate, chatAssistRefusalBody } from '@/lib/chat-assist/gate';
 import { chatAssistHandlers } from '@/lib/chat-assist/handlers';
 import {
@@ -44,7 +46,8 @@ type Params = { params: Promise<{ conversationId: string }> };
 
 export async function POST(request: Request, { params }: Params) {
   try {
-    const { supabase, accountId, userId, role } = await getCurrentAccount();
+    const { supabase, accountId, userId, role, salesRestricted } =
+      await getCurrentAccount();
     const { conversationId } = await params;
     if (!UUID.test(conversationId))
       return NextResponse.json({ error: 'Invalid chat id' }, { status: 400 });
@@ -73,6 +76,15 @@ export async function POST(request: Request, { params }: Params) {
     if (!args || args.conversationId !== conversationId)
       return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
 
+    // brain_remember re-checks the brain (on, access, AI transfer for the
+    // workspace's provider) in its handler; no config: it refuses.
+    const brain =
+      tool === 'brain_remember'
+        ? chatAssistBrainPort(
+            { accountId, userId, role, salesRestricted },
+            await loadAiConfig(supabaseAdmin(), accountId).catch(() => null)
+          )
+        : undefined;
     const assist = createChatAssistRouter(
       supabaseAdmin(),
       chatAssistHandlers({
@@ -81,6 +93,7 @@ export async function POST(request: Request, { params }: Params) {
         userId,
         conversationId,
         defer: (fn) => after(fn),
+        brain,
       })
     );
     const res = await runConfirmed(

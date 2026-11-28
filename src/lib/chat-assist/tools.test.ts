@@ -20,6 +20,8 @@ describe('chat assistant tools', () => {
     const risks = Object.values(CHAT_ASSIST_TOOL_SPECS).map((s) => s.risk);
     expect(risks).not.toContain('DANGEROUS');
     expect(Object.keys(CHAT_ASSIST_TOOL_SPECS).sort()).toEqual([
+      'brain_remember',
+      'brain_search',
       'chat_add_note',
       'chat_assign',
       'chat_create_task',
@@ -29,6 +31,8 @@ describe('chat assistant tools', () => {
     for (const t of CHAT_ASSIST_WRITE_TOOLS)
       expect(CHAT_ASSIST_TOOL_SPECS[t].risk).toBe('WRITE');
     expect(CHAT_ASSIST_TOOL_SPECS.chat_read.risk).toBe('READ');
+    expect(CHAT_ASSIST_TOOL_SPECS.brain_search.risk).toBe('READ');
+    expect(CHAT_ASSIST_TOOL_SPECS.brain_remember.risk).toBe('WRITE');
     // Anything else is DANGEROUS to the registry (and has no handler).
     const reg = chatAssistRegistry();
     expect(reg.risk('send_message')).toBe('DANGEROUS');
