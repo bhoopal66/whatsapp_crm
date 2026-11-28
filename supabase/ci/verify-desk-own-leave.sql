@@ -57,7 +57,7 @@ BEGIN
   UPDATE profiles SET account_id = a_acct, account_role = 'team_leader' WHERE user_id = u_lead;
   UPDATE profiles SET account_id = a_acct, account_role = 'agent' WHERE user_id IN (u_agent, u_other);
   UPDATE profiles SET account_id = a_acct, account_role = 'viewer' WHERE user_id = u_viewer;
-  UPDATE profiles SET account_id = a_acct, account_role = 'bank_guest' WHERE user_id = u_guest;
+  UPDATE profiles SET account_id = a_acct, account_role = 'bank_guest', bank_code = 'ADCB' WHERE user_id = u_guest;
 
   -- ---------- 1. an agent's own leave ----------
   lv_own := desk_leave_add(u_agent, a_acct, u_agent, today, today + 2, 'annual');
