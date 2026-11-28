@@ -1666,3 +1666,8 @@ jobs:
       # re-applying 023 or 039 keeps it private.
       - name: Verify chat-media is private (321)
         run: supabase db query --local --file supabase/ci/verify-chat-media-private.sql
+
+      # Migration 324: a time-based automation claims each (chat,
+      # occurrence) once; a second claim writes nothing. Rolled back.
+      - name: Verify time-based automation claims (324)
+        run: supabase db query --local --file supabase/ci/verify-time-based-automations.sql

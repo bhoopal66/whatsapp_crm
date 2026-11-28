@@ -1106,6 +1106,10 @@ export const NOT_PERSONAL: Readonly<Record<string, string>> =
             // 237: which level rang whom per waiting episode (ids and
             // times only); goes with its chat (ON DELETE CASCADE).
             'response_escalations',
+            // 324: which schedule occurrence of a time-based automation
+            // ran for which chat (ids and times only); goes with its chat
+            // (ON DELETE CASCADE).
+            'automation_time_runs',
             'case_review_queue',
             'ai_transfer_basis',
             'ai_transfer_log',

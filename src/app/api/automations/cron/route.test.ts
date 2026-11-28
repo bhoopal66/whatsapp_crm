@@ -17,6 +17,7 @@ const h = vi.hoisted(() => ({
   sweep: vi.fn(),
   rpc: vi.fn(),
   journeyTick: vi.fn(),
+  timeBased: vi.fn(),
   reconcile: vi.fn(),
   submissionGroups: vi.fn(),
   caseSla: vi.fn(),
@@ -94,6 +95,9 @@ vi.mock('@/lib/team-activity/alert-sweep', () => ({
   runTeamActivityAlertSweep: h.sweep,
 }));
 
+vi.mock('@/lib/automations/time-based-run', () => ({
+  runTimeBasedAutomations: h.timeBased,
+}));
 vi.mock('@/lib/journeys/host/tick', () => ({
   runJourneyTick: h.journeyTick,
 }));
@@ -673,6 +677,47 @@ describe('GET /api/automations/cron — journey tick', () => {
     await runAfter();
     expect(log).toHaveBeenCalledWith(
       '[automations-cron] journey tick failed:',
+      'boom'
+    );
+    log.mockRestore();
+  });
+});
+
+describe('GET /api/automations/cron — time-based automations', () => {
+  it('runs the time-based pass after the response, at most once a minute', async () => {
+    vi.resetModules();
+    h.timeBased.mockReset().mockResolvedValue({ due: 0, started: 0 });
+    vi.setSystemTime(new Date('2026-10-12T09:00:00Z'));
+    const { GET } = await import('./route');
+
+    await GET(req());
+    expect(h.timeBased).not.toHaveBeenCalled();
+    await runAfter();
+    expect(h.timeBased).toHaveBeenCalledTimes(1);
+
+    // A second ping inside the minute does not start a second pass.
+    vi.setSystemTime(new Date('2026-10-12T09:00:30Z'));
+    await GET(req());
+    await runAfter();
+    expect(h.timeBased).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(new Date('2026-10-12T09:01:00Z'));
+    await GET(req());
+    await runAfter();
+    expect(h.timeBased).toHaveBeenCalledTimes(2);
+  });
+
+  it('logs a failed pass and still answers', async () => {
+    vi.resetModules();
+    h.timeBased.mockReset().mockRejectedValue(new Error('boom'));
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { GET } = await import('./route');
+
+    const res = await GET(req());
+    expect(res.status).toBe(200);
+    await runAfter();
+    expect(log).toHaveBeenCalledWith(
+      '[automations-cron] time-based automations failed:',
       'boom'
     );
     log.mockRestore();

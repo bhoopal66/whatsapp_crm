@@ -176,6 +176,34 @@ export async function runAutomationsForTrigger(input: DispatchInput): Promise<bo
 }
 
 /**
+ * Start one automation for one chat, for a trigger that has no event of
+ * its own: a `time_based` occurrence (`time-based-run.ts`), which has
+ * already checked that the chat is the account's. The same run as any
+ * other trigger's, so every send guard applies; nobody just wrote, so an
+ * opted-out contact is sent nothing. Never throws.
+ */
+export async function runAutomationForSubject(input: {
+  automation: Automation
+  contactId: string
+  conversationId: string
+  salesChat?: SalesChatCheck | null
+}): Promise<boolean> {
+  try {
+    return await executeAutomation(input.automation, {
+      accountId: input.automation.account_id,
+      triggerType: input.automation.trigger_type,
+      contactId: input.contactId,
+      context: { conversation_id: input.conversationId },
+      customerJustWrote: false,
+      salesChat: input.salesChat ?? null,
+    })
+  } catch (err) {
+    console.error('[automations] execute failed:', input.automation.id, err)
+    return false
+  }
+}
+
+/**
  * The one intent_match automation to run: the highest p among those
  * that cleared their own threshold (`matched`, keyed `automation:<id>`);
  * a tie goes to the most recently updated, then the larger id, as

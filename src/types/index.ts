@@ -891,9 +891,15 @@ export interface ChatTagTriggerConfig {
 }
 
 export interface TimeBasedTriggerConfig {
-  /** Cron expression or simple HH:mm string; engine can accept either. */
+  /** Cron expression or simple HH:mm string; `parseCron` in
+   *  `@/lib/automations/time-based` reads either. */
   schedule: string;
+  /** IANA zone the schedule is read in; Asia/Dubai when absent. */
   timezone?: string;
+  /** The audience (324): each occurrence runs once for every chat at
+   *  this main tag (and sub-tag, when set). Without one it never runs. */
+  chat_tag_id?: string;
+  chat_sub_tag_id?: string | null;
 }
 
 export interface InteractiveReplyTriggerConfig {

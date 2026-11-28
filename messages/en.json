@@ -1875,7 +1875,7 @@
         },
         "time_based": {
           "label": "Time-Based",
-          "hint": "On a recurring schedule"
+          "hint": "On a schedule, for every chat at a chat tag"
         }
       },
       "trigger": "Trigger",
@@ -1895,6 +1895,8 @@
       },
       "scheduleAt": "At",
       "scheduleCustomLabel": "Cron expression",
+      "scheduleAudience": "For the chats at",
+      "scheduleRunsHint": "At each time on the schedule (Dubai time), the automation runs once for every chat at this tag. The automations cron checks once a minute, so a run starts within a minute or two of the time; a time missed by more than an hour is skipped, not caught up. Customers who opted out or are marked do not contact are left out.",
       "timeHour": "Hour",
       "timeMinute": "Minute",
       "active": "Active",

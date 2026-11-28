@@ -59,12 +59,24 @@ export const TRIGGER_META: Record<AutomationTriggerType, TriggerMeta> = {
 /** Triggers nothing dispatches: an automation with one never runs. Take
  *  one out when something calls `runAutomationsForTrigger` with it. */
 const NOT_RUNNING_TRIGGERS: ReadonlySet<string> = new Set<AutomationTriggerType>([
-  'time_based',
   'conversation_assigned',
 ])
 
 export function triggerRuns(t: AutomationTriggerType | string): boolean {
   return !NOT_RUNNING_TRIGGERS.has(t)
+}
+
+/** Whether a saved automation can run: its trigger is dispatched, and a
+ *  time-based one names the chat tag it runs for (one saved before
+ *  324 has only a schedule, and the cron skips it). */
+export function automationRuns(a: {
+  trigger_type: AutomationTriggerType | string
+  trigger_config?: unknown
+}): boolean {
+  if (!triggerRuns(a.trigger_type)) return false
+  if (a.trigger_type !== 'time_based') return true
+  const tag = (a.trigger_config as { chat_tag_id?: unknown } | null)?.chat_tag_id
+  return typeof tag === 'string' && tag !== ''
 }
 
 export function triggerMeta(t: AutomationTriggerType | string): TriggerMeta {
