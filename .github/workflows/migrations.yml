@@ -1764,3 +1764,11 @@ jobs:
       # back.
       - name: Verify the migration ledger (338)
         run: supabase db query --local --file supabase/ci/verify-migration-ledger.sql
+
+      # Migration 339: a recruitment chat's interview time is set and
+      # cleared only by HR members through hr_set_interview (never a past
+      # time, logged in the history); the enqueue queues one reminder per
+      # (chat, time) within 24 hours, never for a past time, once; a new
+      # time cancels the old row; a passed time is stale. Rolled back.
+      - name: Verify the interview reminder (339)
+        run: supabase db query --local --file supabase/ci/verify-hr-interview-reminder.sql

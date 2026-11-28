@@ -66,10 +66,15 @@ export type GuardHoldReason = (typeof HOLD_REASONS)[number];
 /**
  * Why a queued message is no longer true (migration 275,
  * `hr_automsg_stale_reason`): the chat left the stage its invite was for,
- * or the silence its nudge was about ended. Such a row is cancelled with
+ * or the silence its nudge was about ended, or (339) the interview time
+ * its reminder was for moved, was cleared or passed. Such a row is cancelled with
  * this reason, never held: a hold would send it when the chat moves back.
  */
-export const STALE_REASONS = ['stage_changed', 'no_longer_waiting'] as const;
+export const STALE_REASONS = [
+  'stage_changed',
+  'no_longer_waiting',
+  'interview_changed',
+] as const;
 export type StaleReason = (typeof STALE_REASONS)[number];
 
 /**

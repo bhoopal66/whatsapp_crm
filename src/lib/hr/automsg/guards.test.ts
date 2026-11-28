@@ -413,9 +413,9 @@ describe('a reason that no longer holds (migration 275)', () => {
     i.settings = { ...i.settings, killSwitch: true };
     expect(decide(i)).toEqual({ allow: false, hold: 'kill_switch' });
   });
-  it('lists the reasons 275 answers, and no others', () => {
+  it('lists the reasons 339 answers, and no others', () => {
     const sql = readFileSync(
-      'supabase/migrations/275_hr_automsg_still_true.sql',
+      'supabase/migrations/339_hr_interview_reminder.sql',
       'utf8'
     );
     const found = [...sql.matchAll(/NULL ELSE '([a-z_]+)' END/g)].map(
