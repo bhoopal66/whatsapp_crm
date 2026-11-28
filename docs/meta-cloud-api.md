@@ -126,7 +126,7 @@ and rejections to appear in the CRM automatically, and
 **`message_template_components_update`** for quality ratings and
 Meta's own edits to a template.
 
-#### Number health record (migration 188, watch-only)
+#### Number health record and send guard (migrations 188 and 334)
 
 Subscribe **`account_update`** and **`phone_number_quality_update`**
 (plus the template fields above) to feed the number health record:
@@ -134,8 +134,48 @@ each event is stored once (`meta_health_events`), template events move
 `meta_template_health`, and number/account events move the number's
 messaging tier, status and assessed state (`meta_number_state`). These
 entries are checked against the WABA's app secret like template
-callbacks. Nothing is blocked and the webhook's answer never changes:
-a failure here is logged (no message text) and skipped.
+callbacks. The webhook's answer never changes: a failure here is
+logged (no message text) and skipped.
+
+The record feeds a **send guard** (`src/lib/whatsapp/meta-health/guard.ts`,
+called through `check-send.ts`). It is **off by default**. The owner
+switches it on with **Enforce** in **Settings → WhatsApp → Number
+protection**. While Enforce is off nothing is held. Every decision is
+still logged, marked as not enforced. If the setting cannot be read, it counts as
+on.
+
+The first rule that matches wins:
+
+1. The contact opted out: refused for every kind of send, session
+   replies included.
+2. The number is banned or disconnected.
+3. A session reply (inside the 24-hour window): allowed.
+4. The number is all-paused, or marketing-paused.
+5. The template is paused.
+6. Marketing only: the recipient is suppressed (3 marketing sends with no
+   reply since, or 2 failed deliveries in 30 days).
+7. Marketing only: the daily ramp from Meta's messaging tier, capped by
+   the owner's daily count cap (the lower wins). The next send is after
+   UTC midnight.
+8. Marketing only: the daily marketing spend cap.
+
+Utility and authentication templates get only opt-out, total block,
+all-paused and template pause. Missing health data never pauses a
+number. Whapi and OpenWA numbers get only opt-out, recipient
+suppression and the spend cap, because Meta signals do not exist for
+them.
+
+The card also holds the daily marketing count cap, daily marketing
+spend cap and daily AI spend cap (USD; empty means none), set by an
+owner or admin, and lists the last 50 decisions
+(`send_protection_decisions`, migration 334).
+
+Guarded today: broadcasts, automation template sends, HR automated
+messages (WhatsApp), desk digests, CSAT requests and call service
+details. **Not guarded:** replies an agent types in the inbox.
+
+If Meta restricts a number, follow
+[runbook-meta-restriction.md](runbook-meta-restriction.md).
 
 Meta calls the URL once with `hub.mode=subscribe` and refuses to enable
 the subscription unless the challenge comes back verbatim. Taamul Connect handles

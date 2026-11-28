@@ -408,3 +408,10 @@ conversation and links personal chats apart (`splitConversations`).
 `select('*')` from `whatsapp_config` through a session. Read the visible
 columns with the caller's client (RLS decides the rows), then
 `withChannelSecrets()`; `loadChannels` and `loadOpenWARow` already do.
+
+**Send guard (188, 334).** `meta-health/check-send.ts` (`checkSend`) is the one entry
+point for guarded sends (broadcasts, automation templates, HR, desk digests,
+CSAT, call service details); rules live in `guard.ts`. Enforce is off by
+default. It must never block an agent's inbox reply, and a log failure never
+stops a session reply or a utility template. Runbook:
+`docs/runbook-meta-restriction.md`.
