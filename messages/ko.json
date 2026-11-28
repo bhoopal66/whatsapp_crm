@@ -1257,6 +1257,9 @@
   "ContactsTable": {
     "sortedByRelevance": "While you search, results are ordered by best match.",
     "sortUnavailable": "Sorting by this column needs a database update. The list is shown newest first.",
+    "sortBy": "정렬 기준",
+    "sortAscending": "오름차순 정렬",
+    "sortDescending": "내림차순 정렬",
     "copyNumber": "Copy the phone number of {name}",
     "copyNumberShort": "Copy number",
     "addToCampaign": "Add to campaign",

@@ -104,6 +104,38 @@ export function ariaSortFor(
   return current.dir === 'asc' ? 'ascending' : 'descending';
 }
 
+/**
+ * The compact sort control shown on a phone, where the column headers
+ * past Name are hidden (below `lg`). The keys it offers: Name always,
+ * the others only when their column is switched on, in header order.
+ */
+export function mobileSortKeys(visible: {
+  owner: boolean;
+  assignee: boolean;
+  activity: boolean;
+  created: boolean;
+}): ContactSortKey[] {
+  const keys: ContactSortKey[] = ['name'];
+  if (visible.owner) keys.push('owner');
+  if (visible.assignee) keys.push('assignee');
+  if (visible.activity) keys.push('activity');
+  if (visible.created) keys.push('created');
+  return keys;
+}
+
+/** Picking a key in the phone control: the same key changes nothing, a new one starts at its default direction. */
+export function pickContactSortKey(
+  current: ContactSort,
+  key: ContactSortKey
+): ContactSort {
+  return current.sort === key ? current : { sort: key, dir: defaultDir(key) };
+}
+
+/** The phone control's direction button: same key, opposite direction. */
+export function flipContactSortDir(current: ContactSort): ContactSort {
+  return { sort: current.sort, dir: current.dir === 'asc' ? 'desc' : 'asc' };
+}
+
 /** `sort` / `dir` URL params; the default is omitted. */
 export function sortToParams(s: ContactSort): Record<string, string> {
   return isDefaultSort(s) ? {} : { sort: s.sort, dir: s.dir };
