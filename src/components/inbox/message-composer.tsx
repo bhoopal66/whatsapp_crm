@@ -150,6 +150,7 @@ import {
 import { createUnsentTakes } from '@/lib/inbox/unsent-takes';
 import type { MicProblem, RecordedTake } from '@/lib/media/take-recorder';
 import { ComposeCheckDialog } from './compose-check-dialog';
+import { chatMediaDisplayUrl } from '@/lib/storage/chat-media-url';
 
 /** Media content types an agent can send from the composer. */
 export type ComposerMediaKind = 'image' | 'video' | 'document' | 'audio';
@@ -2126,7 +2127,7 @@ function MediaDraftPreview({
           <Trash2 className="h-5 w-5" />
         </button>
         <VoiceNotePlayer
-          src={draft.mediaUrl}
+          src={chatMediaDisplayUrl(draft.mediaUrl)}
           seed={draft.path ?? draft.filename}
           tone="in"
           badge={false}
@@ -2155,14 +2156,14 @@ function MediaDraftPreview({
           {draft.kind === 'image' && (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={draft.mediaUrl}
+              src={chatMediaDisplayUrl(draft.mediaUrl)}
               alt={draft.filename}
               className="max-h-40 rounded-lg object-cover"
             />
           )}
           {draft.kind === 'video' && (
             <video
-              src={draft.mediaUrl}
+              src={chatMediaDisplayUrl(draft.mediaUrl)}
               controls
               className="max-h-40 rounded-lg"
             />

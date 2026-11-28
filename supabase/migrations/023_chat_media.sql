@@ -66,7 +66,9 @@ VALUES (
 )
 ON CONFLICT (id) DO UPDATE
 SET
-  public = EXCLUDED.public,
+  -- An existing bucket keeps its public flag: 321 makes chat-media
+  -- private, and re-applying this file must not open it again.
+  public = storage.buckets.public,
   file_size_limit = EXCLUDED.file_size_limit,
   allowed_mime_types = EXCLUDED.allowed_mime_types;
 

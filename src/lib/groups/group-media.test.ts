@@ -147,6 +147,17 @@ describe('groupDownloadUrl', () => {
     ).toBe('Trade & licence.pdf');
   });
 
+  it('names the file on the app route too (private chat-media, 321)', () => {
+    expect(
+      groupDownloadUrl(
+        '/api/media/chat/account-1/inbound/123-a.pdf',
+        'Trade & licence.pdf'
+      )
+    ).toBe(
+      '/api/media/chat/account-1/inbound/123-a.pdf?download=Trade%20%26%20licence.pdf'
+    );
+  });
+
   it('leaves a gateway link, and a file with no name, alone', () => {
     expect(groupDownloadUrl(LINK, 'a.pdf')).toBe(LINK);
     expect(groupDownloadUrl(OURS, null)).toBe(OURS);

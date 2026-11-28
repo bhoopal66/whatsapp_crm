@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { isProxiedMediaUrl, loadMediaBlob } from "@/lib/media/blob-cache";
+import { chatMediaDisplayUrl } from '@/lib/storage/chat-media-url';
 
 export type MediaLoadStatus = "idle" | "loading" | "ready" | "error";
 
@@ -69,7 +70,8 @@ export function useMediaBlobUrl(
 
   // Nothing to load for a public URL — derived here rather than pushed
   // through state so the first paint already has the image.
-  if (!isProxiedMediaUrl(url)) return { src: url, status: "ready" };
+  if (!isProxiedMediaUrl(url))
+    return { src: chatMediaDisplayUrl(url), status: "ready" };
 
   // A result for a *previous* URL is stale; the new URL's load is already
   // in flight, so report loading rather than flashing the old image.
