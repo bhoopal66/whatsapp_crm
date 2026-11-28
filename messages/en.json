@@ -12879,7 +12879,15 @@
       "staffConversation": "Staff conversation",
       "loadFailed": "Couldn't load this chat's HR details.",
       "tasksLoadFailed": "Couldn't load the HR tasks.",
-      "retry": "Retry"
+      "retry": "Retry",
+      "interview": "Interview",
+      "interviewTime": "Interview time (Dubai time)",
+      "interviewHint": "Dubai time. The interview reminder goes out within the 24 hours before it.",
+      "interviewSet": "Set for {when} (Dubai time)",
+      "interviewNone": "No interview time set",
+      "interviewSave": "Save",
+      "interviewClear": "Clear",
+      "interviewPast": "Pick a time in the future."
     },
     "pane": {
       "conversation": "Conversation",

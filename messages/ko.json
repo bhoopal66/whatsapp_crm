@@ -12879,7 +12879,15 @@
       "staffConversation": "직원 대화",
       "loadFailed": "이 대화의 HR 정보를 불러오지 못했습니다.",
       "tasksLoadFailed": "HR 작업을 불러오지 못했습니다.",
-      "retry": "다시 시도"
+      "retry": "다시 시도",
+      "interview": "면접",
+      "interviewTime": "면접 시간 (두바이 시간)",
+      "interviewHint": "두바이 시간 기준입니다. 면접 알림은 면접 전 24시간 이내에 발송됩니다.",
+      "interviewSet": "예정: {when} (두바이 시간)",
+      "interviewNone": "설정된 면접 시간이 없습니다",
+      "interviewSave": "저장",
+      "interviewClear": "지우기",
+      "interviewPast": "미래의 시간을 선택하세요."
     },
     "pane": {
       "conversation": "대화",

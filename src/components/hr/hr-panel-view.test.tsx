@@ -72,6 +72,7 @@ function render(
     ownerOptions: null,
     ownerUnassign: false,
     onOwner: noop,
+    onInterview: noop,
     ...over,
   };
   return renderToStaticMarkup(
@@ -171,6 +172,66 @@ describe('HrPanelView: HR department chat', () => {
   it('asks before closing', () => {
     const html = render(dept, { pendingClose: closeChoices(dept)[0] });
     expect(html).toContain('Close this conversation?');
+  });
+});
+
+describe('HrPanelView: Interview', () => {
+  const FIELD = '>Interview</legend>';
+  const REC_MEMBER: HrRoles = { admin: false, recruiter: 'member', dept: null };
+  const DEPT_LEAD: HrRoles = { admin: false, recruiter: null, dept: 'lead' };
+
+  it('an open recruitment chat offers the time, under the stage', () => {
+    const html = render(row());
+    expect(html).toContain(FIELD);
+    expect(html).toContain('type="datetime-local"');
+    expect(html).toContain('aria-label="Interview time (Dubai time)"');
+    expect(html).toContain('No interview time set');
+    expect(html).toContain('within the 24 hours before it');
+    expect(at(html, '>Stage</legend>')).toBeLessThan(at(html, FIELD));
+    expect(at(html, FIELD)).toBeLessThan(at(html, 'Moves to HR department'));
+    // Nothing saved: nothing to clear, and an empty draft saves nothing.
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Save<\/button>/);
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Clear<\/button>/);
+  });
+
+  it('shows the saved time in Dubai time and offers Clear', () => {
+    const html = render(row({ interview_at: '2099-03-01T06:30:00Z' }));
+    expect(html).toContain('value="2099-03-01T10:30"');
+    expect(html).toMatch(/Set for [^<]*10:30[^<]*\(Dubai time\)/);
+    expect(html).not.toMatch(/<button[^>]*disabled=""[^>]*>Clear<\/button>/);
+  });
+
+  it('refuses past times: the input starts at now', () => {
+    const html = render(row());
+    expect(html).toMatch(/min="\d{4}-\d{2}-\d{2}T\d{2}:\d{2}"/);
+  });
+
+  it('is not offered on a department chat', () => {
+    const dept = row({ inbox: 'dept', stage_key: null, topic: 'payroll' });
+    expect(render(dept)).toContain('>Stage</legend>');
+    expect(render(dept)).not.toContain(FIELD);
+    expect(render(dept)).not.toContain('datetime-local');
+  });
+
+  it('is not offered on a closed chat', () => {
+    const closed = row({
+      closed_at: '2026-11-16T01:00:00Z',
+      outcome: 'hired',
+      interview_at: '2099-03-01T06:30:00Z',
+    });
+    expect(render(closed)).not.toContain(FIELD);
+  });
+
+  it('is offered to a recruiter member, not to someone who may not edit', () => {
+    const r = row({ interview_at: '2099-03-01T06:30:00Z' });
+    const as = (roles: HrRoles) =>
+      render(r, {
+        actions: panelActions(r, roles),
+        steps: stepperSteps(r, roles, r.stage_key),
+      });
+    expect(as(REC_MEMBER)).toContain(FIELD);
+    expect(as(DEPT_LEAD)).not.toContain(FIELD);
+    expect(as(DEPT_LEAD)).not.toContain('2099-03-01T10:30');
   });
 });
 

@@ -12879,7 +12879,15 @@
       "staffConversation": "محادثة الموظف",
       "loadFailed": "تعذر تحميل بيانات الموارد البشرية لهذه المحادثة.",
       "tasksLoadFailed": "تعذر تحميل مهام الموارد البشرية.",
-      "retry": "إعادة المحاولة"
+      "retry": "إعادة المحاولة",
+      "interview": "المقابلة",
+      "interviewTime": "موعد المقابلة (بتوقيت دبي)",
+      "interviewHint": "بتوقيت دبي. يُرسل تذكير المقابلة خلال الـ 24 ساعة التي تسبقها.",
+      "interviewSet": "موعدها {when} (بتوقيت دبي)",
+      "interviewNone": "لم يُحدد موعد للمقابلة",
+      "interviewSave": "حفظ",
+      "interviewClear": "مسح",
+      "interviewPast": "اختر وقتًا في المستقبل."
     },
     "pane": {
       "conversation": "المحادثة",

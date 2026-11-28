@@ -40,6 +40,7 @@ import {
   hrOpen,
   hrReopen,
   hrSetFlag,
+  hrSetInterview,
   hrSetStage,
   hrSetTopic,
   type HrResult,
@@ -638,6 +639,9 @@ export function HrPanel({
       }
       ownerUnassign={ownerChoices?.unassigned ?? false}
       onOwner={(next) => void changeOwner(next)}
+      onInterview={(at) =>
+        void run(() => hrSetInterview(sb(), conversationId, at))
+      }
     >
       {row?.inbox === 'recruiter' && (
         <>

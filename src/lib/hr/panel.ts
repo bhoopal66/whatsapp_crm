@@ -159,6 +159,19 @@ export function panelActions(
 }
 
 /**
+ * Whether the pane offers the Interview field (339): a recruitment chat
+ * the viewer may edit, which also means it is open. A department chat
+ * never has one (the RPC answers INVALID), and a viewer who may not
+ * write gets no read-only copy of it.
+ */
+export function showInterviewField(
+  row: HrConversation,
+  actions: PanelActions
+): boolean {
+  return paneKind(row) === 'recruiter' && actions.edit;
+}
+
+/**
  * The outcome a close carries: only a recruitment row takes one (the
  * server answers INVALID for an outcome on a department row), so a
  * stale pick is never sent for any other.

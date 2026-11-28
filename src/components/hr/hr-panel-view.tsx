@@ -7,7 +7,7 @@
  * data, the writes and the reason dialog live in `hr-panel.tsx`, and
  * `lib/hr/panel.ts` decides which sections and buttons this viewer gets.
  */
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import { formatDistanceToNow } from 'date-fns';
 import { Check, Circle, Contrast } from 'lucide-react';
@@ -19,6 +19,7 @@ import {
   paneKind,
   paneMoveHintKey,
   paneSections,
+  showInterviewField,
   type CloseChoice,
   type PaneSection,
   type PanelActions,
@@ -33,6 +34,13 @@ import {
   type HrStage,
   type HrTopic,
 } from '@/lib/hr/types';
+import {
+  formatInterviewTime,
+  fromInterviewInput,
+  interviewDraftError,
+  interviewInputMin,
+  toInterviewInput,
+} from '@/lib/hr/interview-time';
 import { hrTaskTitle } from '@/lib/hr/task-title';
 import type { Task } from '@/lib/tasks/types';
 import { cn } from '@/lib/utils';
@@ -92,6 +100,8 @@ export interface HrPanelViewProps {
   /** Whether the Owner select offers "Unassigned". */
   ownerUnassign: boolean;
   onOwner: (userId: string | null) => void;
+  /** 339: save (ISO) or clear (null) the recruitment chat's interview time. */
+  onInterview: (at: string | null) => void;
   /** Rendered after the tasks (the recruiter-only mounts, the dialog). */
   children?: ReactNode;
 }
@@ -111,6 +121,78 @@ function Field({
       {children}
       {hint && <p className="text-muted-foreground text-xs">{hint}</p>}
     </fieldset>
+  );
+}
+
+/**
+ * The Interview field (339): a Dubai-time draft, saved only when it is a
+ * whole future time (the RPC refuses a past one again), or cleared. Keyed
+ * by the saved time, so a save, a clear or a live change resets it.
+ */
+function InterviewField({
+  savedAt,
+  busy,
+  onInterview,
+}: {
+  savedAt: string | null;
+  busy: boolean;
+  onInterview: (at: string | null) => void;
+}) {
+  const t = useTranslations('Hr');
+  const locale = useLocale();
+  const saved = toInterviewInput(savedAt);
+  const [draft, setDraft] = useState(saved);
+  const [now, setNow] = useState(() => new Date());
+  const error = draft === saved ? null : interviewDraftError(draft, now);
+  const when = formatInterviewTime(savedAt, locale);
+
+  const save = () => {
+    // Judge the draft against the clock at the click, not at mount.
+    const at = new Date();
+    setNow(at);
+    const iso = fromInterviewInput(draft);
+    if (iso && interviewDraftError(draft, at) === null) onInterview(iso);
+  };
+
+  return (
+    <Field legend={t('panel.interview')} hint={t('panel.interviewHint')}>
+      <div className="flex items-center gap-1">
+        <input
+          type="datetime-local"
+          aria-label={t('panel.interviewTime')}
+          className={NATIVE_FIELD}
+          value={draft}
+          min={interviewInputMin(now)}
+          disabled={busy}
+          aria-invalid={error === 'past' || undefined}
+          onChange={(e) => setDraft(e.target.value)}
+        />
+        <Button
+          size="xs"
+          variant="outline"
+          disabled={busy || draft === saved || error !== null}
+          onClick={save}
+        >
+          {t('panel.interviewSave')}
+        </Button>
+        <Button
+          size="xs"
+          variant="ghost"
+          disabled={busy || savedAt === null}
+          onClick={() => onInterview(null)}
+        >
+          {t('panel.interviewClear')}
+        </Button>
+      </div>
+      {error === 'past' && (
+        <p role="alert" className="text-destructive text-xs">
+          {t('panel.interviewPast')}
+        </p>
+      )}
+      <p className="text-muted-foreground text-xs">
+        {when ? t('panel.interviewSet', { when }) : t('panel.interviewNone')}
+      </p>
+    </Field>
   );
 }
 
@@ -375,6 +457,17 @@ export function HrPanelView(props: HrPanelViewProps) {
     ),
   };
 
+  // Under the stage: when the next interview is (an open recruitment chat
+  // the viewer may edit).
+  const interview = showInterviewField(row, actions) ? (
+    <InterviewField
+      key={`${row.conversation_id}:${row.interview_at ?? ''}`}
+      savedAt={row.interview_at}
+      busy={busy}
+      onInterview={props.onInterview}
+    />
+  ) : null;
+
   // Under Flags (the package's pane): a select for who may change it,
   // else the name.
   const ownerOptions = props.ownerOptions;
@@ -412,7 +505,11 @@ export function HrPanelView(props: HrPanelViewProps) {
         {kind === 'dept' ? t('panel.staffConversation') : t('pane.tags')}
       </h5>
       {paneSections(row, actions).flatMap((s) =>
-        s === 'flags' ? [sections.flags(), owner] : [sections[s]()]
+        s === 'flags'
+          ? [sections.flags(), owner]
+          : s === 'stage' && interview
+            ? [sections.stage(), interview]
+            : [sections[s]()]
       )}
 
       <div className="space-y-1">

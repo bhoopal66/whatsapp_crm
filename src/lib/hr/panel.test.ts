@@ -14,6 +14,7 @@ import {
   outcomeToSend,
   panelActions,
   showHrPanel,
+  showInterviewField,
   stepNeedsReason,
   stepperSteps,
 } from './panel';
@@ -241,6 +242,28 @@ describe('panelActions', () => {
     expect(canEditRow(row(), ADMIN)).toBe(true);
     expect(canEditRow(closed(), ADMIN)).toBe(false);
     expect(canEditRow(dept(), REC_MEMBER)).toBe(false);
+  });
+});
+
+describe('showInterviewField', () => {
+  const shown = (r: HrConversation, roles: HrRoles) =>
+    showInterviewField(r, panelActions(r, roles));
+
+  it('shows on an open recruitment chat for whoever may edit it', () => {
+    for (const roles of [ADMIN, REC_LEAD, REC_MEMBER])
+      expect(shown(row(), roles)).toBe(true);
+  });
+  it('never on a department chat, even for its editors', () => {
+    for (const roles of [ADMIN, DEPT_LEAD, DEPT_MEMBER])
+      expect(shown(dept(), roles)).toBe(false);
+  });
+  it('not on a closed recruitment chat', () => {
+    for (const roles of [ADMIN, REC_LEAD, REC_MEMBER])
+      expect(shown(closed(), roles)).toBe(false);
+  });
+  it('not for a viewer who may not edit the recruiter inbox', () => {
+    for (const roles of [DEPT_LEAD, DEPT_MEMBER, NONE])
+      expect(shown(row(), roles)).toBe(false);
   });
 });
 
