@@ -87,11 +87,15 @@ BEGIN
   EXECUTE $fn$
     CREATE FUNCTION pg_temp.sdc_hr(p_acct uuid, p_ct uuid, p_cv uuid, p_key text, p_at timestamptz)
     RETURNS text LANGUAGE plpgsql AS $body$
-    DECLARE v uuid;
+    DECLARE v uuid; a text;
     BEGIN
       INSERT INTO hr_automsg_outbox (account_id, conversation_id, contact_id, trigger, template_kind, dedupe_key)
       VALUES (p_acct, p_cv, p_ct, 'stage_hr_interview', 'hr_interview_invite', p_key) RETURNING id INTO v;
-      RETURN hr_automsg_claim(v, p_at) || '/'
+      -- Claim, then read the row in a statement of its own: a subquery in
+      -- the claim's own expression reads that statement's snapshot, from
+      -- before the claim's UPDATE, and would show a held row as queued.
+      a := hr_automsg_claim(v, p_at);
+      RETURN a || '/'
           || (SELECT x.status || ':' || coalesce(x.hold_reason, '-') FROM hr_automsg_outbox x WHERE x.id = v);
     END $body$
   $fn$;
