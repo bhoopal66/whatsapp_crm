@@ -126,8 +126,15 @@ BEGIN
     (a_acct, u_owner, 'desk_digest', 'Utility', 'en', 'Application {{1}}: still needed: {{2}}.', 'APPROVED');
   PERFORM desk_bank_code_set(u_owner, a_acct, 'RAK', 'RAK');
   PERFORM desk_digest_settings_set(u_owner, a_acct, true, 'desk_digest', 'en', 10, 2);
+  -- One contact acts for ten companies; desk_case_open refuses a second
+  -- open lead for the same contact at one bank, so each company applies
+  -- at a bank of its own (RAA..RAJ).
   FOR i IN 1..10 LOOP
-    cu := cu || (SELECT x.customer_id FROM desk_case_open(a_acct, 'SDC327-' || i, 'SDC Trading ' || i, 'RAK',
+    INSERT INTO case_banks (account_id, code, name)
+    VALUES (a_acct, 'RA' || chr(64 + i), 'SDC bank ' || i) ON CONFLICT DO NOTHING;
+    PERFORM desk_bank_code_set(u_owner, a_acct, 'RA' || chr(64 + i), 'RA' || chr(64 + i));
+    cu := cu || (SELECT x.customer_id FROM desk_case_open(a_acct, 'SDC327-' || i, 'SDC Trading ' || i,
+                                                          'RA' || chr(64 + i),
                                                           'Business account', kc, u_owner, NULL, now()) x);
   END LOOP;
   -- CSAT: on, send hours 9-20; four approved cases.
