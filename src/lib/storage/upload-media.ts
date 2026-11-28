@@ -1,5 +1,6 @@
 import { pickActiveProfile } from "@/lib/auth/active-profile";
 import { createClient } from "@/lib/supabase/client";
+import { chatMediaStoredMime, safeStoredMime } from "./safe-mime";
 
 /**
  * Shared media-upload helper for Supabase Storage buckets that use the
@@ -65,7 +66,10 @@ export function buildMediaPath(
   // one — a bare name like "README" has no extension and falls back to
   // "bin" rather than becoming "readme".
   const hasExt = /\.[^.]+$/.test(fileName);
-  const ext = hasExt ? fileName.split(".").pop()!.toLowerCase() : "bin";
+  // The extension is browser-supplied text that ends up in the object
+  // name: keep it to a short run of letters and digits, else "bin".
+  const rawExt = hasExt ? fileName.split(".").pop()!.toLowerCase() : "";
+  const ext = /^[a-z0-9]{1,8}$/.test(rawExt) ? rawExt : "bin";
   const safeBase =
     fileName
       .replace(/\.[^.]+$/, "")
@@ -131,7 +135,12 @@ export async function uploadAccountMedia(
   const { error: upErr } = await supabase.storage.from(bucket).upload(path, file, {
     cacheControl: "3600",
     upsert: false,
-    contentType: file.type,
+    // Never the browser's word for it: html/svg/xml would be served as
+    // script from the app's origin.
+    contentType:
+      bucket === "chat-media"
+        ? chatMediaStoredMime(file.type)
+        : safeStoredMime(file.type),
   });
   if (upErr) throw new Error(upErr.message);
 
