@@ -85,7 +85,7 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe('GET files/[fileId]/download', () => {
-  it('signs a chat-media document for 600 s (private since 321) and marks issued', async () => {
+  it('signs a chat-media document for 300 s (private since 321) and marks issued', async () => {
     const res = await get();
     expect(res.status).toBe(200);
     expect(res.headers.get('cache-control')).toBe('no-store');
@@ -97,7 +97,7 @@ describe('GET files/[fileId]/download', () => {
     expect(m.from).toHaveBeenCalledWith('chat-media');
     expect(m.createSignedUrl).toHaveBeenCalledWith(
       'account-1/inbound/a.pdf',
-      600
+      300
     );
     expect(m.recordFileDownload).toHaveBeenCalledWith(
       'u-1',
@@ -108,7 +108,7 @@ describe('GET files/[fileId]/download', () => {
     expect(m.markDownloadIssued).toHaveBeenCalledWith('d-1');
   });
 
-  it('signs a case-files document for 600 s', async () => {
+  it('signs a case-files document for 300 s', async () => {
     m.getDocument.mockResolvedValue(
       doc({ storageBucket: 'case-files', storagePath: 'cases/x/a.pdf' })
     );
@@ -120,10 +120,10 @@ describe('GET files/[fileId]/download', () => {
     );
     const now: Date = m.recordFileDownload.mock.calls[0][2];
     expect(body.expiresAt).toBe(
-      new Date(now.getTime() + 600_000).toISOString()
+      new Date(now.getTime() + 300_000).toISOString()
     );
     expect(m.from).toHaveBeenCalledWith('case-files');
-    expect(m.createSignedUrl).toHaveBeenCalledWith('cases/x/a.pdf', 600);
+    expect(m.createSignedUrl).toHaveBeenCalledWith('cases/x/a.pdf', 300);
     expect(m.markDownloadIssued).toHaveBeenCalledWith('d-1');
   });
 

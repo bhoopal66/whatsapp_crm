@@ -67,6 +67,10 @@ export const CASE_FILES_REFUSAL_HTTP: Readonly<
     status: 422,
     text: 'The values of a fillable form could not be drawn',
   },
+  FILE_INTEGRITY: {
+    status: 422,
+    text: 'A stored file no longer matches the file that was checked',
+  },
   DOC_NOT_REQUIRED: {
     status: 422,
     text: 'That document is not on this case’s list',

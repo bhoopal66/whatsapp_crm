@@ -72,7 +72,7 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe('GET build/download', () => {
-  it('records, signs for 600 s on the public origin, then marks issued', async () => {
+  it('records, signs for 300 s on the public origin, then marks issued', async () => {
     const res = await get();
     expect(res.status).toBe(200);
     expect(res.headers.get('cache-control')).toBe('no-store');
@@ -84,7 +84,7 @@ describe('GET build/download', () => {
     });
     expect(m.order).toEqual(['record', 'sign', 'issued']);
     expect(m.from).toHaveBeenCalledWith('case-files');
-    expect(m.createSignedUrl).toHaveBeenCalledWith(PATH, 600);
+    expect(m.createSignedUrl).toHaveBeenCalledWith(PATH, 300);
     expect(m.recordBuildDownload).toHaveBeenCalledWith(
       'u-1',
       C,
@@ -92,7 +92,7 @@ describe('GET build/download', () => {
     );
     const now: Date = m.recordBuildDownload.mock.calls[0][2];
     expect(body.expiresAt).toBe(
-      new Date(now.getTime() + 600_000).toISOString()
+      new Date(now.getTime() + 300_000).toISOString()
     );
     expect(m.markDownloadIssued).toHaveBeenCalledWith('d-1');
   });

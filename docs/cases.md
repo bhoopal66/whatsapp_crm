@@ -454,7 +454,7 @@ stored and the reservation lapses.
 
 **Downloads and audit.** Downloading a file (`/files/[fileId]/download`) or
 the current build (`/build/download`) first writes an audit row, then issues
-a signed link valid for 10 minutes; if signing fails the row says so. A
+a signed link valid for 5 minutes; if signing fails the row says so. A
 person who cannot read the case is told the file does not exist.
 
 ## Saved views, snooze and mentions (migration 185)

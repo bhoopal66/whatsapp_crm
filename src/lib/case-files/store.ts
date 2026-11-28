@@ -55,7 +55,11 @@ export type CaseFilesIntakeRefusal =
   | 'REUSE_WOULD_FAIL';
 
 /** Refused in TypeScript by the case-file assembly (assembly.ts). */
-export type CaseFilesBuildRefusal = 'BUILD_TOO_LARGE' | 'FORM_NOT_FLATTENED';
+export type CaseFilesBuildRefusal =
+  | 'BUILD_TOO_LARGE'
+  | 'FORM_NOT_FLATTENED'
+  // A stored file's bytes do not match its recorded sha256 (033b).
+  | 'FILE_INTEGRITY';
 
 export type CaseFilesRefusal =
   | (typeof CASE_FILES_REFUSALS)[number]
@@ -70,7 +74,7 @@ export class CaseFilesRefusedError extends Error {
     readonly filedAs?: string,
     /** REUSE_WOULD_FAIL: the checks that failed. */
     readonly failedChecks?: readonly Check[],
-    /** FORM_NOT_FLATTENED: the document's name in the case file. */
+    /** FORM_NOT_FLATTENED, FILE_INTEGRITY: the document's name in the case file. */
     readonly document?: string
   ) {
     super(`case files refused: ${reason}`);

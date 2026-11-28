@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import { PDFDocument } from 'pdf-lib';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -124,6 +126,37 @@ describe('readDocumentBytes', () => {
       { storage: st.storage }
     );
     expect(Array.from(out!)).toEqual([9]);
+  });
+  it('bytes that do not hash to the recorded sha256 are a mismatch, logged by id only', async () => {
+    const st = fakeStorage({
+      objects: { 'case-files/cases/x.pdf': new Uint8Array([9]) },
+    });
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const doc = {
+      id: 'doc-7',
+      mediaUrl: null,
+      storageBucket: 'case-files',
+      storagePath: 'cases/x.pdf',
+    };
+    const good = createHash('sha256')
+      .update(new Uint8Array([9]))
+      .digest('hex');
+    expect(
+      await readDocument({ ...doc, sha256: good }, { storage: st.storage })
+    ).toEqual({ kind: 'bytes', bytes: new Uint8Array([9]) });
+    expect(err).not.toHaveBeenCalled();
+
+    const tampered = { ...doc, sha256: 'a'.repeat(64) };
+    expect(await readDocument(tampered, { storage: st.storage })).toEqual({
+      kind: 'mismatch',
+    });
+    expect(
+      await readDocumentBytes(tampered, { storage: st.storage })
+    ).toBeNull();
+    expect(err).toHaveBeenCalledWith(
+      '[case-files] sha256 mismatch on read: doc-7'
+    );
+    err.mockRestore();
   });
   it('never fetches an arbitrary URL', async () => {
     const f = vi.fn();

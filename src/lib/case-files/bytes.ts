@@ -18,7 +18,14 @@
  * storage API reports its own database timing out) is ours, and says nothing
  * about the document. `readDocumentBytes` is null for both, for the callers
  * that only need the bytes.
+ *
+ * Integrity on read (033b): when the row carries its recorded `sha256`, the
+ * bytes that came back are hashed and compared with it; a difference is
+ * `mismatch` (null from `readDocumentBytes`), logged once with the row id
+ * only. A row with no recorded hash (NULL) has nothing to compare against.
  */
+import { createHash } from 'node:crypto';
+
 import { serverSupabaseUrl } from '@/lib/supabase/urls';
 
 export const MAX_READ_BYTES = 100 * 1024 * 1024;
@@ -48,6 +55,10 @@ export interface DocumentBytesSource {
   mediaUrl: string | null;
   storageBucket: string | null;
   storagePath: string | null;
+  /** The `customer_documents` id: the one thing a mismatch logs. */
+  id?: string;
+  /** `customer_documents.sha256`: the bytes must hash to it when set. */
+  sha256?: string | null;
 }
 
 /**
@@ -80,7 +91,9 @@ export function chatMediaObjectPath(mediaUrl: string): string | null {
 export type DocumentRead =
   | { kind: 'bytes'; bytes: Uint8Array }
   | { kind: 'unreadable' }
-  | { kind: 'unavailable' };
+  | { kind: 'unavailable' }
+  /** The bytes do not hash to the row's recorded sha256: never use them. */
+  | { kind: 'mismatch' };
 
 const UNREADABLE: DocumentRead = { kind: 'unreadable' };
 const UNAVAILABLE: DocumentRead = { kind: 'unavailable' };
@@ -136,6 +149,18 @@ export async function readDocument(
   doc: DocumentBytesSource,
   deps: ReadBytesDeps
 ): Promise<DocumentRead> {
+  const read = await readUnverified(doc, deps);
+  if (read.kind !== 'bytes' || !doc.sha256) return read;
+  const got = createHash('sha256').update(read.bytes).digest('hex');
+  if (got === doc.sha256) return read;
+  console.error(`[case-files] sha256 mismatch on read: ${doc.id ?? '-'}`);
+  return { kind: 'mismatch' };
+}
+
+async function readUnverified(
+  doc: DocumentBytesSource,
+  deps: ReadBytesDeps
+): Promise<DocumentRead> {
   try {
     if (doc.storageBucket === 'case-files') {
       const path = doc.storagePath;
@@ -176,7 +201,7 @@ export async function readDocument(
   }
 }
 
-/** The bytes, or null for any reason (see `readDocument`). */
+/** The bytes, or null for any reason, a mismatch included (see `readDocument`). */
 export async function readDocumentBytes(
   doc: DocumentBytesSource,
   deps: ReadBytesDeps

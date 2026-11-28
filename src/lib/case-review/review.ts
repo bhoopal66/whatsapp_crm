@@ -183,9 +183,11 @@ export async function reviewCase(
         ((d: DocRow) =>
           readDocumentBytes(
             {
+              id: d.id,
               storageBucket: d.storage_bucket,
               storagePath: d.storage_path,
               mediaUrl: d.media_url,
+              sha256: d.sha256,
             },
             { storage: deps.storage }
           ));

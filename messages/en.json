@@ -12683,7 +12683,8 @@
       "FILE_NOT_FOUND": "This file could not be found.",
       "NOT_CONFIGURED": "Downloads are not set up on this server.",
       "generic": "Something went wrong. Try again.",
-      "FORM_NOT_FLATTENED": "The form in “{document}” could not be read in full, so the case file was not assembled. Print that form to a new PDF, upload it, and try again."
+      "FORM_NOT_FLATTENED": "The form in “{document}” could not be read in full, so the case file was not assembled. Print that form to a new PDF, upload it, and try again.",
+      "FILE_INTEGRITY": "“{document}” no longer matches the file that passed its checks, so the case file was not assembled. Upload that document again, and tell an admin."
     },
     "checks": {
       "detail": {

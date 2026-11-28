@@ -43,8 +43,9 @@ import {
 import { recordCustomerDocumentInternal } from '@/lib/customer-docs/record';
 
 import {
-  readDocumentBytes as defaultReadDocumentBytes,
+  readDocument as defaultReadDocument,
   type CaseFilesStorage,
+  type DocumentRead,
 } from './bytes';
 import { sha256Hex } from './checks';
 import { dubaiDay } from './day';
@@ -80,7 +81,7 @@ export const MAX_BUILD_OUTPUT_BYTES = 50 * 1024 * 1024;
 export interface AssemblyDeps {
   /** The service-role storage client (`admin.storage`). */
   storage: CaseFilesStorage;
-  readDocumentBytes?: typeof defaultReadDocumentBytes;
+  readDocument?: typeof defaultReadDocument;
   fetch?: typeof fetch;
   /** Defaults to `serverSupabaseUrl()`. */
   internalBaseUrl?: string;
@@ -479,7 +480,7 @@ export async function assembleCaseFile(input: {
   const { admin, actor, caseId, deps } = input;
   const now = input.now ?? (deps.clock ?? (() => new Date()))();
   const store = new CaseFilesStore(admin);
-  const read = deps.readDocumentBytes ?? defaultReadDocumentBytes;
+  const read = deps.readDocument ?? defaultReadDocument;
   const maxInput = deps.maxInputBytes ?? MAX_BUILD_INPUT_BYTES;
   const maxOutput = deps.maxOutputBytes ?? MAX_BUILD_OUTPUT_BYTES;
 
@@ -517,14 +518,25 @@ export async function assembleCaseFile(input: {
       held + doc.sizeBytes > maxInput
     )
       throw new CaseFilesRefusedError('BUILD_TOO_LARGE');
-    const bytes = doc
+    const got: DocumentRead = doc
       ? await read(doc, {
           storage: deps.storage,
           fetch: deps.fetch,
           internalBaseUrl: deps.internalBaseUrl,
         })
-      : null;
-    if (!bytes) throw new CaseFilesStoreError(`assembly.read ${file.id}`, null);
+      : { kind: 'unreadable' };
+    // Bytes that no longer hash to the recorded sha256 never reach a bank:
+    // the build stops and names the file (033b).
+    if (got.kind === 'mismatch')
+      throw new CaseFilesRefusedError(
+        'FILE_INTEGRITY',
+        undefined,
+        undefined,
+        file.renamedName ?? spec.docKey
+      );
+    if (got.kind !== 'bytes')
+      throw new CaseFilesStoreError(`assembly.read ${file.id}`, null);
+    const bytes = got.bytes;
     manifest.push({
       position: spec.position,
       docKey: spec.docKey,

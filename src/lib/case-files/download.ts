@@ -2,7 +2,7 @@
  * Download URLs for case files and case builds (migration 182).
  *
  * Two sources only, the same two `bytes.ts` reads:
- *   - a 'case-files' storage object: a signed URL, valid 600 s, built by
+ *   - a 'case-files' storage object: a signed URL, valid 300 s, built by
  *     the service-role client on the internal origin and re-pointed at the
  *     public one (`toPublicSupabaseUrl`);
  *   - a public chat-media object URL: already public, served re-pointed,
@@ -20,7 +20,7 @@ import { chatMediaObjectPath } from './bytes';
 import { CASE_FILES_BUCKET } from './intake-file';
 import { CaseFilesStoreError, type CustomerDocumentRow } from './store';
 
-export const DOWNLOAD_URL_TTL_SECONDS = 600;
+export const DOWNLOAD_URL_TTL_SECONDS = 300;
 
 /** The storage surface signing needs: supabase-js `admin.storage` fits it. */
 export interface CaseFilesSigner {
@@ -76,7 +76,7 @@ export async function signCaseFilesObject(
 }
 
 /**
- * The URL of one customer document, signed for 600 s, or null when its
+ * The URL of one customer document, signed for 300 s, or null when its
  * location is neither a 'case-files' object nor a chat-media object
  * (private since migration 321).
  */

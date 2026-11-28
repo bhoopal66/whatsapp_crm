@@ -769,7 +769,7 @@ key before the link is made.
 }
 ```
 
-The URL is valid for 600 seconds; fetch the file straight away and
+The URL is valid for 300 seconds; fetch the file straight away and
 check it against `sha256`. Ask again for a fresh link rather than
 storing one. Responses carry `Cache-Control: no-store`.
 

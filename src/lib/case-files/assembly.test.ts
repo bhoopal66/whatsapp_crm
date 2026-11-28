@@ -20,7 +20,7 @@ import {
 } from './assembly';
 import { sha256Hex } from './checks';
 import { CaseFilesRefusedError, type CaseFilesDb } from './store';
-import type { CaseFilesStorage } from './bytes';
+import type { CaseFilesStorage, DocumentRead } from './bytes';
 
 const CASE = '11111111-2222-3333-4444-555555555555';
 const CONTACT = 'c0000000-0000-0000-0000-000000000001';
@@ -83,6 +83,8 @@ interface World {
   uploadError?: unknown;
   /** customer_documents.size_bytes by file id (absent = NULL). */
   sizes?: Record<string, number>;
+  /** customer_documents.sha256 by file id (absent = NULL). */
+  sha256s?: Record<string, string>;
 }
 
 async function world(w: World = {}) {
@@ -138,6 +140,7 @@ async function world(w: World = {}) {
       storage_path: `cases/${CASE}/${String(f.id)}`,
       mime: 'application/pdf',
       size_bytes: w.sizes?.[String(f.id)] ?? null,
+      sha256: w.sha256s?.[String(f.id)] ?? null,
     })),
   };
 
@@ -203,14 +206,22 @@ async function world(w: World = {}) {
         uploads.push({ bucket, path, body: body as Uint8Array, options });
         return { data: null, error: w.uploadError ?? null };
       },
-      download: async () => ({ data: null, error: { message: 'unused' } }),
+      // The real reader's path (`readDocument` unset): the same bytes.
+      download: async (path) => {
+        const b = bytes[path.split('/').pop()!];
+        return b
+          ? { data: new Blob([b as BlobPart]), error: null }
+          : { data: null, error: { message: 'missing', status: 400 } };
+      },
     }),
   };
-  const readDocumentBytes = vi.fn(
-    async (doc: { storagePath: string | null }) =>
-      bytes[String(doc.storagePath).split('/').pop()!] ?? null
+  const readDocument = vi.fn(
+    async (doc: { storagePath: string | null }): Promise<DocumentRead> => {
+      const b = bytes[String(doc.storagePath).split('/').pop()!];
+      return b ? { kind: 'bytes', bytes: b } : { kind: 'unreadable' };
+    }
   );
-  const deps = { storage, readDocumentBytes, clock: () => NOW };
+  const deps = { storage, readDocument, clock: () => NOW };
   const rpcNames = () => calls.map((c) => c.fn);
   const call = (fn: string) => calls.find((c) => c.fn === fn)?.args;
   return { admin, deps, uploads, calls, rpcNames, call, reads, bytes };
@@ -240,7 +251,7 @@ describe('assembleCaseFile', () => {
     expect(w.uploads).toEqual([]);
     expect(w.rpcNames()).toEqual(['case_file_build_gate']);
     expect(w.reads).toEqual([]);
-    expect(w.deps.readDocumentBytes).not.toHaveBeenCalled();
+    expect(w.deps.readDocument).not.toHaveBeenCalled();
   });
 
   it('merged: stores one content-addressed PDF of the cover plus every document', async () => {
@@ -390,6 +401,52 @@ describe('assembleCaseFile', () => {
     expect(w.rpcNames()).not.toContain('case_file_build_record');
   });
 
+  describe('integrity on read (FILE_INTEGRITY)', () => {
+    const hashes = async () => {
+      const w = await world();
+      return Object.fromEntries(
+        Object.entries(w.bytes).map(([id, b]) => [id, sha256Hex(b)])
+      );
+    };
+
+    it('every file hashes to its recorded sha256: the real reader builds', async () => {
+      const recorded = await hashes();
+      const w = await world({ sha256s: recorded });
+      const out = await assembleCaseFile({
+        admin: w.admin,
+        actor: 'u-1',
+        caseId: CASE,
+        deps: { ...w.deps, readDocument: undefined },
+        now: NOW,
+      });
+      expect(out.manifest).toHaveLength(4);
+      for (const e of out.manifest) expect(e.sha256).toBe(recorded[e.fileId]);
+      expect(w.uploads).toHaveLength(1);
+    });
+
+    it('a tampered stored file refuses the build by name, logs its id, stores nothing', async () => {
+      const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const w = await world({
+        sha256s: { ...(await hashes()), 'f-stmt': 'a'.repeat(64) },
+      });
+      const out = await assembleCaseFile({
+        admin: w.admin,
+        actor: 'u-1',
+        caseId: CASE,
+        deps: { ...w.deps, readDocument: undefined },
+        now: NOW,
+      }).catch((e: unknown) => e);
+      expect(out).toBeInstanceOf(CaseFilesRefusedError);
+      expect((out as CaseFilesRefusedError).reason).toBe('FILE_INTEGRITY');
+      expect((out as CaseFilesRefusedError).document).toBe('STATEMENT.pdf');
+      expect(err).toHaveBeenCalledWith(
+        '[case-files] sha256 mismatch on read: doc-f-stmt'
+      );
+      expect(w.uploads).toEqual([]);
+      expect(w.rpcNames()).not.toContain('case_file_build_record');
+    });
+  });
+
   describe('size limits (BUILD_TOO_LARGE)', () => {
     async function refusal(
       w: Awaited<ReturnType<typeof world>>,
@@ -416,19 +473,19 @@ describe('assembleCaseFile', () => {
       // passport and statement are read; emirates_id's declared size
       // crosses the budget, so it is never read.
       await refusal(w, { maxInputBytes: 1_000_000 });
-      expect(w.deps.readDocumentBytes).toHaveBeenCalledTimes(2);
+      expect(w.deps.readDocument).toHaveBeenCalledTimes(2);
     });
 
     it('bytes read over the input budget stop at the first that crosses', async () => {
       const w = await world();
       await refusal(w, { maxInputBytes: w.bytes['f-pass'].byteLength + 1 });
-      expect(w.deps.readDocumentBytes).toHaveBeenCalledTimes(2);
+      expect(w.deps.readDocument).toHaveBeenCalledTimes(2);
     });
 
     it('an assembled PDF over the output cap is never uploaded', async () => {
       const w = await world();
       await refusal(w, { maxOutputBytes: 100 });
-      expect(w.deps.readDocumentBytes).toHaveBeenCalledTimes(4);
+      expect(w.deps.readDocument).toHaveBeenCalledTimes(4);
     });
 
     it('an index-only build holds no bytes, so the input budget does not apply', async () => {

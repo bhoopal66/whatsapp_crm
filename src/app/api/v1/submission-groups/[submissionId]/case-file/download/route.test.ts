@@ -82,7 +82,7 @@ describe('GET /api/v1/submission-groups/[ref]/case-file/download', () => {
         p_submission_ref: 'SUB-1',
       })
     );
-    expect(m.createSignedUrl).toHaveBeenCalledWith(record.object_path, 600);
+    expect(m.createSignedUrl).toHaveBeenCalledWith(record.object_path, 300);
     expect(m.rpc).toHaveBeenCalledWith('case_file_download_issued', {
       p_download_id: 'dl-1',
     });
