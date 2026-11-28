@@ -23,6 +23,7 @@ import { usePageVisible } from '@/hooks/use-page-visible';
 import type { CaseTabProps } from '@/lib/cases/case-page';
 import {
   composerDone,
+  conversationFooter,
   conversationView,
   parseConversation,
   sendResultMessageKey,
@@ -46,8 +47,9 @@ type State = 'gated' | 'loading' | 'ok' | 'notReadable' | 'error';
  * Conversation: the case's WhatsApp group. Opening it is an audited read
  * for supervisors, so nothing is fetched until the reader asks. An ended
  * group is read-only; an active one gets the group composer (text, files,
- * voice notes) for case writers. A submission opened without a WhatsApp
- * group (136) gets neither. While it is open and on screen an active group
+ * voice notes) for whoever may send to the group (333: `canSendToGroup`,
+ * not `canWrite`). A submission opened without a WhatsApp group (136)
+ * gets neither. While it is open and on screen an active group
  * is asked for news, without an audit row, and read again when there is
  * some (`ConversationRefresh`).
  */
@@ -238,6 +240,12 @@ export function ConversationTab({ caseId, detail }: CaseTabProps) {
   const messages = convo?.messages ?? [];
   const archived = convo?.archived ?? false;
   const noGroup = !convo || conversationView(convo) === 'noGroup';
+  const footer = conversationFooter({
+    archived,
+    endedInView,
+    noGroup,
+    permissions: detail.permissions,
+  });
 
   return (
     <div className="bg-card flex h-[min(70vh,40rem)] min-h-80 flex-col overflow-hidden rounded-lg border">
@@ -278,9 +286,8 @@ export function ConversationTab({ caseId, detail }: CaseTabProps) {
         )}
       </div>
 
-      {(!archived || endedInView) &&
-        !noGroup &&
-        (detail.permissions.canWrite ? (
+      {footer &&
+        (footer === 'composer' ? (
           <GroupComposer
             chatKey={`case:${caseId}`}
             chatName={

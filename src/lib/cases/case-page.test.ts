@@ -125,6 +125,17 @@ const detail = {
 };
 
 describe('parseCaseDetail', () => {
+  it('reads canSendToGroup (333) apart from canWrite', () => {
+    const d = parseCaseDetail({
+      ...detail,
+      permissions: { canWrite: false, canSendToGroup: true },
+    });
+    expect(d!.permissions).toMatchObject({
+      canWrite: false,
+      canSendToGroup: true,
+    });
+  });
+
   it('reads a full detail and drops malformed rows', () => {
     const d = parseCaseDetail(detail);
     expect(d).not.toBeNull();
@@ -137,6 +148,7 @@ describe('parseCaseDetail', () => {
       canWrite: true,
       canReassign: false,
       canSeeAudit: false,
+      canSendToGroup: false,
     });
     expect(d!.history.stages).toHaveLength(1);
     expect(d!.history.reassignments).toHaveLength(1);
@@ -664,6 +676,7 @@ describe('reasonOwed', () => {
             canWrite: false,
             canReassign: true,
             canSeeAudit: true,
+            canSendToGroup: true,
           },
         })
       )
