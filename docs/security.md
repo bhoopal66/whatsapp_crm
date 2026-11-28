@@ -280,6 +280,16 @@ open it. Everything else about an object goes through RLS on
 
 `verify-chat-media-owner.sql`.
 
+Only agents and up write either bucket from a session (migration 321):
+an upload, a change or a removal needs `is_account_member(<id>, 'agent')`
+for the `account-<id>` folder it names, so a viewer, a deactivated
+member, a bank guest, a member whose active workspace is another one and
+a folder that is not `account-<uuid>` are all refused (`42501`). The
+three policies are RESTRICTIVE, so they hold even if 020, 023 or 057,
+which restate the older, wider permissive policies, is re-applied.
+Reads and the service role are not affected.
+`verify-media-upload-role.sql`.
+
 ## Housekeeping
 
 `edge_purge()` deletes expired claims, counters, failures and locks.
