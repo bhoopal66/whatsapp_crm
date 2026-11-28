@@ -1,17 +1,18 @@
 import type { NextConfig } from 'next';
 import createNextIntlPlugin from 'next-intl/plugin';
-import { contentSecurityPolicy } from './src/lib/csp';
 
 const withNextIntl = createNextIntlPlugin('./src/i18n/request.ts');
 
 /**
- * Baseline security headers applied to every response (X-Frame-Options
- * and the CSP: every response but /f/*, see FRAME_HEADERS below).
+ * Baseline security headers applied to every response (X-Frame-Options:
+ * every response but /f/*, see FRAME_HEADERS below).
  *
- * CSP ships as `Content-Security-Policy-Report-Only` so the browser
- * surfaces violations in the console without blocking anything — once
- * we have confidence nothing legit trips it (two deploys, a pass on
- * every route), flip the key to `Content-Security-Policy` to enforce.
+ * The Content-Security-Policy is not here: it carries a nonce that is new
+ * on every request, so the middleware sends it (src/lib/csp.ts,
+ * src/middleware.ts). Enforced; CSP_MODE=report-only turns it back to
+ * reporting only. Static files outside the middleware's matcher
+ * (/_next/static, images, /meeting-effects) get none: no page renders
+ * from them.
  *
  * The rest of the headers are straight blocks, safe to enforce today:
  *   - HSTS: only meaningful on HTTPS (no-op on http://localhost).
@@ -48,8 +49,9 @@ const SECURITY_HEADERS = [
 ] as const;
 
 /**
- * The two headers that forbid framing, kept apart from the rest so the
- * hosted web form (/f/<token>) can be left out of them: another site may
+ * The header that forbids framing (with the CSP's frame-ancestors, which
+ * the middleware sends), kept apart from the rest so the
+ * hosted web form (/f/<token>) can be left out of it: another site may
  * frame that one page, if it is on the form's own allowed-origins list.
  * The middleware sends /f/'s frame headers per request instead
  * (src/lib/web-form/frame-headers.ts): a non-empty list gets an
@@ -58,20 +60,7 @@ const SECURITY_HEADERS = [
  * says); anything else gets `frame-ancestors 'none'` + DENY, as here.
  * Every other route gets exactly these two values.
  */
-const FRAME_HEADERS = [
-  { key: 'X-Frame-Options', value: 'DENY' },
-  {
-    // Directives and the env-derived origins (Supabase media, the
-    // Linkus SDK bundle, the PBX for the browser softphone) are built in
-    // src/lib/csp.ts, which csp.test.ts pins.
-    key: 'Content-Security-Policy-Report-Only',
-    value: contentSecurityPolicy({
-      supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
-      linkusSdkUrl: process.env.NEXT_PUBLIC_LINKUS_SDK_URL,
-      pbxOrigin: process.env.NEXT_PUBLIC_PBX_ORIGIN,
-    }),
-  },
-] as const;
+const FRAME_HEADERS = [{ key: 'X-Frame-Options', value: 'DENY' }] as const;
 
 const nextConfig: NextConfig = {
   // No "X-Powered-By: Next.js": the framework and its version are one
@@ -209,11 +198,11 @@ const nextConfig: NextConfig = {
         headers: [...SECURITY_HEADERS],
       },
       {
-        // X-Frame-Options + the Report-Only CSP on every response except
+        // X-Frame-Options on every response except
         // /f/* (the hosted web form) and the route it posts to, whose
         // frame headers the middleware sets per request (the post's 303
-        // is shown inside the iframe): two frame-ancestors / XFO headers
-        // on one response would combine to the stricter one.
+        // is shown inside the iframe): an XFO DENY would block framing
+        // whatever the form's frame-ancestors allows.
         source: '/:path((?!f/|api/public/web-form/).*)',
         headers: [...FRAME_HEADERS],
       },

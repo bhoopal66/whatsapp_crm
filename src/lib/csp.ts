@@ -1,8 +1,17 @@
 // ============================================================
 // The Content-Security-Policy value, built from build-time env so a
-// self-hosted install's own origins are allowed (next.config.ts sends
-// it as Content-Security-Policy-Report-Only; see the note there).
-// Pure, so csp.test.ts can pin every directive.
+// self-hosted install's own origins are allowed. Pure, so csp.test.ts
+// can pin every directive.
+//
+// Enforced since 2026-11-28: the middleware builds it per request with a
+// fresh nonce (`cspForRequest`), sends it as `Content-Security-Policy`,
+// and puts it on the request too, where Next.js reads the nonce and
+// stamps it on its own scripts. A script runs only if it carries that
+// nonce or was added by one that does ('strict-dynamic': the chunk
+// loader, the Linkus SDK, MediaPipe's loader), so an injected
+// <script> or inline handler does not run. CSP_MODE=report-only (server
+// env, read at runtime) goes back to reporting only, without a rebuild,
+// should a deploy find something legitimate that it blocks.
 //
 // Optional origins, each added only when its env var parses:
 //   - NEXT_PUBLIC_SUPABASE_URL → media-src, frame-src (the desk's PDF
@@ -22,6 +31,44 @@ export interface CspEnv {
   linkusSdkUrl?: string;
   pbxOrigin?: string;
 }
+
+export interface CspOptions {
+  /**
+   * This response's nonce. Without one the policy is the old,
+   * nonce-less one ('unsafe-inline'), kept only for callers that have no
+   * request to hang a nonce on.
+   */
+  nonce?: string;
+  /** `next dev`: React's dev build needs eval for its error stacks. */
+  dev?: boolean;
+}
+
+export type CspMode = 'enforce' | 'report-only';
+
+/** CSP_MODE: anything but `report-only` enforces. */
+export function cspModeFromEnv(raw: string | undefined): CspMode {
+  return raw?.trim().toLowerCase() === 'report-only'
+    ? 'report-only'
+    : 'enforce';
+}
+
+export function cspHeaderName(mode: CspMode): string {
+  return mode === 'report-only'
+    ? 'Content-Security-Policy-Report-Only'
+    : 'Content-Security-Policy';
+}
+
+/** 128 random bits, base64: what Next.js's nonce parser accepts. */
+export function newCspNonce(
+  random: (bytes: Uint8Array) => Uint8Array = (b) => crypto.getRandomValues(b)
+): string {
+  const bytes = random(new Uint8Array(16));
+  let bin = '';
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin);
+}
+
+const NONCE_SHAPE = /^[A-Za-z0-9+/_-]{16,}={0,2}$/;
 
 /** `scheme://host[:port]` of an absolute URL with an allowed scheme. */
 export function originOf(
@@ -44,7 +91,14 @@ export function originOf(
 const join = (...parts: (string | null)[]) =>
   [...new Set(parts.filter((p): p is string => Boolean(p)))].join(' ');
 
-export function contentSecurityPolicy(env: CspEnv): string {
+export function contentSecurityPolicy(
+  env: CspEnv,
+  opts: CspOptions = {}
+): string {
+  // A nonce that would break out of its quotes is never used: the
+  // policy then falls back to the nonce-less form rather than a broken one.
+  const nonce =
+    opts.nonce && NONCE_SHAPE.test(opts.nonce) ? opts.nonce : undefined;
   const supabase = originOf(env.supabaseUrl, ['https:', 'http:']);
   // https → wss, http → ws: Realtime rides the same host.
   const supabaseWs = supabase && supabase.replace(/^http/, 'ws');
@@ -52,15 +106,24 @@ export function contentSecurityPolicy(env: CspEnv): string {
   const pbx = originOf(env.pbxOrigin);
   return [
     "default-src 'self'",
-    // Next.js needs 'unsafe-inline' for its inline hydration script
-    // and 'unsafe-eval' in dev + some production optimisations.
-    // Nonce-based CSP is a later project.
-    // 'wasm-unsafe-eval': the meeting effects compile WebAssembly, and
-    // must survive a future removal of 'unsafe-eval'.
-    join(
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval'",
-      sdk
-    ),
+    // With a nonce: Next.js stamps it on its own scripts (the framework,
+    // the page chunks, the inline hydration data, the theme boot script
+    // in app/layout.tsx), and 'strict-dynamic' lets those load further
+    // scripts (lazy chunks, the Linkus SDK, MediaPipe's wasm loader).
+    // Host sources are ignored under 'strict-dynamic', so the SDK origin
+    // only matters to the nonce-less form. No 'unsafe-eval' in
+    // production: the built chunks use Function("return this") only as a
+    // fallback a browser never reaches (`self` exists).
+    // 'wasm-unsafe-eval': the meeting effects compile WebAssembly.
+    nonce
+      ? join(
+          `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' 'wasm-unsafe-eval'`,
+          opts.dev ? "'unsafe-eval'" : null
+        )
+      : join(
+          "script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval'",
+          sdk
+        ),
     // The push worker, and the effects' frame clock: a Blob URL worker,
     // because a hidden tab throttles every page timer.
     "worker-src 'self' blob:",
@@ -89,11 +152,35 @@ export function contentSecurityPolicy(env: CspEnv): string {
       pbx,
       pbx && pbx.replace(/^https:/, 'wss:')
     ),
+    // No <object>/<embed> plugins anywhere in the app.
+    nonce ? "object-src 'none'" : null,
     "frame-ancestors 'none'",
     "base-uri 'self'",
     "form-action 'self'",
-    // What the policy would block, logged by rule and origin, so it can be
+    // What the policy blocks (or would, under CSP_MODE=report-only), logged by rule and origin, so it can be
     // enforced on evidence (src/app/api/csp-report).
     'report-uri /api/csp-report',
-  ].join('; ');
+  ]
+    .filter((d): d is string => Boolean(d))
+    .join('; ');
+}
+
+export interface RequestCsp {
+  /** The header to send: enforced, or Report-Only under CSP_MODE. */
+  header: string;
+  value: string;
+  nonce: string;
+}
+
+/** The policy for one request: a fresh nonce, the header CSP_MODE picks. */
+export function cspForRequest(
+  env: CspEnv,
+  opts: { mode: CspMode; dev?: boolean; nonce?: string }
+): RequestCsp {
+  const nonce = opts.nonce ?? newCspNonce();
+  return {
+    header: cspHeaderName(opts.mode),
+    value: contentSecurityPolicy(env, { nonce, dev: opts.dev }),
+    nonce,
+  };
 }

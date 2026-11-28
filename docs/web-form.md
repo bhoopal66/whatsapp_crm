@@ -64,30 +64,30 @@ Settings → Integrations → Web form (owners and admins).
 ### Embedding in a frame
 
 Every page of the app refuses to be framed (`X-Frame-Options: DENY`, and
-`frame-ancestors 'none'` in the Report-Only CSP), except the hosted form
+`frame-ancestors 'none'` in the CSP), except the hosted form
 `/f/<token>`, which a site on that form's Allowed websites may frame.
 
 - `next.config.ts` leaves `/f/*` and the route the form posts to,
-  `/api/public/web-form/<token>`, out of its global `X-Frame-Options` and
-  Report-Only CSP; every other route gets exactly the same values as
-  before.
+  `/api/public/web-form/<token>`, out of its global `X-Frame-Options`;
+  every other route gets exactly the same values as before. (The CSP is
+  the middleware's on every route, `docs/security.md`.)
 - The middleware sets the frame headers on each response of those two
   (the post answers with a 303 back to the page, and Chrome applies the
   frame headers to that response inside the frame too)
   (`src/lib/web-form/frame-headers.ts`), from the form's
   `allowed_origins` read on the service role
   (`web_form_public_config`):
-  - **a non-empty list**: an enforced
-    `Content-Security-Policy: frame-ancestors <origins>` and **no**
+  - **a non-empty list**: the app's enforced `Content-Security-Policy`
+    with its frame-ancestors set to `<origins>`, and **no**
     `X-Frame-Options`. XFO cannot list several sites, and a `DENY`
-    would block the frame whatever the CSP says. The CSP is enforced
-    (not Report-Only like the rest of the app's policy), because a
-    report-only rule would not stop anyone else framing the form.
+    would block the frame whatever the CSP says. One policy, not a
+    second header: two enforced policies would both apply.
   - **an empty list, an unknown or switched-off link, any other path
     under `/f/`, or a lookup error or timeout (2 s)**:
-    `Content-Security-Policy: frame-ancestors 'none'` and
+    the policy with `frame-ancestors 'none'` and
     `X-Frame-Options: DENY`. It fails closed.
-  - The app's Report-Only policy is still sent, with its
+  - Under `CSP_MODE=report-only` the enforced header is the frame rule
+    alone, and the app's policy is sent Report-Only with its
     `frame-ancestors` set to the same value.
 - Only entries that pass the origin check (`https://` + host, optional
   port) become sources: never `*`, a bare scheme, a path or anything

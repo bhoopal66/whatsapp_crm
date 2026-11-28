@@ -114,6 +114,29 @@ describe('frameHeadersFor', () => {
     expect(closed['Content-Security-Policy-Report-Only']).toBe(base);
   });
 
+  it("sends the enforced policy once, with the form's frame-ancestors", () => {
+    const base = contentSecurityPolicy(
+      {},
+      { nonce: 'AAAAAAAAAAAAAAAAAAAAAA==' }
+    );
+    const open = frameHeadersFor(['https://a.com'], { enforcedCsp: base });
+    expect(open).toEqual({
+      'Content-Security-Policy': base.replace(
+        "frame-ancestors 'none'",
+        'frame-ancestors https://a.com'
+      ),
+    });
+    const closed = frameHeadersFor([], { enforcedCsp: base });
+    expect(closed).toEqual({
+      'Content-Security-Policy': base,
+      'X-Frame-Options': 'DENY',
+    });
+    // Never two policies: the Report-Only one is ignored next to it.
+    expect(
+      frameHeadersFor([], { enforcedCsp: base, reportOnlyCsp: base })
+    ).not.toHaveProperty('Content-Security-Policy-Report-Only');
+  });
+
   it('appends frame-ancestors to a policy that has none', () => {
     expect(withFrameAncestors("default-src 'self'", FRAME_ANCESTORS_NONE)).toBe(
       "default-src 'self'; frame-ancestors 'none'"

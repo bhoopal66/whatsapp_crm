@@ -1,8 +1,9 @@
 // MediaPipe's vision bundle POSTs usage counters (OS family, SDK version,
 // frame timings) to Google every minute through the global fetch, with no
 // option to turn that off. Nothing of the call is in it, but it reveals the
-// office's IP to a third party, and a staff CRM must not report out. The CSP is
-// Report-Only, so it does not stop this. Answered 403, the library sets its
+// office's IP to a third party, and a staff CRM must not report out. The
+// enforced CSP's connect-src refuses it too, but not under
+// CSP_MODE=report-only, so this stays. Answered 403, the library sets its
 // own error flag and clears its interval, so it stops by itself.
 const LOG_URL = 'https://odml.pa.googleapis.com/v1/log';
 

@@ -16,7 +16,7 @@ import {
 } from '@/lib/auth/auth-unavailable'
 import { safeNextPath } from '@/lib/auth/login-client'
 import { supabaseAdmin } from '@/lib/automations/admin-client'
-import { contentSecurityPolicy } from '@/lib/csp'
+import { cspForRequest, cspModeFromEnv, type RequestCsp } from '@/lib/csp'
 import { isCrossSiteApiWrite } from '@/lib/edge/same-origin'
 import { createFrameOriginsLookup } from '@/lib/web-form/frame-lookup'
 import {
@@ -28,7 +28,7 @@ import { isWellFormedToken } from '@/lib/web-form/submission'
 
 // The hosted web form (/f/<token>) is the one page another site may
 // frame, and only a site on that form's own allow-list. next.config.ts
-// leaves /f/* out of the global X-Frame-Options / Report-Only CSP, and
+// leaves /f/* out of the global X-Frame-Options, and
 // the frame headers are set here per request (frame-headers.ts explains
 // the exact headers). Here rather than in the page: a server component
 // cannot set response headers. The lookup is the service-role
@@ -37,20 +37,29 @@ import { isWellFormedToken } from '@/lib/web-form/submission'
 const webFormFrameOrigins = createFrameOriginsLookup({
   load: (token) => loadPublicForm(supabaseAdmin(), token),
 })
-const REPORT_ONLY_CSP = contentSecurityPolicy({
+// The Content-Security-Policy (src/lib/csp.ts), per request because its
+// nonce is. CSP_MODE=report-only is the operator's way back to reporting
+// only, read at runtime so it needs a restart, not a rebuild.
+const CSP_ENV = {
   supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
   linkusSdkUrl: process.env.NEXT_PUBLIC_LINKUS_SDK_URL,
   pbxOrigin: process.env.NEXT_PUBLIC_PBX_ORIGIN,
-})
+}
+const CSP_MODE = cspModeFromEnv(process.env.CSP_MODE)
 
-async function webFormFrameHeaders(pathname: string) {
+async function webFormFrameHeaders(pathname: string, csp: RequestCsp) {
   // Exactly /f/<64 hex> or the route it posts to; anything else under
   // those prefixes is never framable.
   const token = webFormFramePathToken(pathname) ?? ''
   const origins = isWellFormedToken(token)
     ? await webFormFrameOrigins(token)
     : []
-  return frameHeadersFor(origins, { reportOnlyCsp: REPORT_ONLY_CSP })
+  return frameHeadersFor(
+    origins,
+    CSP_MODE === 'enforce'
+      ? { enforcedCsp: csp.value }
+      : { reportOnlyCsp: csp.value }
+  )
 }
 
 export async function middleware(request: NextRequest) {
@@ -69,6 +78,21 @@ export async function middleware(request: NextRequest) {
       { status: 403 }
     )
   }
+
+  // A fresh nonce for this request. On the request as well as the
+  // response: Next.js reads the nonce from the request's CSP header and
+  // stamps it on the scripts it renders, and app/layout.tsx reads
+  // `x-nonce` for its theme boot script. Set before any NextResponse.next
+  // below, each of which forwards the request's headers. A client's own
+  // `x-nonce` or CSP header is overwritten, never trusted.
+  const csp = cspForRequest(CSP_ENV, {
+    mode: CSP_MODE,
+    dev: process.env.NODE_ENV === 'development',
+  })
+  request.headers.delete('content-security-policy')
+  request.headers.delete('content-security-policy-report-only')
+  request.headers.set(csp.header, csp.value)
+  request.headers.set('x-nonce', csp.nonce)
 
   let supabaseResponse = NextResponse.next({ request })
 
@@ -267,10 +291,14 @@ export async function middleware(request: NextRequest) {
     request.nextUrl.pathname.startsWith('/f/') ||
     request.nextUrl.pathname.startsWith('/api/public/web-form/')
   ) {
-    const headers = await webFormFrameHeaders(request.nextUrl.pathname)
+    const headers = await webFormFrameHeaders(request.nextUrl.pathname, csp)
     for (const [key, value] of Object.entries(headers)) {
       supabaseResponse.headers.set(key, value)
     }
+  } else {
+    // Every other page: this request's policy, whose nonce the page's
+    // scripts carry. Redirects and JSON answers above render nothing.
+    supabaseResponse.headers.set(csp.header, csp.value)
   }
 
   return supabaseResponse

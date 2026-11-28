@@ -218,9 +218,11 @@ moment it is shown** (no TTL; a cached value is only a starting point).
 
 Every block there is a fix for a specific production failure, documented
 in place. In practice: the CSP (built in `src/lib/csp.ts`, pinned by
-`csp.test.ts`) is `Content-Security-Policy-Report-Only` and any new
-external origin (script, image, `connect-src`) has to be
-added there before it will work once enforcement is flipped on;
+`csp.test.ts`) is no longer here: it is enforced, with a per-request
+nonce the middleware sets (`docs/security.md`), so every page must stay
+dynamically rendered, an inline `<Script>` needs `nonce`, and any new
+external origin (image, `connect-src`) has to be added in `csp.ts`
+before it will work;
 `output: "standalone"` is what the Dockerfile runs; `allowedDevOrigins`
 is why HMR survives an ngrok/Cloudflare tunnel; the `Cache-Control`
 rules exist because a CDN once served year-old HTML pointing at deleted
