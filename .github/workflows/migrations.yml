@@ -1738,6 +1738,12 @@ jobs:
       - name: Verify send protection stores (334)
         run: supabase db query --local --file supabase/ci/verify-send-protection.sql
 
+      # Migration 335: an HR rule's Arabic title is seeded, set, cleared
+      # and bounded by hr_rule_set (one overload), and snapshotted into
+      # the task it creates as meta.hr_title_ar. Rolled back.
+      - name: Verify HR rule Arabic titles (335)
+        run: supabase db query --local --file supabase/ci/verify-hr-rule-title-ar.sql
+
       # Migration 336: one call service details outcome per call (a later
       # leg overwrites a non-send outcome; sending/sent are final), the
       # daily cap of 3 shared with HR / desk / CSAT, an opted-out person
