@@ -102,6 +102,13 @@ const MetaHealthCard = dynamic(
     ),
   { loading: PanelLoading }
 );
+const SendProtectionCard = dynamic(
+  () =>
+    import('@/components/settings/send-protection-card').then(
+      (m) => m.SendProtectionCard
+    ),
+  { loading: PanelLoading }
+);
 const WhatsAppRouting = dynamic(
   () =>
     import('@/components/settings/whatsapp-routing').then(
@@ -299,6 +306,7 @@ const PRELOADERS: Record<
     () => import('@/components/settings/whapi-number-panels'),
     () => import('@/components/settings/meta-channel-config'),
     () => import('@/components/settings/meta-health-card'),
+    () => import('@/components/settings/send-protection-card'),
   ],
   numbers: [() => import('@/components/settings/whatsapp-numbers')],
   routing: [() => import('@/components/settings/whatsapp-routing')],
@@ -526,6 +534,7 @@ function SettingsPageInner() {
         <WhapiNumberPanels />
         <MetaChannelConfig />
         <MetaHealthCard />
+        <SendProtectionCard />
       </div>
     ),
     numbers: <WhatsAppNumbers />,

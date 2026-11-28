@@ -15,13 +15,13 @@ const RECENT_EVENTS = 20;
 /**
  * GET /api/whatsapp/meta/health  (admin+)
  *
- * Meta number health (migration 188), read-only and WATCH-ONLY: the
+ * Meta number health (migration 188), read-only: the
  * assessed state of the account's Meta number, template quality,
  * marketing templates sent today (UTC, the day the SQL counts) against
  * the advisory cap, Meta spend per won case over the last 30 days, and
  * the latest webhook events (kind and time only, never the payload).
- * `meta_protection_settings.enforce` is deliberately not read: nothing
- * acts on it yet, and showing it would suggest something does.
+ * `meta_protection_settings.enforce`, the spend caps and the guard's
+ * decision log are read by /api/whatsapp/meta/protection instead.
  *
  * The tables are read on the caller's RLS client (188's policies:
  * owners/admins of the account). The two functions are granted to the

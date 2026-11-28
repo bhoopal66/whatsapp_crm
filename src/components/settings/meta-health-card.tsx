@@ -34,10 +34,9 @@ import {
 } from '@/lib/whatsapp/meta-health/view';
 
 /**
- * Meta number health (migration 188), WATCH-ONLY: what Meta reports
- * about the account's Cloud API number and templates, and what we
- * derive from it. Nothing here blocks or changes a send, and the
- * `enforce` switch is deliberately absent (nothing reads it yet).
+ * Meta number health (migration 188): what Meta reports about the
+ * account's Cloud API number and templates, and what we derive from it.
+ * Read-only; the enforce switch and caps are on SendProtectionCard.
  * Owners and admins only, like the tables' RLS.
  */
 

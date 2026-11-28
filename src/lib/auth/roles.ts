@@ -346,6 +346,14 @@ export function isOwner(role: AccountRole): boolean {
 }
 
 /**
+ * Owner only: switch number protection's enforcement on or off (188's
+ * `meta_protection_set_enforce`). Admins see the state, never change it.
+ */
+export function canEnforceSendProtection(role: AccountRole): boolean {
+  return role === 'owner';
+}
+
+/**
  * Owner only: decide who may open a per-person report (the chat tag
  * report, `report_access_set`, migration 255). The owner always opens it.
  */
