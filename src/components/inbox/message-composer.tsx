@@ -41,6 +41,7 @@ import {
   restoreBox,
   sessionStore,
   takeComposerPrefill,
+  withPrefill,
   type ComposerBox,
 } from '@/lib/pbx/timeline';
 import { createClient } from '@/lib/supabase/client';
@@ -204,6 +205,12 @@ export interface ComposerDraftHandle {
   restore: (text: string, origin?: SendOrigin | null) => void;
   /** Empty the text box if it still holds exactly `text` (a Retry sent it). */
   clearIf: (text: string) => void;
+  /**
+   * Put the Assistant panel's draft in the box for the agent to edit and
+   * send: it joins what is typed there (`withPrefill`), never replaces it,
+   * and is never sent by itself.
+   */
+  insertDraft: (text: string) => void;
 }
 
 interface MessageComposerProps {
@@ -791,6 +798,18 @@ export function MessageComposer({
       clearIf: (sent: string) => {
         setText((prev) => (prev === sent ? '' : prev));
         requestAnimationFrame(adjustHeight);
+      },
+      insertDraft: (draft: string) => {
+        if (!draft.trim()) return;
+        setText((prev) => withPrefill(prev, draft));
+        requestAnimationFrame(() => {
+          adjustHeight();
+          const el = textareaRef.current;
+          if (el) {
+            el.focus();
+            el.setSelectionRange(el.value.length, el.value.length);
+          }
+        });
       },
     }),
     [adjustHeight, setText]
