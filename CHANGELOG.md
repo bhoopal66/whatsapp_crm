@@ -25,8 +25,13 @@ a queued file reads as filed once a coordinator files it. The sender is
 the one live staff member with that saved number; two people sharing a
 number are nobody. The wall's per-group figures (files of the bank filed
 today, the bank's sorting queue and the same 2 h / 4 h queue alerts as
-the desk overview) read only groups the person can see. Nothing uses it
-yet: the inbound hook and the screen come next.
+the desk overview) read only groups the person can see. Files posted by
+staff in a linked group with intake on now go through the desk like
+their own WhatsApp uploads (PDF, JPEG or PNG; a Whapi number needs
+inbound media mirroring on), and with replies on the desk answers each
+file once in the group, within its 20-a-minute limit (see "Files posted
+in linked WhatsApp groups" in `docs/case-desk.md`). The screen comes
+next.
 
 **Migration required: 324** (`324_desk_group_intake.sql`, after 323).
 

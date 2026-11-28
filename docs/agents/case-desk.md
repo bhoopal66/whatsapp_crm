@@ -133,6 +133,18 @@ package 035a-c. `docs/case-desk.md` is the contract.
   by digits. `GROUP_INTAKE_OUTCOMES` / `GROUP_REPLY_STATES` are pinned to
   the CHECKs by `group-intake-store.test.ts`. `desk_group_intake` is
   NOT_PERSONAL (ids and codes; the item is 220's).
+- **Group files (324 slice B, `lib/desk/group-intake.ts`).**
+  `runGroupMessage` chains `processGroupFile` after
+  `copyGroupMessageMedia` (in `later`, inline for the drain); never
+  throws, logs codes only. Inbound files only, of a link with intake on
+  (read through `desk_group_link_list` as one live owner/admin: the
+  tables have no grants); text is never recorded. Bytes only from our own
+  chat-media (`no_copy` otherwise), pdf/jpeg/png before the download
+  (`file_type`). Item id and idem key derive from account + WhatsApp
+  message id (`groupItemKeys`), so a redelivery or a second number
+  replays. A reply needs a won `claimReply`, then the 20/min group budget
+  (same `group-send:` key as the send route); a replayed item or a lost
+  record race is not answered. Reply words: `group-intake-text.ts`.
   `verify-desk-group-intake.sql`.
 - **`privacy_extensions` (229).** 221's export and 222's erase call
   every registered `export_fn(account, contact) -> jsonb` /

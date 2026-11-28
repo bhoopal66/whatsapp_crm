@@ -307,6 +307,44 @@ hook and the screen follow).
   team, created or manages), staff only: viewers and bank guests see
   nothing here. `verify-desk-group-intake.sql`.
 
+### Files posted in linked WhatsApp groups
+
+Once a group is linked with intake on, every file posted in it goes
+through the desk exactly as if the poster had sent it to the desk on
+WhatsApp themselves: tagged from its caption (`4271RAKD ejari`,
+`NEW RAK Acme Trading 12345`, `INFO …`), filed when the caption settles
+it, otherwise waiting in a sorting queue. A caption that names no bank
+gets the group's bank.
+
+- **Who must have a saved number.** The poster is matched by phone to
+  the one live staff member (agent and up) whose saved number
+  (the coordinator number in Settings → Members) has those digits. Anyone
+  else, two people sharing a number, or a member WhatsApp hides the
+  number of, is recorded as *sender not recognised* and nothing is filed.
+  Customers and bank staff in the group are never filed.
+- **Whapi needs mirroring on.** The desk reads a file only from this
+  install's own storage. A Whapi number copies group files only when the
+  number's "mirror inbound media" setting is on; without it the file keeps
+  Whapi's link and is recorded as *no copy*. Company OpenWA numbers always
+  copy.
+- **Accepted types.** PDF, JPEG and PNG, checked by their content, up to
+  the desk's upload limit. Anything else (a video, a voice note, a Word
+  file) is recorded as *file type* and left in the group.
+- **Text is not recorded.** Only files; the wall shows text as chat.
+- **Redelivery is safe.** The desk upload's id comes from the WhatsApp
+  message, so a message delivered twice, or seen by two of the
+  workspace's numbers in the same group, is one upload.
+- **Replies are off by default.** With replies on, the desk answers the
+  file in the group, quoting it, in plain words: "Filed to
+  TC-26-00412-RAK as Ejari.", "New case TC-26-00431-RAK opened. Caption
+  code 431RAK5", "Sent to the RAKBANK sorting queue: <reason>.",
+  "Already on this case - nothing more to do.", "Could not file:
+  <reason>." Never for a sender not recognised, no copy or file type. A
+  reply goes out at most once per message and is not retried.
+- **Anti-ban limit.** Replies share the group's budget of 20 messages a
+  minute with staff sends; over it, the reply is skipped (recorded as
+  failed) rather than queued.
+
 ## Follow-ups and suggestions
 
 Migration 235 (design 035 D8 and D12).
