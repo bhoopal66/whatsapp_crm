@@ -22,8 +22,8 @@ const TOKEN = /^[A-Za-z0-9]{32,128}$/;
 const SCOPE = 'webhook.pbx';
 let limiter: RateLimiter | null = null;
 
-const refuse = (status: number, error: string, headers?: HeadersInit) =>
-  Response.json({ error }, { status, headers });
+const refuse = (status: number, error: string) =>
+  Response.json({ error }, { status });
 
 export async function POST(
   request: Request,
@@ -56,11 +56,10 @@ export async function POST(
   if (lookup.error) return refuse(503, 'Temporarily unavailable');
   const connectionId = (lookup.data as { id: string } | null)?.id;
   if (!connectionId) return refuse(404, 'Not found');
-  if (!rate.allowed) {
-    return refuse(429, 'Too many requests', {
-      'Retry-After': String(Math.max(1, Math.ceil(rate.retryAfterMs / 1000))),
-    });
-  }
+  // Over the limit: 200 and nothing processed. A webhook never answers
+  // 429 (the sender would only retry sooner), so the push is dropped
+  // here; the PBX call-history sync recovers anything that was lost.
+  if (!rate.allowed) return Response.json({ status: 'ignored' });
 
   let secret: string | null;
   try {
