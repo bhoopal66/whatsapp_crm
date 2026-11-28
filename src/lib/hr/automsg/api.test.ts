@@ -368,6 +368,28 @@ describe('errors', () => {
     expect(await automsgConfig(sb)).toEqual({ error: 'NOT_ALLOWED' });
   });
 
+  it('a template save keeps 337 TEMPLATE_PROMOTIONAL; other calls do not', async () => {
+    const refused = {
+      data: null,
+      error: { message: 'no', hint: 'TEMPLATE_PROMOTIONAL' },
+    };
+    const { sb } = sbWith(refused);
+    expect(
+      await automsgSaveTemplate(sb, {
+        kind: 'cv_ack',
+        language: 'en',
+        body: 'Hi {name}, apply now',
+        metaTemplateName: '',
+        approvalStatus: 'draft',
+        category: 'utility',
+        expectedUpdatedAt: null,
+      })
+    ).toEqual({ error: 'TEMPLATE_PROMOTIONAL' });
+    expect(await automsgConfig(sbWith(refused).sb)).toEqual({
+      error: 'UNKNOWN',
+    });
+  });
+
   it('a thrown rpc is UNKNOWN', async () => {
     const sb = {
       rpc: vi.fn(async () => {

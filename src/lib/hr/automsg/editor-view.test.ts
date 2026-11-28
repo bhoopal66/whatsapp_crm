@@ -13,6 +13,7 @@ import {
   editorSlots,
   editorView,
   rcsTemplateIdProblem,
+  saveRefusalMessage,
   smsBodyMeasure,
   smsLabelProblem,
   SMS_NAME_ALLOWANCE,
@@ -407,5 +408,23 @@ describe('labels', () => {
   it.each(['en.json', 'ko.json'])('%s has every check message', (file) => {
     const t = catalogue(file);
     for (const k of EDITOR_MESSAGE_KEYS) expect(t.check[k]).toBeTruthy();
+  });
+});
+
+describe('saveRefusalMessage', () => {
+  it("337's TEMPLATE_PROMOTIONAL shows the editor's promotional message", () => {
+    expect(
+      saveRefusalMessage('TEMPLATE_PROMOTIONAL', 'Hi {name}, apply now!')
+    ).toEqual({
+      key: 'templates.check.promotional',
+      values: { phrase: 'apply now' },
+    });
+  });
+
+  it('any other code is its error key', () => {
+    expect(saveRefusalMessage('STALE', 'x')).toEqual({ key: 'error.STALE' });
+    expect(saveRefusalMessage('CLOSED', 'x')).toEqual({
+      key: 'error.UNKNOWN',
+    });
   });
 });

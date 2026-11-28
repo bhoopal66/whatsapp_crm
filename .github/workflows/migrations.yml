@@ -1750,3 +1750,9 @@ jobs:
       # never claimed, owner/admin-only settings. Rolled back.
       - name: Verify call service details (336)
         run: supabase db query --local --file supabase/ci/verify-call-service-details.sql
+
+      # Migration 337: an HR template with promotional wording is refused
+      # at save (TEMPLATE_PROMOTIONAL) through both overloads, English and
+      # Arabic; recruitment wording still saves. Rolled back.
+      - name: Verify HR template promotional refusal (337)
+        run: supabase db query --local --file supabase/ci/verify-hr-template-promo.sql

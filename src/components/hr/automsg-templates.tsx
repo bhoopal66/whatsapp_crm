@@ -22,6 +22,7 @@ import {
   editorSlots,
   editorView,
   followSlot,
+  saveRefusalMessage,
   SMS_NAME_ALLOWANCE,
   storedMoved,
   type EditorForm,
@@ -30,7 +31,7 @@ import {
 } from '@/lib/hr/automsg/editor-view';
 import { MAX_SMS_SEGMENTS } from '@/lib/hr/automsg/sms-text';
 import { APPROVAL_STATUSES, type ApprovalStatus } from '@/lib/hr/automsg/types';
-import { automsgErrorKey, type AutomsgRole } from '@/lib/hr/automsg/view';
+import type { AutomsgRole } from '@/lib/hr/automsg/view';
 import { createClient } from '@/lib/supabase/client';
 
 /**
@@ -193,7 +194,12 @@ export function TemplateCard({
       });
       if ('error' in res) {
         if (res.error === 'STALE') setRefused(true);
-        toast.error(t(`error.${automsgErrorKey(res.error)}`));
+        const m = saveRefusalMessage(res.error, form.body);
+        toast.error(
+          m.key === 'templates.check.promotional'
+            ? t(m.key, m.values)
+            : t(m.key)
+        );
         return;
       }
       toast.success(t('templates.saved'));

@@ -5,7 +5,7 @@
  * this only decides what the editor shows and offers. Client components
  * import this file: it imports only this folder's client-safe modules.
  */
-import type { AutoMsgTemplateView } from './api';
+import { TEMPLATE_PROMOTIONAL, type AutoMsgTemplateView } from './api';
 import {
   RCS_TEMPLATE_ID,
   SMS_TEMPLATE_LABEL,
@@ -30,7 +30,11 @@ import {
   type TemplateCategory,
   type TemplateKind,
 } from './types';
-import type { AutomsgRole } from './view';
+import {
+  automsgErrorKey,
+  type AutomsgErrorKey,
+  type AutomsgRole,
+} from './view';
 
 export interface EditorForm {
   body: string;
@@ -385,4 +389,26 @@ export function editorPayload(
     category: form.category,
     ...(channel !== 'whatsapp' ? { channel } : {}),
   };
+}
+
+/** The toast of a refused save: a key under `Hr.automsg` plus values. */
+export type SaveRefusalMessage =
+  | { key: 'templates.check.promotional'; values: { phrase: string } }
+  | { key: `error.${AutomsgErrorKey}`; values?: undefined };
+
+/**
+ * 337's TEMPLATE_PROMOTIONAL shows the editor's own promotional message,
+ * with the phrase the inline check finds in the body that was sent; any
+ * other code its `error.*` key.
+ */
+export function saveRefusalMessage(
+  code: string,
+  body: string
+): SaveRefusalMessage {
+  if (code === TEMPLATE_PROMOTIONAL)
+    return {
+      key: 'templates.check.promotional',
+      values: { phrase: promotionalPhrase(body) ?? '' },
+    };
+  return { key: `error.${automsgErrorKey(code)}` };
 }

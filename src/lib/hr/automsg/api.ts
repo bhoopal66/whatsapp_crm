@@ -12,6 +12,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { hrErrorCode, type HrResult } from '@/lib/hr/api';
+import type { HrErrorCode } from '@/lib/hr/types';
 
 import {
   APPROVAL_STATUSES,
@@ -277,18 +278,33 @@ export function mapOutboxRow(raw: unknown): AutoMsgOutboxRow {
 
 // ---- RPC plumbing -----------------------------------------------------------
 
-async function call<T>(
+/** A refusal code: one of `extra` when the HINT is, else hrErrorCode's. */
+function refusalCode<E extends string>(
+  err: unknown,
+  extra: readonly E[]
+): HrErrorCode | E {
+  const hint =
+    err && typeof err === 'object' && 'hint' in err
+      ? (err as { hint: unknown }).hint
+      : null;
+  return (extra as readonly unknown[]).includes(hint)
+    ? (hint as E)
+    : hrErrorCode(err);
+}
+
+async function call<T, E extends string = never>(
   sb: SupabaseClient,
   fn: string,
   args: Record<string, unknown>,
-  map: (data: unknown) => T
-): Promise<HrResult<T>> {
+  map: (data: unknown) => T,
+  extra: readonly E[] = []
+): Promise<{ data: T } | { error: HrErrorCode | E }> {
   try {
     const { data, error } = await sb.rpc(fn, args);
-    if (error) return { error: hrErrorCode(error) };
+    if (error) return { error: refusalCode(error, extra) };
     return { data: map(data) };
   } catch (err) {
-    return { error: hrErrorCode(err) };
+    return { error: refusalCode(err, extra) };
   }
 }
 
@@ -337,10 +353,21 @@ export function automsgSetTrigger(
   return call(sb, 'hr_automsg_trigger_set', args, mapConfig);
 }
 
+/**
+ * 337: hr_automsg_template_set refuses promotional wording in a Utility
+ * template with this HINT, the rule the editor applies inline
+ * (validateTemplateBody). It is not one of 200's codes.
+ */
+export const TEMPLATE_PROMOTIONAL = 'TEMPLATE_PROMOTIONAL';
+
+export type AutomsgSaveTemplateResult =
+  | { data: AutoMsgConfig }
+  | { error: HrErrorCode | typeof TEMPLATE_PROMOTIONAL };
+
 export function automsgSaveTemplate(
   sb: SupabaseClient,
   t: AutoMsgTemplateInput
-): Promise<HrResult<AutoMsgConfig>> {
+): Promise<AutomsgSaveTemplateResult> {
   return call(
     sb,
     'hr_automsg_template_set',
@@ -355,7 +382,8 @@ export function automsgSaveTemplate(
       // 317: the version the editor was filled from; null = none stored.
       p_expected: t.expectedUpdatedAt,
     },
-    mapConfig
+    mapConfig,
+    [TEMPLATE_PROMOTIONAL]
   );
 }
 
