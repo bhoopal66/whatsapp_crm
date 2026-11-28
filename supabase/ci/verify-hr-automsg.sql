@@ -508,24 +508,26 @@ BEGIN
   -- Extra rows: o2 cap candidate (k1), o3 attempts exhausted, o4 for
   -- mark-failed, o5 settle, o7 stuck review, o8 expiry, o9 workspace B.
   INSERT INTO hr_automsg_outbox (account_id, conversation_id, contact_id, trigger, template_kind, dedupe_key, created_at)
-  VALUES (a_acct, c1, k[1], 'interview_reminder', 'interview_reminder', 'v:cap', now() - interval '50 minutes') RETURNING id INTO o2;
+  VALUES (a_acct, c1, k[1], 'cv_received', 'interview_reminder', 'v:cap', now() - interval '50 minutes') RETURNING id INTO o2;
   INSERT INTO hr_automsg_outbox (account_id, conversation_id, contact_id, trigger, template_kind, dedupe_key, attempts, status, created_at)
-  VALUES (a_acct, c9, k[9], 'interview_reminder', 'interview_reminder', 'v:spent', 3, 'failed', now() - interval '3 hours') RETURNING id INTO o3;
+  VALUES (a_acct, c9, k[9], 'cv_received', 'interview_reminder', 'v:spent', 3, 'failed', now() - interval '3 hours') RETURNING id INTO o3;
   INSERT INTO hr_automsg_outbox (account_id, conversation_id, contact_id, trigger, template_kind, dedupe_key, created_at)
-  VALUES (a_acct, c9, k[9], 'interview_reminder', 'interview_reminder', 'v:fail', now() - interval '40 minutes') RETURNING id INTO o4;
+  VALUES (a_acct, c9, k[9], 'cv_received', 'interview_reminder', 'v:fail', now() - interval '40 minutes') RETURNING id INTO o4;
   INSERT INTO hr_automsg_outbox (account_id, conversation_id, contact_id, trigger, template_kind, dedupe_key, created_at)
-  VALUES (a_acct, c9, k[9], 'interview_reminder', 'interview_reminder', 'v:settle', now() - interval '30 minutes') RETURNING id INTO o5;
+  VALUES (a_acct, c9, k[9], 'cv_received', 'interview_reminder', 'v:settle', now() - interval '30 minutes') RETURNING id INTO o5;
   INSERT INTO hr_automsg_outbox (account_id, conversation_id, contact_id, trigger, template_kind, dedupe_key, created_at)
-  VALUES (a_acct, c8, k[8], 'interview_reminder', 'interview_reminder', 'v:stuck', now() - interval '20 minutes') RETURNING id INTO o7;
+  VALUES (a_acct, c8, k[8], 'cv_received', 'interview_reminder', 'v:stuck', now() - interval '20 minutes') RETURNING id INTO o7;
   INSERT INTO hr_automsg_outbox (account_id, conversation_id, contact_id, trigger, template_kind, dedupe_key, created_at)
-  VALUES (a_acct, c8, k[8], 'interview_reminder', 'interview_reminder', 'v:expire', now() - interval '23 hours') RETURNING id INTO o8;
+  VALUES (a_acct, c8, k[8], 'cv_received', 'interview_reminder', 'v:expire', now() - interval '23 hours') RETURNING id INTO o8;
   INSERT INTO contacts (account_id, user_id, phone) VALUES (a_out, u_out, '971502039999') RETURNING id INTO c9;
   INSERT INTO conversations (account_id, user_id, contact_id) VALUES (a_out, u_out, c9) RETURNING id INTO c5;
   INSERT INTO hr_automsg_outbox (account_id, conversation_id, contact_id, trigger, template_kind, dedupe_key, created_at)
   VALUES (a_out, c5, c9, 'cv_received', 'cv_ack', 'v:other', now() - interval '25 minutes') RETURNING id INTO o9;
 
-  -- The rows above are claimable only while their trigger is on.
-  PERFORM pg_temp.hr_as(u_lead, 'SELECT public.hr_automsg_trigger_set(''interview_reminder'', true)::text');
+  -- The rows above are claimable only while their trigger is on. They use
+  -- cv_received: since 339 an interview_reminder row whose chat has no
+  -- matching interview time is stale and cancelled at claim.
+  PERFORM pg_temp.hr_as(u_lead, 'SELECT public.hr_automsg_trigger_set(''cv_received'', true)::text');
   r := pg_temp.hr_as(NULL, format('SELECT string_agg(d.id::text, '','') FROM public.hr_automsg_due(100, %L) d', a_out));
   c := c || pg_temp.hr_chk('due with an account filter returned other rows', r, o9::text);
   r := pg_temp.hr_as(NULL, format('SELECT (count(*) FILTER (WHERE d.id = %L))::text || ''/'' || (count(*) FILTER (WHERE d.id = %L))'
