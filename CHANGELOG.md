@@ -34,6 +34,11 @@ and polish.
   order, once).
 - **Contacts: an "Unknown" lead-source filter.** **Migration required:
   331** (apply in order, once).
+- **Owners and admins can send to any active submission group** (the
+  WhatsApp group page and the case page's conversation tab) without being
+  on its list; their messages read "Name (Owner):" / "Name (Admin):". The
+  case page shows a message box only to people who can actually send.
+  **Migration required: 333** (apply in order, once).
 - **A deleted in-chat note disappears for everyone at once**, and its
   text is gone immediately. **Migration required: 332** (apply in order,
   once). Reload open tabs after deploying: an old tab cannot delete notes.
