@@ -417,6 +417,7 @@ import {
   earlierCustomerQuestions,
   retrievalGateFailure,
   RETRIEVAL_GATE_MIN_WORDS,
+  retriesOnAccountModel,
 } from './auto-reply';
 import { closesBurst, noteTaken } from './stranded';
 
@@ -3674,5 +3675,14 @@ describe('dispatchInboundToAiReply — a burst whose newest message went elsewhe
       inboundText: QUESTION.content_text,
     });
     expect(h.state.flags).toHaveLength(0);
+  });
+});
+
+describe('retriesOnAccountModel', () => {
+  it('does not retry a call the daily AI spend cap refused', () => {
+    const capped = new AiError('cap', { code: 'ai_spend_cap', status: 429 });
+    expect(retriesOnAccountModel(capped, 'small', 'large')).toBe(false);
+    const timeout = new AiError('slow', { code: 'timeout' });
+    expect(retriesOnAccountModel(timeout, 'small', 'large')).toBe(true);
   });
 });

@@ -5,7 +5,20 @@ import {
   type ChatMessage,
   type ProviderResult,
 } from './types';
-import { aiRequestTimeoutMs } from './defaults';
+import { aiRequestTimeoutMs, MAX_OUTPUT_TOKENS } from './defaults';
+import { supabaseAdmin } from './admin-client';
+import { estimateCallMicros, usageMicros } from './model-prices';
+import {
+  recordAiSpend,
+  refundAiSpend,
+  reserveAiSpend,
+  type AiSpendDecision,
+  type SpendRpcClient,
+} from './spend-cap';
+
+/** The AiError code of a call the daily AI spend cap refused: not
+ *  transient, so no caller retries it. */
+export const AI_SPEND_CAP_CODE = 'ai_spend_cap';
 import { generateAnthropic } from './providers/anthropic';
 import { generateOpenAi } from './providers/openai';
 import type { ProviderArgs } from './providers/shared';
@@ -51,7 +64,62 @@ export async function callProvider(
     promptSize(providerArgs.systemPrompt, providerArgs.messages)
   );
 
-  const provider = config.provider;
+  // The owner's daily AI spend cap (334). A config without an account
+  // (tests, a key check) is not checked, as with the transfer register.
+  const accountId = config.accountId;
+  if (!accountId) return dispatch(config.provider, providerArgs);
+  let db: SpendRpcClient;
+  let decision: AiSpendDecision;
+  try {
+    db = supabaseAdmin();
+    decision = await reserveAiSpend(
+      db,
+      accountId,
+      estimateCallMicros(
+        providerArgs.model,
+        promptSize(providerArgs.systemPrompt, providerArgs.messages),
+        providerArgs.maxTokens ?? MAX_OUTPUT_TOKENS
+      )
+    );
+  } catch {
+    decision = { allowed: false, degraded: true, reservation: null };
+  }
+  if (!decision.allowed) {
+    throw new AiError(
+      decision.degraded
+        ? 'The daily AI spend limit could not be checked, so the AI was not called.'
+        : "Today's AI spend limit for this workspace has been reached.",
+      { code: AI_SPEND_CAP_CODE, status: 429 }
+    );
+  }
+  // No cap set: nothing was held, so nothing to settle.
+  const reservation = decision.reservation;
+  if (!reservation) return dispatch(config.provider, providerArgs);
+
+  // Settle: the money actually spent is added with no cap (it is spent
+  // either way), then the estimate is given back. A success without
+  // usage keeps the estimate; a failure without usage was not billed.
+  let spent = 0;
+  try {
+    const result = await dispatch(config.provider, providerArgs);
+    spent = result.usage
+      ? usageMicros(providerArgs.model, result.usage)
+      : reservation.micros;
+    return result;
+  } catch (err) {
+    if (err instanceof AiError && err.usage)
+      spent = usageMicros(providerArgs.model, err.usage);
+    throw err;
+  } finally {
+    await recordAiSpend(db!, accountId, spent);
+    await refundAiSpend(db!, reservation);
+  }
+}
+
+function dispatch(
+  provider: AiConfig['provider'],
+  providerArgs: ProviderArgs
+): Promise<ProviderResult> {
   switch (provider) {
     case 'openai':
       return generateOpenAi(providerArgs);

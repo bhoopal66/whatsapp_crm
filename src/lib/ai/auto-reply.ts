@@ -1739,7 +1739,9 @@ export function retriesOnAccountModel(
     err instanceof AiError &&
     triedModel !== accountModel &&
     err.code !== 'invalid_key' &&
-    err.code !== 'rate_limited'
+    err.code !== 'rate_limited' &&
+    // The daily spend cap is the account's, not the model's.
+    err.code !== 'ai_spend_cap'
   );
 }
 

@@ -100,6 +100,29 @@ export async function reserveAiSpend(
   }
 }
 
+/**
+ * Adds money already spent, with no cap: a call that ran is always
+ * counted, so the next reservation sees the true total. Never throws.
+ */
+export async function recordAiSpend(
+  client: SpendRpcClient,
+  accountId: string,
+  micros: number
+): Promise<boolean> {
+  if (!Number.isSafeInteger(micros) || micros <= 0) return true;
+  try {
+    const { error } = await client.rpc('send_protection_spend_add', {
+      p_account: accountId,
+      p_scope: AI_SPEND_SCOPE,
+      p_micros: micros,
+      p_hard_cap: null,
+    });
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
 /** Gives a reservation back (the AI call did not happen). Never throws. */
 export async function refundAiSpend(
   client: SpendRpcClient,
