@@ -13914,6 +13914,56 @@
       "fixInMine": "Fix it in My uploads",
       "uploadMore": "Upload more",
       "seeMine": "See my uploads"
+    },
+    "mine": {
+      "summary": "{count, plural, =0 {No uploads today} one {# upload today} other {# uploads today}} · {attention, plural, one {# needs your attention} other {# need your attention}}",
+      "summaryClear": "{count, plural, =0 {No uploads today} one {# upload today} other {# uploads today}} · nothing needs your attention",
+      "filtersLabel": "Show uploads",
+      "filter": {
+        "all": "All",
+        "attention": "Needs attention",
+        "untagged": "In the sorting queue",
+        "rejected": "Rejected",
+        "filed": "Filed",
+        "duplicate": "Already sent"
+      },
+      "searchLabel": "Search your uploads",
+      "searchPlaceholder": "Case number, company, file name or document type",
+      "day": {
+        "today": "Today",
+        "yesterday": "Yesterday",
+        "earlier": "{date}",
+        "unknown": "Date not known"
+      },
+      "status": {
+        "untagged": "In the sorting queue",
+        "rejected": "Rejected",
+        "duplicate": "Already sent",
+        "filed": "Filed"
+      },
+      "noCase": "No case yet",
+      "inQueue": "Waiting in the {bank} sorting queue.",
+      "duplicate": {
+        "plain": "This file was already sent.",
+        "you": "You already sent this file.",
+        "colleague": "A colleague already sent this file."
+      },
+      "actions": {
+        "uploadAgain": "Upload a new file",
+        "uploadFirst": "Upload your first file",
+        "clear": "Clear the search",
+        "showAll": "Show all uploads"
+      },
+      "empty": {
+        "none": "Nothing uploaded yet",
+        "noneHelp": "Files you upload show here, with what happened to each one.",
+        "noMatch": "Nothing matches",
+        "noMatchHelp": "Try another word, or clear the search to see all your uploads.",
+        "allFiled": "All your uploads are filed",
+        "allFiledHelp": "Nothing needs your attention right now."
+      },
+      "loading": "Loading your uploads…",
+      "loadFailed": "Your uploads"
     }
   },
   "CaseDeskSettings": {

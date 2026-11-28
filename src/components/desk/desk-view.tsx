@@ -15,6 +15,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
+import {
+  CircleCheck,
+  Clock,
+  Copy,
+  type LucideIcon,
+  Search,
+  Upload,
+  XCircle,
+} from 'lucide-react';
 import { useLocale, useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 
@@ -45,10 +54,31 @@ import {
   rejectBlock,
   sortFileBlock,
 } from '@/lib/desk/form-hints';
+import { groupByDay, reasonSentence } from '@/lib/desk/friendly';
 import { formatAge, queueReasonKey, sameCompany } from '@/lib/desk/intake-form';
+import {
+  DESK_TIME_ZONE,
+  MINE_FILTERS,
+  PREFILL_PARAMS,
+  countMine,
+  dayHeading,
+  duplicateLine,
+  matchesFilter,
+  mineAction,
+  mineEmpty,
+  mineSummary,
+  searchMine,
+  statusKey,
+  timeText,
+  uploadAgainHref,
+  uploadPrefill,
+  type MineEmpty,
+  type MineFilter,
+} from '@/lib/desk/my-uploads';
 import {
   DEFAULT_DESK_TAB,
   badgeText,
+  deskTabHref,
   deskTabsFor,
   legacyDeskRedirect,
   resolveDeskTab,
@@ -112,12 +142,15 @@ export function DeskView() {
   const rawTab = searchParams.get('tab');
   const tab = resolveDeskTab(rawTab, isLead);
   const legacy = legacyDeskRedirect(rawTab);
+  const prefill = uploadPrefill(searchParams);
   useEffect(() => {
     if (legacy) router.replace(legacy);
   }, [legacy, router]);
   const changeTab = (next: unknown) => {
     const to = resolveDeskTab(String(next), isLead);
     const url = new URL(window.location.href);
+    // An "Upload a new file" prefill belongs to the visit that opened it.
+    for (const p of PREFILL_PARAMS) url.searchParams.delete(p);
     if (to === DEFAULT_DESK_TAB) url.searchParams.delete('tab');
     else url.searchParams.set('tab', to);
     router.replace(`${url.pathname}${url.search}`, { scroll: false });
@@ -168,7 +201,13 @@ export function DeskView() {
           </TabsList>
         </div>
       </Tabs>
-      {tab === 'upload' && <UploadTab banks={banks} />}
+      {tab === 'upload' && (
+        <UploadTab
+          key={prefill ? `${prefill.kind}|${prefill.caseRef}` : ''}
+          banks={banks}
+          initial={prefill}
+        />
+      )}
       {tab === 'mine' && (
         <div className="space-y-4">
           <MineTab banks={banks} />
@@ -196,12 +235,21 @@ function bankName(banks: readonly DeskBank[], code: string | null) {
 
 // ---------- My uploads ----------
 
-type MineFilter = 'all' | ItemState;
+const STATE_ICON: Record<ItemState, LucideIcon> = {
+  filed: CircleCheck,
+  untagged: Clock,
+  rejected: XCircle,
+  duplicate: Copy,
+};
 
 function MineTab({ banks }: { banks: readonly DeskBank[] }) {
-  const t = useTranslations('Desk');
+  const tu = useTranslations('DeskFriendly');
+  const locale = useLocale();
+  const { user } = useAuth();
   const [items, setItems] = useState<MyItem[] | null>(null);
+  const [now, setNow] = useState<Date | null>(null);
   const [filter, setFilter] = useState<MineFilter>('all');
+  const [query, setQuery] = useState('');
   const [editing, setEditing] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -210,6 +258,8 @@ function MineTab({ banks }: { banks: readonly DeskBank[] }) {
       deskApi.mine().then((r) => {
         if (r.ok) {
           setItems(r.data);
+          // "Today" is the day the list was read on.
+          setNow(new Date());
           setFailed(false);
         } else {
           setFailed(true);
@@ -222,99 +272,283 @@ function MineTab({ banks }: { banks: readonly DeskBank[] }) {
     void load();
   }, [load]);
 
+  const counts = useMemo(() => countMine(items ?? []), [items]);
   const shown = useMemo(
-    () => (items ?? []).filter((i) => filter === 'all' || i.state === filter),
-    [items, filter]
+    () =>
+      searchMine(
+        (items ?? []).filter((i) => matchesFilter(i, filter)),
+        query,
+        docTypeLabel
+      ),
+    [items, filter, query]
   );
-  const filters: MineFilter[] = [
-    'all',
-    'untagged',
-    'filed',
-    'duplicate',
-    'rejected',
-  ];
+  const groups = useMemo(
+    () => (now ? groupByDay(shown, now, DESK_TIME_ZONE) : []),
+    [shown, now]
+  );
+
+  if (items === null)
+    return failed ? (
+      <LoadFailed title={tu('mine.loadFailed')} onRetry={load} />
+    ) : (
+      <p role="status" className="text-muted-foreground text-sm">
+        {tu('mine.loading')}
+      </p>
+    );
+
+  const summary = mineSummary(items, now ?? new Date(0));
+  const empty = mineEmpty({
+    total: items.length,
+    shown: shown.length,
+    filter,
+    query,
+  });
+  const clear = () => {
+    setQuery('');
+    setFilter('all');
+  };
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap gap-2">
-        {filters.map((f) => (
-          <Button
-            key={f}
-            size="sm"
-            variant={filter === f ? 'default' : 'outline'}
-            onClick={() => setFilter(f)}
+    <div className="space-y-4">
+      {failed && <LoadFailed title={tu('mine.loadFailed')} onRetry={load} />}
+      {items.length > 0 && (
+        <>
+          <p className="text-sm font-medium">
+            {tu(summary.key, summary.values)}
+          </p>
+          <div
+            role="group"
+            aria-label={tu('mine.filtersLabel')}
+            className="flex flex-wrap gap-2"
           >
-            {f === 'all' ? t('filters.all') : t(`state.${f}`)}
-          </Button>
-        ))}
-      </div>
-      {failed && <LoadFailed onRetry={load} />}
-      {items === null ? (
-        failed ? null : (
-          <p className="text-muted-foreground text-sm">{t('loading')}</p>
-        )
-      ) : shown.length === 0 ? (
-        <p className="text-muted-foreground text-sm">{t('empty.mine')}</p>
-      ) : (
-        <div className="space-y-2">
-          {shown.map((i) => (
-            <Card key={i.itemId}>
-              <CardContent className="space-y-2 py-3 text-sm">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge className={STATE_CLASS[i.state]}>
-                    {t(`state.${i.state}`)}
-                  </Badge>
-                  <span className="text-muted-foreground">
-                    {new Date(i.receivedAt).toLocaleString()}
-                  </span>
-                  {i.kind && <span>{t(`kind.${i.kind}`)}</span>}
-                  {i.originalName && (
-                    <span className="truncate">{i.originalName}</span>
-                  )}
-                  {i.caseNumber && (
-                    <Link
-                      className="font-mono underline"
-                      href={`/cases/${i.caseId}`}
-                    >
-                      {i.caseNumber}
-                    </Link>
-                  )}
-                </div>
-                {i.state === 'untagged' && i.queueReason && (
-                  <p className="text-muted-foreground">
-                    {t(`reason.${queueReasonKey(i.queueReason)!}`)}
-                    {i.queueBankCode &&
-                      ` · ${t('queueOf', { bank: bankName(banks, i.queueBankCode)! })}`}
-                  </p>
-                )}
-                {i.state === 'rejected' && i.rejectReason && (
-                  <p className="text-destructive">
-                    {t('rejectedBecause', { reason: i.rejectReason })}
-                  </p>
-                )}
-                {i.state === 'untagged' &&
-                  (editing === i.itemId ? (
-                    <RetagForm
-                      item={i}
-                      banks={banks}
-                      onDone={() => {
-                        setEditing(null);
-                        void load();
-                      }}
-                    />
-                  ) : (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setEditing(i.itemId)}
-                    >
-                      {t('actions.fixTags')}
-                    </Button>
-                  ))}
-              </CardContent>
-            </Card>
-          ))}
+            {MINE_FILTERS.map((f) => (
+              <Button
+                key={f}
+                size="sm"
+                className="min-h-11 sm:min-h-8"
+                variant={filter === f ? 'default' : 'outline'}
+                aria-pressed={filter === f}
+                onClick={() => setFilter(f)}
+              >
+                {tu(`mine.filter.${f}`)}
+                <span className="ms-1 tabular-nums opacity-80">
+                  {counts[f]}
+                </span>
+              </Button>
+            ))}
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="desk-mine-search">{tu('mine.searchLabel')}</Label>
+            <div className="relative">
+              <Search
+                aria-hidden
+                className="text-muted-foreground pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2"
+              />
+              <Input
+                id="desk-mine-search"
+                type="search"
+                className="h-11 ps-9 sm:h-9"
+                value={query}
+                autoComplete="off"
+                placeholder={tu('mine.searchPlaceholder')}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+            </div>
+          </div>
+        </>
+      )}
+
+      {empty && (
+        <MineEmptyState
+          kind={empty}
+          onClear={clear}
+          onShowAll={() => setFilter('all')}
+        />
+      )}
+
+      {groups.map((g) => {
+        const heading = dayHeading(g, locale);
+        return (
+          <section key={g.day || 'unknown'} className="space-y-2">
+            <h3 className="text-muted-foreground text-sm font-semibold">
+              {tu(heading.key, heading.values)}
+            </h3>
+            {g.items.map((i) => (
+              <MineRow
+                key={i.itemId}
+                item={i}
+                banks={banks}
+                myUserId={user?.id ?? null}
+                editing={editing === i.itemId}
+                onEdit={() => setEditing(i.itemId)}
+                onDone={() => {
+                  setEditing(null);
+                  void load();
+                }}
+              />
+            ))}
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+function MineRow({
+  item: i,
+  banks,
+  myUserId,
+  editing,
+  onEdit,
+  onDone,
+}: {
+  item: MyItem;
+  banks: readonly DeskBank[];
+  myUserId: string | null;
+  editing: boolean;
+  onEdit: () => void;
+  onDone: () => void;
+}) {
+  const t = useTranslations('Desk');
+  const tu = useTranslations('DeskFriendly');
+  const locale = useLocale();
+  const Icon = STATE_ICON[i.state];
+  const reason = i.state === 'untagged' ? reasonSentence(i.queueReason) : null;
+  const queueBank =
+    i.state === 'untagged' ? bankName(banks, i.queueBankCode) : null;
+  const dup = duplicateLine(i, myUserId);
+  const action = mineAction(i);
+  const what = i.docKey
+    ? docTypeLabel(i.docKey)
+    : i.kind
+      ? t(`kind.${i.kind}`)
+      : null;
+  const time = timeText(i.receivedAt, locale);
+
+  return (
+    <Card>
+      <CardContent className="space-y-2 py-3 text-sm">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 space-y-0.5">
+            <p className="font-medium">
+              {i.caseNumber && i.caseId ? (
+                <Link
+                  className="focus-visible:ring-ring/50 rounded-sm font-mono underline outline-none focus-visible:ring-3"
+                  href={`/cases/${i.caseId}`}
+                >
+                  {i.caseNumber}
+                </Link>
+              ) : (
+                <span className="text-muted-foreground">
+                  {tu('mine.noCase')}
+                </span>
+              )}
+              {i.companyName && (
+                <span className="text-muted-foreground font-normal">
+                  {' · '}
+                  {i.companyName}
+                </span>
+              )}
+            </p>
+            {what && <p>{what}</p>}
+            {i.originalName && (
+              <p className="text-muted-foreground truncate text-xs">
+                {i.originalName}
+              </p>
+            )}
+          </div>
+          <div className="flex shrink-0 flex-col items-end gap-1">
+            <Badge className={STATE_CLASS[i.state]}>
+              <Icon aria-hidden />
+              {tu(statusKey(i.state))}
+            </Badge>
+            {time && (
+              <time
+                dateTime={i.receivedAt}
+                className="text-muted-foreground text-xs tabular-nums"
+              >
+                {time}
+              </time>
+            )}
+          </div>
         </div>
+        {reason && (
+          <p className="text-muted-foreground">
+            {tu(reason.key, reason.values)}
+            {queueBank && ` ${tu('mine.inQueue', { bank: queueBank })}`}
+          </p>
+        )}
+        {i.state === 'rejected' && i.rejectReason && (
+          <p className="text-destructive">
+            {t('rejectedBecause', { reason: i.rejectReason })}
+          </p>
+        )}
+        {dup && <p className="text-muted-foreground">{tu(dup.key)}</p>}
+        {action === 'fix' &&
+          (editing ? (
+            <RetagForm item={i} banks={banks} onDone={onDone} />
+          ) : (
+            <Button
+              size="sm"
+              variant="outline"
+              className="min-h-11 sm:min-h-8"
+              onClick={onEdit}
+            >
+              {t('actions.fixTags')}
+            </Button>
+          ))}
+        {action === 'uploadAgain' && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="min-h-11 sm:min-h-8"
+            nativeButton={false}
+            render={<Link href={uploadAgainHref(i)} />}
+          >
+            <Upload aria-hidden className="size-4" />
+            {tu('mine.actions.uploadAgain')}
+          </Button>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function MineEmptyState({
+  kind,
+  onClear,
+  onShowAll,
+}: {
+  kind: MineEmpty;
+  onClear: () => void;
+  onShowAll: () => void;
+}) {
+  const tu = useTranslations('DeskFriendly');
+  const cls = 'min-h-11 sm:min-h-9';
+  return (
+    <div className="bg-card-2 space-y-2 rounded-lg border border-dashed p-6 text-center">
+      <p className="font-medium">{tu(`mine.empty.${kind}`)}</p>
+      <p className="text-muted-foreground text-sm">
+        {tu(`mine.empty.${kind}Help`)}
+      </p>
+      {kind === 'none' && (
+        <Button
+          className={cls}
+          nativeButton={false}
+          render={<Link href={deskTabHref('upload')} />}
+        >
+          {tu('mine.actions.uploadFirst')}
+        </Button>
+      )}
+      {kind === 'noMatch' && (
+        <Button variant="outline" className={cls} onClick={onClear}>
+          {tu('mine.actions.clear')}
+        </Button>
+      )}
+      {kind === 'allFiled' && (
+        <Button variant="outline" className={cls} onClick={onShowAll}>
+          {tu('mine.actions.showAll')}
+        </Button>
       )}
     </div>
   );

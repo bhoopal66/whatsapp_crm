@@ -23,6 +23,16 @@ and polish.
 - **Results in plain words**, one card per upload, with a Copy code
   button for a new case and a link to fix a queued upload in My
   uploads. "Upload more" keeps the kind and bank. No migration.
+- **My uploads, easier to scan.** A line at the top says how many
+  files went up today and how many need your attention (waiting to be
+  sorted or rejected); filter chips show their counts; a search box
+  finds an upload by case number, company, file name or document type.
+  Uploads are grouped under Today, Yesterday or the date, with the time
+  (Dubai), and each card shows the case (or "No case yet"), the
+  document type, the status as a word, why it waits in plain words, and
+  one next step: Fix the details for a queued upload, Upload a new file
+  for a rejected one (the Upload tab opens with the same kind and case
+  filled in). No migration.
 
 ### Closed: the open items from the 22 Nov release
 

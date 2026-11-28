@@ -37,6 +37,7 @@ import {
   visibleUploadSteps,
 } from '@/lib/desk/friendly';
 import { newIdemKey } from '@/lib/desk/intake-form';
+import type { UploadPrefill } from '@/lib/desk/my-uploads';
 import type { DeskBank, ItemKind, ItemResult } from '@/lib/desk/store';
 import { deskTabHref } from '@/lib/desk/tabs';
 import { replayDropsChange, uploadSignature } from '@/lib/desk/upload-replay';
@@ -75,13 +76,24 @@ interface SentResult {
   docKey: string;
 }
 
-export function UploadTab({ banks }: { banks: readonly DeskBank[] }) {
+export function UploadTab({
+  banks,
+  initial,
+}: {
+  banks: readonly DeskBank[];
+  /** A rejected upload's kind and case, from My uploads' "Upload a new file". */
+  initial?: UploadPrefill | null;
+}) {
   const t = useTranslations('Desk');
   const tf = useTranslations('DeskForms');
   const tu = useTranslations('DeskFriendly');
   const locale = useLocale();
   const docTypes = useDocTypes();
-  const [draft, setDraft] = useState<TagDraft>(EMPTY_DRAFT);
+  const [draft, setDraft] = useState<TagDraft>(() =>
+    initial
+      ? { ...EMPTY_DRAFT, kind: initial.kind, caseRef: initial.caseRef }
+      : EMPTY_DRAFT
+  );
   const [caption, setCaption] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
