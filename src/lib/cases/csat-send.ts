@@ -38,6 +38,11 @@ import {
   type WhatsAppChannel,
 } from '@/lib/whatsapp/channels';
 import {
+  checkSend,
+  refundSendReservation,
+  type SendReservation,
+} from '@/lib/whatsapp/meta-health/check-send';
+import {
   isRecipientNotAllowedError,
   isValidE164,
   phoneVariants,
@@ -314,6 +319,31 @@ export async function sendCaseCsat(
   );
   if (check.blocked) return { outcome: 'held', reason: 'number_daily_limit' };
 
+  // The send guard (meta-health/check-send.ts) before the template, as in
+  // automations/channel-send.ts; a text send is not guarded. While the
+  // owner's `enforce` is off it always allows (the decision is only
+  // logged). A refusal sends nothing: opt-out and a blocked number are
+  // final (failed), any other reason (a pause, unreadable state) is held
+  // and retried hourly. SQL keeps only [a-z0-9_] of a reason.
+  let reservation: SendReservation | undefined;
+  if (decision === 'template' && row) {
+    const verdict = await checkSend(db, {
+      accountId: claim.accountId,
+      configId: channel.id,
+      contactId: claim.contactId,
+      // Only an approved utility template gets here (decideCsatSend).
+      kind: 'UTILITY',
+      templateName: claim.templateName,
+    });
+    if (!verdict.allow) {
+      const reason = verdict.reason.toLowerCase();
+      if (verdict.reason === 'OPTED_OUT' || verdict.reason === 'TOTAL_BLOCK')
+        throw new CsatRefusal(reason);
+      return { outcome: 'held', reason };
+    }
+    reservation = verdict.reservation;
+  }
+
   const lost = await handOff(db, claim);
   if (lost) return lost;
 
@@ -338,14 +368,20 @@ export async function sendCaseCsat(
         return { outcome: 'unconfirmed', via, messageId, reason };
       }
       const msg = err instanceof Error ? err.message : String(err);
-      if (!isRecipientNotAllowedError(msg))
+      if (!isRecipientNotAllowedError(msg)) {
+        // Certainly not sent: any held spend goes back.
+        await refundSendReservation(db, reservation);
         throw new CsatRefusal(
           err instanceof Error ? err.name.toLowerCase() : 'error'
         );
+      }
       refused = true;
     }
   }
-  if (refused) throw new CsatRefusal('invalid_number');
+  if (refused) {
+    await refundSendReservation(db, reservation);
+    throw new CsatRefusal('invalid_number');
+  }
 
   // The gateway has the message: nothing below may turn it into a failure.
   return {

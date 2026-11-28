@@ -6,6 +6,13 @@ const h = vi.hoisted(() => ({
   sendTemplate: vi.fn(),
   resolveSendChannel: vi.fn(),
   definite: true,
+  checkSend: vi.fn(),
+  refund: vi.fn(),
+}));
+
+vi.mock('@/lib/whatsapp/meta-health/check-send', () => ({
+  checkSend: h.checkSend,
+  refundSendReservation: h.refund,
 }));
 
 vi.mock('@/lib/whatsapp/channels', () => ({
@@ -64,6 +71,12 @@ beforeEach(() => {
   h.definite = true;
   h.resolveSendChannel.mockReset().mockImplementation(async () => h.channel);
   h.sendTemplate.mockReset().mockResolvedValue({ messageId: 'wamid.1' });
+  h.checkSend.mockReset().mockResolvedValue({
+    allow: true,
+    reason: 'ALLOWED',
+    enforced: false,
+  });
+  h.refund.mockReset().mockResolvedValue(true);
   claimAnswer = 'claimed';
   fake = createFakeDb(
     {
@@ -265,5 +278,67 @@ describe('service details store', () => {
     delete fake.rpcs.pbx_service_details_claim;
     expect(await sendCallServiceDetails(fake.db, CALL)).toBe('error');
     expect(h.sendTemplate).not.toHaveBeenCalled();
+  });
+});
+
+describe('service details send guard', () => {
+  const HELD = {
+    accountId: A,
+    scope: 'wa.marketing.daily',
+    day: '2026-11-22',
+    micros: 5,
+  };
+
+  it('asks the guard for the utility template, and sends while enforce is off', async () => {
+    // Watch mode: the guard would refuse, but only `allow` counts.
+    h.checkSend.mockResolvedValue({
+      allow: true,
+      reason: 'TEMPLATE_PAUSED',
+      enforced: false,
+    });
+    expect(await serviceDetailsPorts(fake.db).send(SEND)).toBe(true);
+    expect(h.checkSend).toHaveBeenCalledWith(fake.db, {
+      accountId: A,
+      configId: 'n1',
+      contactId: 'k1',
+      kind: 'UTILITY',
+      templateName: 'call_details',
+    });
+    expect(h.checkSend.mock.invocationCallOrder[0]!).toBeLessThan(
+      h.sendTemplate.mock.invocationCallOrder[0]!
+    );
+  });
+
+  it('a refusal sends nothing, settles send_failed, and logs the reason without the number', async () => {
+    h.checkSend.mockResolvedValue({
+      allow: false,
+      reason: 'NUMBER_ALL_PAUSED',
+      enforced: true,
+    });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(await sendCallServiceDetails(fake.db, CALL)).toBe('send_failed');
+    expect(h.sendTemplate).not.toHaveBeenCalled();
+    expect(fake.tables.messages).toEqual([]);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]).toContain('NUMBER_ALL_PAUSED');
+    expect(JSON.stringify(warn.mock.calls)).not.toMatch(/501234567/);
+    warn.mockRestore();
+  });
+
+  it('gives held spend back on a definite refusal only', async () => {
+    h.checkSend.mockResolvedValue({
+      allow: true,
+      reason: 'ALLOWED',
+      enforced: true,
+      reservation: HELD,
+    });
+    h.sendTemplate.mockRejectedValue(new Error('template paused'));
+    expect(await serviceDetailsPorts(fake.db).send(SEND)).toBe(false);
+    expect(h.refund).toHaveBeenCalledWith(fake.db, HELD);
+    h.refund.mockClear();
+    h.definite = false;
+    h.sendTemplate.mockRejectedValue(new Error('timeout'));
+    expect(await serviceDetailsPorts(fake.db).send(SEND)).toBe(true);
+    expect(h.refund).not.toHaveBeenCalled();
   });
 });

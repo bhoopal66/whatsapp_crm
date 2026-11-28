@@ -13,6 +13,10 @@ import {
   type WhatsAppChannel,
 } from '@/lib/whatsapp/channels';
 import {
+  checkSend,
+  refundSendReservation,
+} from '@/lib/whatsapp/meta-health/check-send';
+import {
   isRecipientNotAllowedError,
   phoneVariants,
   sanitizePhoneForMeta,
@@ -135,6 +139,25 @@ async function send(
   )
     return false;
 
+  // The send guard (meta-health/check-send.ts), as in
+  // automations/channel-send.ts. While the owner's `enforce` is off it
+  // always allows (the decision is only logged). A refusal sends nothing
+  // and the runner settles send_failed; the reason only, never the number.
+  const verdict = await checkSend(db, {
+    accountId,
+    configId: channel.id,
+    contactId,
+    kind: 'UTILITY',
+    templateName,
+  });
+  if (!verdict.allow) {
+    console.warn(
+      '[pbx] service details refused by send protection',
+      verdict.reason
+    );
+    return false;
+  }
+
   const bodyParams = [...params];
   const body = renderTemplateBody(String(row.body_text ?? ''), bodyParams);
   const record = (waMessageId: string | null, status: 'sent' | 'sending') =>
@@ -167,9 +190,11 @@ async function send(
         return true;
       }
       const msg = err instanceof Error ? err.message : String(err);
-      if (!isRecipientNotAllowedError(msg)) return false;
+      if (!isRecipientNotAllowedError(msg)) break;
     }
   }
+  // Certainly not sent: any held spend goes back.
+  await refundSendReservation(db, verdict.reservation);
   return false;
 }
 

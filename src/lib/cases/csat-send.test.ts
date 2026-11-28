@@ -10,6 +10,8 @@ const h = vi.hoisted(() => ({
   handoff: vi.fn(),
   inserted: [] as Record<string, unknown>[],
   definite: false,
+  checkSend: vi.fn(),
+  refund: vi.fn(),
 }));
 
 vi.mock('@/lib/team-activity/auto-guard', () => ({
@@ -23,6 +25,10 @@ vi.mock('@/lib/whatsapp/channels', () => ({
       super(code);
     }
   },
+}));
+vi.mock('@/lib/whatsapp/meta-health/check-send', () => ({
+  checkSend: h.checkSend,
+  refundSendReservation: h.refund,
 }));
 vi.mock('@/lib/whatsapp/provider', () => ({
   sendText: h.sendText,
@@ -90,6 +96,8 @@ function db() {
         return q;
       },
       eq: () => q,
+      order: () => q,
+      limit: () => q,
       insert: (v: Record<string, unknown>) => {
         h.inserted.push(v);
         return q;
@@ -118,7 +126,22 @@ beforeEach(() => {
   h.loadChannels.mockResolvedValue([CHANNEL]);
   h.sendText.mockResolvedValue({ messageId: 'w1' });
   h.check.mockResolvedValue({ blocked: false });
+  h.sendTemplate.mockResolvedValue({ messageId: 'w2' });
+  h.checkSend.mockResolvedValue({
+    allow: true,
+    reason: 'ALLOWED',
+    enforced: false,
+  });
+  h.refund.mockResolvedValue(true);
 });
+
+const META = { id: 'n1', provider: 'meta', isPersonal: false };
+const HELD = {
+  accountId: 'a1',
+  scope: 'wa.marketing.daily',
+  day: '2026-11-22',
+  micros: 5,
+};
 
 describe('sendCaseCsat', () => {
   it("asks the number's limit right before the gateway, then sends once", async () => {
@@ -253,5 +276,92 @@ describe('sendCaseCsat', () => {
     await expect(sendCaseCsat(db(), CLAIM)).rejects.toMatchObject({
       code: 'not_connected',
     });
+  });
+});
+
+describe('sendCaseCsat send guard', () => {
+  beforeEach(() => {
+    h.loadChannels.mockResolvedValue([META]);
+  });
+
+  it('asks the guard for the utility template, then sends while enforce is off', async () => {
+    const d = db();
+    // Watch mode: the guard would refuse, but only `allow` counts.
+    h.checkSend.mockResolvedValue({
+      allow: true,
+      reason: 'TEMPLATE_PAUSED',
+      enforced: false,
+    });
+    expect(await sendCaseCsat(d, CLAIM)).toMatchObject({
+      outcome: 'sent',
+      via: 'template',
+      providerMessageId: 'w2',
+    });
+    expect(h.checkSend).toHaveBeenCalledWith(d, {
+      accountId: 'a1',
+      configId: 'n1',
+      contactId: 'c1',
+      kind: 'UTILITY',
+      templateName: 'case_csat_approved',
+    });
+    expect(h.checkSend.mock.invocationCallOrder[0]!).toBeLessThan(
+      h.handoff.mock.invocationCallOrder[0]!
+    );
+    expect(h.sendTemplate).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not ask the guard for a text request', async () => {
+    h.loadChannels.mockResolvedValue([CHANNEL]);
+    await sendCaseCsat(db(), CLAIM);
+    expect(h.checkSend).not.toHaveBeenCalled();
+  });
+
+  it('holds a paused template with the guard reason, sending and stamping nothing', async () => {
+    h.checkSend.mockResolvedValue({
+      allow: false,
+      reason: 'TEMPLATE_PAUSED',
+      enforced: true,
+    });
+    expect(await sendCaseCsat(db(), CLAIM)).toEqual({
+      outcome: 'held',
+      reason: 'template_paused',
+    });
+    expect(h.handoff).not.toHaveBeenCalled();
+    expect(h.sendTemplate).not.toHaveBeenCalled();
+    expect(h.inserted).toEqual([]);
+  });
+
+  it.each([
+    ['OPTED_OUT', 'opted_out'],
+    ['TOTAL_BLOCK', 'total_block'],
+  ])('refuses on %s, sending nothing', async (reason, code) => {
+    h.checkSend.mockResolvedValue({ allow: false, reason, enforced: true });
+    await expect(sendCaseCsat(db(), CLAIM)).rejects.toMatchObject({
+      name: 'CsatRefusal',
+      code,
+    });
+    expect(h.sendTemplate).not.toHaveBeenCalled();
+  });
+
+  it('gives held spend back on a definite refusal only', async () => {
+    h.checkSend.mockResolvedValue({
+      allow: true,
+      reason: 'ALLOWED',
+      enforced: true,
+      reservation: HELD,
+    });
+    h.definite = true;
+    h.sendTemplate.mockRejectedValue(new TypeError('bad token'));
+    await expect(sendCaseCsat(db(), CLAIM)).rejects.toMatchObject({
+      name: 'CsatRefusal',
+    });
+    expect(h.refund).toHaveBeenCalledWith(expect.anything(), HELD);
+    h.refund.mockClear();
+    h.definite = false;
+    h.sendTemplate.mockRejectedValue(new Error('timeout'));
+    expect(await sendCaseCsat(db(), CLAIM)).toMatchObject({
+      outcome: 'unconfirmed',
+    });
+    expect(h.refund).not.toHaveBeenCalled();
   });
 });
