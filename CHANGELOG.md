@@ -27,6 +27,8 @@ and polish.
   **Migration required: 327** (apply in order, once).
 - **Agents add, change and cancel their own leave** on the desk (My
   uploads tab). **Migration required: 328.**
+- **Desk tray search** by the customer's name or number. **Migration
+  required: 329** (apply in order, once).
 - **Reactivating someone gives back their report access**; removing them
   from the workspace still ends it. **Migration required: 330** (apply in
   order, once).
