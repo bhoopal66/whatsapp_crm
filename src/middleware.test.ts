@@ -282,3 +282,148 @@ describe('middleware — cross-site writes', () => {
     }
   });
 });
+
+describe('middleware — X-Request-Id', () => {
+  it('echoes a short safe inbound id on every kind of answer', async () => {
+    for (const [url, method, extra] of [
+      ['/inbox', 'GET', {}],
+      ['/api/whatsapp/broadcast', 'GET', {}],
+      ['/f/x', 'GET', {}],
+      ['/api/account/members', 'POST', { 'sec-fetch-site': 'cross-site' }],
+    ] as Array<[string, string, Record<string, string>]>) {
+      const res = await middleware(
+        new NextRequest(`https://app.test${url}`, {
+          method,
+          headers: { 'x-request-id': 'trace-abc_1.2', ...extra },
+        })
+      );
+      expect(res.headers.get('x-request-id'), url).toBe('trace-abc_1.2');
+    }
+  });
+
+  it('replaces an unsafe or missing one with a fresh UUID', async () => {
+    for (const bad of ['a'.repeat(65), 'x y', '<script>']) {
+      const res = await middleware(
+        new NextRequest('https://app.test/api/contacts', {
+          headers: { 'x-request-id': bad },
+        })
+      );
+      expect(res.headers.get('x-request-id')).toMatch(/^[0-9a-f-]{36}$/);
+    }
+    const res = await middleware(new NextRequest('https://app.test/login'));
+    expect(res.headers.get('x-request-id')).toMatch(/^[0-9a-f-]{36}$/);
+  });
+});
+
+describe('middleware — /api rate limit', () => {
+  const saved = { ...process.env };
+  afterEach(() => {
+    process.env = { ...saved };
+  });
+
+  const get = (url: string, ip = '198.51.100.9') =>
+    middleware(
+      new NextRequest(`https://app.test${url}`, {
+        headers: { 'cf-connecting-ip': ip },
+      })
+    );
+
+  it('answers 429 with Retry-After once a person is over the limit', async () => {
+    process.env.EDGE_API_LIMIT_PER_USER = '2';
+    mockUser = { id: 'rate-user-1' };
+    refreshedCookies = [ROTATED];
+    expect((await get('/api/contacts')).status).toBe(200);
+    expect((await get('/api/contacts')).status).toBe(200);
+    const res = await get('/api/contacts');
+    expect(res.status).toBe(429);
+    expect(await res.json()).toEqual({ error: 'Too many requests' });
+    expect(Number(res.headers.get('retry-after'))).toBeGreaterThan(0);
+    expect(res.cookies.get(ROTATED.name)?.value).toBe(ROTATED.value);
+    // Another person is not affected.
+    mockUser = { id: 'rate-user-2' };
+    expect((await get('/api/contacts')).status).toBe(200);
+  });
+
+  it('limits a client IP, IPv6 by its /64', async () => {
+    process.env.EDGE_CLIENT_IP_HEADER = 'cf-connecting-ip';
+    process.env.EDGE_API_LIMIT_PER_IP = '1';
+    expect((await get('/api/contacts', '2001:db8:9:9::1')).status).toBe(200);
+    expect((await get('/api/contacts', '2001:db8:9:9::2')).status).toBe(429);
+    expect((await get('/api/contacts', '2001:db8:9:a::1')).status).toBe(200);
+  });
+
+  it('never limits a page load, a webhook, /api/v1, a cron or a probe', async () => {
+    process.env.EDGE_CLIENT_IP_HEADER = 'cf-connecting-ip';
+    process.env.EDGE_API_LIMIT_PER_IP = '1';
+    process.env.EDGE_API_LIMIT_PER_USER = '1';
+    mockUser = { id: 'rate-user-3' };
+    for (const url of [
+      '/inbox',
+      '/api/whatsapp/webhook',
+      '/api/whatsapp/meta/webhook',
+      '/api/sms/webhook',
+      '/api/pbx/yeastar/events/tok',
+      '/api/v1/messages',
+      '/api/automations/cron',
+      '/api/healthz',
+      '/api/readyz',
+      '/api/metrics',
+    ]) {
+      for (let i = 0; i < 3; i++) {
+        const res = await get(url, '192.0.2.77');
+        expect(res.status, url).not.toBe(429);
+      }
+    }
+  });
+});
+
+describe('middleware — the /api access log', () => {
+  const saved = { ...process.env };
+  afterEach(() => {
+    process.env = { ...saved };
+  });
+
+  it('is silent by default', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    await middleware(new NextRequest('https://app.test/api/contacts'));
+    expect(log).not.toHaveBeenCalled();
+    log.mockRestore();
+  });
+
+  it('writes one JSON line per /api request with EDGE_REQUEST_LOG=1, none for pages', async () => {
+    process.env.EDGE_REQUEST_LOG = '1';
+    process.env.EDGE_CLIENT_IP_HEADER = 'cf-connecting-ip';
+    mockUser = { id: 'log-user' };
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    await middleware(new NextRequest('https://app.test/inbox'));
+    expect(log).not.toHaveBeenCalled();
+    await middleware(
+      new NextRequest('https://app.test/api/contacts?token=SECRET', {
+        headers: {
+          'x-request-id': 'rid-9',
+          'cf-connecting-ip': '203.0.113.50',
+          cookie: 'sb-wacrm-auth-token=COOKIEVALUE',
+          authorization: 'Bearer BEARERVALUE',
+        },
+      })
+    );
+    expect(log).toHaveBeenCalledTimes(1);
+    const line = String(log.mock.calls[0][0]);
+    for (const secret of [
+      'SECRET',
+      'COOKIEVALUE',
+      'BEARERVALUE',
+      '203.0.113.50',
+    ]) {
+      expect(line).not.toContain(secret);
+    }
+    expect(JSON.parse(line)).toMatchObject({
+      request_id: 'rid-9',
+      method: 'GET',
+      path: '/api/contacts',
+      ip: '203.0.113.0/24',
+      user_id: 'log-user',
+    });
+    log.mockRestore();
+  });
+});

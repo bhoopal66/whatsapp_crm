@@ -40,3 +40,9 @@ contract; `verify-edge-security.sql` asserts the SQL.
   `x-forwarded-for`; unset means no IP) and, for `x-forwarded-for`,
   `EDGE_TRUSTED_PROXY_HOPS` (default 1); With no IP, webhooks share one
   `unknown` bucket and sign-in keys on `unknown:<email>`.
+- **Dashboard `/api` limit, request id, access log** (`api-edge.ts`, 033d):
+  the middleware runs in the Edge runtime, so `api-edge.ts` imports no
+  Node built-in (`apiIpKey` mirrors `ip.ts`; a test holds them equal).
+  The limiter is per instance in memory, never a DB call;
+  `isApiLimitExempt` must keep every webhook, `/api/v1`, cron and probe
+  out (a test walks `src/app/api` for webhook/cron routes).

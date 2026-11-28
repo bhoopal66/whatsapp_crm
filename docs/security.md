@@ -155,6 +155,49 @@ Unset (or the header missing), the webhooks share one `unknown`
 bucket, sign-in keys on the email, and the API-key lockout is off.
 IPv6 addresses are bucketed by their /64.
 
+## Request id
+
+Every response the middleware handles carries `X-Request-Id`. A
+caller's own `X-Request-Id` is echoed only when it is 1–64 characters
+of `A-Z a-z 0-9 . _ -`; anything else is replaced by a fresh UUID.
+
+## API rate limit
+
+The dashboard's internal API (`/api/*`, not page loads) is limited in
+the middleware (`lib/edge/api-edge.ts`), per signed-in person and per
+client IP, in fixed one-minute windows:
+
+| Variable                  | Default | Meaning                              |
+| ------------------------- | ------- | ------------------------------------ |
+| `EDGE_API_LIMIT_PER_USER` | `600`   | requests a minute per person; 0: off |
+| `EDGE_API_LIMIT_PER_IP`   | `1200`  | requests a minute per IP; 0: off     |
+
+Over a limit the answer is `429 { "error": "Too many requests" }` with
+`Retry-After`. The IP limit uses the client IP above (IPv6 by its /64)
+and is off when no client IP is known.
+
+Never limited here: every inbound webhook (they never answer 429; they
+are screened per sender instead), the PBX gateway and Yeastar event
+intake, `/api/v1/*` (its own per-key limit), the `x-cron-secret` cron
+endpoints, `/api/healthz`, `/api/readyz` and `/api/metrics`.
+
+The counters live in each app instance's memory, **not shared**: the
+point is that no API request waits on a database round trip for them.
+With several replicas, each counts on its own, so the effective limit
+is the configured one times the replica count; a restart resets them.
+The limits that must hold across instances (sign-in lockout, webhook
+screening, API keys) stay in Postgres, above.
+
+## Request log
+
+`EDGE_REQUEST_LOG=1` writes one JSON line per `/api` request to stdout:
+`time`, `request_id`, `method`, `path` (without the query string; a
+token in the path, such as an invitation or Yeastar token, and any
+other opaque segment over 32 characters becomes `:redacted`), `ip` (the
+/24 or /48 prefix only) and `user_id` when signed in. Headers, cookies,
+tokens and bodies are never logged. Off by default, so a host that
+already writes access logs does not log every request twice.
+
 ## Stored file types
 
 Storage is served on the app's own origin and returns each object with

@@ -17,6 +17,16 @@ import {
 import { safeNextPath } from '@/lib/auth/login-client'
 import { supabaseAdmin } from '@/lib/automations/admin-client'
 import { contentSecurityPolicy } from '@/lib/csp'
+import {
+  FixedWindowLimiter,
+  apiIpKey,
+  apiLimitsFrom,
+  apiRequestLogLine,
+  isApiLimitExempt,
+  isRequestLogOn,
+  requestIdFor,
+} from '@/lib/edge/api-edge'
+import { clientIp } from '@/lib/edge/client-ip'
 import { isCrossSiteApiWrite } from '@/lib/edge/same-origin'
 import { createFrameOriginsLookup } from '@/lib/web-form/frame-lookup'
 import {
@@ -53,7 +63,49 @@ async function webFormFrameHeaders(pathname: string) {
   return frameHeadersFor(origins, { reportOnlyCsp: REPORT_ONLY_CSP })
 }
 
+// The /api rate limit (lib/edge/api-edge.ts): in this process's memory,
+// not shared between instances, so no API request waits on a database
+// round trip for it. docs/security.md, "API rate limit".
+const apiUserLimiter = new FixedWindowLimiter()
+const apiIpLimiter = new FixedWindowLimiter()
+
+function tooManyRequests(retryAfterSeconds: number) {
+  return NextResponse.json(
+    { error: 'Too many requests' },
+    { status: 429, headers: { 'Retry-After': String(retryAfterSeconds) } }
+  )
+}
+
 export async function middleware(request: NextRequest) {
+  // Every response this handles carries X-Request-Id, whichever branch
+  // below answered it; /api requests may also get one access-log line.
+  const requestId = requestIdFor(request.headers.get('x-request-id'))
+  const pathname = request.nextUrl.pathname
+  const isApi = pathname.startsWith('/api/')
+  const seen: Seen = { ip: isApi ? clientIp(request.headers) : undefined }
+  const response = await handle(request, seen)
+  response.headers.set('X-Request-Id', requestId)
+  if (isApi && isRequestLogOn(process.env)) {
+    console.log(
+      apiRequestLogLine({
+        time: new Date(),
+        requestId,
+        method: request.method,
+        pathname,
+        ip: seen.ip,
+        userId: seen.userId,
+      })
+    )
+  }
+  return response
+}
+
+interface Seen {
+  ip?: string
+  userId?: string
+}
+
+async function handle(request: NextRequest, seen: Seen) {
   // A state-changing /api call a browser made from another site or
   // subdomain (CSRF): refused before any session work. Webhooks, crons
   // and API-key callers send no browser headers and are not affected.
@@ -68,6 +120,22 @@ export async function middleware(request: NextRequest) {
       { error: 'Cross-site request refused' },
       { status: 403 }
     )
+  }
+
+  // Per client IP, before any session work (so, like the 403 above, no
+  // rotated cookie to carry). Off without a known client IP: one shared
+  // `unknown` bucket would let one caller refuse everyone.
+  const pathname = request.nextUrl.pathname
+  const apiLimited =
+    pathname.startsWith('/api/') && !isApiLimitExempt(pathname)
+  const limits = apiLimitsFrom(process.env)
+  if (apiLimited && seen.ip && limits.perIp > 0) {
+    const decision = apiIpLimiter.hit(
+      `ip:${apiIpKey(seen.ip)}`,
+      limits.perIp,
+      limits.windowMs
+    )
+    if (!decision.allowed) return tooManyRequests(decision.retryAfterSeconds)
   }
 
   let supabaseResponse = NextResponse.next({ request })
@@ -144,6 +212,19 @@ export async function middleware(request: NextRequest) {
       response.cookies.set(cookie)
     })
     return response
+  }
+
+  seen.userId = user?.id
+  // Per signed-in person, keyed by the id getUser() just verified.
+  if (apiLimited && user && limits.perUser > 0) {
+    const decision = apiUserLimiter.hit(
+      `user:${user.id}`,
+      limits.perUser,
+      limits.windowMs
+    )
+    if (!decision.allowed) {
+      return withRefreshedCookies(tooManyRequests(decision.retryAfterSeconds))
+    }
   }
 
   // Auth pages - redirect to dashboard if already logged in.
