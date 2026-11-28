@@ -1,20 +1,20 @@
 /**
  * Which sites may post to a workspace's public web form (migration 249,
  * docs/web-form.md). Pure; the route, the settings panel and the tests
- * share it. `web_form_origin_ok` in 249 is the SQL twin of
+ * share it. `web_form_origin_ok` (249, http allowed since 258) is the SQL twin of
  * `normalizeAllowedOrigin`: change one, change both.
  */
 
 export const MAX_ALLOWED_ORIGINS = 20;
 
 const ORIGIN_SHAPE =
-  /^https:\/\/[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*(:[0-9]{1,5})?$/;
+  /^https?:\/\/[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*(:[0-9]{1,5})?$/;
 
 /**
- * An admin's line as the origin a browser sends ("https://www.x.com"),
- * or null when it is not one. A trailing slash is forgiven; a path,
- * query, credentials or http:// are not (a browser never sends them in
- * Origin, so such an entry could never match).
+ * An admin's line as the origin a browser sends ("https://www.x.com" or
+ * "http://www.x.com"), or null when it is not one. A trailing slash is
+ * forgiven; a path, query or credentials are not (a browser never sends
+ * them in Origin, so such an entry could never match).
  */
 export function normalizeAllowedOrigin(raw: string): string | null {
   let text = raw.trim().toLowerCase();

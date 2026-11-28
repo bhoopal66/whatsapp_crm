@@ -6,7 +6,7 @@
 //
 // PUT body: { enabled: boolean, allowedOrigins: string[], rotate?: boolean }
 // -> 200 { enabled, token, allowed_origins, updated_at }; 400 for a bad
-// body or an origin that is not https://host[:port] (the same rule as
+// body or an origin that is not http(s)://host[:port] (the same rule as
 // the SQL), 403 below admin.
 // ============================================================
 

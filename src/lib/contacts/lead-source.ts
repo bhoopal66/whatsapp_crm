@@ -56,3 +56,59 @@ export function leadSourceFilter(
   const known = parseLeadSources(sources ?? []);
   return known.length > 0 ? `lead_source.in.(${known.join(',')})` : null;
 }
+
+/**
+ * The Contacts screen's Source filter also offers "Unknown": contacts
+ * whose `lead_source` is NULL (every row from before migration 249, and
+ * any contact nothing has labelled). It is a filter value only, never a
+ * stored source, so it lives apart from LEAD_SOURCES.
+ */
+export const LEAD_SOURCE_UNKNOWN = 'unknown' as const;
+export type SourceFilterValue = LeadSource | typeof LEAD_SOURCE_UNKNOWN;
+export const SOURCE_FILTER_VALUES: readonly SourceFilterValue[] = [
+  ...LEAD_SOURCES,
+  LEAD_SOURCE_UNKNOWN,
+];
+
+/** Known sources plus 'unknown' of a comma list or array, deduped, in canonical order. */
+export function parseSourceFilter(
+  raw: string | readonly unknown[] | null | undefined
+): SourceFilterValue[] {
+  const parts = Array.isArray(raw)
+    ? raw
+    : typeof raw === 'string'
+      ? raw.split(',')
+      : [];
+  const wanted = new Set(
+    parts.map((p) => (typeof p === 'string' ? p.trim() : p))
+  );
+  return SOURCE_FILTER_VALUES.filter((s) => wanted.has(s));
+}
+
+/**
+ * How to narrow a contacts query to "any of these sources", as parts the
+ * caller applies with its own builder (`.in` / `.or`; the builders'
+ * generic types do not compose through a shared helper):
+ *  - known sources only: `in` (lead_source IN (...));
+ *  - 'unknown' only: `or` = `lead_source.is.null`;
+ *  - both: `or` = `lead_source.in.(...),lead_source.is.null`;
+ *  - nothing: both null, the query is left alone.
+ * Only canonical values reach the strings, so they cannot carry filter
+ * syntax. An `or` is ANDed with the query's other filters (PostgREST
+ * applies every top-level `or` it is sent).
+ */
+export function sourceFilterParts(
+  sources: readonly string[] | null | undefined
+): { in: LeadSource[] | null; or: string | null } {
+  const wanted = parseSourceFilter(sources ?? []);
+  const known = wanted.filter(
+    (s): s is LeadSource => s !== LEAD_SOURCE_UNKNOWN
+  );
+  const unknown = wanted.includes(LEAD_SOURCE_UNKNOWN);
+  if (!unknown) return { in: known.length > 0 ? known : null, or: null };
+  if (known.length === 0) return { in: null, or: 'lead_source.is.null' };
+  return {
+    in: null,
+    or: `lead_source.in.(${known.join(',')}),lead_source.is.null`,
+  };
+}

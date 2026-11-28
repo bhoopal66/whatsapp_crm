@@ -30,8 +30,8 @@ describe('frameHeadersFor', () => {
         'https://*.example.com',
         'https:',
         'https://',
-        'http://www.example.com',
-        'http://localhost:3000',
+        'http://example.com/path',
+        'ftp://www.example.com',
         'https://example.com/path',
         'https://user@example.com',
         "'self'",
@@ -41,6 +41,14 @@ describe('frameHeadersFor', () => {
         null,
       ] as unknown[])
     ).toEqual(NONE);
+  });
+
+  it('frames for an http origin the admin listed, and still never for a wildcard', () => {
+    const h = frameHeadersFor(['http://Localhost:3000/', 'http://*', '*']);
+    expect(h['Content-Security-Policy']).toBe(
+      'frame-ancestors http://localhost:3000'
+    );
+    expect(h['X-Frame-Options']).toBeUndefined();
   });
 
   it('allows the normalised, de-duplicated origins and drops XFO', () => {

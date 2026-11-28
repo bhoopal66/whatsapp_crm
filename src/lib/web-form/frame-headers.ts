@@ -25,8 +25,8 @@
  *    `frame-ancestors` restated to match the enforced one, so an
  *    allowed embed does not log a report for every page view.
  *
- * Only what `normalizeAllowedOrigin` accepts (https, host and optional
- * port, nothing else) becomes a source: never `*`, a bare scheme, a
+ * Only what `normalizeAllowedOrigin` accepts (http or https, host and
+ * optional port, nothing else) becomes a source: never `*`, a bare scheme, a
  * path, a quote, a space or a `;` that could start another directive.
  * At most MAX_ALLOWED_ORIGINS sources, the same cap as the settings.
  */

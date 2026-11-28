@@ -21,7 +21,10 @@ import {
 } from './snippet';
 
 describe('normalizeAllowedOrigin', () => {
-  it('accepts https origins, lower-cased, with a port', () => {
+  it('accepts http and https origins, lower-cased, with a port', () => {
+    expect(normalizeAllowedOrigin('HTTP://Localhost:3000/')).toBe(
+      'http://localhost:3000'
+    );
     expect(normalizeAllowedOrigin(' HTTPS://www.Example.com/ ')).toBe(
       'https://www.example.com'
     );
@@ -29,9 +32,10 @@ describe('normalizeAllowedOrigin', () => {
       'https://shop.example.co.uk:8443'
     );
   });
-  it('refuses http, paths, credentials and junk', () => {
+  it('refuses paths, credentials, other schemes and junk', () => {
     for (const bad of [
-      'http://example.com',
+      'ftp://example.com',
+      'http://example.com/apply',
       'https://example.com/apply',
       'https://user@example.com',
       'example.com',
@@ -48,11 +52,11 @@ describe('parseAllowedOrigins', () => {
   it('splits lines, drops blanks and duplicates, reports bad lines', () => {
     expect(
       parseAllowedOrigins(
-        'https://a.com\n\n https://A.com/ \r\nhttp://b.com\nhttps://c.com'
+        'https://a.com\n\n https://A.com/ \r\nhttp://b.com\nftp://d.com\nhttps://c.com'
       )
     ).toEqual({
-      origins: ['https://a.com', 'https://c.com'],
-      invalid: ['http://b.com'],
+      origins: ['https://a.com', 'http://b.com', 'https://c.com'],
+      invalid: ['ftp://d.com'],
     });
   });
 });

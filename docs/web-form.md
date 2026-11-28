@@ -52,8 +52,9 @@ Settings → Integrations → Web form (owners and admins).
   on the hosted thank-you page.
 - **Embed (iframe)**: an `<iframe>` of the hosted link. It loads only on
   a website in Allowed websites (see *Embedding in a frame* below).
-- **Allowed websites**: the https origins (`https://www.example.com`, no
-  path) that may post the form from their own pages **and** show the
+- **Allowed websites**: the origins (`https://www.example.com` or
+  `http://www.example.com`, no path; http is for sites not yet on https
+  and local tests, and is the admin's explicit choice) that may post the form from their own pages **and** show the
   hosted form in an iframe; one list serves both. Empty means the
   hosted link only. With a list, a post must carry one of those origins
   (browsers always send it); a post with no `Origin` header is accepted
@@ -86,8 +87,8 @@ Every page of the app refuses to be framed (`X-Frame-Options: DENY`, and
     `X-Frame-Options: DENY`. It fails closed.
   - The app's Report-Only policy is still sent, with its
     `frame-ancestors` set to the same value.
-- Only entries that pass the origin check (`https://` + host, optional
-  port) become sources: never `*`, a bare scheme, a path or anything
+- Only entries that pass the origin check (`https://` or `http://` + host,
+  optional port) become sources: never `*`, a bare scheme, a path or anything
   that could add another directive; at most 20.
 - The list is read on every request to the form, never cached: removing
   a website from Allowed websites stops it framing the form on the next

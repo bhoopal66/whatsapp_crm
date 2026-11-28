@@ -142,8 +142,9 @@ import { LeadSourceBadge } from '@/components/contacts/lead-source-badge';
 import {
   LEAD_SOURCE_COLUMN_AVAILABLE,
   leadSourceOf,
-  parseLeadSources,
-  type LeadSource,
+  parseSourceFilter,
+  sourceFilterParts,
+  type SourceFilterValue,
 } from '@/lib/contacts/lead-source';
 import {
   columnPrefsKey,
@@ -263,7 +264,7 @@ export function ContactsPageInner({
   const serverSortMissingRef = useRef(false);
   const [serverSortMissing, setServerSortMissing] = useState(false);
   // Lead-source filter (any of), also in the URL: ?source=ad,web_form.
-  const [sources, setSources] = useState<LeadSource[]>([]);
+  const [sources, setSources] = useState<SourceFilterValue[]>([]);
   // Optional columns shown (per user, localStorage; try/catch: it can be
   // blocked or empty in a private window).
   const [columnPrefs, setColumnPrefs] =
@@ -357,6 +358,7 @@ export function ContactsPageInner({
 
     const filterGroup = chatTagFilterOrGroup(chatTagFilterIds);
     const sourceList = LEAD_SOURCE_COLUMN_AVAILABLE ? sources : [];
+    const sourceParts = sourceFilterParts(sourceList);
 
     // Close-match search: the RPC ranks (as the caller, so RLS applies),
     // then the page's own filters narrow its hits. A missing RPC
@@ -430,12 +432,12 @@ export function ContactsPageInner({
             const results = await mapWithConcurrency(
               chunkIds(ids),
               FILTER_CHUNK_CONCURRENCY,
-              (chunk) =>
-                supabase
-                  .from('contacts')
-                  .select('id')
-                  .in('id', chunk)
-                  .in('lead_source', sourceList)
+              (chunk) => {
+                let q = supabase.from('contacts').select('id').in('id', chunk);
+                if (sourceParts.in) q = q.in('lead_source', sourceParts.in);
+                if (sourceParts.or) q = q.or(sourceParts.or);
+                return q;
+              }
             );
             const failed = results.find((r) => r.error)?.error;
             if (failed) throw failed;
@@ -588,8 +590,8 @@ export function ContactsPageInner({
           if (personalOnlyUserId)
             query = query.eq('user_id', personalOnlyUserId);
           if (searchFilter) query = query.or(searchFilter);
-          if (sourceList.length > 0)
-            query = query.in('lead_source', sourceList);
+          if (sourceParts.in) query = query.in('lead_source', sourceParts.in);
+          if (sourceParts.or) query = query.or(sourceParts.or);
           return query;
         }
       );
@@ -780,7 +782,7 @@ export function ContactsPageInner({
       const q = new URLSearchParams(window.location.search);
       setSort(parseContactSort(q.get('sort'), q.get('dir')));
       if (LEAD_SOURCE_COLUMN_AVAILABLE) {
-        setSources(parseLeadSources(q.get('source')));
+        setSources(parseSourceFilter(q.get('source')));
       }
     } catch {
       // No window or malformed URL: keep the default.
@@ -1014,7 +1016,7 @@ export function ContactsPageInner({
     }
   }
 
-  function changeSources(next: LeadSource[]) {
+  function changeSources(next: SourceFilterValue[]) {
     setSources(next);
     setPage(0);
     try {

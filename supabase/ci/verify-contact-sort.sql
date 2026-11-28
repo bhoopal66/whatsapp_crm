@@ -227,11 +227,15 @@ BEGIN
     pg_temp.cs_page(u_admin, '''activity'', ''desc'', 25, 0, NULL, NULL, NULL, NULL, ARRAY[''ad'']', k), 'k5,k1|2');
   failed := failed || pg_temp.cs_chk('lead sources (any of)',
     pg_temp.cs_page(u_admin, '''owner'', ''asc'', 25, 0, NULL, NULL, NULL, NULL, ARRAY[''ad'', ''manual'']', k), 'k1,k2,k5|3');
+  failed := failed || pg_temp.cs_chk('lead source unknown = no source',
+    pg_temp.cs_page(u_admin, '''owner'', ''asc'', 25, 0, NULL, NULL, NULL, NULL, ARRAY[''unknown'']', k), 'k7,k3,k4,k6|4');
+  failed := failed || pg_temp.cs_chk('lead source unknown with a known one',
+    pg_temp.cs_page(u_admin, '''owner'', ''asc'', 25, 0, NULL, NULL, NULL, NULL, ARRAY[''ad'', ''unknown'']', k), 'k1,k7,k3,k4,k5,k6|6');
   failed := failed || pg_temp.cs_chk('owner narrowing',
     pg_temp.cs_page(u_admin, format('''assignee'', ''asc'', 25, 0, %L', u_g1), k), 'k2,k7|2');
   failed := failed || pg_temp.cs_chk('filters combine',
     pg_temp.cs_page(u_admin, format('''owner'', ''asc'', 25, 0, NULL, ''%%cs%%'', NULL, ARRAY[%L]::uuid[], ARRAY[''ad'']', tag_main), k), 'k1|1');
-  n := n + 13;
+  n := n + 15;
 
   -- ---------- RLS decides ----------
   -- Every caller gets exactly what a plain SELECT on contacts shows them.

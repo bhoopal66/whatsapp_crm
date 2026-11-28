@@ -1,6 +1,6 @@
 import {
   LEAD_SOURCE_COLUMN_AVAILABLE,
-  parseLeadSources,
+  parseSourceFilter,
 } from '@/lib/contacts/lead-source';
 import { contactSearchTerms } from '@/lib/contacts/list-query';
 import type { ContactSort, ServerSortKey } from '@/lib/contacts/sort';
@@ -60,7 +60,7 @@ export function sortedPageRpcArgs(
     ...new Set(view.chatTagIds.filter((id) => UUID_RE.test(id))),
   ].sort();
   const sources = LEAD_SOURCE_COLUMN_AVAILABLE
-    ? parseLeadSources(view.sources ?? [])
+    ? parseSourceFilter(view.sources ?? [])
     : [];
   const size = Math.max(1, Math.floor(pageSize));
   return {

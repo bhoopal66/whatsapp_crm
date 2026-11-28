@@ -14,7 +14,8 @@ import {
 } from '@/lib/contacts/sort';
 import {
   LEAD_SOURCE_COLUMN_AVAILABLE,
-  parseLeadSources,
+  parseSourceFilter,
+  sourceFilterParts,
 } from '@/lib/contacts/lead-source';
 
 /**
@@ -85,7 +86,7 @@ export function contactListQuestion(view: ContactListView): string {
       q: view.search.trim(),
       tags: [...view.chatTagIds].sort(),
       sort: contactSortLabel(view.sort ?? DEFAULT_CONTACT_SORT),
-      src: parseLeadSources(view.sources ?? []),
+      src: parseSourceFilter(view.sources ?? []),
       page: view.page,
     })
   );
@@ -264,9 +265,10 @@ export function buildContactListQuery<Q extends ContactListQuery<Q>>(
   }
   const search = contactSearchFilter(view.search);
   if (search) query = query.or(search);
-  const sources = parseLeadSources(view.sources ?? []);
-  if (LEAD_SOURCE_COLUMN_AVAILABLE && sources.length > 0) {
-    query = query.in('lead_source', sources);
+  if (LEAD_SOURCE_COLUMN_AVAILABLE) {
+    const source = sourceFilterParts(view.sources);
+    if (source.in) query = query.in('lead_source', source.in);
+    if (source.or) query = query.or(source.or);
   }
   return query;
 }

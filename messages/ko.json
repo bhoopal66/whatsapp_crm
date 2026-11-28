@@ -4539,7 +4539,7 @@
       "enabledOff": "Off: the link shows a not-found page and posts are refused.",
       "originsLabel": "Allowed websites",
       "originsHint": "One per line, for example https://www.example.com. Only these sites may post the form from their own pages or show it in an iframe. Leave empty to accept the hosted link only.",
-      "originsInvalid": "\"{line}\" is not a website address. Use https:// and the host only, with no path.",
+      "originsInvalid": "\"{line}\" is not a website address. Use https:// or http:// and the host only, with no path.",
       "save": "Save",
       "saving": "Saving…",
       "saved": "Web form saved",

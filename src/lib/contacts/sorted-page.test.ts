@@ -78,6 +78,12 @@ describe('sortedPageRpcArgs', () => {
     ).toBeNull();
   });
 
+  it('passes Unknown through to the function', () => {
+    expect(
+      sortedPageRpcArgs({ ...base, sources: ['unknown', 'ad'] }, 25).p_sources
+    ).toEqual(['ad', 'unknown']);
+  });
+
   it('keeps known lead sources only', () => {
     expect(
       sortedPageRpcArgs({ ...base, sources: ['web_form', 'ghost', 'ad'] }, 25)

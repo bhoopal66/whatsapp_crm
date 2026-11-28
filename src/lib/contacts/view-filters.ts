@@ -6,7 +6,10 @@
  */
 
 import { isOptionalColumn, type OptionalColumn } from '@/lib/contacts/columns';
-import { parseLeadSources, type LeadSource } from '@/lib/contacts/lead-source';
+import {
+  parseSourceFilter,
+  type SourceFilterValue,
+} from '@/lib/contacts/lead-source';
 import {
   DEFAULT_CONTACT_SORT,
   parseContactSort,
@@ -17,7 +20,7 @@ import {
 export interface ContactsViewFilters {
   search: string;
   chatTagIds: string[];
-  sources: LeadSource[];
+  sources: SourceFilterValue[];
   sort: ContactSortKey;
   dir: SortDir;
   /** Absent = leave the user's column choice alone. */
@@ -55,7 +58,7 @@ export function toViewFilters(state: ContactsViewState): ContactsViewFilters {
   const out: ContactsViewFilters = {
     search: state.search.trim(),
     chatTagIds: [...new Set(state.chatTagIds)].sort(),
-    sources: parseLeadSources(state.sources),
+    sources: parseSourceFilter(state.sources),
     sort: state.sort.sort,
     dir: state.sort.dir,
   };
@@ -85,7 +88,7 @@ export function fromViewFilters(raw: unknown): ContactsViewFilters {
           ),
         ].slice(0, MAX_TAG_IDS)
       : [],
-    sources: parseLeadSources(
+    sources: parseSourceFilter(
       Array.isArray(o.sources) ? (o.sources as unknown[]) : null
     ),
     sort: sort.sort,

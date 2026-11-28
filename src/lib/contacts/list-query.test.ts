@@ -177,6 +177,24 @@ describe('buildContactListQuery', () => {
     expect(calls.at(-1)).toEqual(['in', 'lead_source', ['ad', 'web_form']]);
   });
 
+  it('keeps contacts with no source when Unknown is picked', () => {
+    const { q, calls } = recorder();
+    buildContactListQuery(
+      q,
+      {
+        personalOnlyUserId: null,
+        search: '',
+        page: 0,
+        sources: ['ad', 'unknown'],
+      },
+      25
+    );
+    expect(calls.at(-1)).toEqual([
+      'or',
+      'lead_source.in.(ad),lead_source.is.null',
+    ]);
+  });
+
   it('keeps the owner narrowing and the search', () => {
     const { q, calls } = recorder();
     buildContactListQuery(

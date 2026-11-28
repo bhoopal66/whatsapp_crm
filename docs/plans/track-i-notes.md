@@ -2,7 +2,8 @@
 
 Branch `claude/track-i-gaps`, based on `claude/admiring-dirac-8082b3`.
 Commits: `5e8b72c` (lead source), `1ce37e0` (embeddable form),
-`722ffd5` (contact sort, migration 257).
+`722ffd5` (contact sort, migration 257), `98a5d70` (the four known gaps),
+then the Unknown source filter and http origins (migration 258).
 
 ## CHANGELOG entry
 
@@ -24,10 +25,20 @@ Commits: `5e8b72c` (lead source), `1ce37e0` (embeddable form),
 - The "Assigned to" column reads company chats only (it used to take the
   assignee of any chat, personal ones included), so it matches its sort.
 
+- The Contacts Source filter has an "Unknown" option (contacts with no
+  source), also in saved views and the sorted pages.
+- A form's Allowed websites may be `http://host[:port]` as well as
+  `https://` (for sites not yet on https and local tests).
+
 ### Migration required
 - **257** `257_contact_sort.sql`: adds `contacts_sorted_page` (SECURITY
-  INVOKER). Apply before deploying; re-runnable. Verify:
-  `supabase/ci/verify-contact-sort.sql`.
+  INVOKER; `p_sources` also takes `'unknown'`). Apply before deploying;
+  re-runnable. Verify: `supabase/ci/verify-contact-sort.sql`.
+- **258** `258_web_form_http_origins.sql`: restates 249's
+  `web_form_origin_ok` and `web_form_set` so http origins are accepted.
+  Superuser or BYPASSRLS. Apply in order, once: re-running 249 afterwards
+  puts the https-only rule back. Verify: `verify-web-form`'s file,
+  `supabase/ci/verify-web-lead-form.sql`.
 
 ## CLAUDE.md text (at most 6 lines each)
 
@@ -36,7 +47,7 @@ Commits: `5e8b72c` (lead source), `1ce37e0` (embeddable form),
 page `{ids, total}` ordered by owner name, assignee name or the company
 chat's `last_message_at` (`personal_owner_id IS NULL`), NULLS LAST, ties
 newest then id. It restates the screen's filters (search, chat tag, lead
-source, a leader's "mine"): change both. `sorted-page.ts` builds the call;
+source incl. 'unknown' = NULL, a leader's "mine"): change both. `sorted-page.ts` builds the call;
 a missing RPC disables the three headers. Below `lg` the headers are
 hidden, so `SortPicker` (key select + direction button) is the control. `verify-contact-sort.sql`.
 
@@ -47,6 +58,12 @@ A broadcast CSV contact is inserted with `broadcast`
 it to a synced customer (`compass_id`); an existing source is never replaced. v1
 `POST /api/v1/contacts` takes an optional `lead_source` from `LEAD_SOURCES`
 (400 otherwise); the MCP `create_contact` mirrors it.
+
+**Web form origins (258).**
+`web_form_origin_ok` (SQL) and `normalizeAllowedOrigin` (TS) accept
+`http://` or `https://` + host[:port] only (no path, never `*`); change
+both. Posting (CORS) and framing share the list. 258 restates 249's two
+functions: apply in order, once.
 
 **Embeddable form.**
 `middleware.ts` sets the frame headers for `/f/*` only, from
@@ -62,7 +79,7 @@ Report-Only CSP off `/f/` (`FRAME_HEADERS` rule); every other route is unchanged
 - `ContactsTable.sortUnavailable`
 - `ContactsTable.sortBy`, `sortAscending`, `sortDescending` (ko reuses English)
 - `Settings.webForm.iframeLabel`, `copyIframe`, `iframeHint`
-- Changed text: `Settings.webForm.originsHint` (mentions iframes)
+- Changed text: `Settings.webForm.originsHint` (mentions iframes), `originsInvalid` (https or http)
 
 ## Merge needs
 - Migration 257 on the live database before the build.
@@ -72,11 +89,11 @@ Report-Only CSP off `/f/` (`FRAME_HEADERS` rule); every other route is unchanged
 - `src/middleware.ts` and `next.config.ts` changed: merge with any other
   track touching headers or middleware.
 - `.github/workflows/migrations.yml`: one new verify step after "Verify
-  review fixes".
+  review fixes" (257); 258 needs no new step.
 
 ## Not done / known limits
-- No "unknown" lead-source filter option exists on the page.
-- Only https origins can frame the form (`normalizeAllowedOrigin`).
+- Nothing open from the earlier list. Framing from an http site is the
+  admin's explicit choice (a network attacker could alter that site).
 
 ## Embed test in a real browser (2026-11-28)
 Chromium (Playwright) loaded a host page on `https://embed.localhost:4443`

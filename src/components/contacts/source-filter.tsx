@@ -9,22 +9,28 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
-import { LEAD_SOURCES, type LeadSource } from '@/lib/contacts/lead-source';
+import {
+  SOURCE_FILTER_VALUES,
+  type SourceFilterValue,
+} from '@/lib/contacts/lead-source';
 import { LEAD_SOURCE_ICONS } from '@/components/contacts/lead-source-badge';
 
-/** Multi-select lead-source filter (a contact matches any of them). */
+/**
+ * Multi-select lead-source filter (a contact matches any of them). The
+ * last option, Unknown, keeps contacts with no source.
+ */
 export function SourceFilter({
   selected,
   onChange,
 }: {
-  selected: readonly LeadSource[];
-  onChange: (next: LeadSource[]) => void;
+  selected: readonly SourceFilterValue[];
+  onChange: (next: SourceFilterValue[]) => void;
 }) {
   const t = useTranslations('ContactsTable');
   const tSource = useTranslations('ContactsTable.source');
-  function toggle(source: LeadSource) {
+  function toggle(source: SourceFilterValue) {
     onChange(
-      LEAD_SOURCES.filter((s) =>
+      SOURCE_FILTER_VALUES.filter((s) =>
         s === source ? !selected.includes(s) : selected.includes(s)
       )
     );
@@ -63,7 +69,7 @@ export function SourceFilter({
           )}
         </div>
         <div className="py-1">
-          {LEAD_SOURCES.map((source) => {
+          {SOURCE_FILTER_VALUES.map((source) => {
             const Icon = LEAD_SOURCE_ICONS[source];
             return (
               <label

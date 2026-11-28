@@ -43,7 +43,8 @@
 --                    ignored), OR'd with the pattern as the page does.
 --   p_chat_tag_ids   main or sub tag ids: a contact matches when ANY of
 --                    its company chats carries one (chatTagFilterOrGroup).
---   p_sources        lead_source IN (...); empty or NULL = all.
+--   p_sources        lead_source IN (...); the value 'unknown' also keeps
+--                    contacts with no source (NULL); empty or NULL = all.
 -- The close-match search (193) stays relevance-ranked and never calls
 -- this.
 --
@@ -147,7 +148,9 @@ BEGIN
        AND asg.user_id = ch.assignee
        AND asg.account_id = c.account_id
      WHERE (p_owner_id IS NULL OR c.user_id = p_owner_id)
-       AND (v_sources IS NULL OR c.lead_source = ANY (v_sources))
+       AND (v_sources IS NULL
+            OR c.lead_source = ANY (v_sources)
+            OR ('unknown' = ANY (v_sources) AND c.lead_source IS NULL))
        AND (
              (v_like IS NULL AND v_digits IS NULL)
           OR c.name ILIKE v_like

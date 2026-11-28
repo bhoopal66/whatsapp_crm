@@ -155,10 +155,20 @@ BEGIN
   IF r LIKE 'ERROR%' OR (r::jsonb ->> 'enabled') <> 'false' OR (r::jsonb -> 'token') <> 'null'::jsonb THEN
     failed := array_append(failed, ('before the first save the form is not off and tokenless: ' || r)::text);
   END IF;
-  r := pg_temp.wlf_try(u_admin, 'SELECT web_form_set(false, ARRAY[''http://example.com''], false)');
+  r := pg_temp.wlf_try(u_admin, 'SELECT web_form_set(false, ARRAY[''ftp://example.com''], false)');
   n := n + 1;
   IF r NOT LIKE 'ERROR 22023 bad_origin%' THEN
-    failed := array_append(failed, ('an http origin was accepted: ' || r)::text);
+    failed := array_append(failed, ('an ftp origin was accepted: ' || r)::text);
+  END IF;
+  r := pg_temp.wlf_try(u_admin, 'SELECT web_form_set(false, ARRAY[''http://example.com/path''], false)');
+  n := n + 1;
+  IF r NOT LIKE 'ERROR 22023 bad_origin%' THEN
+    failed := array_append(failed, ('an http origin with a path was accepted: ' || r)::text);
+  END IF;
+  r := pg_temp.wlf_try(u_admin, 'SELECT web_form_set(false, ARRAY[''http://localhost:3000'', ''http://www.example.com''], false)');
+  n := n + 1;
+  IF r LIKE 'ERROR%' OR (r::jsonb -> 'allowed_origins') <> '["http://localhost:3000", "http://www.example.com"]'::jsonb THEN
+    failed := array_append(failed, ('http origins were not accepted (258): ' || r)::text);
   END IF;
   r := pg_temp.wlf_try(u_admin, 'SELECT web_form_set(false, ARRAY[''https://example.com/path''], false)');
   n := n + 1;
