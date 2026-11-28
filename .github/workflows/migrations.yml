@@ -1300,6 +1300,13 @@ jobs:
       - name: Verify conversation notes
         run: supabase db query --local --file supabase/ci/verify-conversation-notes.sql
 
+      # Migration 332: a deleted note is a tombstone (deleted_at set, text
+      # and mentions cleared) so Realtime delivers the delete to open
+      # chats; members still select it, the list and export leave it out,
+      # only the author makes one, it is final, its bells and pushes go.
+      - name: Verify note tombstones
+        run: supabase db query --local --file supabase/ci/verify-note-tombstones.sql
+
       # Migration 242: the voice-note library. Every member reads the
       # workspace's library, agents and up add, the author or an admin
       # deletes, another workspace sees nothing, entries are never

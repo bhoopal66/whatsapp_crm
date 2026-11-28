@@ -5,7 +5,9 @@ import { describe, expect, it } from 'vitest';
 
 import {
   activeMentionToken,
+  applyNoteChange,
   canSaveNote,
+  type ConversationNote,
   filterMentionCandidates,
   insertMention,
   isBlankNote,
@@ -149,6 +151,7 @@ describe('mergeNote', () => {
     mention_ids: [],
     created_at: at,
     edited_at: null,
+    deleted_at: null,
   });
 
   it('inserts in time order and replaces an edited row', () => {
@@ -157,5 +160,79 @@ describe('mergeNote', () => {
     expect(mergeNote([b], a).map((n) => n.id)).toEqual(['a', 'b']);
     const edited = mergeNote([a, b], { ...a, body: 'new' });
     expect(edited.map((n) => n.body)).toEqual(['new', 'x']);
+  });
+});
+
+describe('applyNoteChange', () => {
+  const mk = (id: string, conversation_id = 'c1'): ConversationNote => ({
+    id,
+    account_id: 'a',
+    conversation_id,
+    author_id: 'u',
+    body: id,
+    mention_ids: [],
+    created_at: id === 'a' ? '2026-11-01T00:00:00Z' : '2026-11-02T00:00:00Z',
+    edited_at: null,
+    deleted_at: null,
+  });
+  // 332's tombstone: the text and mentions cleared, deleted_at stamped.
+  const tomb = (id: string, conversation_id = 'c1'): ConversationNote => ({
+    ...mk(id, conversation_id),
+    body: '',
+    deleted_at: '2026-11-28T00:00:00Z',
+  });
+  const list = [mk('a'), mk('b')];
+
+  it('a tombstone UPDATE removes the note for everyone', () => {
+    const out = applyNoteChange(list, 'c1', {
+      eventType: 'UPDATE',
+      new: tomb('a'),
+    });
+    expect(out.map((n) => n.id)).toEqual(['b']);
+  });
+
+  it('a tombstone is never shown, even for a note not yet held', () => {
+    expect(
+      applyNoteChange(list, 'c1', { eventType: 'UPDATE', new: tomb('zz') })
+    ).toBe(list);
+  });
+
+  it('a repeated tombstone is harmless', () => {
+    const once = applyNoteChange(list, 'c1', {
+      eventType: 'UPDATE',
+      new: tomb('a'),
+    });
+    expect(
+      applyNoteChange(once, 'c1', { eventType: 'UPDATE', new: tomb('a') })
+    ).toBe(once);
+  });
+
+  it('a tombstone of another chat changes nothing', () => {
+    expect(
+      applyNoteChange(list, 'c1', { eventType: 'UPDATE', new: tomb('a', 'c2') })
+    ).toBe(list);
+  });
+
+  it('a hard DELETE (id only) is ignored', () => {
+    expect(applyNoteChange(list, 'c1', { eventType: 'DELETE' })).toBe(list);
+  });
+
+  it('an insert or update for another chat changes nothing', () => {
+    expect(
+      applyNoteChange(list, 'c1', { eventType: 'INSERT', new: mk('x', 'c2') })
+    ).toBe(list);
+  });
+
+  it('an insert for this chat merges and an edit replaces', () => {
+    const out = applyNoteChange(list, 'c1', {
+      eventType: 'INSERT',
+      new: mk('c'),
+    });
+    expect(out.map((n) => n.id)).toContain('c');
+    const edited = applyNoteChange(list, 'c1', {
+      eventType: 'UPDATE',
+      new: { ...mk('a'), body: 'new' },
+    });
+    expect(edited.map((n) => n.body)).toEqual(['new', 'b']);
   });
 });
