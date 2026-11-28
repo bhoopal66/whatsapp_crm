@@ -170,6 +170,45 @@ gateway was catching up) still counts, and a sender whose clock runs
 ahead does not re-light a group you just opened. Messages stored before
 migration 146 count as arriving when they were sent.
 
+## Group wall
+
+**Group wall** (`/group-wall`, under Conversations) shows up to 8 groups
+side by side, each with its latest 30 messages, live. It is read-only:
+reading here never marks a group read (only opening it does), and
+replying means opening the group. The chosen groups are kept in the
+address (`?ids=`) and, per person and workspace, in the browser
+(`group-wall:v1:<account>:<user>`); messages are never stored. **Files
+only** narrows every column to files; **Refresh all** reloads them. Who
+sees which group is the groups screen's rule.
+
+A group linked to a bank for the case desk (`docs/case-desk.md`, "WhatsApp
+groups linked to a bank") gets more:
+
+- **Header.** The bank and its desk code; "Primary: <name> - Second:
+  <name>", or *No coordinator*; chips *Filed today N* (the bank's files
+  filed today, Dubai day, any channel) and *To sort N* (its sorting
+  queue). The queue chip turns red as "To sort N - oldest 2 h 10" once
+  the oldest file has waited 2 hours (the desk's second and lead
+  alerts); a bank with neither coordinator gets a red *No coordinator*
+  chip. The figures refresh with the column and every minute while the
+  page is visible.
+- **File tags.** Each file a staff member posted carries what became of
+  it, as words on a coloured tag: *Filed - <case> - <document type>*,
+  *New case <case> - code <caption code>*, *To sort - <reason>*,
+  *Duplicate - already on the case*, *Could not file - <reason>*, or
+  *Not filed* (sender's number is not a staff number; file not copied,
+  turn on media copy for the number; file type not accepted). The tag
+  reads the desk upload's state now, so a queued file a coordinator
+  filed later shows *Filed* with its case. Text messages and files in an
+  unlinked group carry no tag. A new file's tag appears a few seconds
+  after the file. When the desk answered in the group, the file reads
+  *wacrm replied* (the reply itself is in the log as our message).
+- **Footer.** *Open <bank> sorting queue (N)*, a link to the desk's
+  sorting queue tab, while files wait; otherwise *All sorted*. An
+  unlinked group says *Not linked to a bank*; team leaders and up get
+  **Link to a bank** there, and **Link settings** on a linked group (see
+  "Link settings" in `docs/case-desk.md`).
+
 ## Anti-ban pacing
 
 WhatsApp restricts numbers that add people in bulk. Adds are therefore

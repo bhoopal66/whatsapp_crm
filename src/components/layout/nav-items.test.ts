@@ -29,7 +29,8 @@ function layout(groups: NavGroup[]): Record<string, string[]> {
 /** Every staff role's groups: the rows no role gates. */
 const VIEWER = {
   main: ['/dashboard', '/worklist'],
-  conversations: ['/inbox', '/groups'],
+  // The group wall has /groups' guards and visibility.
+  conversations: ['/inbox', '/groups', '/group-wall'],
   customers: ['/contacts', '/pipelines'],
   collaboration: ['/chat', '/meetings', '/calendar'],
 };
@@ -165,7 +166,7 @@ describe('visibleNavGroups', () => {
       expect(
         layout(visibleNavGroups(role, { pbx: true })).conversations,
         role
-      ).toEqual(['/inbox', '/calls', '/groups']);
+      ).toEqual(['/inbox', '/calls', '/groups', '/group-wall']);
   });
 
   it('hides Calls with no phone system, from a bank guest, and while the role loads', () => {

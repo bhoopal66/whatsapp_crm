@@ -130,7 +130,9 @@ package 035a-c. `docs/case-desk.md` is the contract.
   `whatsapp_group_visible_ids` with an explicit actor, staff only: change
   one, change both (the verify file compares them).
   `desk_group_staff_for_phone` is 230's exactly-one-live-staff rule keyed
-  by digits. `GROUP_INTAKE_OUTCOMES` / `GROUP_REPLY_STATES` are pinned to
+  by digits. The inbound hook reads a link with no actor through
+  `desk_group_link_for_group` (nothing for an unlinked group or a
+  mirror); never impersonate a staff member to call an actor function. `GROUP_INTAKE_OUTCOMES` / `GROUP_REPLY_STATES` are pinned to
   the CHECKs by `group-intake-store.test.ts`. `desk_group_intake` is
   NOT_PERSONAL (ids and codes; the item is 220's).
 - **Group files (324 slice B, `lib/desk/group-intake.ts`).**

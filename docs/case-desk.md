@@ -273,8 +273,8 @@ and up):
 
 ## WhatsApp groups linked to a bank
 
-Migration 324 (the CC group wall, slice A: database only; the inbound
-hook and the screen follow).
+Migration 324 (the CC group wall). The link is set from the group wall
+screen (`docs/whatsapp-groups.md`, "Group wall").
 
 - **Link.** Owners, admins and team leaders who can see a WhatsApp group
   link it to one bank (`desk_group_link_set`; several groups may feed one
@@ -344,6 +344,24 @@ gets the group's bank.
 - **Anti-ban limit.** Replies share the group's budget of 20 messages a
   minute with staff sends; over it, the reply is skipped (recorded as
   failed) rather than queued.
+
+### Link settings
+
+A team leader, admin or owner links a group from its column on the
+group wall: **Link to a bank** on an unlinked column, **Link settings**
+on a linked one. The dialog picks the bank (the desk's bank list; *Not
+linked* removes the link) and has two switches: **File documents posted
+here** (intake) and **Reply in the group with the outcome**, which stays
+disabled until intake is on. Replies are off by default; they share the
+group's 20-messages-a-minute budget, and a Whapi number needs media copy
+("mirror inbound media") on before any file can be filed. A refusal is
+shown in plain words (not allowed, group not found or hidden, bank gone,
+replies without intake). The routes are `GET`/`PUT /api/desk/group-links`
+(`PUT` body `{ groupId, bankCode | null, intakeEnabled,
+repliesEnabled }`), `GET /api/desk/group-wall?ids=` (at most 8 groups)
+and `POST /api/desk/group-wall/outcomes` (`{ messageIds }`, at most
+500); all pass the caller's active account, and the database decides
+who may link and which groups are seen.
 
 ## Follow-ups and suggestions
 

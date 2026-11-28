@@ -9167,6 +9167,80 @@
       "sticker": "ملصق",
       "location": "موقع",
       "other": "مرفق"
+    },
+    "desk": {
+      "primarySecond": "الأساسي: {primary} - الثاني: {second}",
+      "notSet": "غير محدد",
+      "noCoordinator": "لا يوجد منسق",
+      "filedToday": "تم الحفظ اليوم {count}",
+      "toSort": "للفرز {count}",
+      "toSortOldestHours": "للفرز {count} - الأقدم {hours} س {minutes}",
+      "toSortOldestMinutes": "للفرز {count} - الأقدم {minutes} د",
+      "openQueue": "فتح قائمة فرز {bank} ({count})",
+      "allSorted": "تم فرز الكل",
+      "notLinked": "غير مرتبطة ببنك",
+      "linkButton": "ربط ببنك",
+      "linkSettings": "إعدادات الربط",
+      "intakeOff": "الحفظ متوقف لهذه المجموعة",
+      "bankFailed": "تعذّر تحميل أرقام البنك",
+      "replied": "ردّ wacrm",
+      "tags": {
+        "filed": "تم الحفظ - {caseNumber} - {docType}",
+        "filedNoDoc": "تم الحفظ - {caseNumber}",
+        "newCase": "حالة جديدة {caseNumber} - الرمز {captionCode}",
+        "newCaseNoCode": "حالة جديدة {caseNumber}",
+        "queued": "للفرز - {reason}",
+        "duplicate": "مكرر - موجود في الحالة",
+        "refused": "تعذّر الحفظ - {reason}",
+        "unknownSender": "لم يُحفظ - رقم المرسل ليس رقم موظف",
+        "noCopy": "لم يُحفظ - لم يُنسخ الملف (فعّل نسخ الوسائط لهذا الرقم)",
+        "fileType": "لم يُحفظ - نوع الملف غير مقبول"
+      },
+      "queueReasons": {
+        "NO_KIND": "التعليق لا يذكر نوع الملف",
+        "NO_CASE": "التعليق لا يذكر حالة، أو بيانات الحالة الجديدة غير مكتملة",
+        "NO_CONTACT": "الحالة الجديدة ليس لها جهة اتصال للعميل بعد",
+        "NO_FILE": "مستند معلّق يحتاج إلى ملف",
+        "CASE_NOT_FOUND": "لا توجد حالة مفتوحة تطابق هذا الرقم أو الرمز",
+        "BANK_MISMATCH": "هذه الحالة لدى بنك آخر",
+        "CASE_EXISTS_NAME_MISMATCH": "هذه الرخصة مسجلة باسم شركة أخرى",
+        "COMPANY_RESTRICTED": "هذه الشركة أو هذا العميل لدى زميل",
+        "other": "تعذّر حفظه تلقائيًا"
+      },
+      "refusalReasons": {
+        "NOT_ALLOWED": "حسابك لا يمكنه الرفع إلى مكتب الحالات",
+        "FILE_INVALID": "الملف ليس PDF أو JPEG أو PNG مقروءًا",
+        "INVALID": "تعذّرت قراءة التعليق",
+        "BANK_UNKNOWN": "البنك المذكور في التعليق غير معروف",
+        "CASE_CLOSED": "هذه الحالة مغلقة",
+        "CASE_NOT_FOUND": "لا توجد حالة مفتوحة تطابق هذا الرقم أو الرمز",
+        "COMPANY_RESTRICTED": "هذه الشركة أو هذا العميل لدى زميل",
+        "other": "تعذّر حفظه تلقائيًا"
+      },
+      "dialog": {
+        "title": "ربط {group} ببنك",
+        "description": "المستندات التي ينشرها الموظفون في هذه المجموعة تُحفظ للبنك الذي تختاره.",
+        "bank": "البنك",
+        "bankPlaceholder": "اختر بنكًا",
+        "noBank": "غير مرتبطة",
+        "banksFailed": "تعذّر تحميل قائمة البنوك",
+        "intake": "حفظ المستندات المنشورة هنا",
+        "intakeHelp": "كل ملف ينشره موظف يُحفظ في حالة أو يُرسل إلى قائمة فرز البنك.",
+        "replies": "الرد في المجموعة بالنتيجة",
+        "repliesHelp": "الردود متوقفة افتراضيًا. 20 رسالة في الدقيقة كحد أقصى لكل مجموعة.",
+        "whapiHelp": "أرقام Whapi تحتاج إلى تفعيل نسخ الوسائط، وإلا تعذّر حفظ الملفات.",
+        "save": "حفظ",
+        "saving": "جارٍ الحفظ...",
+        "cancel": "إلغاء",
+        "saved": "تم حفظ الربط",
+        "refusals": {
+          "NOT_ALLOWED": "يمكن للمالكين والمسؤولين وقادة الفرق فقط ربط مجموعة",
+          "GROUP_NOT_FOUND": "لا يمكن ربط هذه المجموعة، أو لا يمكنك رؤيتها",
+          "BANK_NOT_FOUND": "هذا البنك لم يعد في المكتب",
+          "INVALID": "الردود تحتاج إلى تفعيل الحفظ",
+          "other": "تعذّر حفظ الربط. حاول مرة أخرى."
+        }
+      }
     }
   },
   "SubmissionGroups": {

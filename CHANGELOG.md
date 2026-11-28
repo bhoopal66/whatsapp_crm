@@ -12,6 +12,22 @@ and polish.
 
 ## [Unreleased]
 
+### Added: the group wall
+
+**Group wall** (under Conversations) shows up to 8 WhatsApp groups side
+by side, live and read-only: reading it never marks a group read. For a
+group linked to a bank, the column shows the bank, its primary and
+second coordinator, *Filed today* and *To sort* (red with the oldest
+wait once the queue alerts, or *No coordinator*), a word-and-colour tag
+under each file saying what became of it (filed to a case, new case,
+waiting to be sorted and why, duplicate, could not file, not filed), a
+*wacrm replied* note where the desk answered, and a link to the bank's
+sorting queue. Team leaders and up link a group to a bank from its
+column and switch filing and replies on; replies stay off by default.
+See "Group wall" in `docs/whatsapp-groups.md`. Uses migration 324 (below);
+re-apply `324_desk_group_intake.sql` if you applied an earlier copy of
+it, for `desk_group_link_for_group`.
+
 ### Added: WhatsApp groups linked to a bank for the case desk (database)
 
 The groundwork for the CC group wall. Owners, admins and team leaders can
@@ -30,8 +46,7 @@ staff in a linked group with intake on now go through the desk like
 their own WhatsApp uploads (PDF, JPEG or PNG; a Whapi number needs
 inbound media mirroring on), and with replies on the desk answers each
 file once in the group, within its 20-a-minute limit (see "Files posted
-in linked WhatsApp groups" in `docs/case-desk.md`). The screen comes
-next.
+in linked WhatsApp groups" in `docs/case-desk.md`).
 
 **Migration required: 324** (`324_desk_group_intake.sql`, after 323).
 
