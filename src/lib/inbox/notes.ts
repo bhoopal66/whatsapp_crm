@@ -23,6 +23,11 @@ export interface ConversationNote {
   mention_ids: string[];
   created_at: string;
   edited_at: string | null;
+  /**
+   * Set when the author deleted it (332): a tombstone with no text,
+   * delivered as an UPDATE so every open chat can drop it.
+   */
+  deleted_at: string | null;
 }
 
 /** Someone an @mention may name (241's conversation_note_mention_candidates). */
@@ -179,4 +184,34 @@ export function mergeNote(
     (a, b) =>
       new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
   );
+}
+
+/** A `conversation_notes` realtime payload, as far as the thread reads it. */
+export interface NoteChangeEvent {
+  eventType: 'INSERT' | 'UPDATE' | 'DELETE';
+  new?: Partial<ConversationNote> | null;
+}
+
+/**
+ * The chat's notes after one realtime change from the chat's filtered
+ * subscription. A delete arrives as an UPDATE that sets `deleted_at`
+ * (332's tombstone), so the note is dropped by id; one this chat does
+ * not hold, or already dropped, returns the same list. A row of another
+ * chat changes nothing. A hard DELETE (the PDPL erase) carries only the
+ * id and is never delivered through a filter, so it is ignored here and
+ * shows on the next read.
+ */
+export function applyNoteChange(
+  notes: ConversationNote[],
+  conversationId: string,
+  event: NoteChangeEvent
+): ConversationNote[] {
+  if (event.eventType === 'DELETE') return notes;
+  const row = event.new;
+  if (!row?.id || row.conversation_id !== conversationId) return notes;
+  if (row.deleted_at) {
+    if (!notes.some((n) => n.id === row.id)) return notes;
+    return notes.filter((n) => n.id !== row.id);
+  }
+  return mergeNote(notes, row as ConversationNote);
 }

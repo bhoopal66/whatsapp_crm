@@ -2,9 +2,11 @@
 
 // The chat's team notes (migration 241), loaded once per conversation,
 // read again after a gap in realtime (lib/realtime/catch-up.ts) and
-// kept live in between (INSERT and UPDATE; realtime does not
-// RLS-filter DELETE, so a teammate's delete shows on the next open and
-// one's own delete is applied at once). Reads and writes go straight
+// kept live in between. A delete is a tombstone (migration 332): an
+// UPDATE that sets deleted_at and clears the text, so it reaches every
+// open chat through the same filtered subscription. Realtime cannot
+// filter or RLS-check a DELETE, and an unfiltered listener would hear
+// every workspace's deletes, so there is none. Reads and writes go straight
 // to `conversation_notes` under its RLS: the policies decide who reads,
 // writes, edits and deletes; the trigger stamps the author and rings
 // the mentions.
@@ -14,13 +16,14 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { startLiveRead, type LiveRead } from '@/lib/realtime/catch-up';
 import {
+  applyNoteChange,
   mergeNote,
   type ConversationNote,
   type MentionCandidate,
 } from '@/lib/inbox/notes';
 
 const COLUMNS =
-  'id, account_id, conversation_id, author_id, body, mention_ids, created_at, edited_at';
+  'id, account_id, conversation_id, author_id, body, mention_ids, created_at, edited_at, deleted_at';
 
 // One empty list, so a chat with no notes yet keeps a stable reference.
 const NO_NOTES: ConversationNote[] = [];
@@ -30,6 +33,9 @@ async function fetchNotes(conversationId: string): Promise<ConversationNote[]> {
     .from('conversation_notes')
     .select(COLUMNS)
     .eq('conversation_id', conversationId)
+    // Tombstones (332) stay readable so Realtime can deliver them; the
+    // thread never shows one.
+    .is('deleted_at', null)
     .order('created_at', { ascending: true });
   // Thrown, not read as "no notes": the notes on screen stay.
   if (error) throw error;
@@ -86,10 +92,9 @@ export function useConversationNotes(conversationId: string | null) {
           filter: `conversation_id=eq.${conversationId}`,
         },
         (payload) => {
-          if (payload.eventType === 'DELETE') return;
-          const row = payload.new as ConversationNote;
-          if (!row?.id) return;
-          apply(conversationId, (notes) => mergeNote(notes, row));
+          apply(conversationId, (notes) =>
+            applyNoteChange(notes, conversationId, payload)
+          );
         }
       )
       .subscribe(live.onStatus);
@@ -147,8 +152,11 @@ export function useConversationNotes(conversationId: string | null) {
       if (!conversationId) return false;
       const { data, error } = await createClient()
         .from('conversation_notes')
-        .delete()
+        // A tombstone (332): the trigger stamps the time and clears the
+        // text and mentions; RLS keeps it to the author.
+        .update({ deleted_at: new Date().toISOString() })
         .eq('id', id)
+        .is('deleted_at', null)
         .select('id');
       if (error || !data || data.length === 0) return false;
       apply(conversationId, (list) => list.filter((n) => n.id !== id));
