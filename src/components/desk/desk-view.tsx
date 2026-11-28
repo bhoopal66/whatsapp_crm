@@ -12,7 +12,7 @@
  * filing; a company-name mismatch needs a typed confirmation. Every
  * permission is the server's; tabs a person cannot use only hide.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useLocale, useTranslations } from 'next-intl';
@@ -44,14 +44,8 @@ import {
   newCaseMissing,
   rejectBlock,
   sortFileBlock,
-  uploadBlock,
 } from '@/lib/desk/form-hints';
-import {
-  formatAge,
-  newIdemKey,
-  queueReasonKey,
-  sameCompany,
-} from '@/lib/desk/intake-form';
+import { formatAge, queueReasonKey, sameCompany } from '@/lib/desk/intake-form';
 import {
   DEFAULT_DESK_TAB,
   badgeText,
@@ -69,26 +63,19 @@ import type {
   QueueItem,
 } from '@/lib/desk/store';
 
-import { replayDropsChange, uploadSignature } from '@/lib/desk/upload-replay';
-
 import { CaseRefStatus } from './case-ref-status';
 import { CompaniesTab } from './companies-tab';
 import { CoverCard, MyLeaveCard } from './cover-card';
 import { FilePreview, PreviewBeside } from './file-preview';
 import { TrayTab } from './tray-tab';
+import { UploadTab } from './upload-tab';
 import { deskApi } from './desk-api';
-import { DeskFilePicker } from './desk-file-picker';
 import { DeskSelect } from './desk-select';
 import { DisabledHint } from './disabled-hint';
 import { LoadFailed } from './load-failed';
 import { useCaseLookup } from './use-case-lookup';
 import { useDocTypes } from './use-doc-types';
-import {
-  EMPTY_DRAFT,
-  TagFields,
-  draftToTags,
-  type TagDraft,
-} from './tag-fields';
+import { TagFields, draftToTags, type TagDraft } from './tag-fields';
 
 const STATE_CLASS: Record<ItemState, string> = {
   filed: 'bg-success-soft text-success',
@@ -205,169 +192,6 @@ export function DeskView() {
 function bankName(banks: readonly DeskBank[], code: string | null) {
   if (code === null) return null;
   return banks.find((b) => b.bankCode === code)?.bankName ?? code;
-}
-
-function ResultLine({ item }: { item: ItemResult }) {
-  const t = useTranslations('Desk');
-  const reason = queueReasonKey(item.queueReason);
-  return (
-    <div className="bg-card-2 rounded-md p-3 text-sm" role="status">
-      <Badge className={STATE_CLASS[item.state]}>
-        {t(`state.${item.state}`)}
-      </Badge>{' '}
-      {item.caseNumber && (
-        <span>
-          {t('result.case')}{' '}
-          <Link className="font-mono underline" href={`/cases/${item.caseId}`}>
-            {item.caseNumber}
-          </Link>
-          {item.captionCode && (
-            <>
-              {' · '}
-              {t('result.code')}{' '}
-              <span className="font-mono font-semibold">
-                {item.captionCode}
-              </span>
-            </>
-          )}
-        </span>
-      )}
-      {reason && (
-        <span className="text-muted-foreground"> {t(`reason.${reason}`)}</span>
-      )}
-      {item.replayed && (
-        <span className="text-muted-foreground"> {t('result.replayed')}</span>
-      )}
-    </div>
-  );
-}
-
-// ---------- Upload ----------
-
-function UploadTab({ banks }: { banks: readonly DeskBank[] }) {
-  const t = useTranslations('Desk');
-  const tf = useTranslations('DeskForms');
-  const [draft, setDraft] = useState<TagDraft>(EMPTY_DRAFT);
-  const [caption, setCaption] = useState('');
-  const [file, setFile] = useState<File | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [last, setLast] = useState<ItemResult | null>(null);
-  // One key per upload attempt, reused on retry, so a resend after a
-  // timeout returns the first result instead of a second item.
-  const idem = useRef(newIdemKey());
-  // What the first attempt under this key carried; a replayed answer is
-  // that first item, so a different draft now has not been applied.
-  const firstSent = useRef<{ sig: string; what: string } | null>(null);
-  const [dropped, setDropped] = useState<string | null>(null);
-  const blocked = uploadBlock({ kind: draft.kind, hasFile: file !== null });
-
-  const submit = async () => {
-    setBusy(true);
-    const form = new FormData();
-    form.set('idemKey', idem.current);
-    if (caption.trim()) form.set('caption', caption.trim());
-    for (const [k, v] of Object.entries(draftToTags(draft)))
-      if (v !== null) form.set(k, v);
-    if (file) form.set('file', file);
-    const tags = draftToTags(draft);
-    const sig = uploadSignature({
-      tags,
-      caption,
-      file: file ? { name: file.name, size: file.size } : null,
-    });
-    firstSent.current ??= {
-      sig,
-      what:
-        [
-          tags.kind ? t(`kind.${tags.kind}`) : null,
-          tags.bankCode ? bankName(banks, tags.bankCode) : null,
-          caption.trim() || null,
-        ]
-          .filter(Boolean)
-          .join(' · ') || t('result.noDetails'),
-    };
-    const r = await deskApi.submit(form);
-    setBusy(false);
-    if (!r.ok) {
-      toast.error(r.error);
-      return;
-    }
-    const { what } = firstSent.current;
-    if (replayDropsChange(r.data.replayed, firstSent.current.sig, sig)) {
-      // Keep the draft: the server did not take it. The first attempt is
-      // known to be stored, so sending again is a second upload of its own
-      // (the only way out for a note without a file).
-      idem.current = newIdemKey();
-      firstSent.current = null;
-      setLast(null);
-      setDropped(what);
-      return;
-    }
-    setDropped(null);
-    firstSent.current = null;
-    setLast(r.data);
-    idem.current = newIdemKey();
-    setDraft(EMPTY_DRAFT);
-    setCaption('');
-    setFile(null);
-  };
-
-  return (
-    <Card>
-      <CardContent className="space-y-4">
-        <div className="space-y-1.5">
-          <Label htmlFor="desk-file">{t('fields.file')}</Label>
-          <DeskFilePicker
-            id="desk-file"
-            file={file}
-            accept="application/pdf,image/jpeg,image/png"
-            onChange={(f) => {
-              setFile(f);
-              idem.current = newIdemKey();
-              firstSent.current = null;
-              setDropped(null);
-            }}
-          />
-          <p className="text-muted-foreground text-xs">
-            {t('fields.fileHint')}
-          </p>
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="desk-caption">{t('fields.caption')}</Label>
-          <Input
-            id="desk-caption"
-            value={caption}
-            placeholder="4271RAKD ejari · NEW RAK Kite Trading 123456"
-            onChange={(e) => setCaption(e.target.value)}
-          />
-          <p className="text-muted-foreground text-xs">
-            {t('fields.captionHint')}
-          </p>
-        </div>
-        <TagFields draft={draft} onChange={setDraft} banks={banks} />
-        <div className="flex flex-wrap items-center gap-3">
-          <Button
-            onClick={submit}
-            disabled={busy || blocked !== null}
-            aria-describedby={blocked ? 'desk-upload-why' : undefined}
-          >
-            {busy ? t('actions.uploading') : t('actions.upload')}
-          </Button>
-          {blocked && (
-            <DisabledHint id="desk-upload-why">
-              {tf(`why.upload.${blocked}`)}
-            </DisabledHint>
-          )}
-        </div>
-        {dropped && (
-          <p role="alert" className="text-warning text-sm">
-            {t('result.replayedDifferent', { what: dropped })}
-          </p>
-        )}
-        {last && <ResultLine item={last} />}
-      </CardContent>
-    </Card>
-  );
 }
 
 // ---------- My uploads ----------

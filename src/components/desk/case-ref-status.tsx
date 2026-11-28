@@ -17,9 +17,12 @@ import type { CaseLookupState } from './use-case-lookup';
 export function CaseRefStatus({
   lookup,
   banks,
+  notFoundText,
 }: {
   lookup: CaseLookupState;
   banks: readonly DeskBank[];
+  /** A plainer "not found" with what to do next (the upload form). */
+  notFoundText?: string;
 }) {
   const t = useTranslations('DeskForms');
   const showStage = useStageLabel();
@@ -36,7 +39,7 @@ export function CaseRefStatus({
   if (lookup.status === 'loading')
     return <Note icon="busy" text={t('lookup.looking')} />;
   if (lookup.status === 'not_found')
-    return <Note icon="warn" text={t('lookup.notFound')} />;
+    return <Note icon="warn" text={notFoundText ?? t('lookup.notFound')} />;
   if (lookup.status === 'unavailable')
     return <Note icon="info" text={t('lookup.unavailable')} />;
   if (lookup.status === 'error')

@@ -12,6 +12,18 @@ and polish.
 
 ## [Unreleased]
 
+### Case desk: a friendlier upload
+
+- **Upload in three plain steps** (what is it, which case, the file),
+  with a one-line explanation under each kind, document-type chips for
+  the common types, and a button that says what it will do ("Upload 1
+  file to TC-26-04271-RAK", "Open a new case"). When an upload will
+  wait in the sorting queue, the form says so beforehand; nothing new
+  is required and filing is still the server's decision.
+- **Results in plain words**, one card per upload, with a Copy code
+  button for a new case and a link to fix a queued upload in My
+  uploads. "Upload more" keeps the kind and bank. No migration.
+
 ### Closed: the open items from the 22 Nov release
 
 - **Time-Based automations run.** Each one now names a chat tag and runs

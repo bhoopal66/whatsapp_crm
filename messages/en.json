@@ -13825,6 +13825,97 @@
       }
     }
   },
+  "DeskFriendly": {
+    "steps": {
+      "progress": "Step {step} of 3",
+      "kind": "What are you sending?",
+      "case": "Which case is it for?",
+      "newCase": "About the new case",
+      "file": "The file and a few details",
+      "showAll": "Not sure what it is? Show all the fields"
+    },
+    "kindHelp": {
+      "pending_doc": "A missing document for a case that is already open.",
+      "new_case": "Start a new bank case for a company.",
+      "info": "A note or update about an open case. A file is optional."
+    },
+    "case": {
+      "notFoundHint": "No case matches. Check the last character of the code, or pick the bank below and it will go to that bank's sorting queue.",
+      "bankFromCase": "Bank (from the case)",
+      "bankMismatch": "This case is with {caseBank}, not {chosen}. The upload will wait in the sorting queue unless you change the bank."
+    },
+    "doc": {
+      "label": "Document type",
+      "other": "Other…",
+      "otherLabel": "Other document type",
+      "none": "Not sure yet"
+    },
+    "file": {
+      "size": "Size: {size}"
+    },
+    "button": {
+      "upload": "Upload{count, plural, =0 {} one { # file} other { # files}}",
+      "uploadTo": "Upload {count, plural, one {# file} other {# files}} to {caseNumber}",
+      "newCase": "Open a new case{count, plural, =0 {} one { and upload # file} other { and upload # files}}",
+      "info": "Send information{count, plural, =0 {} one { with # file} other { with # files}}",
+      "infoTo": "Send information to {caseNumber}{count, plural, =0 {} one { with # file} other { with # files}}",
+      "uploading": "Uploading…"
+    },
+    "missing": {
+      "file": "Add a file first: a pending document needs one."
+    },
+    "wait": {
+      "noKind": "No type is chosen, so the upload will wait in the sorting queue until someone sorts it.",
+      "noCase": "No case is given, so the upload will wait in the sorting queue until someone sorts it.",
+      "newCaseIncomplete": "Still missing: {fields}. The upload will wait in the sorting queue until someone adds them."
+    },
+    "reason": {
+      "NO_KIND": "Nobody said whether this is a new case, a pending document or information.",
+      "NO_CASE": "Nobody said which case it is for, or the new case details are incomplete.",
+      "NO_CONTACT": "No customer contact was chosen for the new case.",
+      "NO_FILE": "A pending document was sent without its file.",
+      "CASE_NOT_FOUND": "The case code typed does not match any open case.",
+      "BANK_MISMATCH": "The case is with a different bank from the one chosen.",
+      "CASE_EXISTS_NAME_MISMATCH": "This licence is already on file under a different company name.",
+      "COMPANY_RESTRICTED": "This company or customer is handled by a colleague. A sorter will file it.",
+      "CASE_OPEN_FAILED": "The new case could not be opened automatically.",
+      "FILE_FAILED": "The file could not be added to the case automatically.",
+      "CASE_CONFLICT": "This customer already has an open case at this bank.",
+      "CASE_CLOSED": "That case is closed.",
+      "BANK_UNKNOWN": "That bank is not set up in this workspace.",
+      "BANK_CODE_MISSING": "This bank has no desk code yet. An admin sets it in Settings.",
+      "FILE_INVALID": "The file could not be read. Send a PDF, JPEG or PNG of up to 10 MB.",
+      "CROSS_CUSTOMER": "The document belongs to a different customer from the case.",
+      "NOT_ALLOWED": "That case cannot be added to from this login. A sorter will file it.",
+      "OTHER": "It could not be filed automatically. A sorter will look at it."
+    },
+    "reasonBy": {
+      "NO_KIND": "{name} did not say whether this is a new case, a pending document or information.",
+      "NO_CASE": "{name} did not say which case it is for, or left out new case details.",
+      "NO_CONTACT": "{name} did not choose the customer contact for the new case.",
+      "NO_FILE": "{name} sent a pending document without its file."
+    },
+    "result": {
+      "heading": "Uploaded",
+      "filed": "Filed to {caseNumber}.",
+      "filedAs": "Filed to {caseNumber} as {docType}.",
+      "newCase": "New case {caseNumber} opened. Caption code {code}.",
+      "queued": "Sent to the {bank} sorting queue.",
+      "queuedNoBank": "Sent to the no-bank sorting queue.",
+      "duplicate": "Already on this case. Nothing more to do.",
+      "rejected": "Rejected.",
+      "replayed": "It was uploaded before; this is the first result."
+    },
+    "actions": {
+      "copyCode": "Copy code",
+      "copied": "Code copied",
+      "copyFailed": "Could not copy. The code is selected: copy it yourself.",
+      "openCase": "Open the case",
+      "fixInMine": "Fix it in My uploads",
+      "uploadMore": "Upload more",
+      "seeMine": "See my uploads"
+    }
+  },
   "CaseDeskSettings": {
     "intro": "Set up the case desk here. Uploading, sorting and the tray stay on the Case desk page.",
     "codes": "Desk codes",

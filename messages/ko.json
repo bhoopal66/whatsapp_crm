@@ -13825,6 +13825,97 @@
       }
     }
   },
+  "DeskFriendly": {
+    "steps": {
+      "progress": "{step}/3단계",
+      "kind": "무엇을 보내시나요?",
+      "case": "어느 케이스에 대한 것인가요?",
+      "newCase": "새 케이스 정보",
+      "file": "파일과 몇 가지 세부 정보",
+      "showAll": "무엇인지 확실하지 않나요? 모든 항목 보기"
+    },
+    "kindHelp": {
+      "pending_doc": "이미 열려 있는 케이스에 빠진 서류입니다.",
+      "new_case": "회사의 새 은행 케이스를 시작합니다.",
+      "info": "열려 있는 케이스에 대한 메모나 업데이트입니다. 파일은 선택 사항입니다."
+    },
+    "case": {
+      "notFoundHint": "일치하는 케이스가 없습니다. 코드의 마지막 글자를 확인하거나, 아래에서 은행을 고르면 그 은행의 분류 대기열로 갑니다.",
+      "bankFromCase": "은행(케이스 기준)",
+      "bankMismatch": "이 케이스는 {chosen}이 아니라 {caseBank}에 있습니다. 은행을 바꾸지 않으면 업로드는 분류 대기열에서 기다립니다."
+    },
+    "doc": {
+      "label": "서류 유형",
+      "other": "기타…",
+      "otherLabel": "기타 서류 유형",
+      "none": "아직 모름"
+    },
+    "file": {
+      "size": "크기: {size}"
+    },
+    "button": {
+      "upload": "업로드{count, plural, =0 {} one { (파일 #개)} other { (파일 #개)}}",
+      "uploadTo": "{caseNumber}에 {count, plural, one {파일 #개} other {파일 #개}} 업로드",
+      "newCase": "새 케이스 열기{count, plural, =0 {} one { 및 파일 #개 업로드} other { 및 파일 #개 업로드}}",
+      "info": "정보 보내기{count, plural, =0 {} one { (파일 #개 포함)} other { (파일 #개 포함)}}",
+      "infoTo": "{caseNumber}에 정보 보내기{count, plural, =0 {} one { (파일 #개 포함)} other { (파일 #개 포함)}}",
+      "uploading": "업로드 중…"
+    },
+    "missing": {
+      "file": "먼저 파일을 추가하세요. 빠진 서류에는 파일이 필요합니다."
+    },
+    "wait": {
+      "noKind": "유형을 고르지 않아 누군가 분류할 때까지 업로드가 분류 대기열에서 기다립니다.",
+      "noCase": "케이스를 적지 않아 누군가 분류할 때까지 업로드가 분류 대기열에서 기다립니다.",
+      "newCaseIncomplete": "아직 빠진 항목: {fields}. 누군가 추가할 때까지 업로드가 분류 대기열에서 기다립니다."
+    },
+    "reason": {
+      "NO_KIND": "새 케이스인지, 빠진 서류인지, 정보인지 아무도 알려 주지 않았습니다.",
+      "NO_CASE": "어느 케이스인지 아무도 알려 주지 않았거나, 새 케이스 정보가 불완전합니다.",
+      "NO_CONTACT": "새 케이스의 고객 연락처를 고르지 않았습니다.",
+      "NO_FILE": "빠진 서류가 파일 없이 보내졌습니다.",
+      "CASE_NOT_FOUND": "입력한 케이스 코드와 일치하는 열린 케이스가 없습니다.",
+      "BANK_MISMATCH": "케이스가 선택한 은행과 다른 은행에 있습니다.",
+      "CASE_EXISTS_NAME_MISMATCH": "이 면허는 이미 다른 회사 이름으로 등록되어 있습니다.",
+      "COMPANY_RESTRICTED": "이 회사나 고객은 동료가 맡고 있습니다. 분류 담당자가 정리합니다.",
+      "CASE_OPEN_FAILED": "새 케이스를 자동으로 열 수 없었습니다.",
+      "FILE_FAILED": "파일을 케이스에 자동으로 추가할 수 없었습니다.",
+      "CASE_CONFLICT": "이 고객은 이미 이 은행에 열린 케이스가 있습니다.",
+      "CASE_CLOSED": "그 케이스는 닫혔습니다.",
+      "BANK_UNKNOWN": "그 은행은 이 워크스페이스에 설정되어 있지 않습니다.",
+      "BANK_CODE_MISSING": "이 은행에는 아직 데스크 코드가 없습니다. 관리자가 설정에서 정합니다.",
+      "FILE_INVALID": "파일을 읽을 수 없습니다. 10MB 이하의 PDF, JPEG 또는 PNG를 보내세요.",
+      "CROSS_CUSTOMER": "이 서류는 케이스와 다른 고객의 것입니다.",
+      "NOT_ALLOWED": "이 로그인으로는 그 케이스에 추가할 수 없습니다. 분류 담당자가 정리합니다.",
+      "OTHER": "자동으로 정리할 수 없었습니다. 분류 담당자가 확인합니다."
+    },
+    "reasonBy": {
+      "NO_KIND": "{name}님이 새 케이스인지, 빠진 서류인지, 정보인지 알려 주지 않았습니다.",
+      "NO_CASE": "{name}님이 어느 케이스인지 알려 주지 않았거나 새 케이스 정보를 빠뜨렸습니다.",
+      "NO_CONTACT": "{name}님이 새 케이스의 고객 연락처를 고르지 않았습니다.",
+      "NO_FILE": "{name}님이 빠진 서류를 파일 없이 보냈습니다."
+    },
+    "result": {
+      "heading": "업로드됨",
+      "filed": "{caseNumber}에 정리되었습니다.",
+      "filedAs": "{caseNumber}에 {docType}(으)로 정리되었습니다.",
+      "newCase": "새 케이스 {caseNumber}이(가) 열렸습니다. 캡션 코드 {code}.",
+      "queued": "{bank} 분류 대기열로 보냈습니다.",
+      "queuedNoBank": "은행 없음 분류 대기열로 보냈습니다.",
+      "duplicate": "이미 이 케이스에 있습니다. 더 할 일은 없습니다.",
+      "rejected": "거부되었습니다.",
+      "replayed": "이전에 업로드되었습니다. 이것은 처음 결과입니다."
+    },
+    "actions": {
+      "copyCode": "코드 복사",
+      "copied": "코드를 복사했습니다",
+      "copyFailed": "복사할 수 없습니다. 코드가 선택되어 있으니 직접 복사하세요.",
+      "openCase": "케이스 열기",
+      "fixInMine": "내 업로드에서 고치기",
+      "uploadMore": "더 업로드",
+      "seeMine": "내 업로드 보기"
+    }
+  },
   "CaseDeskSettings": {
     "intro": "Set up the case desk here. Uploading, sorting and the tray stay on the Case desk page.",
     "codes": "Desk codes",

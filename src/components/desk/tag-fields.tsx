@@ -136,40 +136,7 @@ export function TagFields({
       </div>
 
       {draft.kind === 'new_case' && (
-        <>
-          <div className="space-y-1.5">
-            <Label htmlFor={id('company')}>{t('fields.company')}</Label>
-            <Input
-              id={id('company')}
-              value={draft.companyName}
-              onChange={(e) => set('companyName', e.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor={id('licence')}>{t('fields.licence')}</Label>
-            <Input
-              id={id('licence')}
-              value={draft.tradeLicence}
-              onChange={(e) => set('tradeLicence', e.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor={id('product')}>{t('fields.product')}</Label>
-            <Input
-              id={id('product')}
-              value={draft.product}
-              onChange={(e) => set('product', e.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label>{t('fields.contact')}</Label>
-            <ContactPicker
-              selected={draft.contact}
-              onChange={(c) => set('contact', c)}
-              placeholder={t('fields.contactPlaceholder')}
-            />
-          </div>
-        </>
+        <NewCaseFields draft={draft} onChange={onChange} />
       )}
 
       <div className="space-y-1.5 sm:col-span-2">
@@ -182,6 +149,64 @@ export function TagFields({
         />
       </div>
     </div>
+  );
+}
+
+/**
+ * A new case's company, licence, product and customer contact: shared by
+ * the tag fields above and the upload steps.
+ */
+export function NewCaseFields({
+  draft,
+  onChange,
+  inputClassName,
+}: {
+  draft: TagDraft;
+  onChange: (next: TagDraft) => void;
+  inputClassName?: string;
+}) {
+  const t = useTranslations('Desk');
+  const set = <K extends keyof TagDraft>(k: K, v: TagDraft[K]) =>
+    onChange({ ...draft, [k]: v });
+  const id = (s: string) => `desk-${s}`;
+  return (
+    <>
+      <div className="space-y-1.5">
+        <Label htmlFor={id('company')}>{t('fields.company')}</Label>
+        <Input
+          id={id('company')}
+          className={inputClassName}
+          value={draft.companyName}
+          onChange={(e) => set('companyName', e.target.value)}
+        />
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor={id('licence')}>{t('fields.licence')}</Label>
+        <Input
+          id={id('licence')}
+          className={inputClassName}
+          value={draft.tradeLicence}
+          onChange={(e) => set('tradeLicence', e.target.value)}
+        />
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor={id('product')}>{t('fields.product')}</Label>
+        <Input
+          id={id('product')}
+          className={inputClassName}
+          value={draft.product}
+          onChange={(e) => set('product', e.target.value)}
+        />
+      </div>
+      <div className="space-y-1.5">
+        <Label>{t('fields.contact')}</Label>
+        <ContactPicker
+          selected={draft.contact}
+          onChange={(c) => set('contact', c)}
+          placeholder={t('fields.contactPlaceholder')}
+        />
+      </div>
+    </>
   );
 }
 
