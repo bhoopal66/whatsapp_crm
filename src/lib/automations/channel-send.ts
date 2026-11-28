@@ -1,22 +1,33 @@
-import { sendText, sendTemplate } from '@/lib/whatsapp/provider'
-import type { InteractiveMessagePayload } from '@/lib/whatsapp/interactive'
+import {
+  sendText,
+  sendTemplate,
+  isDefiniteSendRefusal,
+} from '@/lib/whatsapp/provider';
+import type { InteractiveMessagePayload } from '@/lib/whatsapp/interactive';
 import {
   engineSendInteractiveButtons,
   engineSendInteractiveList,
-} from '@/lib/flows/channel-send'
-import { resolveBotChannel } from '@/lib/whatsapp/channels'
+} from '@/lib/flows/channel-send';
+import { resolveBotChannel } from '@/lib/whatsapp/channels';
 import {
   sanitizePhoneForMeta,
   isValidE164,
   phoneVariants,
   isRecipientNotAllowedError,
-} from '@/lib/whatsapp/phone-utils'
+} from '@/lib/whatsapp/phone-utils';
 import {
   resolveTemplateRow,
   templateContentText,
-} from '@/lib/whatsapp/template-body'
-import { supabaseAdmin } from './admin-client'
-import { assertAutoStartAllowed } from '@/lib/team-activity/auto-guard'
+} from '@/lib/whatsapp/template-body';
+import { supabaseAdmin } from './admin-client';
+import { assertAutoStartAllowed } from '@/lib/team-activity/auto-guard';
+import {
+  checkSend,
+  refundSendReservation,
+  type SendReservation,
+} from '@/lib/whatsapp/meta-health/check-send';
+import type { TemplateCategory } from '@/lib/whatsapp/meta-health/guard';
+import type { MessageTemplate } from '@/types';
 
 // ------------------------------------------------------------
 // Automation-side Whapi sender.
@@ -33,44 +44,46 @@ interface SendTextArgs {
   /** Account-level tenancy key. Drives contact + whatsapp_config
    *  lookups so an automation authored by user A still sends through
    *  the WhatsApp number user B saved on the same account. */
-  accountId: string
+  accountId: string;
   /** Original author of the automation/flow — used for INSERT audit
    *  columns (messages.sender_id-ish) and for resolving the agent's
    *  identity in logs. Not consulted for tenancy. */
-  userId: string
-  conversationId: string
-  contactId: string
-  text: string
+  userId: string;
+  conversationId: string;
+  contactId: string;
+  text: string;
 }
 
 interface SendTemplateArgs {
-  accountId: string
-  userId: string
-  conversationId: string
-  contactId: string
-  templateName: string
-  language?: string
-  params?: string[]
+  accountId: string;
+  userId: string;
+  conversationId: string;
+  contactId: string;
+  templateName: string;
+  language?: string;
+  params?: string[];
   /** The value of a text header's own placeholder. */
-  headerText?: string
+  headerText?: string;
 }
 
-export async function engineSendText(args: SendTextArgs): Promise<{ whatsapp_message_id: string }> {
-  return sendViaChannel({ ...args, kind: 'text' })
+export async function engineSendText(
+  args: SendTextArgs
+): Promise<{ whatsapp_message_id: string }> {
+  return sendViaChannel({ ...args, kind: 'text' });
 }
 
 export async function engineSendTemplate(
-  args: SendTemplateArgs,
+  args: SendTemplateArgs
 ): Promise<{ whatsapp_message_id: string }> {
-  return sendViaChannel({ ...args, kind: 'template' })
+  return sendViaChannel({ ...args, kind: 'template' });
 }
 
 interface SendInteractiveArgs {
-  accountId: string
-  userId: string
-  conversationId: string
-  contactId: string
-  payload: InteractiveMessagePayload
+  accountId: string;
+  userId: string;
+  conversationId: string;
+  contactId: string;
+  payload: InteractiveMessagePayload;
 }
 
 /**
@@ -85,10 +98,10 @@ interface SendInteractiveArgs {
  * implementation rather than a second hand-rolled copy that could drift.
  */
 export async function engineSendInteractive(
-  args: SendInteractiveArgs,
+  args: SendInteractiveArgs
 ): Promise<{ whatsapp_message_id: string }> {
-  const { payload, accountId, userId, conversationId, contactId } = args
-  const common = { accountId, userId, conversationId, contactId }
+  const { payload, accountId, userId, conversationId, contactId } = args;
+  const common = { accountId, userId, conversationId, contactId };
   if (payload.kind === 'buttons') {
     return engineSendInteractiveButtons({
       ...common,
@@ -96,7 +109,7 @@ export async function engineSendInteractive(
       headerText: payload.header,
       footerText: payload.footer,
       buttons: payload.buttons,
-    })
+    });
   }
   return engineSendInteractiveList({
     ...common,
@@ -105,15 +118,35 @@ export async function engineSendInteractive(
     headerText: payload.header,
     footerText: payload.footer,
     sections: payload.sections,
-  })
+  });
+}
+
+/**
+ * The send guard's kind for a template: message_templates.category is
+ * title-case ('Marketing' | 'Utility' | 'Authentication'), the guard's
+ * kinds are uppercase. Anything else counts as MARKETING, the kind the
+ * guard checks hardest, so an unreadable category never loosens it.
+ */
+export function templateSendKind(
+  category: MessageTemplate['category'] | string | null | undefined
+): TemplateCategory {
+  switch (category) {
+    case 'Utility':
+      return 'UTILITY';
+    case 'Authentication':
+      return 'AUTHENTICATION';
+    default:
+      return 'MARKETING';
+  }
 }
 
 type SendInput =
-  | (SendTextArgs & { kind: 'text' })
-  | (SendTemplateArgs & { kind: 'template' })
+  (SendTextArgs & { kind: 'text' }) | (SendTemplateArgs & { kind: 'template' });
 
-async function sendViaChannel(input: SendInput): Promise<{ whatsapp_message_id: string }> {
-  const db = supabaseAdmin()
+async function sendViaChannel(
+  input: SendInput
+): Promise<{ whatsapp_message_id: string }> {
+  const db = supabaseAdmin();
 
   // Scope the contact + config lookups by account_id, not user_id.
   // The engine uses the service-role client (bypassing RLS); without
@@ -128,14 +161,14 @@ async function sendViaChannel(input: SendInput): Promise<{ whatsapp_message_id: 
     .select('id, phone')
     .eq('id', input.contactId)
     .eq('account_id', input.accountId)
-    .maybeSingle()
+    .maybeSingle();
   if (contactErr || !contact?.phone) {
-    throw new Error('contact not found for this account')
+    throw new Error('contact not found for this account');
   }
 
-  const sanitized = sanitizePhoneForMeta(contact.phone)
+  const sanitized = sanitizePhoneForMeta(contact.phone);
   if (!isValidE164(sanitized)) {
-    throw new Error(`contact phone invalid: ${contact.phone}`)
+    throw new Error(`contact phone invalid: ${contact.phone}`);
   }
 
   // Which number automations send from (migration 046). This obeys the
@@ -148,8 +181,8 @@ async function sendViaChannel(input: SendInput): Promise<{ whatsapp_message_id: 
     db,
     input.accountId,
     'automation',
-    input.conversationId,
-  )
+    input.conversationId
+  );
   // The number's daily new-chat limit (migration 204): a refused start
   // throws here, before the gateway, and the engine records the step
   // as failed.
@@ -158,8 +191,8 @@ async function sendViaChannel(input: SendInput): Promise<{ whatsapp_message_id: 
     input.accountId,
     input.conversationId,
     channel,
-    'automations',
-  )
+    'automations'
+  );
 
   // Local template row. Under Whapi this is not merely a bookkeeping
   // lookup when the send goes over Whapi — there the row IS the
@@ -173,72 +206,110 @@ async function sendViaChannel(input: SendInput): Promise<{ whatsapp_message_id: 
             db,
             input.accountId,
             input.templateName,
-            input.language,
+            input.language
           )
         ).row
-      : null
+      : null;
+
+  // The send guard (meta-health/check-send.ts) before every template
+  // send; free-text session sends are not guarded here. While the
+  // owner's `enforce` is off it always allows (the decision is only
+  // logged). A refusal throws before the gateway, so the engine records
+  // the step as failed with the guard's reason in the run log.
+  let reservation: SendReservation | undefined;
+  if (input.kind === 'template' && templateRow) {
+    const verdict = await checkSend(db, {
+      accountId: input.accountId,
+      configId: channel.id,
+      contactId: contact.id,
+      kind: templateSendKind(templateRow.category),
+      templateName: input.templateName,
+    });
+    if (!verdict.allow) {
+      throw new Error(
+        `send_template: send protection refused the send (${verdict.reason}` +
+          (verdict.deferUntil ? `, retry after ${verdict.deferUntil}` : '') +
+          ')'
+      );
+    }
+    reservation = verdict.reservation;
+  }
 
   const attempt = async (phone: string): Promise<string> => {
     if (input.kind === 'template') {
       if (!templateRow) {
         throw new Error(
-          `No local template named "${input.templateName}" for this account`,
-        )
+          `No local template named "${input.templateName}" for this account`
+        );
       }
       const r = await sendTemplate({
         channel,
         to: phone,
         template: templateRow,
         bodyParams: input.params,
-        ...(input.headerText ? { messageParams: { headerText: input.headerText } } : {}),
-      })
-      return r.messageId
+        ...(input.headerText
+          ? { messageParams: { headerText: input.headerText } }
+          : {}),
+      });
+      return r.messageId;
     }
     const r = await sendText({
       channel,
       to: phone,
       text: input.text,
-    })
-    return r.messageId
-  }
+    });
+    return r.messageId;
+  };
 
   // Same phone-variant retry as /api/whatsapp/send — numbers registered
   // with and without a trunk 0 both require this to reliably land a
   // message.
-  const variants = phoneVariants(sanitized)
-  let workingPhone = sanitized
-  let waMessageId = ''
-  let lastError: unknown = null
-  for (const v of variants) {
-    try {
-      waMessageId = await attempt(v)
-      workingPhone = v
-      lastError = null
-      break
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      if (!isRecipientNotAllowedError(msg)) throw err
-      lastError = err
+  const variants = phoneVariants(sanitized);
+  let workingPhone = sanitized;
+  let waMessageId = '';
+  let lastError: unknown = null;
+  try {
+    for (const v of variants) {
+      try {
+        waMessageId = await attempt(v);
+        workingPhone = v;
+        lastError = null;
+        break;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (!isRecipientNotAllowedError(msg)) throw err;
+        lastError = err;
+      }
     }
+    if (lastError) throw lastError;
+  } catch (err) {
+    // The held marketing spend goes back only when the gateway certainly
+    // did not send it; a timeout or a 5xx may have reached the customer.
+    if (isDefiniteSendRefusal(err)) {
+      await refundSendReservation(db, reservation);
+    }
+    throw err;
   }
-  if (lastError) throw lastError
 
   if (workingPhone !== sanitized) {
-    await db.from('contacts').update({ phone: workingPhone }).eq('id', contact.id)
+    await db
+      .from('contacts')
+      .update({ phone: workingPhone })
+      .eq('id', contact.id);
   }
 
   // Persist the sent message so it appears in the inbox with a real
   // gateway message id. sender_type='bot' distinguishes automation sends
   // from manual agent sends.
-  const content_type = input.kind === 'template' ? 'template' : 'text'
+  const content_type = input.kind === 'template' ? 'template' : 'text';
   // Templates persist the substituted body, same as the manual and
   // public-API send paths. This was unconditionally null, so every
   // automation template send rendered as an empty bubble (issue #483).
   const content_text =
     input.kind === 'text'
       ? input.text
-      : templateContentText(templateRow, input.params ?? [])
-  const template_name = input.kind === 'template' ? input.templateName : null
+      : templateContentText(templateRow, input.params ?? []);
+  const template_name = input.kind === 'template' ? input.templateName : null;
 
   const { error: msgErr } = await db.from('messages').insert({
     conversation_id: input.conversationId,
@@ -251,11 +322,11 @@ async function sendViaChannel(input: SendInput): Promise<{ whatsapp_message_id: 
     // Which number carried it (migration 046).
     provider: channel.provider,
     channel_id: channel.id,
-  })
+  });
   if (msgErr) {
     // The gateway already has the message; record the DB error but
     // don't pretend the send failed. The engine wraps this in a log line.
-    throw new Error(`sent to WhatsApp but DB insert failed: ${msgErr.message}`)
+    throw new Error(`sent to WhatsApp but DB insert failed: ${msgErr.message}`);
   }
 
   await db
@@ -271,7 +342,7 @@ async function sendViaChannel(input: SendInput): Promise<{ whatsapp_message_id: 
     .eq('id', input.conversationId)
     // Defence in depth: the service-role client bypasses RLS, so never
     // touch a conversation outside the sending account.
-    .eq('account_id', input.accountId)
+    .eq('account_id', input.accountId);
 
-  return { whatsapp_message_id: waMessageId }
+  return { whatsapp_message_id: waMessageId };
 }
