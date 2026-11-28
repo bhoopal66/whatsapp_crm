@@ -153,6 +153,7 @@ jobs:
               ('334', to_regclass('public.send_protection_decisions') is not null),
               ('335', exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'hr_workflow_rules' and column_name = 'title_ar')),
               ('336', to_regclass('public.pbx_service_details_settings') is not null),
+              ('337', exists (select 1 from fn where name = 'hr_automsg_promo_phrase')),
               ('338', to_regclass('public.migration_ledger') is not null)
             ) t(m, present) order by m"
 
