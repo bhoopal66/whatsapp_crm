@@ -1,7 +1,36 @@
 import { describe, expect, it } from 'vitest';
 
-import { hrInboxLinks, hrTopicChips, hrTopicOptGroups } from './topic-ui';
+import {
+  HR_TOPIC_DOT,
+  hrEmptyKey,
+  hrInboxLinks,
+  hrTopicChips,
+  hrTopicOptGroups,
+} from './topic-ui';
 import { HR_TOPICS } from './types';
+
+describe('HR_TOPIC_DOT', () => {
+  it('maps every topic to its own colour', () => {
+    expect(Object.keys(HR_TOPIC_DOT).sort()).toEqual([...HR_TOPICS].sort());
+    expect(new Set(Object.values(HR_TOPIC_DOT)).size).toBe(HR_TOPICS.length);
+  });
+
+  it('keeps red for Urgent and gives each hue a dark pair', () => {
+    for (const cls of Object.values(HR_TOPIC_DOT)) {
+      expect(cls).not.toMatch(/red|rose/);
+      expect(cls).toMatch(/dark:/);
+    }
+  });
+});
+
+describe('hrEmptyKey', () => {
+  it('names the staff empty text on the department tab only', () => {
+    expect(hrEmptyKey('dept')).toBe('list.deptEmpty');
+    for (const tab of ['all', 'recruiter', 'unsorted'] as const) {
+      expect(hrEmptyKey(tab)).toBeNull();
+    }
+  });
+});
 
 describe('hrTopicChips', () => {
   it('is All first, then the five filters in order, with their labels', () => {

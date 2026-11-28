@@ -12955,6 +12955,7 @@
       "titleAll": "HR 받은편지함",
       "titleRecruiter": "채용 HR",
       "titleDept": "HR 부서",
+      "deptEmpty": "직원 대화가 없습니다",
       "deptSubtitle": "입사한 직원",
       "titleUnsorted": "미분류",
       "quickAria": "빠른 필터",

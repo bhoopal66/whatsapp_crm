@@ -6,13 +6,13 @@ import { useTranslations } from 'next-intl';
 
 import type { HrListRow } from '@/lib/hr/list-filters';
 import { hrRowView, type HrRowTag } from '@/lib/hr/row-view';
+import { HR_TOPIC_DOT } from '@/lib/hr/topic-ui';
 import { HR_STAGES } from '@/lib/hr/types';
 import { cn } from '@/lib/utils';
 
 // Complete literal class strings (Tailwind cannot see composed names),
 // status tokens, each raw hue with a dark: pair (CLAUDE.md).
 const TAG = 'inline-flex shrink-0 items-center gap-1 text-xs leading-4';
-const TOPIC_DOT = 'bg-violet-500 dark:bg-violet-300';
 const REPLY_CLASS = {
   new: 'text-info',
   reply_due: 'text-warning',
@@ -71,7 +71,9 @@ export function HrRowTags({ hr }: { hr: HrListRow | null }) {
             aria-label={`${t('list.topicPrefix')}${label}`}
             className={cn(TAG, 'text-wa-text')}
           >
-            <span className={cn('h-2 w-2 rounded-full', TOPIC_DOT)} />
+            <span
+              className={cn('h-2 w-2 rounded-full', HR_TOPIC_DOT[x.topic])}
+            />
             {label}
           </span>
         );
@@ -159,8 +161,10 @@ export function HrRowTags({ hr }: { hr: HrListRow | null }) {
 }
 
 /**
- * The department view's accent: the row's own avatar inside a primary
- * ring, labelled Staff. Any other HR row passes the avatar through.
+ * The department view's accent, after the package's staff avatar
+ * (023e-2b): a 2px teal ring drawn inside the avatar's own circle, so
+ * the row keeps its size and its initials; labelled Staff. Any other HR
+ * row passes the avatar through.
  */
 export function HrStaffRing({
   hr,
@@ -175,9 +179,13 @@ export function HrStaffRing({
     <span
       role="img"
       aria-label={t('list.staff')}
-      className="border-primary inline-flex shrink-0 rounded-full border-2"
+      className="relative inline-flex shrink-0 rounded-full"
     >
       {children}
+      <span
+        aria-hidden
+        className="border-wa-teal pointer-events-none absolute inset-0 rounded-full border-2"
+      />
     </span>
   );
 }

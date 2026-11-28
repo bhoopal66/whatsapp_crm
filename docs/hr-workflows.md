@@ -442,6 +442,12 @@ exist; there is no worklist API, table or migration (package release
   sender was a stub) and events are queued in SQL; "CV received" fires
   when a chat is tracked as a candidate. Not ported: release 028 (a
   Voicenter call event triggering a WhatsApp message), the interview
-  reminder's event source, the staff avatar style, per-topic colours
-  (red stays for Urgent), and the Arabic wording review the package
+  reminder's event source, and the Arabic wording review the package
   flags as pending.
+- Release 030 audit: each topic has its own dot colour after the
+  package's palette (`HR_TOPIC_DOT` in `lib/hr/topic-ui.ts`; red stays
+  for Urgent, so Complaint is pink and Termination brown-tan), a
+  department row's avatar carries the package's teal ring drawn inside
+  its circle (`HrStaffRing`), and an empty department inbox says "No
+  staff conversations" (`Hr.list.deptEmpty`; the other tabs keep the
+  inbox's own empty text).

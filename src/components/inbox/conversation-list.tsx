@@ -137,6 +137,7 @@ import { ImportantBadge } from './important-badge';
 import { InsightChips } from './insight-badge';
 import { showsSalesInsights } from '@/lib/hr/sales-only';
 import { HrRowTags, HrStaffRing } from '@/components/hr/hr-row';
+import { hrEmptyKey } from '@/lib/hr/topic-ui';
 import { TeamViewSwitch } from '@/components/layout/team-view-switch';
 import {
   applyHrQueryOps,
@@ -736,6 +737,7 @@ export function ConversationList({
   const tInsights = useTranslations('InsightsUi.list');
   const tSaved = useTranslations('SavedViews');
   const tSearch = useTranslations('ContactSearch');
+  const tHr = useTranslations('Hr');
   const locale = useLocale();
 
   // The rows' timestamps ("14:05", "Yesterday", "Monday") only depend
@@ -1138,6 +1140,8 @@ export function ConversationList({
     onHrChangeRef.current = onHrChange;
   });
   const hrView = hrQuery !== null;
+  // The HR department inbox's own empty text; null elsewhere.
+  const hrEmpty = hrQuery ? hrEmptyKey(hrQuery.filters.tab) : null;
   useEffect(() => {
     if (!enabled || !hrView) return;
     const bindings = scopedChangeBindings(
@@ -2480,7 +2484,9 @@ export function ConversationList({
               {/* An empty Campaign inbox says where the chats went. */}
               {campaignOnly
                 ? t(aiLive ? 'campaignEmpty' : 'campaignBotOff')
-                : t('noConversations')}
+                : hrEmpty
+                  ? tHr(hrEmpty)
+                  : t('noConversations')}
             </p>
           </div>
         ) : (

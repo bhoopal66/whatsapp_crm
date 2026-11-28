@@ -12955,6 +12955,7 @@
       "titleAll": "HR inbox",
       "titleRecruiter": "Recruiter HR",
       "titleDept": "HR department",
+      "deptEmpty": "No staff conversations",
       "deptSubtitle": "Onboarded staff",
       "titleUnsorted": "Not sorted",
       "quickAria": "Quick filters",
