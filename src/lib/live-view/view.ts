@@ -155,3 +155,79 @@ export async function loadLiveTeamView(
     return { ok: false, reason: 'failed' };
   }
 }
+
+/** A team the Live view can be narrowed to. */
+export interface LiveTeamOption {
+  id: string;
+  name: string;
+  /** Auth user ids: the members and the team's leader. */
+  memberIds: string[];
+}
+
+/** The Select value for "every team" (an item value cannot be empty). */
+export const LIVE_ALL_TEAMS = 'all';
+
+/**
+ * The teams a viewer may narrow the Live view to, from a `teams` read
+ * (`id, name, leader_user_id, team_members(user_id)`; RLS gives every
+ * team of the active workspace). Owners and admins (scope 'all') get
+ * every team; a team leader only the teams they lead, which is all the
+ * view shows them anyway. Sorted by name. Pure.
+ */
+export function liveTeamOptions(
+  raw: unknown,
+  viewerId: string | null,
+  scope: LiveTeamView['scope']
+): LiveTeamOption[] {
+  if (!Array.isArray(raw)) return [];
+  const out: LiveTeamOption[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const r = item as Row;
+    const id = text(r.id);
+    if (!id) continue;
+    const leader = text(r.leader_user_id);
+    if (scope === 'team' && (!viewerId || leader !== viewerId)) continue;
+    const members = new Set<string>();
+    if (leader) members.add(leader);
+    if (Array.isArray(r.team_members)) {
+      for (const m of r.team_members) {
+        const uid =
+          m && typeof m === 'object' ? text((m as Row).user_id) : null;
+        if (uid) members.add(uid);
+      }
+    }
+    out.push({ id, name: text(r.name) ?? id, memberIds: [...members] });
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * Whether the team filter is worth offering: owners and admins as soon
+ * as one team exists; a team leader only when they lead two or more (with
+ * one, the view already is that team).
+ */
+export function showLiveTeamFilter(
+  teams: readonly LiveTeamOption[],
+  scope: LiveTeamView['scope']
+): boolean {
+  return teams.length >= (scope === 'all' ? 1 : 2);
+}
+
+/**
+ * The people of one team, or everyone for `LIVE_ALL_TEAMS` or a team
+ * that is no longer in the list (deleted since it was picked). The
+ * order is kept. A filter over what the view already returned, never a
+ * grant. Pure.
+ */
+export function filterLivePeople(
+  people: readonly LivePerson[],
+  teams: readonly LiveTeamOption[],
+  teamId: string
+): LivePerson[] {
+  const team =
+    teamId === LIVE_ALL_TEAMS ? null : teams.find((t) => t.id === teamId);
+  if (!team) return [...people];
+  const ids = new Set(team.memberIds);
+  return people.filter((p) => ids.has(p.userId));
+}

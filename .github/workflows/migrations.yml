@@ -1656,3 +1656,11 @@ jobs:
       # and two admins cannot overwrite each other. Rolled back.
       - name: Assert number access and expected lists (314)
         run: supabase db query --local --file supabase/ci/verify-number-access.sql
+
+      # Migration 321: a reply that fails after it was saved puts the
+      # customer back to waiting (same episode, so a level that rang does
+      # not ring twice); closed and personal chats never; the trigger never
+      # fails the status write. The time-based automation run ledger takes
+      # one claim per minute and is service role only.
+      - name: Verify failed replies and automation schedules
+        run: supabase db query --local --file supabase/ci/verify-waiting-failed-and-schedules.sql

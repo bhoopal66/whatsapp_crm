@@ -10,7 +10,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
 import en from '../../../messages/en.json';
-import { parseLiveTeamView } from '@/lib/live-view/view';
+import { liveTeamOptions, parseLiveTeamView } from '@/lib/live-view/view';
 
 import { LiveView, type LiveViewProps } from './live-view';
 
@@ -110,5 +110,60 @@ describe('LiveView', () => {
     expect(failed).toContain('could not be loaded');
     // A failed refresh keeps the last figures.
     expect(failed).toContain('data-testid="live-row"');
+  });
+
+  describe('team filter', () => {
+    const teams = liveTeamOptions(
+      [
+        {
+          id: 't-a',
+          name: 'Team A',
+          leader_user_id: 'u-layla',
+          team_members: [],
+        },
+        {
+          id: 't-b',
+          name: 'Team B',
+          leader_user_id: 'u-x',
+          team_members: [{ user_id: 'u-omar' }],
+        },
+      ],
+      'u-admin',
+      'all'
+    );
+    const rowIds = (html: string) =>
+      [...html.matchAll(/data-testid="live-row" data-id="([^"]+)"/g)].map(
+        (m) => m[1]
+      );
+
+    it('is hidden without a handler or teams', () => {
+      expect(render()).not.toContain('data-testid="live-team-filter"');
+      expect(render({ teams, onTeamId: () => undefined })).toContain(
+        'data-testid="live-team-filter"'
+      );
+    });
+
+    it('narrows the people to the picked team, leader included', () => {
+      const pick = (teamId: string) =>
+        render({ teams, teamId, onTeamId: () => undefined });
+      expect(rowIds(pick('t-b'))).toEqual(['u-omar']);
+      expect(rowIds(pick('t-a'))).toEqual(['u-layla']);
+      expect(rowIds(pick('all'))).toEqual(['u-omar', 'u-layla']);
+    });
+
+    it('says so when the team has nobody to show', () => {
+      const empty = liveTeamOptions(
+        [{ id: 't-c', name: 'Team C', leader_user_id: 'u-z' }],
+        'u-admin',
+        'all'
+      );
+      const html = render({
+        teams: empty,
+        teamId: 't-c',
+        onTeamId: () => undefined,
+      });
+      expect(rowIds(html)).toEqual([]);
+      expect(html).toContain(en.LiveView.teamEmpty);
+    });
   });
 });

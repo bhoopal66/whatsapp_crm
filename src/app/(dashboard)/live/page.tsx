@@ -11,8 +11,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { LiveView } from '@/components/live-view/live-view';
 import { useAuth } from '@/hooks/use-auth';
+import { cachedQuery, REFERENCE_CACHE_TTL_MS } from '@/lib/client-cache';
 import {
+  LIVE_ALL_TEAMS,
   LIVE_REFRESH_MS,
+  liveTeamOptions,
   loadLiveTeamView,
   type LiveTeamView,
 } from '@/lib/live-view/view';
@@ -25,8 +28,48 @@ interface Loaded {
   at: number;
 }
 
+/** The workspace's teams with their people; the same for every member of
+ *  the workspace (044's teams_select), so keyed by the account alone. */
+function liveTeamsCacheKey(accountId: string): string {
+  return `live-teams:${accountId}`;
+}
+
 export default function LivePage() {
-  const { accountId } = useAuth();
+  const { accountId, user } = useAuth();
+  const viewerId = user?.id ?? null;
+  const [teamRows, setTeamRows] = useState<{
+    accountId: string;
+    rows: unknown;
+  } | null>(null);
+  const [teamPick, setTeamPick] = useState<{
+    accountId: string;
+    teamId: string;
+  } | null>(null);
+
+  // The team filter's list. A read failure only hides the filter.
+  useEffect(() => {
+    if (!accountId) return;
+    let live = true;
+    void cachedQuery(
+      liveTeamsCacheKey(accountId),
+      REFERENCE_CACHE_TTL_MS,
+      async () => {
+        const { data, error } = await createClient()
+          .from('teams')
+          .select('id, name, leader_user_id, team_members(user_id)')
+          .eq('account_id', accountId);
+        if (error) throw error;
+        return data ?? [];
+      }
+    )
+      .catch(() => null)
+      .then((rows) => {
+        if (live) setTeamRows({ accountId, rows });
+      });
+    return () => {
+      live = false;
+    };
+  }, [accountId]);
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const inFlight = useRef(false);
@@ -74,6 +117,14 @@ export default function LivePage() {
   }, [accountId, read]);
 
   const current = loaded && loaded.accountId === accountId ? loaded : null;
+  const teams =
+    current?.view && teamRows && teamRows.accountId === accountId
+      ? liveTeamOptions(teamRows.rows, viewerId, current.view.scope)
+      : [];
+  const teamId =
+    teamPick && teamPick.accountId === accountId
+      ? teamPick.teamId
+      : LIVE_ALL_TEAMS;
 
   return (
     <LiveView
@@ -89,6 +140,9 @@ export default function LivePage() {
           : null
       }
       refreshing={refreshing}
+      teams={teams}
+      teamId={teamId}
+      onTeamId={(id) => accountId && setTeamPick({ accountId, teamId: id })}
       onRefresh={() => {
         if (inFlight.current) return;
         setRefreshing(true);

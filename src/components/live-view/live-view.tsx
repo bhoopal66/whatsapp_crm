@@ -23,6 +23,13 @@ import {
 import { EmptyState } from '@/components/dashboard/empty-state';
 import { Button } from '@/components/ui/button';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   Table,
   TableBody,
   TableCell,
@@ -30,7 +37,14 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import type { LivePerson, LiveTeamView } from '@/lib/live-view/view';
+import {
+  filterLivePeople,
+  LIVE_ALL_TEAMS,
+  showLiveTeamFilter,
+  type LivePerson,
+  type LiveTeamOption,
+  type LiveTeamView,
+} from '@/lib/live-view/view';
 import type { PresenceStatus } from '@/lib/presence';
 import { cn } from '@/lib/utils';
 import { durationParts } from '@/lib/worklist/timing';
@@ -60,6 +74,11 @@ export interface LiveViewProps {
   updatedLabel: string | null;
   refreshing: boolean;
   onRefresh: () => void;
+  /** Teams the view can be narrowed to (`liveTeamOptions`). */
+  teams?: readonly LiveTeamOption[];
+  /** The picked team, or `LIVE_ALL_TEAMS`. */
+  teamId?: string;
+  onTeamId?: (teamId: string) => void;
 }
 
 export function LiveView({
@@ -69,8 +88,23 @@ export function LiveView({
   updatedLabel,
   refreshing,
   onRefresh,
+  teams = [],
+  teamId = LIVE_ALL_TEAMS,
+  onTeamId,
 }: LiveViewProps) {
   const t = useTranslations('LiveView');
+  const teamFilter =
+    !!view && !!onTeamId && showLiveTeamFilter(teams, view.scope);
+  const pickedTeam = teamFilter
+    ? (teams.find((x) => x.id === teamId) ?? null)
+    : null;
+  const people = view
+    ? filterLivePeople(
+        view.people,
+        teams,
+        pickedTeam ? pickedTeam.id : LIVE_ALL_TEAMS
+      )
+    : [];
 
   return (
     <div
@@ -88,19 +122,64 @@ export function LiveView({
             </p>
           )}
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onRefresh}
-          disabled={refreshing}
-          data-testid="live-refresh"
-        >
-          <RefreshCw
-            className={cn('size-4', refreshing && 'animate-spin')}
-            aria-hidden
-          />
-          {refreshing ? t('refreshing') : t('refresh')}
-        </Button>
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+          {teamFilter && (
+            <div
+              className="flex min-w-0 flex-1 items-center gap-2 text-sm sm:flex-none"
+              data-testid="live-team-filter"
+              data-value={pickedTeam?.id ?? LIVE_ALL_TEAMS}
+            >
+              <span
+                id="live-team-label"
+                className="text-muted-foreground shrink-0"
+              >
+                {t('team')}
+              </span>
+              <Select
+                value={pickedTeam?.id ?? LIVE_ALL_TEAMS}
+                onValueChange={(v) => {
+                  if (typeof v === 'string') onTeamId?.(v);
+                }}
+              >
+                <SelectTrigger
+                  aria-labelledby="live-team-label"
+                  className="min-w-0 flex-1 sm:w-52 sm:flex-none"
+                >
+                  <SelectValue>
+                    {pickedTeam
+                      ? pickedTeam.name
+                      : view?.scope === 'team'
+                        ? t('allMyTeams')
+                        : t('allTeams')}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={LIVE_ALL_TEAMS}>
+                    {view?.scope === 'team' ? t('allMyTeams') : t('allTeams')}
+                  </SelectItem>
+                  {teams.map((x) => (
+                    <SelectItem key={x.id} value={x.id}>
+                      {x.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onRefresh}
+            disabled={refreshing}
+            data-testid="live-refresh"
+          >
+            <RefreshCw
+              className={cn('size-4', refreshing && 'animate-spin')}
+              aria-hidden
+            />
+            {refreshing ? t('refreshing') : t('refresh')}
+          </Button>
+        </div>
       </div>
 
       {error && (
@@ -144,11 +223,17 @@ export function LiveView({
           title={t('empty')}
           hint={t('emptyHint')}
         />
+      ) : people.length === 0 ? (
+        <EmptyState
+          icon={UsersRound}
+          title={t('teamEmpty')}
+          hint={t('teamEmptyHint')}
+        />
       ) : (
         <>
           {/* Phones: a card per person. */}
           <ul aria-label={t('list')} className="space-y-2 sm:hidden">
-            {view.people.map((p) => (
+            {people.map((p) => (
               <li
                 key={p.userId}
                 data-testid="live-card"
@@ -192,7 +277,7 @@ export function LiveView({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {view.people.map((p) => (
+                {people.map((p) => (
                   <TableRow
                     key={p.userId}
                     data-testid="live-row"
