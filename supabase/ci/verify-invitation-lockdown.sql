@@ -1,4 +1,4 @@
--- Regression check for migration 322: an invitation opens only by its
+-- Regression check for migration 324: an invitation opens only by its
 -- link's token. The hash-taking peek_invitation / redeem_invitation are
 -- callable by no client role, the token-taking wrappers still work (they
 -- run those bodies as their owner), and re-applying an older file's grant
@@ -12,7 +12,7 @@ DECLARE
   failed TEXT[] := '{}';
   t TEXT;
   r TEXT;
-  stranger CONSTANT UUID := '00000000-0000-4000-8000-000000322001';
+  stranger CONSTANT UUID := '00000000-0000-4000-8000-000000324001';
 BEGIN
   -- 1. No client role holds EXECUTE on the hash form.
   FOREACH r IN ARRAY ARRAY['anon', 'authenticated', 'service_role'] LOOP
@@ -53,7 +53,7 @@ BEGIN
   -- 3. The token form still reaches the bodies.
   BEGIN
     SET LOCAL ROLE anon;
-    t := public.peek_invitation_token('vil-322-no-such-link') ->> 'reason';
+    t := public.peek_invitation_token('vil-324-no-such-link') ->> 'reason';
     RESET ROLE;
     IF t IS DISTINCT FROM 'not_found' THEN failed := failed || ('anon token peek: ' || coalesce(t, 'NULL')); END IF;
   EXCEPTION WHEN OTHERS THEN
@@ -63,7 +63,7 @@ BEGIN
   n := n + 1;
   BEGIN
     SET LOCAL ROLE authenticated;
-    PERFORM public.redeem_invitation_token('vil-322-no-such-link');
+    PERFORM public.redeem_invitation_token('vil-324-no-such-link');
     RESET ROLE;
     failed := failed || 'token redeem of an unknown link succeeded'::text;
   EXCEPTION WHEN OTHERS THEN

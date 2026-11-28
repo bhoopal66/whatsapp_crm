@@ -300,6 +300,16 @@ What a signed-in person can do directly through Storage is unchanged:
 
 `verify-chat-media-owner.sql`.
 
+Only agents and up write either bucket from a session (migration 322):
+an upload, a change or a removal needs `is_account_member(<id>, 'agent')`
+for the `account-<id>` folder it names, so a viewer, a deactivated
+member, a bank guest, a member whose active workspace is another one and
+a folder that is not `account-<uuid>` are all refused (`42501`). The
+three policies are RESTRICTIVE, so they hold even if 020, 023 or 057,
+which restate the older, wider permissive policies, is re-applied.
+Reads and the service role are not affected.
+`verify-media-upload-role.sql`.
+
 ## Housekeeping
 
 `edge_purge()` deletes expired claims, counters, failures and locks.
@@ -320,12 +330,12 @@ never a wrong answer.
   `GRANT SELECT`; `verify-read-rules.sql` fails until it has one.
 - `contact_notes`: a note is inserted and changed by its writer only, on a
   customer the writer can see.
-## Invitations and API keys (migrations 287, 322)
+## Invitations and API keys (migrations 287, 324)
 
 Both are made only in the name of the signed-in owner or admin who makes
 them. An invitation is for an assignable role, lasts at most 365 days and
 cannot be edited, only deleted. It opens with its token, which the database
-hashes; the stored hash is not a link. Since migration 322 the older calls
+hashes; the stored hash is not a link. Since migration 324 the older calls
 that take the hash (`redeem_invitation`, `peek_invitation`) are callable by
 no client role, so someone who can read a stored hash (an admin, a leaked
 backup) cannot redeem the link with it; they remain only as the bodies

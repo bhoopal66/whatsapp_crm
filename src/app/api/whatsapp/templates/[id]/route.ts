@@ -12,6 +12,7 @@ import {
 } from '@/lib/whatsapp/template-validators'
 import type { TemplateMetaAnswer } from '@/lib/whatsapp/template-save-outcome';
 import { AuthUnavailableError } from '@/lib/auth/auth-unavailable';
+import { canEditSettings } from '@/lib/auth/roles';
 
 /**
  * Per-template lifecycle endpoint.
@@ -74,9 +75,14 @@ export async function PATCH(
       return NextResponse.json({ error: 'Invalid template id.' }, { status: 400 })
     }
 
-    const { supabase, accountId } = assertSalesAccess(
+    const { supabase, accountId, role } = assertSalesAccess(
       await getCurrentAccount(),
     )
+    // Admin and up. RLS (017) already limits writes to them, but it
+    // answers a refused delete with zero rows and no error, so say it here.
+    if (!canEditSettings(role)) {
+      throw new ForbiddenError('Only admins can edit message templates.')
+    }
 
     let payload: TemplatePayload
     try {
@@ -190,9 +196,14 @@ export async function DELETE(
       return NextResponse.json({ error: 'Invalid template id.' }, { status: 400 })
     }
 
-    const { supabase, accountId } = assertSalesAccess(
+    const { supabase, accountId, role } = assertSalesAccess(
       await getCurrentAccount(),
     )
+    // Admin and up. RLS (017) already limits writes to them, but it
+    // answers a refused delete with zero rows and no error, so say it here.
+    if (!canEditSettings(role)) {
+      throw new ForbiddenError('Only admins can edit message templates.')
+    }
 
     const { data: existing, error: lookupErr } = await supabase
       .from('message_templates')
@@ -204,16 +215,24 @@ export async function DELETE(
       return NextResponse.json({ error: 'Template not found.' }, { status: 404 })
     }
 
-    const { error: delErr } = await supabase
+    const { data: deleted, error: delErr } = await supabase
       .from('message_templates')
       .delete()
       .eq('id', id)
+      .eq('account_id', accountId)
+      .select('id')
 
     if (delErr) {
+      console.error('Error deleting template:', delErr)
       return NextResponse.json(
-        { error: `Failed to delete template: ${delErr.message}` },
+        { error: 'Failed to delete template.' },
         { status: 500 },
       )
+    }
+
+    // A delete that matched nothing is not a success.
+    if (!deleted || deleted.length === 0) {
+      return NextResponse.json({ error: 'Template not found.' }, { status: 404 })
     }
 
     return NextResponse.json({ success: true })

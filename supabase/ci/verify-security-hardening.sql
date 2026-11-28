@@ -38,7 +38,7 @@ DECLARE
   failed TEXT[] := '{}';
 BEGIN
   BEGIN
-  -- 322 revokes the hash-taking invitation calls from every session; their
+  -- 324 revokes the hash-taking invitation calls from every session; their
   -- bodies are what peek_invitation_token / redeem_invitation_token run,
   -- so they are exercised directly under a grant the rollback below undoes.
   GRANT EXECUTE ON FUNCTION public.peek_invitation(text) TO anon, authenticated;

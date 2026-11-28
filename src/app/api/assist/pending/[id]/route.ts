@@ -6,8 +6,8 @@
 // user: the HumanOrigin is minted here, from the authenticated
 // session, and nowhere on the model's tool-call path. The gate's SQL
 // re-checks user, account, nonce, status and expiry in one atomic
-// update. Nothing calls this yet: 019a stays idle until an assistant
-// exists.
+// update. The inbox Assistant panel (migration 323) calls it from a
+// suggestion card's Confirm / Dismiss.
 // ============================================================
 
 import { NextResponse } from 'next/server';

@@ -1,5 +1,5 @@
 -- ============================================================
--- 322_invitation_hash_calls_closed.sql — an invitation opens only by
+-- 324_invitation_hash_calls_closed.sql — an invitation opens only by
 -- its link's token
 --
 -- 287 added peek_invitation_token / redeem_invitation_token, which take
@@ -26,7 +26,7 @@ SET lock_timeout = '5s';
 DO $$ BEGIN
   IF to_regprocedure('public.peek_invitation_token(text)') IS NULL
      OR to_regprocedure('public.redeem_invitation_token(text)') IS NULL THEN
-    RAISE EXCEPTION '322: apply 287_admin_rules.sql first (the token-taking calls replace these)';
+    RAISE EXCEPTION '324: apply 287_admin_rules.sql first (the token-taking calls replace these)';
   END IF;
 END $$;
 
@@ -39,7 +39,7 @@ BEGIN
   FOREACH r IN ARRAY ARRAY['anon', 'authenticated', 'service_role'] LOOP
     IF has_function_privilege(r, 'public.peek_invitation(text)', 'EXECUTE')
        OR has_function_privilege(r, 'public.redeem_invitation(text)', 'EXECUTE') THEN
-      RAISE EXCEPTION '322 did not apply completely: % can still call a hash-taking invitation function', r;
+      RAISE EXCEPTION '324 did not apply completely: % can still call a hash-taking invitation function', r;
     END IF;
   END LOOP;
   -- The token form is untouched: a visitor peeks, a signed-in person redeems.
@@ -47,7 +47,7 @@ BEGIN
      OR NOT has_function_privilege('authenticated', 'public.peek_invitation_token(text)', 'EXECUTE')
      OR NOT has_function_privilege('authenticated', 'public.redeem_invitation_token(text)', 'EXECUTE')
      OR has_function_privilege('anon', 'public.redeem_invitation_token(text)', 'EXECUTE') THEN
-    RAISE EXCEPTION '322: the token-taking invitation calls are not granted as 287 left them';
+    RAISE EXCEPTION '324: the token-taking invitation calls are not granted as 287 left them';
   END IF;
 END $$;
 

@@ -369,7 +369,7 @@ END;
 $$;
 
 REVOKE ALL ON FUNCTION public.peek_invitation(TEXT) FROM PUBLIC;
--- Since 322 only the token-taking wrappers (287) are callable: re-applying
+-- Since 324 only the token-taking wrappers (287) are callable: re-applying
 -- this file must not reopen the hash-taking form.
 DO $grant$ BEGIN
   IF to_regprocedure('public.peek_invitation_token(text)') IS NULL THEN

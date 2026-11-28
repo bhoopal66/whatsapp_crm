@@ -60,7 +60,7 @@ describe('groupMediaMaxBytes', () => {
 });
 
 describe('groupUploadName', () => {
-  it('cleans the extension buildMediaPath keeps as typed', () => {
+  it('cleans the extension so buildMediaPath keeps it', () => {
     expect(groupUploadName('My Report.P D F')).toBe('My_Report.pdf');
     expect(groupUploadName('scan.tar.gz')).toBe('scan_tar.gz');
     expect(groupUploadName('README')).toBe('README.bin');
@@ -81,9 +81,16 @@ describe('groupUploadName', () => {
     }
   });
 
-  it('is needed: buildMediaPath alone keeps an odd extension', () => {
+  it('is needed: buildMediaPath alone turns an odd extension into bin', () => {
     const path = buildMediaPath(ACC, 'a.p df', 1, GROUP_MEDIA_FOLDER);
-    expect(isGroupUploadPath(path)).toBe(false);
+    expect(path.endsWith('.bin')).toBe(true);
+    const cleaned = buildMediaPath(
+      ACC,
+      groupUploadName('a.p df'),
+      1,
+      GROUP_MEDIA_FOLDER
+    );
+    expect(cleaned.endsWith('.pdf')).toBe(true);
   });
 });
 

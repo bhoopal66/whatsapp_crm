@@ -213,6 +213,15 @@ export function canEditSettings(role: AccountRole): boolean {
 }
 
 /**
+ * Agent and up: use the in-chat AI assistant (migration 323) while the
+ * workspace has it on. Its writes still run on the caller's own client,
+ * so the database decides each one.
+ */
+export function canUseChatAssistant(role: AccountRole): boolean {
+  return hasMinRole(role, 'agent');
+}
+
+/**
  * Team leader and up: save a view the whole workspace sees (migration
  * 250). Anyone with a staff login may keep personal views.
  */
