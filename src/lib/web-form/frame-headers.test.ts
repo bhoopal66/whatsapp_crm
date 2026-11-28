@@ -104,19 +104,28 @@ describe('frameHeadersFor', () => {
 });
 
 describe('createFrameOriginsLookup', () => {
-  it('caches an answer for the TTL, then asks again', async () => {
-    let t = 0;
-    const load = vi.fn(async () => ({ allowedOrigins: ['https://a.com'] }));
-    const lookup = createFrameOriginsLookup({
-      load,
-      ttlMs: 1000,
-      now: () => t,
+  it('reads the row on every request: a removed origin stops at once', async () => {
+    let origins = ['https://a.com'];
+    const load = vi.fn(async () => ({ allowedOrigins: origins }));
+    const lookup = createFrameOriginsLookup({ load });
+    expect(await lookup('x')).toEqual(['https://a.com']);
+    origins = [];
+    expect(await lookup('x')).toEqual([]);
+    expect(load).toHaveBeenCalledTimes(2);
+  });
+
+  it('shares one read between requests that overlap', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const load = vi.fn(async () => {
+      await gate;
+      return { allowedOrigins: ['https://a.com'] };
     });
-    expect(await lookup('x')).toEqual(['https://a.com']);
-    t = 999;
-    expect(await lookup('x')).toEqual(['https://a.com']);
+    const lookup = createFrameOriginsLookup({ load });
+    const both = Promise.all([lookup('x'), lookup('x')]);
+    release();
+    expect(await both).toEqual([['https://a.com'], ['https://a.com']]);
     expect(load).toHaveBeenCalledTimes(1);
-    t = 1000;
     await lookup('x');
     expect(load).toHaveBeenCalledTimes(2);
   });
@@ -126,7 +135,7 @@ describe('createFrameOriginsLookup', () => {
     expect(await lookup('x')).toEqual([]);
   });
 
-  it('fails closed on an error and does not cache it', async () => {
+  it('fails closed on an error, and asks again next time', async () => {
     const load = vi
       .fn()
       .mockRejectedValueOnce(new Error('db down'))
@@ -144,15 +153,18 @@ describe('createFrameOriginsLookup', () => {
     expect(await lookup('x')).toEqual([]);
   });
 
-  it('keeps the cache bounded', async () => {
-    const load = vi.fn(async () => ({ allowedOrigins: [] }));
-    const lookup = createFrameOriginsLookup({ load, maxEntries: 2 });
-    await lookup('a');
-    await lookup('b');
-    await lookup('c'); // evicts a
-    await lookup('b');
+  it('keeps the in-flight map bounded', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const load = vi.fn(async () => {
+      await gate;
+      return { allowedOrigins: [] };
+    });
+    const lookup = createFrameOriginsLookup({ load, maxEntries: 1 });
+    const all = Promise.all([lookup('a'), lookup('b'), lookup('b')]);
+    release();
+    await all;
+    // 'a' was shared-capable, 'b' (over the cap) read once per request.
     expect(load).toHaveBeenCalledTimes(3);
-    await lookup('a');
-    expect(load).toHaveBeenCalledTimes(4);
   });
 });

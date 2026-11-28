@@ -940,9 +940,10 @@ export async function sendCompassNotification(
         .eq('compass_id', req.compassId);
     }
 
-    // Migration 249: a CRM contact this notification created came from
-    // Compass. Fills an empty source only; never throws.
-    if (resolved.contactCreated) {
+    // Migration 249: a CRM contact Compass created, or one it linked to
+    // a synced customer (compass_id), came from Compass. Fills an empty
+    // source only, so a source someone already set stays; never throws.
+    if (resolved.contactCreated || req.compassId) {
       await setLeadSourceIfEmpty(db, {
         accountId,
         contactId: resolved.contactId,

@@ -37,20 +37,22 @@ page `{ids, total}` ordered by owner name, assignee name or the company
 chat's `last_message_at` (`personal_owner_id IS NULL`), NULLS LAST, ties
 newest then id. It restates the screen's filters (search, chat tag, lead
 source, a leader's "mine"): change both. `sorted-page.ts` builds the call;
-a missing RPC disables the three headers. `verify-contact-sort.sql`.
+a missing RPC disables the three headers. Below `lg` the headers are
+hidden, so `SortPicker` (key select + direction button) is the control. `verify-contact-sort.sql`.
 
 **Lead source gaps.**
 A broadcast CSV contact is inserted with `broadcast`
 (`csv-contact-insert.ts`); Compass notify sets `compass` through
-`contact_set_lead_source_if_empty` when it created the contact. v1
+`contact_set_lead_source_if_empty` when it created the contact or linked
+it to a synced customer (`compass_id`); an existing source is never replaced. v1
 `POST /api/v1/contacts` takes an optional `lead_source` from `LEAD_SOURCES`
 (400 otherwise); the MCP `create_contact` mirrors it.
 
 **Embeddable form.**
 `middleware.ts` sets the frame headers for `/f/*` only, from
 `frameHeadersFor` (`lib/web-form/frame-headers.ts`) over
-`web_form_public_config`'s origins (30 s cache, 2 s timeout, fail closed
-to `'none'` + `X-Frame-Options: DENY`). A non-empty list sends an enforced
+`web_form_public_config`'s origins (read on every request, only overlapping
+requests share a read; 2 s timeout, fail closed to `'none'` + `X-Frame-Options: DENY`). A non-empty list sends an enforced
 `frame-ancestors <origins>` and no XFO. `next.config.ts` keeps XFO and the
 Report-Only CSP off `/f/` (`FRAME_HEADERS` rule); every other route is unchanged.
 
@@ -58,6 +60,7 @@ Report-Only CSP off `/f/` (`FRAME_HEADERS` rule); every other route is unchanged
 - `Contacts.page.tableColumns.lastActivity` (ko translated)
 - `ContactsTable.column.lastActivity` (ko translated)
 - `ContactsTable.sortUnavailable`
+- `ContactsTable.sortBy`, `sortAscending`, `sortDescending` (ko reuses English)
 - `Settings.webForm.iframeLabel`, `copyIframe`, `iframeHint`
 - Changed text: `Settings.webForm.originsHint` (mentions iframes)
 
@@ -72,13 +75,19 @@ Report-Only CSP off `/f/` (`FRAME_HEADERS` rule); every other route is unchanged
   review fixes".
 
 ## Not done / known limits
-- Compass sets `compass` only when it created the contact, not for a
-  contact it merely matched; no test for that call.
-- Iframe embedding not tried in a real browser on another site; a removed
-  origin can still frame for up to 30 s per process; https origins only.
-- Contacts sort headers for the new columns are hidden at phone width (as
-  Created is); a URL or saved-view sort still applies.
 - No "unknown" lead-source filter option exists on the page.
+- Only https origins can frame the form (`normalizeAllowedOrigin`).
+
+## Embed test in a real browser (2026-11-28)
+Chromium (Playwright) loaded a host page on `https://embed.localhost:4443`
+with an iframe of `/f/<token>` served by `next start` (the database call
+stubbed by a small HTTP server returning `web_form_public_config`):
+- site on the list: the form loaded in the frame;
+- site not on the list, empty list, unknown token: blocked, console says
+  `frame-ancestors https://embed.localhost:4443` or `'none'`;
+- site removed from the list: blocked on the very next load; re-added:
+  frames again.
+Not covered: submitting the form from inside the frame.
 
 ## Gate results (2026-11-22, on `claude/track-i-gaps`)
 - `npm run lint`: 0 errors, 31 warnings (the pre-existing ones).

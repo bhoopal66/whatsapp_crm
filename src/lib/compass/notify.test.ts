@@ -5,6 +5,7 @@ const resolveSendChannel = vi.fn();
 const findExistingContact = vi.fn();
 const resolveConversationByPhone = vi.fn();
 const sendMessageToConversation = vi.fn();
+const setLeadSourceIfEmpty = vi.fn();
 
 vi.mock('@/lib/whatsapp/channels', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/whatsapp/channels')>()),
@@ -17,6 +18,10 @@ vi.mock('@/lib/contacts/dedupe', async (importOriginal) => ({
 vi.mock('@/lib/whatsapp/resolve-conversation', () => ({
   resolveConversationByPhone: (...args: unknown[]) =>
     resolveConversationByPhone(...args),
+}));
+vi.mock('@/lib/leads/lead-source', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/leads/lead-source')>()),
+  setLeadSourceIfEmpty: (...args: unknown[]) => setLeadSourceIfEmpty(...args),
 }));
 vi.mock('@/lib/whatsapp/send-message', async (importOriginal) => {
   const actual =
@@ -235,6 +240,7 @@ beforeEach(() => {
     contactCreated: false,
     conversationCreated: false,
   });
+  setLeadSourceIfEmpty.mockReset().mockResolvedValue(true);
   sendMessageToConversation.mockReset().mockResolvedValue({
     messageId: 'msg-1',
     whatsappMessageId: 'wa-1',
@@ -1380,5 +1386,61 @@ describe('sendCompassNotification — Compass assignment (236)', () => {
     );
     expect(outcome.notification.status).toBe('sent');
     quiet.mockRestore();
+  });
+});
+
+describe('lead source (migration 249)', () => {
+  const run = (over: Record<string, unknown>, contact?: object) => {
+    const { db } = makeDb(
+      contact ? { contacts: [contact as Record<string, unknown>] } : undefined
+    );
+    return sendCompassNotification(
+      db,
+      'acct',
+      parseNotificationRequest({
+        idempotency_key: 'k-src',
+        text: APPROVED_TEXT,
+        event: 'case.approved',
+        ...over,
+      })
+    );
+  };
+
+  it('marks a contact this notification created as compass', async () => {
+    resolveConversationByPhone.mockResolvedValue({
+      conversationId: 'conv-1',
+      contactId: 'contact-1',
+      contactCreated: true,
+      conversationCreated: true,
+    });
+    await run({ to: '+971509999999' });
+    expect(setLeadSourceIfEmpty).toHaveBeenCalledWith(expect.anything(), {
+      accountId: 'acct',
+      contactId: 'contact-1',
+      capture: { source: 'compass', detail: {} },
+    });
+  });
+
+  it('marks a contact it linked to a synced customer (the helper fills an empty source only)', async () => {
+    await run(
+      { compass_id: 'CUST-9' },
+      {
+        account_id: 'acct',
+        compass_id: 'CUST-9',
+        name: 'Jane',
+        phone: '971509999999',
+        contact_id: null,
+      }
+    );
+    expect(setLeadSourceIfEmpty).toHaveBeenCalledTimes(1);
+    expect(setLeadSourceIfEmpty.mock.calls[0][1]).toMatchObject({
+      contactId: 'contact-1',
+      capture: { source: 'compass' },
+    });
+  });
+
+  it('leaves a contact it neither created nor linked alone', async () => {
+    await run({ to: '+971509999999' });
+    expect(setLeadSourceIfEmpty).not.toHaveBeenCalled();
   });
 });

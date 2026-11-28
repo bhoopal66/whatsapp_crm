@@ -15,7 +15,8 @@ import { isWellFormedToken } from '@/lib/web-form/submission'
 // the frame headers are set here per request (frame-headers.ts explains
 // the exact headers). Here rather than in the page: a server component
 // cannot set response headers. The lookup is the service-role
-// `web_form_public_config`, cached 30 s per process, and fails closed
+// `web_form_public_config`, read on every request (a removal takes effect
+// at once; only overlapping requests share a read), and fails closed
 // to frame-ancestors 'none' + X-Frame-Options DENY.
 const webFormFrameOrigins = createFrameOriginsLookup({
   load: (token) => loadPublicForm(supabaseAdmin(), token),

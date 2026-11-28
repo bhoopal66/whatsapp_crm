@@ -89,8 +89,10 @@ Every page of the app refuses to be framed (`X-Frame-Options: DENY`, and
 - Only entries that pass the origin check (`https://` + host, optional
   port) become sources: never `*`, a bare scheme, a path or anything
   that could add another directive; at most 20.
-- The answer is cached for 30 seconds per server process, so an edit to
-  Allowed websites reaches framing within 30 seconds.
+- The list is read on every request to the form, never cached: removing
+  a website from Allowed websites stops it framing the form on the next
+  load. (A page already open in a visitor's browser stays open; the
+  check runs when the frame loads.)
 - Inside the frame, sending works as on the hosted page: the post comes
   from the app's own origin, and the thank-you page loads in the frame.
 

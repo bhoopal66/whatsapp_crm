@@ -128,6 +128,7 @@ import {
 } from '@/lib/contacts/fuzzy-search';
 import { pruneSelection } from '@/lib/contacts/selection';
 import { SortHeader } from '@/components/contacts/sort-header';
+import { SortPicker } from '@/components/contacts/sort-picker';
 import { PhoneCell } from '@/components/contacts/phone-cell';
 import { ColumnsMenu } from '@/components/contacts/columns-menu';
 import { SourceFilter } from '@/components/contacts/source-filter';
@@ -1187,6 +1188,15 @@ export function ContactsPageInner({
           {LEAD_SOURCE_COLUMN_AVAILABLE && (
             <SourceFilter selected={sources} onChange={changeSources} />
           )}
+          {/* The column headers (and their sort buttons) show from lg up;
+              below that this is the only way to change the sort. */}
+          <SortPicker
+            className="lg:hidden"
+            current={sort}
+            onSort={changeSort}
+            disabled={rankedBySearch}
+            serverSortMissing={serverSortMissing}
+          />
           <ColumnsMenu
             prefs={columnPrefs}
             onChange={changeColumnPrefs}

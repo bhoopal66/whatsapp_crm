@@ -1079,6 +1079,9 @@
   },
   "ContactsTable": {
     "sortedByRelevance": "While you search, results are ordered by best match.",
+    "sortBy": "Sort by",
+    "sortAscending": "Ascending. Tap to sort descending.",
+    "sortDescending": "Descending. Tap to sort ascending.",
     "sortUnavailable": "Sorting by this column needs a database update. The list is shown newest first.",
     "copyNumber": "Copy the phone number of {name}",
     "copyNumberShort": "Copy number",
