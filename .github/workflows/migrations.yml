@@ -1730,3 +1730,11 @@ jobs:
       # admins still cannot; a listed agent still can. Rolled back.
       - name: Verify owner/admin send to submission groups (333)
         run: supabase db query --local --file supabase/ci/verify-sg-admin-send.sql
+
+      # Migration 334: WhatsApp groups linked to a bank for desk intake.
+      # Linking refusals (agent, a submission group's mirror, replies
+      # without intake), the one-staff-per-number rule, first write wins,
+      # a reply claimed once, the wall's visibility and queue alerts, and
+      # outcomes that follow a later filing. Rolled back.
+      - name: Verify desk group intake (334)
+        run: supabase db query --local --file supabase/ci/verify-desk-group-intake.sql

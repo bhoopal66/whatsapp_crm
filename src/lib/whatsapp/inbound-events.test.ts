@@ -15,6 +15,9 @@ const h = vi.hoisted(() => ({
   decrypt: vi.fn(),
   configReply: { data: null as unknown, error: null as unknown },
   configFilters: {} as Record<string, unknown>,
+  hasFile: vi.fn(),
+  copyMedia: vi.fn(),
+  groupFile: vi.fn(),
 }));
 
 vi.mock('./encryption', () => ({ decrypt: h.decrypt }));
@@ -29,6 +32,13 @@ vi.mock('./own-send', () => ({
 vi.mock('@/lib/groups/inbound', () => ({
   persistGroupMessages: h.persistGroup,
   applyGroupStatuses: h.groupStatuses,
+}));
+vi.mock('@/lib/groups/inbound-media', () => ({
+  hasGroupFile: h.hasFile,
+  copyGroupMessageMedia: h.copyMedia,
+}));
+vi.mock('@/lib/desk/group-intake', () => ({
+  processGroupFile: h.groupFile,
 }));
 vi.mock('@/lib/submission-groups/inbound', () => ({
   recordSubmissionGroupInbound: h.submission,
@@ -464,6 +474,45 @@ describe('group_message', () => {
     );
     expect(h.persistGroup).toHaveBeenCalledTimes(1);
     expect(h.submission).not.toHaveBeenCalled();
+  });
+
+  it('a file: the media copy, then the case desk, in `later`', async () => {
+    h.hasFile.mockReturnValue(true);
+    h.copyMedia.mockImplementation(async () => void h.order.push('copy'));
+    h.groupFile.mockImplementation(async () => void h.order.push('desk'));
+    const later: Promise<unknown>[] = [];
+    await processInboundEvent(event('whapi', 'group_message', payload), {
+      config: row(),
+      later,
+    });
+    expect(later).toHaveLength(1);
+    await Promise.all(later);
+    expect(h.order.filter((s) => s === 'copy' || s === 'desk')).toEqual([
+      'copy',
+      'desk',
+    ]);
+    const [deps, message] = h.groupFile.mock.calls[0];
+    expect(message).toEqual(GROUP);
+    expect(deps.channel).toMatchObject({ id: 'cfg-1', accountId: 'acct-1' });
+    expect(typeof deps.loadChannel).toBe('function');
+  });
+
+  it('a file without `later` (the drain) is awaited inline; openwa too', async () => {
+    h.hasFile.mockReturnValue(true);
+    h.copyMedia.mockResolvedValue(undefined);
+    h.groupFile.mockResolvedValue(undefined);
+    await run('openwa', 'group_message', payload);
+    expect(h.groupFile).toHaveBeenCalledTimes(1);
+  });
+
+  it('no file, or a failed write, never reaches the case desk', async () => {
+    h.hasFile.mockReturnValue(false);
+    await run('whapi', 'group_message', payload);
+    h.hasFile.mockReturnValue(true);
+    h.persistGroup.mockRejectedValueOnce({ code: '57014' });
+    await run('whapi', 'group_message', payload);
+    expect(h.copyMedia).not.toHaveBeenCalled();
+    expect(h.groupFile).not.toHaveBeenCalled();
   });
 
   it('meta: never queued under this kind', async () => {

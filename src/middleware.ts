@@ -215,6 +215,7 @@ export async function middleware(request: NextRequest) {
     '/meetings',
     '/calendar',
     '/groups',
+    '/group-wall',
     '/submission-groups',
     '/cases',
     '/desk',

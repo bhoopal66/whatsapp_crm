@@ -276,6 +276,103 @@ and up):
   no-bank queue goes to the lead at 2 hours. One task per bank, level
   and Dubai day, from the automations cron.
 
+## WhatsApp groups linked to a bank
+
+Migration 334 (the CC group wall). The link is set from the group wall
+screen (`docs/whatsapp-groups.md`, "Group wall").
+
+- **Link.** Owners, admins and team leaders who can see a WhatsApp group
+  link it to one bank (`desk_group_link_set`; several groups may feed one
+  bank; no bank removes the link). *Intake* and *replies* are separate
+  switches, replies only with intake (`INVALID`). A submission group's
+  mirror is never linked (`GROUP_NOT_FOUND`, as for a group the person
+  cannot see); an unknown bank is `BANK_NOT_FOUND`. A WhatsApp group is
+  linked through ONE of our numbers only (`GROUP_ALREADY_LINKED`: unlink
+  it on the other number first), as each number keeps its own row for the
+  group and would otherwise file and reply twice.
+- **Who posted.** `desk_group_staff_for_phone` answers the one live staff
+  member (agent and up, not deactivated) whose saved number has the
+  sender's digits; none, or two people on one number, is nobody.
+- **What became of a file.** `desk_group_intake_record` keeps one row per
+  group message: an outcome (`filed`, `new_case`, `queued`, `duplicate`,
+  `refused`, `unknown_sender`, `no_copy`, `file_type`, `chat`), a reason
+  code (never free text) and the desk upload it became. The first record
+  wins; a message of an unlinked group is `NOT_LINKED`.
+  `desk_group_outcomes` reads the upload's state *now*, so a queued file
+  a coordinator files later shows filed, with its case number.
+- **Replies.** `desk_group_reply_claim` hands out a reply at most once per
+  message, only while the link has replies on and the outcome is one the group is
+  told of (not `chat`, `unknown_sender`, `no_copy` or `file_type`);
+  `desk_group_reply_settle` records sent (with our message id) or failed.
+  A failed reply is not retried.
+- **The wall.** `desk_group_wall` gives, per linked group the person can
+  see (others are left out without an error), the bank and its desk
+  code, the primary and second coordinator, the bank's files filed today
+  (Dubai day, any channel), its sorting queue and oldest wait, and the
+  alert: `no_coordinator` (no primary and no second) first, then `lead`
+  at 4 hours, `second` at 2 hours.
+- Who sees a group is the groups screen's rule (owner and admin every
+  group; otherwise the groups the person, or for a team leader their
+  team, created or manages), staff only: viewers and bank guests see
+  nothing here. `verify-desk-group-intake.sql`.
+
+### Files posted in linked WhatsApp groups
+
+Once a group is linked with intake on, every file posted in it goes
+through the desk exactly as if the poster had sent it to the desk on
+WhatsApp themselves: tagged from its caption (`4271RAKD ejari`,
+`NEW RAK Acme Trading 12345`, `INFO …`), filed when the caption settles
+it, otherwise waiting in a sorting queue. A caption that names no bank
+gets the group's bank.
+
+- **Who must have a saved number.** The poster is matched by phone to
+  the one live staff member (agent and up) whose saved number
+  (the coordinator number in Settings → Members) has those digits. Anyone
+  else, two people sharing a number, or a member WhatsApp shows only as a
+  private id (`@lid`), is treated as not a staff number: recorded as
+  *sender not recognised*, and nothing is filed.
+  Customers and bank staff in the group are never filed.
+- **Whapi needs mirroring on.** The desk reads a file only from this
+  install's own storage. A Whapi number copies group files only when the
+  number's "mirror inbound media" setting is on; without it the file keeps
+  Whapi's link and is recorded as *no copy*. Company OpenWA numbers always
+  copy.
+- **Accepted types.** PDF, JPEG and PNG, checked by their content, up to
+  the desk's upload limit. Anything else (a video, a voice note, a Word
+  file) is recorded as *file type* and left in the group.
+- **Text is not recorded.** Only files; the wall shows text as chat.
+- **Redelivery is safe.** The desk upload's id comes from the WhatsApp
+  message, so a message delivered twice, or seen by two of the
+  workspace's numbers in the same group, is one upload.
+- **Replies are off by default.** With replies on, the desk answers the
+  file in the group, quoting it, in plain words: "Filed to
+  TC-26-00412-RAK as Ejari.", "New case TC-26-00431-RAK opened. Caption
+  code 431RAK5", "Sent to the RAKBANK sorting queue: <reason>.",
+  "Already on this case - nothing more to do.", "Could not file:
+  <reason>." Never for a sender not recognised, no copy or file type. A
+  reply goes out at most once per message and is not retried.
+- **Anti-ban limit.** Replies share the group's budget of 20 messages a
+  minute with staff sends; over it, the reply is skipped (recorded as
+  failed) rather than queued.
+
+### Link settings
+
+A team leader, admin or owner links a group from its column on the
+group wall: **Link to a bank** on an unlinked column, **Link settings**
+on a linked one. The dialog picks the bank (the desk's bank list; *Not
+linked* removes the link) and has two switches: **File documents posted
+here** (intake) and **Reply in the group with the outcome**, which stays
+disabled until intake is on. Replies are off by default; they share the
+group's 20-messages-a-minute budget, and a Whapi number needs media copy
+("mirror inbound media") on before any file can be filed. A refusal is
+shown in plain words (not allowed, group not found or hidden, bank gone,
+replies without intake). The routes are `GET`/`PUT /api/desk/group-links`
+(`PUT` body `{ groupId, bankCode | null, intakeEnabled,
+repliesEnabled }`), `GET /api/desk/group-wall?ids=` (at most 8 groups)
+and `POST /api/desk/group-wall/outcomes` (`{ messageIds }`, at most
+500); all pass the caller's active account, and the database decides
+who may link and which groups are seen.
+
 ## Follow-ups and suggestions
 
 Migration 235 (design 035 D8 and D12).

@@ -12,6 +12,44 @@ and polish.
 
 ## [Unreleased]
 
+### Added: the group wall
+
+**Group wall** (under Conversations) shows up to 8 WhatsApp groups side
+by side, live and read-only: reading it never marks a group read. For a
+group linked to a bank, the column shows the bank, its primary and
+second coordinator, *Filed today* and *To sort* (red with the oldest
+wait once the queue alerts, or *No coordinator*), a word-and-colour tag
+under each file saying what became of it (filed to a case, new case,
+waiting to be sorted and why, duplicate, could not file, not filed), a
+*wacrm replied* note where the desk answered, and a link to the bank's
+sorting queue. Team leaders and up link a group to a bank from its
+column and switch filing and replies on; replies stay off by default.
+See "Group wall" in `docs/whatsapp-groups.md`. Uses migration 334 (below);
+re-apply `334_desk_group_intake.sql` if you applied an earlier copy of
+it, for `desk_group_link_for_group`.
+
+### Added: WhatsApp groups linked to a bank for the case desk (database)
+
+The groundwork for the CC group wall. Owners, admins and team leaders can
+link a WhatsApp group they can see to one of the workspace's banks
+(several groups may feed one bank), with file intake and, only with
+intake, replies in the group switched on separately; a submission group
+is never linked. Each file a staff member posts in a linked group will
+record what became of it (filed, new case, queued, duplicate, refused,
+sender not recognised, and so on) against the desk upload it became, so
+a queued file reads as filed once a coordinator files it. The sender is
+the one live staff member with that saved number; two people sharing a
+number are nobody. The wall's per-group figures (files of the bank filed
+today, the bank's sorting queue and the same 2 h / 4 h queue alerts as
+the desk overview) read only groups the person can see. Files posted by
+staff in a linked group with intake on now go through the desk like
+their own WhatsApp uploads (PDF, JPEG or PNG; a Whapi number needs
+inbound media mirroring on), and with replies on the desk answers each
+file once in the group, within its 20-a-minute limit (see "Files posted
+in linked WhatsApp groups" in `docs/case-desk.md`).
+
+**Migration required: 334** (`334_desk_group_intake.sql`, after 333).
+
 ### Closed: the open items from the 22 Nov release
 
 - **Time-Based automations run.** Each one now names a chat tag and runs

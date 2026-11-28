@@ -135,6 +135,7 @@ export const RESTRICTED_PATHS = [
   '/digest',
   '/submission-groups',
   '/groups',
+  '/group-wall',
   '/broadcasts',
   '/automations',
   '/flows',

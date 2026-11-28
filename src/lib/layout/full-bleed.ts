@@ -26,6 +26,7 @@ export const FULL_BLEED_ROOTS = [
   '/hr/unsorted',
   '/broadcasts/inbox',
   '/groups',
+  '/group-wall',
   '/submission-groups',
 ] as const;
 

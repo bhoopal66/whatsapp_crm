@@ -122,6 +122,36 @@ package 035a-c. `docs/case-desk.md` is the contract.
   asked on demand by `suggestTrayCase`; `readJudgment` suggests only at
   p ≥ 0.6 and a 0.1 margin. Advice only: never files, never pre-selects.
   `verify-desk-worklist-suggest.sql`.
+- **Group intake (334, CC group wall slice A).** `desk_group_links`
+  (group -> bank, intake / replies, replies only with intake; owner,
+  admin or team leader who sees the group; never a 299 mirror) and
+  `desk_group_intake` (one row per group message, first write wins
+  except that a `no_copy` gives way to a record with an intake item;
+  outcome + reason code + intake item; reply claim off -> pending once,
+  only for filed, new_case, queued, duplicate or refused). A WhatsApp
+  group links through one number only (`GROUP_ALREADY_LINKED`).
+  `desk_group_can_see` restates 299's
+  `whatsapp_group_visible_ids` with an explicit actor, staff only: change
+  one, change both (the verify file compares them).
+  `desk_group_staff_for_phone` is 230's exactly-one-live-staff rule keyed
+  by digits. The inbound hook reads a link with no actor through
+  `desk_group_link_for_group` (nothing for an unlinked group or a
+  mirror); never impersonate a staff member to call an actor function. `GROUP_INTAKE_OUTCOMES` / `GROUP_REPLY_STATES` are pinned to
+  the CHECKs by `group-intake-store.test.ts`. `desk_group_intake` is
+  NOT_PERSONAL (ids and codes; the item is 220's).
+- **Group files (334 slice B, `lib/desk/group-intake.ts`).**
+  `runGroupMessage` chains `processGroupFile` after
+  `copyGroupMessageMedia` (in `later`, inline for the drain); never
+  throws, logs codes only. Inbound files only, of a link with intake on
+  (read through `desk_group_link_for_group` with the service role: the
+  tables have no grants); text is never recorded. Bytes only from our own
+  chat-media (`no_copy` otherwise), pdf/jpeg/png before the download
+  (`file_type`). Item id and idem key derive from account + WhatsApp
+  message id (`groupItemKeys`), so a redelivery or a second number
+  replays. A reply needs a won `claimReply`, then the 20/min group budget
+  (same `group-send:` key as the send route); a replayed item or a lost
+  record race is not answered. Reply words: `group-intake-text.ts`.
+  `verify-desk-group-intake.sql`.
 - **`privacy_extensions` (229).** 221's export and 222's erase call
   every registered `export_fn(account, contact) -> jsonb` /
   `erase_fn(account, contact) -> {counts, objects}` (the erase ones run

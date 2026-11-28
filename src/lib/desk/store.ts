@@ -78,6 +78,11 @@ export const DESK_REFUSALS = [
   'COMPANY_RESTRICTED',
   // 316: a settings card opened before another admin's save
   'SETTINGS_CHANGED',
+  // 334: WhatsApp groups linked to a bank
+  'GROUP_NOT_FOUND',
+  'BANK_NOT_FOUND',
+  'NOT_LINKED',
+  'GROUP_ALREADY_LINKED',
 ] as const;
 export type DeskRefusal = (typeof DESK_REFUSALS)[number];
 const REFUSALS: ReadonlySet<string> = new Set(DESK_REFUSALS);
@@ -219,6 +224,27 @@ function tagsOf(r: Row): ItemTags {
   };
 }
 
+/**
+ * One desk RPC: a refusal HINT becomes DeskRefusedError, any other error
+ * DeskStoreError (no database text); a scalar answer comes back as a
+ * one-element list.
+ */
+export async function deskRpc(
+  db: SupabaseClient,
+  fn: string,
+  args: Record<string, unknown>
+): Promise<Row[]> {
+  const { data, error } = await db.rpc(fn, args);
+  if (error) {
+    const e = error as DbError;
+    if (typeof e.hint === 'string' && REFUSALS.has(e.hint))
+      throw new DeskRefusedError(e.hint as DeskRefusal);
+    throw new DeskStoreError(fn, e.code ?? null);
+  }
+  if (Array.isArray(data)) return data as Row[];
+  return data === null || data === undefined ? [] : [data as Row];
+}
+
 export function toItemResult(r: Row): ItemResult {
   return {
     itemId: String(r.item_id),
@@ -240,16 +266,8 @@ export class DeskStore {
     private readonly clock: () => Date = () => new Date()
   ) {}
 
-  private async rpc(fn: string, args: Record<string, unknown>): Promise<Row[]> {
-    const { data, error } = await this.db.rpc(fn, args);
-    if (error) {
-      const e = error as DbError;
-      if (typeof e.hint === 'string' && REFUSALS.has(e.hint))
-        throw new DeskRefusedError(e.hint as DeskRefusal);
-      throw new DeskStoreError(fn, e.code ?? null);
-    }
-    if (Array.isArray(data)) return data as Row[];
-    return data === null || data === undefined ? [] : [data as Row];
+  private rpc(fn: string, args: Record<string, unknown>): Promise<Row[]> {
+    return deskRpc(this.db, fn, args);
   }
 
   private async result(fn: string, args: Record<string, unknown>) {

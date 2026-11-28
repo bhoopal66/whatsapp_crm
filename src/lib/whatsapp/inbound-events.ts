@@ -13,6 +13,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { recordGroupCustomerText } from '@/lib/brain/sink';
 import { caseIntakeQueueFor, caseSlaInboundHook } from '@/lib/cases/server';
 import { groupDocumentFiler } from '@/lib/customer-docs/group-documents';
+import { processGroupFile } from '@/lib/desk/group-intake';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
 import {
   applyGroupStatuses,
@@ -348,14 +349,16 @@ async function runGroupMessage(
   // The file's bytes, once the row is stored. Never throws, so the event
   // settles the same whether or not the copy works; a retry finds our link
   // on the row and copies nothing.
+  // Then the case desk, which reads the copy's link (both never throw). A
+  // submission group's message has no row here, and its mirror is never
+  // linked, so neither is filed.
   if (!error && hasGroupFile(message)) {
-    const copy = copyGroupMessageMedia(
-      admin,
-      () => inboundChannel(event.provider, config),
-      message
+    const loadChannel = () => inboundChannel(event.provider, config);
+    const work = copyGroupMessageMedia(admin, loadChannel, message).then(() =>
+      processGroupFile({ admin, channel, loadChannel }, message)
     );
-    if (deps.later) deps.later.push(copy);
-    else await copy;
+    if (deps.later) deps.later.push(work);
+    else await work;
   }
   if (event.provider !== 'whapi') return error ? failed(error) : DONE;
 
