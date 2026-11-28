@@ -71,9 +71,10 @@ export function megabytes(bytes: number): string {
 }
 
 /**
- * The name a file is uploaded under. `buildMediaPath` keeps a file's
- * extension as typed, and the send route accepts only one name of
- * `[A-Za-z0-9._-]`, so the extension is cleaned here too.
+ * The name a file is uploaded under. The send route accepts only one
+ * name of `[A-Za-z0-9._-]`; `buildMediaPath` turns an odd extension into
+ * `bin` (322 scan fix), so it is cleaned here first to keep "P D F" a
+ * pdf rather than a bin.
  */
 export function groupUploadName(name: string): string {
   const m = /^(.*)\.([^.]+)$/.exec(name);

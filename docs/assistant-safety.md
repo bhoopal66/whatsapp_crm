@@ -5,11 +5,19 @@ would go through: risk levels, human confirmation, rate limits, a loop
 guard and an audit. This is the operator contract for module 019a
 (migration 120, `lib/assist/*`).
 
-**It is idle.** wacrm has no assistant yet, so nothing calls the guard or
-the tool router. The registry (`src/lib/assist/registry.ts`) names default
-tools in `DEFAULT_TOOL_RISKS`, but none has a handler, so the router would
-refuse every call as `UNKNOWN_TOOL`. Nothing here changes what staff or
-customers see today.
+**Who calls it.** The inbox's Assistant panel (migration 323,
+`src/lib/chat-assist/*`, `docs/ai-agent.md`) is the one caller. It builds
+a guard and a router per request with its own registry
+(`CHAT_ASSIST_TOOL_SPECS`): `chat_read` (READ) and `chat_set_tag`,
+`chat_create_task`, `chat_assign`, `chat_add_note` (WRITE), each with a
+handler that writes as the signed-in person through the app's usual path.
+No tool is DANGEROUS and none sends to a customer. Every call runs in the
+`supervised` mode, so every WRITE waits for the person: the panel shows
+it as a card, Confirm goes to `POST /api/assist/pending/[id]` and then
+`POST /api/assist/chat/[id]/run` re-issues the same call with its pending
+id. The default registry in `src/lib/assist/registry.ts`
+(`DEFAULT_TOOL_RISKS`) still has no handlers. The agent middleware and
+the tool advisor (below) remain idle.
 
 ## Risk levels and modes
 
@@ -88,7 +96,8 @@ missed run is never a wrong answer. A failure is only logged.
 
 ## Agent middleware and prompt caching (019e, 019f)
 
-Still idle: no assistant exists, so nothing calls `runAgent`. The code is
+Still idle: the Assistant panel makes one model call per request and
+calls the router itself, so nothing calls `runAgent`. The code is
 in `src/lib/assist/` (`middleware.ts`, `middleware.builtin.ts`,
 `promptcache.ts`).
 

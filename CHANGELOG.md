@@ -22,6 +22,48 @@ reach the page. `eval` is no longer allowed in production, and neither are
 plugins (`<object>`). If a deploy finds something legitimate blocked, set
 `CSP_MODE=report-only` and restart (no rebuild): the browser then reports
 to `/api/csp-report` without blocking, as before. No migration.
+
+### Added: the Assistant panel in the inbox
+
+An open chat gets an **Assistant** button among the chat header's actions
+(on a phone, in the Chat actions menu). It opens a side panel that can
+summarise the chat (who, what they want, what is pending, the last promise
+made), draft a reply in the chat's language into the reply box for you to
+edit and send, answer a question about the chat, and suggest actions: set a
+chat tag, create a follow-up task, assign the chat, add an internal note.
+Each suggestion is a card that changes nothing until you press Confirm. The
+assistant never sends anything to a customer.
+
+It is **off until an owner or admin switches it on** (the switch is at the
+top of the panel, which owners and admins always see), and it is for agents
+and up. It reads only the chats you can see, at most the last 60 messages,
+uses the workspace's own AI key (AI Agents → Assistant) and its spend shows
+as "Chat assistant" in Token usage. It is the first user of the assistant
+safety layer (migration 120): every suggested change is a pending action the
+person must confirm, rate-limited and audited.
+
+**Migration required: 323** (`323_chat_assist.sql`, after 322; apply in
+order, once: re-running 154, 202 or 290 afterwards drops the new usage
+mode).
+
+### Security: six small fixes from the 28 Nov security scan
+
+- Only agents and up can upload, change or delete WhatsApp and flow media
+  from the app; a viewer could upload before. The rule also holds if an
+  older migration is re-run.
+- Editing or deleting a message template is refused for non-admins with a
+  clear message; before, a refused delete said "deleted". A failed delete
+  no longer shows database error text.
+- Uploaded media is stored with a safe file type and a plain extension,
+  whatever the browser claims.
+- "Send test notification" is limited to 3 a minute per person.
+- The phone system webhook answers 200 instead of 429 when flooded (over
+  100 pushes a second); those pushes are dropped, not replayed.
+- The Meta and OpenWA webhooks refuse an oversized request (over 3 MB and
+  24 MB) before reading it.
+
+**Migration required: 322** (`322_media_upload_role.sql`, after 321).
+
 ### Security: customer attachments are private
 
 **Migration required:** `321_chat_media_private.sql`, **together with

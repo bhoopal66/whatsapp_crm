@@ -91,6 +91,7 @@ export async function GET(request: Request) {
       translate: { calls: 0, tokens: 0 },
       hr_agent: { calls: 0, tokens: 0 },
       kb_learn: { calls: 0, tokens: 0 },
+      chat_assist: { calls: 0, tokens: 0 },
     }
     const modelMap = new Map<
       string,
@@ -110,7 +111,7 @@ export async function GET(request: Request) {
       completionTokens += r.completion_tokens
       totalTokens += r.total_tokens
 
-      // `mode` is DB-CHECK-constrained to these five values (290).
+      // `mode` is DB-CHECK-constrained to these six values (323).
       byMode[r.mode].calls += 1
       byMode[r.mode].tokens += r.total_tokens
 

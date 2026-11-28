@@ -7,6 +7,7 @@ import { encrypt } from '@/lib/whatsapp/encryption';
 const h = vi.hoisted(() => ({
   db: null as unknown,
   after: [] as (() => Promise<void> | void)[],
+  overLimit: false,
 }));
 vi.mock('next/server', async (orig) => ({
   ...(await orig<typeof import('next/server')>()),
@@ -43,6 +44,7 @@ const presence = (ext: string) => ({
 
 beforeEach(() => {
   h.after = [];
+  h.overLimit = false;
   fake = createFakeDb(
     {
       pbx_connections: [
@@ -68,7 +70,13 @@ beforeEach(() => {
     },
     {
       edge_rate_check: () => ({
-        data: [{ allowed: true, remaining: 9, retry_after_ms: 0 }],
+        data: [
+          {
+            allowed: !h.overLimit,
+            remaining: h.overLimit ? 0 : 9,
+            retry_after_ms: h.overLimit ? 800 : 0,
+          },
+        ],
         error: null,
       }),
     }
@@ -112,6 +120,16 @@ describe('POST /api/pbx/yeastar/events/[token]', () => {
     });
     // Settings → Phone system names the path that carried the latest event.
     expect(fake.tables.pbx_connections[0].last_event_via).toBe('webhook');
+  });
+
+  it('answers 200, never 429, and processes nothing over the per-token limit', async () => {
+    h.overLimit = true;
+    const body = JSON.stringify(presence('1001'));
+    const res = await post(body);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('retry-after')).toBeNull();
+    expect(fake.tables.pbx_events_raw ?? []).toHaveLength(0);
+    expect(h.after).toHaveLength(0);
   });
 
   it('refuses a sender outside PBX_WEBHOOK_ALLOWED_IPS', async () => {

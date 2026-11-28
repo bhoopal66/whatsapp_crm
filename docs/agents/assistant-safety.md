@@ -5,9 +5,17 @@
 The gate for a future AI assistant's tool calls. `docs/assistant-safety.md`
 is the contract.
 
-- **Idle.** No assistant exists; nothing calls the guard or
-  `createModelToolRouter`. `DEFAULT_TOOL_RISKS` has no handlers, so the
-  router would deny every call `UNKNOWN_TOOL`.
+- **One caller: the inbox Assistant panel (323, `lib/chat-assist/*`).**
+  Its own registry (`CHAT_ASSIST_TOOL_SPECS`: `chat_read` READ; tag,
+  task, assign, note WRITE; nothing DANGEROUS, nothing that sends), a
+  guard and router per request, every call `supervised` (so every WRITE
+  waits for the person). Handlers run on the caller's RLS client through
+  the app's usual writers. Cards carry the nonce to the person only
+  (`notifyHuman` keeps it, parsed from the prompt's last line); Confirm is
+  `/api/assist/pending/[id]` then `/api/assist/chat/[id]/run` with the
+  same args (hash checked). Off by default (`inbox_assistant_settings`, set
+  only by `inbox_assistant_set_enabled`, admin+). `DEFAULT_TOOL_RISKS` still
+  has no handlers. `router.test.ts` pins no-WRITE-without-confirmation.
 - **Risk.** READ / WRITE / DANGEROUS; modes supervised / cautious
   (default) / autonomous. An unregistered tool is DANGEROUS; DANGEROUS
   always needs a person, WRITE only in supervised. Model arguments only
@@ -28,7 +36,8 @@ is the contract.
 - `assist_audit` is append-only, owner included. Crons: pending sweep
   every minute, rate prune hourly (automations cron).
   `verify-assistant-safety.sql`.
-- **Middleware (019e, 019f; migration 132).** Still idle. `middleware.ts`
+- **Middleware (019e, 019f; migration 132).** Still idle (the panel
+  calls the router itself, one model call per request). `middleware.ts`
   runs hooks in a fixed order and the 019a router stays the only tool
   layer; redaction is terminal, applied to every message just before the
   model. `promptcache.ts` lays out STATIC, WORKSPACE, VOLATILE tiers and

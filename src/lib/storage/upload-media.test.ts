@@ -64,6 +64,19 @@ describe("buildMediaPath", () => {
     expect(path).toBe(`account-${ACCOUNT}/1700000000000-README.bin`);
   });
 
+  it("keeps a normal extension, lower-cased", () => {
+    expect(buildMediaPath(ACCOUNT, "photo.JPG", null)).toBe(
+      `account-${ACCOUNT}/photo.jpg`,
+    );
+  });
+
+  it.each(["a.weird#?ext", "a.<script>", "a.toolongextension", "a.p%6Eg"])(
+    "turns the unsafe extension of %s into bin",
+    (name) => {
+      expect(buildMediaPath(ACCOUNT, name, null)).toMatch(/\.bin$/);
+    },
+  );
+
   it("omits the timestamp when passed null, for callers needing a stable path", () => {
     const path = buildMediaPath(ACCOUNT, "photo.png", null);
     expect(path).toBe(`account-${ACCOUNT}/photo.png`);
@@ -109,5 +122,24 @@ describe("uploadAccountMedia", () => {
       new RegExp(`^account-${ACCOUNT}/\\d+-photo\\.png$`),
     );
     expect(upload.mock.calls[0][0]).toBe(path);
+  });
+
+  it.each([
+    ["chat-media", "text/html"],
+    ["chat-media", "image/svg+xml"],
+    ["flow-media", "text/html"],
+    ["flow-media", "image/svg+xml"],
+  ])("does not pass %s %s through as the content type", async (bucket, type) => {
+    upload.mockReset().mockResolvedValue({ error: null });
+    await uploadAccountMedia(bucket, new File(["x"], "a.png", { type }));
+    expect(upload.mock.calls[0][2].contentType).toBe(
+      "application/octet-stream",
+    );
+  });
+
+  it("keeps an allowed type", async () => {
+    upload.mockReset().mockResolvedValue({ error: null });
+    await uploadAccountMedia("chat-media", file);
+    expect(upload.mock.calls[0][2].contentType).toBe("image/png");
   });
 });

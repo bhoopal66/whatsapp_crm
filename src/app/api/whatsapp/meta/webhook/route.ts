@@ -1,6 +1,7 @@
 import { NextResponse, after } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
+import { readTextCapped } from '@/lib/edge/read-capped';
 import { decrypt } from '@/lib/whatsapp/encryption';
 import { findConfigBySecret } from '@/lib/whatsapp/webhook-secret-lookup';
 import { verifyMetaWebhookSignature } from '@/lib/whatsapp/webhook-signature';
@@ -115,6 +116,9 @@ import {
 // downloads and mirror uploads, which needs headroom beyond the default.
 export const maxDuration = 60;
 
+// Meta documents webhook payloads of up to 3 MB.
+const MAX_BODY_BYTES = 3 * 1024 * 1024;
+
 // Lazy-initialized to avoid a build-time crash when env vars are missing.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _adminClient: any = null;
@@ -217,7 +221,12 @@ async function verifyTokenMatches(provided: string): Promise<boolean> {
 export async function POST(request: Request) {
   // The signature is over the EXACT bytes Meta sent. Re-serialising a
   // parsed object changes key order and whitespace and will never match.
-  const rawBody = await request.text();
+  // Capped first: the body is unauthenticated until the signature below.
+  // 413, never 429.
+  const rawBody = await readTextCapped(request, MAX_BODY_BYTES);
+  if (rawBody === null) {
+    return NextResponse.json({ error: 'payload_too_large' }, { status: 413 });
+  }
   const signature = request.headers.get('x-hub-signature-256');
 
   let parsed: unknown;

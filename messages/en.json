@@ -14032,11 +14032,62 @@
     "drafts": "Drafts",
     "translations": "Translations",
     "hrDrafts": "HR agent drafts",
+    "chatAssistant": "Chat assistant",
     "tokensPerDay": "Tokens per day",
     "tokensSeries": "Tokens",
     "byModel": "By model",
     "modelRow": "{tokens} tok · {calls, plural, one {# call} other {# calls}}",
     "truncated": "Showing a partial window — usage is high enough that only the most recent records are summarized here.",
     "loadFailed": "Failed to load usage"
+  },
+  "ChatAssist": {
+    "open": "Assistant",
+    "title": "Assistant",
+    "neverSends": "Reads this chat as you see it. It never sends anything to the customer, and a suggested action changes nothing until you confirm it.",
+    "switch": {
+      "label": "Chat assistant for this workspace",
+      "hint": "Off by default. Uses the workspace's own AI key (AI Agents → Assistant)."
+    },
+    "offNotice": "The chat assistant is off for this workspace. An owner or admin can switch it on.",
+    "summarise": "Summarise",
+    "draft": "Draft a reply",
+    "suggest": "Suggest actions",
+    "askPlaceholder": "Ask about this chat, e.g. which documents are missing?",
+    "askLabel": "Question about this chat",
+    "askSend": "Ask",
+    "summaryTitle": "Summary",
+    "answerTitle": "Answer",
+    "draftTitle": "Draft reply",
+    "useDraft": "Put in reply box",
+    "cardsTitle": "Suggested actions",
+    "noCards": "Nothing to suggest for this chat right now.",
+    "confirm": "Confirm",
+    "dismiss": "Dismiss",
+    "cardDone": "Done",
+    "cardDismissed": "Dismissed",
+    "cards": {
+      "tag": "Set the tag: {tag}",
+      "task": "Create a follow-up task: {title}",
+      "assign": "Assign the chat to {name}",
+      "note": "Add an internal note",
+      "due": "Due {when}"
+    },
+    "cardErrors": {
+      "expired": "This suggestion expired. Ask again.",
+      "notFound": "This chat is no longer available to you.",
+      "refused": "You can't make this change on this chat.",
+      "changed": "The chat changed since this was suggested. Ask again.",
+      "invalid": "This suggestion no longer fits the chat.",
+      "busy": "Too many open suggestions. Confirm or dismiss some, then try again.",
+      "failed": "That didn't work. Try again."
+    },
+    "errors": {
+      "off": "The chat assistant is off for this workspace.",
+      "noAi": "AI isn't set up yet. An admin can add a key in AI Agents → Assistant.",
+      "noMessages": "There are no messages to work from yet.",
+      "busy": "Too many requests. Wait a moment and try again.",
+      "failed": "The assistant couldn't answer. Try again.",
+      "toggle": "Couldn't change the setting."
+    }
   }
 }
