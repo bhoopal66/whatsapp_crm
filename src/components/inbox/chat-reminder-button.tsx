@@ -37,6 +37,7 @@ import {
   loadUpcomingReminders,
   type UpcomingReminder,
 } from '@/lib/tasks/reminder';
+import { hrTaskTitle } from '@/lib/hr/task-title';
 import { TASK_NOTE_MAX, TASK_TITLE_MAX } from '@/lib/tasks/types';
 import { cn } from '@/lib/utils';
 import type { Profile } from '@/types';
@@ -374,7 +375,7 @@ export function ReminderDialog({
                     className="flex items-center gap-2 py-1.5 text-sm"
                   >
                     <div className="min-w-0 flex-1">
-                      <p className="truncate">{task.title}</p>
+                      <p className="truncate">{hrTaskTitle(task, locale)}</p>
                       <p className="text-muted-foreground text-xs">
                         {formatWhen(new Date(task.due_at!))}
                         {who ? ` · ${who}` : ''}
@@ -386,7 +387,9 @@ export function ReminderDialog({
                         size="sm"
                         disabled={ticking === task.id}
                         onClick={() => void markDone(task)}
-                        aria-label={t('markDone', { title: task.title })}
+                        aria-label={t('markDone', {
+                          title: hrTaskTitle(task, locale),
+                        })}
                       >
                         {t('done')}
                       </Button>

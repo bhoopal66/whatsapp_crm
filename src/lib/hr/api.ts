@@ -153,6 +153,8 @@ export interface HrRulePatch {
   afterHours?: number;
   dueHours?: number;
   title?: string;
+  /** An empty string clears the Arabic title (migration 335). */
+  titleAr?: string;
 }
 
 export function hrRuleSet(
@@ -166,6 +168,7 @@ export function hrRuleSet(
     p_after_hours: patch.afterHours ?? null,
     p_due_hours: patch.dueHours ?? null,
     p_title: patch.title ?? null,
+    p_title_ar: patch.titleAr ?? null,
   });
 }
 

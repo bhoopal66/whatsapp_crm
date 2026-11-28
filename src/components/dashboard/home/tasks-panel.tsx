@@ -31,6 +31,7 @@ import {
 import { formatCount } from '@/lib/dashboard/home/attention';
 import type { OpenTasks } from '@/lib/dashboard/home/sources';
 import { createClient } from '@/lib/supabase/client';
+import { hrTaskTitle } from '@/lib/hr/task-title';
 import type { Task, TaskKind } from '@/lib/tasks/types';
 import { cn } from '@/lib/utils';
 import { DashboardPanel, PanelEmpty } from './panel';
@@ -280,6 +281,7 @@ function TaskRow({
   onComplete: () => void;
 }) {
   const t = useTranslations('Dashboard.home.tasks');
+  const locale = useLocale();
   const Icon = KIND_ICON[task.kind] ?? CheckSquare;
   const due = dueLabel(task, now);
   const repeat = missedRepeat(task);
@@ -292,7 +294,7 @@ function TaskRow({
         type="button"
         role="checkbox"
         aria-checked={false}
-        aria-label={t('markDone', { title: task.title })}
+        aria-label={t('markDone', { title: hrTaskTitle(task, locale) })}
         onClick={onComplete}
         className="group border-input hover:border-success hover:bg-success-soft flex h-5 w-5 shrink-0 items-center justify-center rounded-full border transition-colors"
       >
@@ -308,7 +310,7 @@ function TaskRow({
       />
       <div className="min-w-0 flex-1 @md:flex @md:items-baseline @md:gap-2">
         <p className="text-foreground truncate text-sm">
-          {task.title}
+          {hrTaskTitle(task, locale)}
           {repeat !== null && (
             <span className="text-warning ms-1.5 text-xs font-semibold tabular-nums">
               {t('repeat', { count: repeat })}

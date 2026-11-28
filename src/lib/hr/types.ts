@@ -158,6 +158,8 @@ export interface HrRule {
   after_hours: number | null;
   due_hours: number | null;
   title: string | null;
+  /** Arabic task title (migration 335); null means English only. */
+  title_ar: string | null;
   enabled: boolean;
   updated_at: string;
   updated_by: string | null;

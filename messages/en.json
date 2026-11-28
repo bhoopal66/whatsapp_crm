@@ -12884,6 +12884,7 @@
         "afterHours": "After (hours)",
         "dueHours": "Due in (hours)",
         "taskTitle": "Task title",
+        "taskTitleAr": "Arabic task title (optional)",
         "save": "Save",
         "saved": "Saved",
         "invalid": "Check the highlighted fields: after 1–720 hours, due 0–720 hours, title 1–300 characters.",

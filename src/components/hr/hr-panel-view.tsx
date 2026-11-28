@@ -8,7 +8,7 @@
  * `lib/hr/panel.ts` decides which sections and buttons this viewer gets.
  */
 import type { ReactNode } from 'react';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { formatDistanceToNow } from 'date-fns';
 import { Check, Circle, Contrast } from 'lucide-react';
 
@@ -33,6 +33,7 @@ import {
   type HrStage,
   type HrTopic,
 } from '@/lib/hr/types';
+import { hrTaskTitle } from '@/lib/hr/task-title';
 import type { Task } from '@/lib/tasks/types';
 import { cn } from '@/lib/utils';
 import { dateFnsLocale } from '@/i18n/ui-locale';
@@ -115,6 +116,7 @@ function Field({
 
 export function HrPanelView(props: HrPanelViewProps) {
   const t = useTranslations('Hr');
+  const locale = useLocale();
   const { contactName, busy, row, actions } = props;
   const kind = paneKind(row);
   const stageLabel = (s: HrStage) => t(`stage.${s}`);
@@ -442,7 +444,9 @@ export function HrPanelView(props: HrPanelViewProps) {
                 className="bg-card-2 flex items-center gap-2 rounded-md px-2 py-1"
               >
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-xs">{task.title}</p>
+                  <p className="truncate text-xs">
+                    {hrTaskTitle(task, locale)}
+                  </p>
                   <p className="text-muted-foreground text-xs">
                     {task.due_at
                       ? t('panel.due', {
@@ -457,7 +461,9 @@ export function HrPanelView(props: HrPanelViewProps) {
                 <Button
                   size="xs"
                   variant="ghost"
-                  aria-label={t('panel.markDone', { title: task.title })}
+                  aria-label={t('panel.markDone', {
+                    title: hrTaskTitle(task, locale),
+                  })}
                   disabled={props.doneBusy.has(task.id)}
                   onClick={() => props.onTaskDone(task)}
                 >

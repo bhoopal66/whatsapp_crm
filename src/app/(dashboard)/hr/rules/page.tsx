@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { X } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -48,6 +48,7 @@ import {
   type HrTeamRow,
   type RuleDraft,
 } from '@/lib/hr/setup';
+import { hrRuleTitle } from '@/lib/hr/task-title';
 import {
   HR_INBOXES,
   type HrErrorCode,
@@ -554,6 +555,7 @@ function RuleRow({
   onSaved: (rule: HrRule) => void;
 }) {
   const t = useTranslations('Hr');
+  const locale = useLocale();
   const supabase = useMemo(() => createClient(), []);
   const [draft, setDraft] = useState<RuleDraft>(() => draftOf(rule));
   const [saving, setSaving] = useState(false);
@@ -620,7 +622,9 @@ function RuleRow({
               {t('setup.rules.then')}:{' '}
             </span>
             {ruleIsTask(rule)
-              ? t('setup.rules.createTask', { title: rule.title ?? '' })
+              ? t('setup.rules.createTask', {
+                  title: hrRuleTitle(rule, locale),
+                })
               : t('setup.rules.markUrgent')}
           </p>
         </div>
@@ -657,6 +661,27 @@ function RuleRow({
                 onChange={(e) => {
                   setMessage(null);
                   setDraft((d) => ({ ...d, title: e.target.value }));
+                }}
+              />
+            </label>
+          )}
+          {ruleIsTask(rule) && (
+            <label className="text-muted-foreground flex min-w-0 flex-1 basis-48 flex-col gap-1 text-xs">
+              {t('setup.rules.taskTitleAr')}
+              <Input
+                className={cn(
+                  'h-8',
+                  bad.includes('titleAr') && 'border-destructive'
+                )}
+                dir="rtl"
+                lang="ar"
+                maxLength={300}
+                value={draft.titleAr}
+                disabled={!editable}
+                aria-invalid={bad.includes('titleAr')}
+                onChange={(e) => {
+                  setMessage(null);
+                  setDraft((d) => ({ ...d, titleAr: e.target.value }));
                 }}
               />
             </label>

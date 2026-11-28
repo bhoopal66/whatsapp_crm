@@ -1,8 +1,9 @@
 /**
  * Pure logic behind `/hr-inbox/setup`: the rule sentence, the rule
  * editor's validation and patch, and the HR team lists. The bounds
- * mirror `hr_rule_set` in migration 200 (after 1–720, due 0–720,
- * title 1–300 non-blank); the RPC re-checks and stays the authority.
+ * mirror `hr_rule_set` in migration 335 (after 1–720, due 0–720,
+ * title 1–300 non-blank, Arabic title 0–300 where blank clears it); the
+ * RPC re-checks and stays the authority.
  */
 import type { HrRulePatch } from './api';
 import {
@@ -50,6 +51,7 @@ export interface RuleDraft {
   afterHours: string;
   dueHours: string;
   title: string;
+  titleAr: string;
 }
 
 export function draftOf(rule: HrRule): RuleDraft {
@@ -58,10 +60,11 @@ export function draftOf(rule: HrRule): RuleDraft {
     afterHours: rule.after_hours == null ? '' : String(rule.after_hours),
     dueHours: rule.due_hours == null ? '' : String(rule.due_hours),
     title: rule.title ?? '',
+    titleAr: rule.title_ar ?? '',
   };
 }
 
-export type RuleDraftField = 'afterHours' | 'dueHours' | 'title';
+export type RuleDraftField = 'afterHours' | 'dueHours' | 'title' | 'titleAr';
 
 const wholeIn = (raw: string, min: number, max: number): boolean =>
   /^\d+$/.test(raw.trim()) &&
@@ -90,6 +93,7 @@ export function invalidFields(
     ) {
       bad.push('title');
     }
+    if (draft.titleAr.trim().length > HR_RULE_TITLE_MAX) bad.push('titleAr');
   }
   return bad;
 }
@@ -111,6 +115,9 @@ export function rulePatch(rule: HrRule, draft: RuleDraft): HrRulePatch {
     if (due !== rule.due_hours) patch.dueHours = due;
     const title = draft.title.trim();
     if (title !== (rule.title ?? '')) patch.title = title;
+    // '' is sent as is: it clears the Arabic title.
+    const titleAr = draft.titleAr.trim();
+    if (titleAr !== (rule.title_ar ?? '')) patch.titleAr = titleAr;
   }
   return patch;
 }

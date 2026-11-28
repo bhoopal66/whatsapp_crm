@@ -6,6 +6,7 @@ import {
   hrLinesGet,
   hrLinesSet,
   hrMemberSet,
+  hrRuleSet,
   hrRulesList,
   hrSetStage,
 } from './api';
@@ -100,6 +101,29 @@ describe('void and list results', () => {
   it('hrRulesList reads a null body as no rules', async () => {
     const { sb } = fakeClient({ data: null });
     await expect(hrRulesList(sb)).resolves.toEqual({ data: [] });
+  });
+});
+
+describe('hrRuleSet (335)', () => {
+  it('sends the Arabic title, and null for every field not in the patch', async () => {
+    const { sb, rpc } = fakeClient({ data: { key: 'stage_cv_review' } });
+    await hrRuleSet(sb, 'stage_cv_review', {
+      titleAr: 'مراجعة السيرة الذاتية',
+    });
+    expect(rpc).toHaveBeenCalledWith('hr_rule_set', {
+      p_key: 'stage_cv_review',
+      p_enabled: null,
+      p_after_hours: null,
+      p_due_hours: null,
+      p_title: null,
+      p_title_ar: 'مراجعة السيرة الذاتية',
+    });
+  });
+
+  it('sends an empty Arabic title as is: it clears it', async () => {
+    const { sb, rpc } = fakeClient({ data: { key: 'stage_cv_review' } });
+    await hrRuleSet(sb, 'stage_cv_review', { titleAr: '' });
+    expect(rpc.mock.calls[0][1]).toMatchObject({ p_title_ar: '' });
   });
 });
 

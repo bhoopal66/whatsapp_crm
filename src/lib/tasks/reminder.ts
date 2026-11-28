@@ -109,7 +109,9 @@ export function savedToastKey(
 export type UpcomingReminder = Pick<
   Task,
   'id' | 'title' | 'due_at' | 'assigned_to' | 'status' | 'created_by'
->;
+> &
+  // An HR task's Arabic title rides in meta (migration 335).
+  Partial<Pick<Task, 'meta'>>;
 
 /**
  * Whether the caller may mark a task done: its assignee, its creator,

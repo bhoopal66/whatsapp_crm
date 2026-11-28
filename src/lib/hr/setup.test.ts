@@ -24,6 +24,7 @@ function rule(over: Partial<HrRule>): HrRule {
     after_hours: null,
     due_hours: 24,
     title: 'Review CV',
+    title_ar: 'مراجعة السيرة الذاتية',
     enabled: true,
     updated_at: '2026-11-16T00:00:00Z',
     updated_by: null,
@@ -141,6 +142,32 @@ describe('rulePatch', () => {
     expect(
       rulePatch(flag, { ...draftOf(flag), enabled: false, dueHours: '3' })
     ).toEqual({ enabled: false });
+  });
+  it('sends a changed Arabic title trimmed, and an emptied one as a clear', () => {
+    const r = rule({});
+    expect(rulePatch(r, { ...draftOf(r), titleAr: ' راجع السيرة ' })).toEqual({
+      titleAr: 'راجع السيرة',
+    });
+    expect(rulePatch(r, { ...draftOf(r), titleAr: '  ' })).toEqual({
+      titleAr: '',
+    });
+    expect(
+      rulePatch(r, { ...draftOf(r), titleAr: ' مراجعة السيرة الذاتية ' })
+    ).toEqual({});
+    const none = rule({ title_ar: null });
+    expect(rulePatch(none, draftOf(none))).toEqual({});
+  });
+});
+
+describe('invalidFields, Arabic title', () => {
+  it('allows it empty and up to 300 characters, not more', () => {
+    const r = rule({});
+    const d = draftOf(r);
+    expect(invalidFields(r, { ...d, titleAr: '' })).toEqual([]);
+    expect(invalidFields(r, { ...d, titleAr: 'ع'.repeat(300) })).toEqual([]);
+    expect(invalidFields(r, { ...d, titleAr: 'ع'.repeat(301) })).toEqual([
+      'titleAr',
+    ]);
   });
 });
 

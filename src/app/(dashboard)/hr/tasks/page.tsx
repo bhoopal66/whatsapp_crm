@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useFormatter, useTranslations } from 'next-intl';
+import { useFormatter, useLocale, useTranslations } from 'next-intl';
 import { Check } from 'lucide-react';
 
 import { useWorkspaceMembers } from '@/components/meetings/use-workspace-members';
@@ -15,6 +15,7 @@ import {
   taskConversationIds,
   visibleHrTasks,
 } from '@/lib/hr/tasks-view';
+import { hrTaskTitle } from '@/lib/hr/task-title';
 import { createClient } from '@/lib/supabase/client';
 import type { Task } from '@/lib/tasks/types';
 import { cn } from '@/lib/utils';
@@ -34,6 +35,7 @@ export default function HrTasksPage() {
   const t = useTranslations('Hr.tasks');
   const tPanel = useTranslations('Hr.panel');
   const format = useFormatter();
+  const locale = useLocale();
   const { user, accountId } = useAuth();
   const { nameOf } = useWorkspaceMembers();
   const [tasks, setTasks] = useState<Task[] | null>(null);
@@ -205,7 +207,7 @@ export default function HrTasksPage() {
                   )}
                 >
                   <span className="min-w-0 font-medium break-words">
-                    {task.title}
+                    {hrTaskTitle(task, locale)}
                   </span>
                   <span className="min-w-0 truncate text-sm">
                     {task.conversation_id ? (
@@ -248,7 +250,9 @@ export default function HrTasksPage() {
                     <Button
                       size="sm"
                       variant="outline"
-                      aria-label={t('doneTask', { title: task.title })}
+                      aria-label={t('doneTask', {
+                        title: hrTaskTitle(task, locale),
+                      })}
                       disabled={busy.has(task.id)}
                       onClick={() => void markDone(task.id)}
                     >
