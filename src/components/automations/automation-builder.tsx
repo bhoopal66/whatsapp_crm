@@ -26,6 +26,7 @@ import {
 } from "@/lib/whatsapp/template-offer"
 import { useAccountNumbers } from "@/hooks/use-whatsapp-numbers"
 import { triggerRuns } from "@/lib/automations/trigger-meta"
+import { QUIET_DAYS_MAX, TIME_BASED_MAX_CHATS } from "@/lib/automations/time-based-config"
 import {
   CONDITION_CONTACT_FIELDS,
   isConditionContactField,
@@ -1357,10 +1358,30 @@ function TriggerCard({
               />
             )}
             {type === "time_based" && (
-              <ScheduleField
-                value={(config.schedule as string) ?? ""}
-                onChange={(schedule) => onConfigChange({ ...config, schedule })}
-              />
+              <>
+                <ScheduleField
+                  value={(config.schedule as string) ?? ""}
+                  onChange={(schedule) => onConfigChange({ ...config, schedule })}
+                />
+                <p className="mb-2 text-xs font-medium text-foreground">
+                  {t("scheduleChats")}
+                </p>
+                <ChatTagPairSelect
+                  mainId={(config.chat_tag_id as string) ?? ""}
+                  subId={(config.chat_sub_tag_id as string | null) ?? null}
+                  onChange={(mainId, subId) =>
+                    onConfigChange({ ...config, chat_tag_id: mainId, chat_sub_tag_id: subId })
+                  }
+                  t={t}
+                />
+                <QuietDaysField
+                  value={config.quiet_days}
+                  onChange={(quiet_days) => onConfigChange({ ...config, quiet_days })}
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {t("scheduleChatsHint", { max: TIME_BASED_MAX_CHATS })}
+                </p>
+              </>
             )}
           </div>
         )}
@@ -1437,6 +1458,43 @@ function ScheduleField({
         </FieldBlock>
       )}
     </div>
+  )
+}
+
+/**
+ * A time-based trigger's "only chats with no message for N days" (blank =
+ * any chat with the tag). Stored as a whole number, or null.
+ */
+function QuietDaysField({
+  value,
+  onChange,
+}: {
+  value: unknown
+  onChange: (days: number | null) => void
+}) {
+  const t = useTranslations("Automations.builder")
+  const shown = typeof value === "number" ? String(value) : ""
+  return (
+    <FieldBlock label={t("scheduleQuietDays")}>
+      <Input
+        type="number"
+        inputMode="numeric"
+        min={1}
+        max={QUIET_DAYS_MAX}
+        placeholder={t("scheduleQuietDaysAny")}
+        value={shown}
+        onChange={(e) => {
+          const raw = e.target.value.trim()
+          if (!raw) return onChange(null)
+          const n = Number(raw)
+          onChange(Number.isFinite(n) ? Math.trunc(n) : null)
+        }}
+        className="w-32 text-foreground"
+      />
+      <p className="mt-1 text-xs text-muted-foreground">
+        {t("scheduleQuietDaysHint")}
+      </p>
+    </FieldBlock>
   )
 }
 

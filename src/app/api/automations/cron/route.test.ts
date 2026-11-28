@@ -37,6 +37,7 @@ const h = vi.hoisted(() => ({
   automsgDrain: vi.fn(),
   automsgNudges: vi.fn(),
   responseSweep: vi.fn(),
+  timeBased: vi.fn(),
   interrupted: vi.fn(),
   claims: [] as unknown[],
   afterCallbacks: [] as (() => Promise<void>)[],
@@ -143,6 +144,9 @@ vi.mock('@/lib/calendar/reminders', () => ({
 vi.mock('@/lib/hr/sweep', () => ({ runHrSweep: h.hrSweep }));
 vi.mock('@/lib/response-times/sweep', () => ({
   runResponseEscalationSweep: h.responseSweep,
+}));
+vi.mock('@/lib/automations/time-based', () => ({
+  runTimeBasedAutomations: h.timeBased,
 }));
 vi.mock('@/lib/hr/automsg/drain', () => ({
   runHrAutomsgDrain: h.automsgDrain,
@@ -511,6 +515,29 @@ describe('GET /api/automations/cron — response escalation piggy-back', () => {
       expect.objectContaining({ notifications: 3 })
     );
     log.mockRestore();
+  });
+});
+
+describe('GET /api/automations/cron — time-based automations', () => {
+  it('runs them after the response, at most once a minute per process', async () => {
+    vi.resetModules();
+    h.timeBased.mockResolvedValue({ automations: 0, ran: 0, chats: 0, skipped: 0 });
+    const { GET } = await import('./route');
+
+    await GET(req());
+    expect(h.timeBased).not.toHaveBeenCalled();
+    await runAfter();
+    expect(h.timeBased).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(new Date('2026-09-29T13:00:30Z'));
+    await GET(req());
+    await runAfter();
+    expect(h.timeBased).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(new Date('2026-09-29T13:01:00Z'));
+    await GET(req());
+    await runAfter();
+    expect(h.timeBased).toHaveBeenCalledTimes(2);
   });
 });
 

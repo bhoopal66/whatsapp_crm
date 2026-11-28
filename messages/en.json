@@ -1875,7 +1875,7 @@
         },
         "time_based": {
           "label": "Time-Based",
-          "hint": "On a recurring schedule"
+          "hint": "On a schedule, for the open chats with a chosen chat tag"
         }
       },
       "trigger": "Trigger",
@@ -1895,6 +1895,11 @@
       },
       "scheduleAt": "At",
       "scheduleCustomLabel": "Cron expression",
+      "scheduleChats": "Which chats each run acts on",
+      "scheduleChatsHint": "Each run goes through the open company chats with this tag and runs the steps for each, at most {max} chats per run. Customers who opted out or are marked do not contact are left out, messages go only to sales chats, and the number's daily limit still applies. The schedule uses the time zone in Settings → Response times (Asia/Dubai if none is set).",
+      "scheduleQuietDays": "Only chats with no message for at least (days)",
+      "scheduleQuietDaysAny": "Any",
+      "scheduleQuietDaysHint": "Leave blank to include every open chat with the tag.",
       "timeHour": "Hour",
       "timeMinute": "Minute",
       "active": "Active",

@@ -891,9 +891,20 @@ export interface ChatTagTriggerConfig {
 }
 
 export interface TimeBasedTriggerConfig {
-  /** Cron expression or simple HH:mm string; engine can accept either. */
+  /** 5-field cron, or a legacy plain HH:mm (every day at that time);
+   *  read by `lib/automations/cron.ts`. */
   schedule: string;
+  /** IANA zone the schedule is read in; absent = the workspace's
+   *  Response times zone, else Asia/Dubai. */
   timezone?: string;
+  /** Which chats a run acts on (migration 321's runner,
+   *  `lib/automations/time-based.ts`): open company chats carrying this
+   *  main chat tag. Required: a run never reaches every chat. */
+  chat_tag_id?: string;
+  /** Optional sub-tag of `chat_tag_id`. */
+  chat_sub_tag_id?: string | null;
+  /** Optional: only chats with no message for at least this many days. */
+  quiet_days?: number | null;
 }
 
 export interface InteractiveReplyTriggerConfig {

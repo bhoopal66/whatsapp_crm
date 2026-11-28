@@ -21,6 +21,7 @@ import {
 import { runHrAutomsgDrain, runHrAutomsgNudges } from '@/lib/hr/automsg/drain'
 import { runTeamActivityAlertSweep } from '@/lib/team-activity/alert-sweep'
 import { runResponseEscalationSweep } from '@/lib/response-times/sweep'
+import { runTimeBasedAutomations } from '@/lib/automations/time-based'
 import { runJourneyTick } from '@/lib/journeys/host/tick'
 import { reconcileCreatingRooms } from '@/lib/deal-rooms/reconcile'
 import { runSubmissionGroupsCron } from '@/lib/submission-groups/cron'
@@ -194,6 +195,32 @@ function scheduleResponseEscalation() {
   } catch (err) {
     console.error(
       '[automations-cron] could not schedule the response escalation:',
+      err instanceof Error ? err.message : err,
+    )
+  }
+}
+
+/**
+ * Time-based automations (migration 321): each scheduled minute runs the
+ * automation for the open chats with its chat tag, at most once per slot
+ * (claimed in automation_schedule_runs first). Every minute per process,
+ * inside after(); a pass that misses a minute still catches the slot for
+ * 15 minutes. runTimeBasedAutomations never throws.
+ */
+const timeBasedDue = everyInterval(60_000)
+
+function scheduleTimeBasedAutomations() {
+  try {
+    if (!timeBasedDue()) return
+    after(async () => {
+      const summary = await runTimeBasedAutomations()
+      if (summary && summary.ran > 0) {
+        console.log('[automations-cron] time-based automations:', summary)
+      }
+    })
+  } catch (err) {
+    console.error(
+      '[automations-cron] could not schedule time-based automations:',
       err instanceof Error ? err.message : err,
     )
   }
@@ -1090,6 +1117,7 @@ export async function GET(request: Request) {
     scheduleSeatAccessSweep()
     scheduleTeamActivitySweep()
     scheduleResponseEscalation()
+    scheduleTimeBasedAutomations()
     scheduleEdgePurge()
     scheduleChatFileSweep()
     scheduleStagedMediaSweep()

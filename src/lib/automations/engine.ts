@@ -176,6 +176,23 @@ export async function runAutomationsForTrigger(input: DispatchInput): Promise<bo
 }
 
 /**
+ * Runs one automation for one contact without trigger matching: the
+ * time-based runner (`time-based.ts`) has already chosen the automation,
+ * the scheduled minute and the chat. Never throws.
+ */
+export async function runScheduledAutomation(
+  automation: Automation,
+  input: DispatchInput,
+): Promise<boolean> {
+  try {
+    return await executeAutomation(automation, input)
+  } catch (err) {
+    console.error('[automations] scheduled run failed:', automation.id, err)
+    return false
+  }
+}
+
+/**
  * The one intent_match automation to run: the highest p among those
  * that cleared their own threshold (`matched`, keyed `automation:<id>`);
  * a tie goes to the most recently updated, then the larger id, as

@@ -361,16 +361,74 @@ describe("validateTriggerForActivation", () => {
     ).toEqual([]);
   });
 
-  it.each(["time_based", "conversation_assigned"])(
-    "refuses %s, which nothing dispatches",
-    (type) => {
+  it("refuses conversation_assigned, which nothing dispatches", () => {
+    expect(
+      validateTriggerForActivation("conversation_assigned", {}),
+    ).toEqual([
+      { path: "trigger.type", message: "this trigger does not run yet" },
+    ]);
+  });
+
+  describe("time_based (migration 321's runner)", () => {
+    const TAG = "11111111-2222-4333-8444-555555555555";
+
+    it("accepts a readable schedule with a chat tag", () => {
       expect(
-        validateTriggerForActivation(type, { schedule: "0 9 * * *" }),
+        validateTriggerForActivation("time_based", {
+          schedule: "0 9 * * 1-5",
+          chat_tag_id: TAG,
+        }),
+      ).toEqual([]);
+      expect(
+        validateTriggerForActivation("time_based", {
+          schedule: "09:30",
+          chat_tag_id: TAG,
+          quiet_days: 3,
+          timezone: "Asia/Dubai",
+        }),
+      ).toEqual([]);
+    });
+
+    it("requires a chat tag, so a run never reaches every chat", () => {
+      expect(
+        validateTriggerForActivation("time_based", { schedule: "0 9 * * *" }),
       ).toEqual([
-        { path: "trigger.type", message: "this trigger does not run yet" },
+        { path: "trigger.chat_tag_id", message: "no chat tag is chosen" },
       ]);
-    },
-  );
+    });
+
+    it("refuses a schedule, zone or quiet days it cannot run", () => {
+      expect(
+        validateTriggerForActivation("time_based", {
+          schedule: "every morning",
+          chat_tag_id: TAG,
+        }),
+      ).toEqual([
+        { path: "trigger.schedule", message: "the schedule cannot be read" },
+      ]);
+      expect(
+        validateTriggerForActivation("time_based", {
+          schedule: "0 9 * * *",
+          chat_tag_id: TAG,
+          timezone: "Mars/Olympus",
+        }),
+      ).toEqual([
+        { path: "trigger.timezone", message: "the time zone is unknown" },
+      ]);
+      expect(
+        validateTriggerForActivation("time_based", {
+          schedule: "0 9 * * *",
+          chat_tag_id: TAG,
+          quiet_days: 0,
+        }),
+      ).toEqual([
+        {
+          path: "trigger.quiet_days",
+          message: "quiet days must be a whole number from 1 to 365",
+        },
+      ]);
+    });
+  });
 
   it("requires a main tag on chat_tag_set triggers; the sub-tag is optional", () => {
     expect(validateTriggerForActivation("chat_tag_set", {})).toEqual([

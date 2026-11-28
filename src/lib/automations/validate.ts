@@ -2,6 +2,7 @@ import type { AutomationTriggerType } from '@/types'
 import { validateInteractivePayload } from '@/lib/whatsapp/interactive'
 import { isConditionContactField } from './contact-fields'
 import { TRIGGER_META, triggerRuns } from './trigger-meta'
+import { QUIET_DAYS_MAX, parseTimeBasedConfig } from './time-based-config'
 import { TEAM_CHAT_BODY_MAX } from './team-chat-post'
 import { validateIntentTriggerConfig } from '@/lib/insights/meaning-config'
 
@@ -264,6 +265,30 @@ export function validateTriggerForActivation(
           message: 'a sub-tag needs its main tag',
         })
       }
+    }
+  } else if (triggerType === 'time_based') {
+    // What the runner (time-based.ts) cannot run is refused here: a
+    // schedule it cannot read, no chat tag (a run must never reach every
+    // chat), an unknown zone, or quiet days out of range.
+    const parsed = parseTimeBasedConfig(cfg)
+    if (!parsed.ok) {
+      const field =
+        parsed.reason === 'no chat tag is chosen'
+          ? 'chat_tag_id'
+          : parsed.reason === 'the time zone is unknown'
+            ? 'timezone'
+            : 'schedule'
+      issues.push({ path: `trigger.${field}`, message: parsed.reason })
+    }
+    const q = cfg.quiet_days
+    if (
+      q != null &&
+      !(typeof q === 'number' && Number.isInteger(q) && q >= 1 && q <= QUIET_DAYS_MAX)
+    ) {
+      issues.push({
+        path: 'trigger.quiet_days',
+        message: `quiet days must be a whole number from 1 to ${QUIET_DAYS_MAX}`,
+      })
     }
   } else if (triggerType === 'interactive_reply') {
     const ids = cfg.reply_ids

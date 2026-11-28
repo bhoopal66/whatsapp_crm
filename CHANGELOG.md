@@ -12,6 +12,32 @@ and polish.
 
 ## [Unreleased]
 
+### Added: time-based automations run
+
+An automation with a **Time-based** trigger now actually runs. Pick a
+schedule (every day at, weekdays at, every hour, or a cron expression) and
+a chat tag: each time it comes round, the steps run for the open company
+chats with that tag, at most 200 per run, optionally only those with no
+message for some days. Customers who opted out or are marked do not contact
+are left out, messages go only to sales chats, and the number's daily limit
+still applies. The schedule uses the time zone in Settings → Response times
+(Asia/Dubai if none is set), and each scheduled minute runs once.
+
+### Fixed: a reply that failed after sending still counted as answered
+
+When a reply was saved and then refused by WhatsApp, the customer stopped
+counting as waiting: no row on My worklist, no count on the Live view and no
+response-time bell. They now count as waiting again, from the first message
+nobody answered. A bell that already rang for that wait does not ring again.
+
+### Added: team filter on the Live view
+
+Owners and admins can narrow the Live view to one team; a team leader of two
+or more teams can pick one of theirs.
+
+**Migration required: 321** (`321_waiting_failed_and_schedules.sql`, after
+237).
+
 ### Fixed: going back to an earlier case document had no effect
 
 Attaching a good document again after a bad upload, or one whose expiry date
