@@ -1,17 +1,19 @@
 /**
- * Contacts list sorting. Only keys the database can order a PAGE by are
- * offered: `name` and `created` are columns of `contacts`, so the order
- * is applied in the query (or over the whole filtered match set) and
- * pagination stays correct.
- *
- * Owner, Assigned to and Last activity are deliberately NOT sortable:
- * owner/assignee are uuids (ordering them is not ordering by name) and
- * the assignee and last message live on `conversations`, a to-many
- * embed PostgREST cannot order the parent rows by. Sorting only the 25
- * loaded rows would look like a sort and be wrong, so it is not offered.
+ * Contacts list sorting. `name` and `created` are columns of `contacts`,
+ * so the order is applied in the query (or over the whole filtered match
+ * set). `owner`, `assigned` and `activity` live in other tables
+ * (profiles, conversations), which PostgREST cannot order contacts by,
+ * so they go through the `contacts_sorted_page` function (migration
+ * 322) that returns one correctly ordered page; see `usesSortedPage`.
  */
 
-export const CONTACT_SORT_KEYS = ['name', 'created'] as const;
+export const CONTACT_SORT_KEYS = [
+  'name',
+  'created',
+  'owner',
+  'assigned',
+  'activity',
+] as const;
 export type ContactSortKey = (typeof CONTACT_SORT_KEYS)[number];
 export type SortDir = 'asc' | 'desc';
 
@@ -28,7 +30,7 @@ export const DEFAULT_CONTACT_SORT: ContactSort = {
 
 /** Direction a key starts in when first picked. */
 export function defaultDir(key: ContactSortKey): SortDir {
-  return key === 'created' ? 'desc' : 'asc';
+  return key === 'created' || key === 'activity' ? 'desc' : 'asc';
 }
 
 /** Unknown / old values fall back to the default, never throw. */
@@ -53,6 +55,13 @@ export function nextContactSort(
     return { sort: key, dir: current.dir === 'asc' ? 'desc' : 'asc' };
   }
   return { sort: key, dir: defaultDir(key) };
+}
+
+/** Keys ordered by `contacts_sorted_page` (a value in another table). */
+export type SortedPageKey = 'owner' | 'assigned' | 'activity';
+
+export function usesSortedPage(key: ContactSortKey): key is SortedPageKey {
+  return key === 'owner' || key === 'assigned' || key === 'activity';
 }
 
 export function isDefaultSort(s: ContactSort): boolean {

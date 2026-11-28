@@ -31,7 +31,7 @@ import {
  * where the separate request only left those two columns blank.
  */
 export const CONTACT_LIST_SELECT =
-  '*, conversations(contact_id, chat_tag_id, chat_sub_tag_id, assigned_agent_id)';
+  '*, conversations(contact_id, chat_tag_id, chat_sub_tag_id, assigned_agent_id, last_message_at, personal_owner_id)';
 
 /** Oldest conversation first: `chatTagsByContact` prefers it. */
 export const CONTACT_LIST_CONVERSATION_ORDER = {
@@ -44,7 +44,9 @@ export const CONTACT_LIST_SORT = 'created_at.desc';
 
 /** The sort as the cache key names it: `created_at.desc`, `name.asc`. */
 export function contactSortLabel(sort: ContactSort): string {
-  return `${sort.sort === 'name' ? 'name' : 'created_at'}.${sort.dir}`;
+  if (sort.sort === 'name') return `name.${sort.dir}`;
+  if (sort.sort === 'created') return `created_at.${sort.dir}`;
+  return `${sort.sort}.${sort.dir}`;
 }
 
 export interface ContactListView {
@@ -92,6 +94,8 @@ export interface ContactListRow extends Contact {
   chatTags: ChatTagIds | null;
   /** Auth user id the contact's chat is assigned to, if any. */
   assignedTo: string | null;
+  /** Newest message time over the contact's company chats. */
+  lastActivity: string | null;
   /** Set by a close-match search: not an exact match for the term. */
   closeMatch?: boolean;
 }
@@ -99,11 +103,27 @@ export interface ContactListRow extends Contact {
 export type EmbeddedConversation = ChatTagIds & {
   contact_id: string;
   assigned_agent_id: string | null;
+  last_message_at?: string | null;
+  personal_owner_id?: string | null;
 };
 
 export type ContactWithConversations = Contact & {
   conversations?: EmbeddedConversation[] | null;
 };
+
+/** Newest `last_message_at` per contact over its company chats. */
+export function lastActivityByContact(
+  convs: readonly EmbeddedConversation[]
+): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const c of convs) {
+    if (c.personal_owner_id || !c.last_message_at) continue;
+    const prev = out.get(c.contact_id);
+    if (!prev || c.last_message_at > prev)
+      out.set(c.contact_id, c.last_message_at);
+  }
+  return out;
+}
 
 /**
  * Rows as the list renders them, from contacts read with
@@ -116,6 +136,7 @@ export function toContactListRows(
   const convs = rows.flatMap((r) => r.conversations ?? []);
   const tags = chatTagsByContact(convs);
   const assignees = assigneesByContact(convs);
+  const activity = lastActivityByContact(convs);
   return rows.map((row) => {
     const { conversations: _embedded, ...contact } = row;
     void _embedded;
@@ -123,6 +144,7 @@ export function toContactListRows(
       ...(contact as Contact),
       chatTags: tags.get(row.id) ?? null,
       assignedTo: assignees.get(row.id) ?? null,
+      lastActivity: activity.get(row.id) ?? null,
     };
   });
 }

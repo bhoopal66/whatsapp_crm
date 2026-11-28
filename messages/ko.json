@@ -1036,6 +1036,7 @@
   },
   "ContactsTable": {
     "sortedByRelevance": "While you search, results are ordered by best match.",
+    "sortNeedsNoSearch": "Owner, Assigned to and Last activity sorting applies when you are not searching.",
     "copyNumber": "Copy the phone number of {name}",
     "copyNumberShort": "Copy number",
     "addToCampaign": "Add to campaign",
@@ -1056,6 +1057,7 @@
       "assignedTo": "Assigned to",
       "chatTag": "Chat tag",
       "company": "Company",
+      "lastActivity": "Last activity",
       "createdAt": "Created",
       "email": "Email",
       "owner": "Owner",

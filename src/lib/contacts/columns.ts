@@ -12,6 +12,7 @@ export const OPTIONAL_COLUMNS = [
   'source',
   'owner',
   'assignedTo',
+  'lastActivity',
   'createdAt',
 ] as const;
 export type OptionalColumn = (typeof OPTIONAL_COLUMNS)[number];

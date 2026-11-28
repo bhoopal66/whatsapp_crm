@@ -104,7 +104,7 @@ describe('buildContactListQuery', () => {
       ['range', 50, 74],
     ]);
     expect(CONTACT_LIST_SELECT).toBe(
-      '*, conversations(contact_id, chat_tag_id, chat_sub_tag_id, assigned_agent_id)'
+      '*, conversations(contact_id, chat_tag_id, chat_sub_tag_id, assigned_agent_id, last_message_at, personal_owner_id)'
     );
   });
 
@@ -257,5 +257,29 @@ describe('close-match search paging', () => {
       ])
     ).toBe('c');
     expect(firstCloseMatchId([{ id: 'a' }])).toBeNull();
+  });
+});
+
+describe('lastActivityByContact', () => {
+  it('takes the newest company-chat message and ignores personal chats', async () => {
+    const { lastActivityByContact } = await import('./list-query');
+    const base = {
+      chat_tag_id: null,
+      chat_sub_tag_id: null,
+      assigned_agent_id: null,
+    };
+    const map = lastActivityByContact([
+      { ...base, contact_id: 'a', last_message_at: '2026-01-02T00:00:00Z' },
+      { ...base, contact_id: 'a', last_message_at: '2026-01-05T00:00:00Z' },
+      {
+        ...base,
+        contact_id: 'a',
+        last_message_at: '2026-02-01T00:00:00Z',
+        personal_owner_id: 'p',
+      },
+      { ...base, contact_id: 'b', last_message_at: null },
+    ]);
+    expect(map.get('a')).toBe('2026-01-05T00:00:00Z');
+    expect(map.has('b')).toBe(false);
   });
 });

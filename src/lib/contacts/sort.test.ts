@@ -9,8 +9,22 @@ import {
 } from './sort';
 
 describe('parseContactSort', () => {
+  it('knows the keys ordered by the database', () => {
+    expect(parseContactSort('owner', null)).toEqual({
+      sort: 'owner',
+      dir: 'asc',
+    });
+    expect(parseContactSort('assigned', 'desc')).toEqual({
+      sort: 'assigned',
+      dir: 'desc',
+    });
+    expect(parseContactSort('activity', null)).toEqual({
+      sort: 'activity',
+      dir: 'desc',
+    });
+  });
   it('falls back on unknown keys', () => {
-    expect(parseContactSort('owner', 'asc')).toEqual(DEFAULT_CONTACT_SORT);
+    expect(parseContactSort('bogus', 'asc')).toEqual(DEFAULT_CONTACT_SORT);
     expect(parseContactSort(null, null)).toEqual(DEFAULT_CONTACT_SORT);
   });
   it('defaults the direction per key', () => {

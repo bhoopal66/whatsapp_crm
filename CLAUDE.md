@@ -1737,13 +1737,19 @@ under a per-(account, phone) advisory lock. `web_form_origin_ok` (SQL) ↔
 ### Contacts table (`lib/contacts/*`, `components/contacts/*`)
 
 The list is server-paginated (25/page). **Sort** is `lib/contacts/sort.ts`:
-only `name` and `created` (columns of `contacts`) are offered, ordered in the
-query, or over the whole match set when the chat-tag filter is on
-(`pageOfContactIds(…, sort)`). Owner, Assigned to and Last activity are NOT
-sortable: owner/assignee are uuids and the assignee and last message live in
-the to-many `conversations` embed, which PostgREST cannot order contacts by;
-sorting only the loaded page would mislead. A close-match search ranks by
-relevance, so the sort headers are disabled while it is active. State lives in
+`name` and `created` (columns of `contacts`) are ordered in the query, or over
+the whole match set when the chat-tag filter is on (`pageOfContactIds(…, sort)`).
+`owner`, `assigned` and `activity` live in other tables, which PostgREST cannot
+order contacts by, so they go through `contacts_sorted_page` (322, SECURITY
+INVOKER, so RLS decides): it returns one ordered page of ids plus the whole
+count (names from `profiles.full_name`, the assignee of the OLDEST company chat
+as the Assigned column shows, activity = newest company-chat `last_message_at`;
+nulls last both ways; filters p_user / p_tag_ids / p_sources mirror the screen's).
+`usesSortedPage` picks the path; any search term (ranked or ilike) pauses these
+three sorts (`sortsLocked`) and the list falls back to created, newest first.
+Assigning a chat moves its contact's owner (169), which the verify fixtures
+account for. `verify-contacts-sorted-page.sql`. A close-match search ranks by
+relevance, so every sort header is disabled while it is active. State lives in
 the URL (`sort`, `dir`, `source`), read on mount (`urlReady` gates the first
 fetch). `formatPhoneDisplay` is display-only (stored phones untouched);
 `phoneForCopy` copies the raw international number. Bulk tag is

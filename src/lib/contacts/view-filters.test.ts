@@ -59,7 +59,7 @@ describe('fromViewFilters', () => {
         search: 5,
         chatTagIds: 'a',
         sources: ['ad', 7, 'nope'],
-        sort: 'owner',
+        sort: 'bogus',
         dir: 'up',
         hiddenColumns: ['email', 'phone', 3],
         personalOnly: 'yes',

@@ -1243,3 +1243,10 @@ jobs:
       # opens one follow_up task per 10 minutes and never writes consent.
       - name: Verify web lead form
         run: supabase db query --local --file supabase/ci/verify-web-lead-form.sql
+
+      # Migration 322: the Contacts list ordered by owner, assigned agent
+      # or last activity on the server. Nulls last both ways, narrowing
+      # by owner / chat tag / source, a page window with the whole total,
+      # the caller's RLS still decides which contacts exist.
+      - name: Verify contacts sorted page
+        run: supabase db query --local --file supabase/ci/verify-contacts-sorted-page.sql

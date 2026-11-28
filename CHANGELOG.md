@@ -12,6 +12,16 @@ and polish.
 
 ## [Unreleased]
 
+### Contacts: sort by owner, assigned agent and last activity
+
+**Migration required:** apply `322_contacts_sorted_page.sql` (no data
+changes). Without it, sorting by these three columns shows an error;
+name and created sorting are unaffected.
+- The Owner, Assigned to and new Last activity columns sort across the
+  whole list, with pages in the right order and empty values last.
+  Narrowing by chat tag, lead source and "my contacts" still applies.
+- While you search, these three sorts pause (results follow the search).
+
 ### Leads, contacts and campaigns
 
 **Migrations required:** apply `249_lead_source_web_form.sql` and

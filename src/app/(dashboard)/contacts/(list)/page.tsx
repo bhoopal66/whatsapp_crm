@@ -157,6 +157,7 @@ import {
   sortToParams,
   type ContactSort,
   type ContactSortKey,
+  usesSortedPage,
 } from '@/lib/contacts/sort';
 import { withParams } from '@/lib/contacts/url-state';
 import { sessionCache, sessionKey } from '@/lib/session-cache';
@@ -338,6 +339,11 @@ export function ContactsPageInner({
 
     const filterGroup = chatTagFilterOrGroup(chatTagFilterIds);
     const sourceList = LEAD_SOURCE_COLUMN_AVAILABLE ? sources : [];
+    // Owner / Assigned / Last activity are ordered by the database
+    // (migration 322) and only without a search term: a search ranks by
+    // match (or filters by ilike) and cannot be re-ordered by them.
+    const activeSort: ContactSort =
+      usesSortedPage(sort.sort) && term !== '' ? DEFAULT_CONTACT_SORT : sort;
 
     // Close-match search: the RPC ranks (as the caller, so RLS applies),
     // then the page's own filters narrow its hits. A missing RPC
@@ -456,13 +462,58 @@ export function ContactsPageInner({
       }
     }
 
+    if (usesSortedPage(activeSort.sort)) {
+      // The function returns one correctly ordered page of contact ids
+      // (as the caller, so RLS applies) and the whole match count; the
+      // rows themselves are then read as every other path reads them.
+      const { data: ordered, error: orderErr } = await supabase.rpc(
+        'contacts_sorted_page',
+        {
+          p_key: activeSort.sort,
+          p_dir: activeSort.dir,
+          p_user: personalOnlyUserId,
+          p_tag_ids: chatTagFilterIds.length > 0 ? chatTagFilterIds : null,
+          p_sources: sourceList.length > 0 ? sourceList : null,
+          p_limit: PAGE_SIZE,
+          p_offset: from,
+        }
+      );
+      if (orderErr) throw orderErr;
+      const orderedRows = (ordered ?? []) as {
+        contact_id: string;
+        total: number | string;
+      }[];
+      const total = orderedRows.length > 0 ? Number(orderedRows[0].total) : 0;
+      const pageIds = orderedRows.map((r) => r.contact_id);
+      if (pageIds.length === 0) return { rows: [], total };
+      const { data, error } = await supabase
+        .from('contacts')
+        .select(CONTACT_LIST_SELECT)
+        .in('id', pageIds)
+        .order(
+          CONTACT_LIST_CONVERSATION_ORDER.column,
+          CONTACT_LIST_CONVERSATION_ORDER.options
+        );
+      if (error) throw error;
+      const byId = new Map(
+        ((data ?? []) as unknown as ContactWithConversations[]).map((c) => [
+          c.id,
+          c,
+        ])
+      );
+      const pageRows = pageIds
+        .map((id) => byId.get(id))
+        .filter((c): c is ContactWithConversations => !!c);
+      return { rows: toContactListRows(pageRows), total };
+    }
+
     if (!filterGroup) {
       // One request: the page, its exact count (the subtitle and the
       // pager show the precise total) and each contact's conversations
       // for the Chat tag and Assigned to columns.
       const { data, count, error } = await buildContactListQuery(
         supabase.from('contacts'),
-        { personalOnlyUserId, search: term, page, sort, sources },
+        { personalOnlyUserId, search: term, page, sort: activeSort, sources },
         PAGE_SIZE
       );
       if (error) throw error;
@@ -546,7 +597,7 @@ export function ContactsPageInner({
       matchedRows,
       from,
       PAGE_SIZE,
-      sort
+      activeSort
     );
     if (pageIds.length === 0) return { rows: [], total };
 
@@ -599,6 +650,7 @@ export function ContactsPageInner({
           source: leadSourceOf(c) !== null,
           owner: !!c.user_id && !!nameOf(c.user_id),
           assignedTo: !!c.assignedTo && !!nameOf(c.assignedTo),
+          lastActivity: !!c.lastActivity,
           createdAt: true,
         }))
       ),
@@ -888,6 +940,9 @@ export function ContactsPageInner({
 
   // A close-match search is ranked by relevance; sorting does not apply.
   const rankedBySearch = searchRpcTerm(debouncedSearch.trim()) !== null;
+  // Owner / Assigned / Last activity need the server's ordering, which a
+  // search term (ranked or ilike) cannot combine with.
+  const sortsLocked = debouncedSearch.trim() !== '';
   const hasActiveFilters =
     debouncedSearch.trim().length > 0 ||
     chatTagFilterIds.length > 0 ||
@@ -1162,6 +1217,11 @@ export function ContactsPageInner({
           {tTable('sortedByRelevance')}
         </p>
       )}
+      {!rankedBySearch && sortsLocked && (
+        <p className="text-muted-foreground text-xs">
+          {tTable('sortNeedsNoSearch')}
+        </p>
+      )}
 
       {/* Bulk action bar */}
       {selected.size > 0 && (
@@ -1226,14 +1286,37 @@ export function ContactsPageInner({
                 </TableHead>
               )}
               {show('owner') && (
-                <TableHead className="text-muted-foreground hidden font-semibold lg:table-cell">
+                <SortHeader
+                  sortKey="owner"
+                  current={sort}
+                  onSort={changeSort}
+                  disabled={sortsLocked}
+                  className="hidden lg:table-cell"
+                >
                   {t('tableColumns.createdBy')}
-                </TableHead>
+                </SortHeader>
               )}
               {show('assignedTo') && (
-                <TableHead className="text-muted-foreground hidden font-semibold lg:table-cell">
+                <SortHeader
+                  sortKey="assigned"
+                  current={sort}
+                  onSort={changeSort}
+                  disabled={sortsLocked}
+                  className="hidden lg:table-cell"
+                >
                   {t('tableColumns.assignedTo')}
-                </TableHead>
+                </SortHeader>
+              )}
+              {show('lastActivity') && (
+                <SortHeader
+                  sortKey="activity"
+                  current={sort}
+                  onSort={changeSort}
+                  disabled={sortsLocked}
+                  className="hidden lg:table-cell"
+                >
+                  {tTable('column.lastActivity')}
+                </SortHeader>
               )}
               {show('createdAt') && (
                 <SortHeader
@@ -1403,6 +1486,20 @@ export function ContactsPageInner({
                         {(contact.assignedTo && nameOf(contact.assignedTo)) || (
                           <span className="text-muted-foreground">-</span>
                         )}
+                      </TableCell>
+                    )}
+                    {show('lastActivity') && (
+                      <TableCell className="text-muted-foreground hidden text-xs whitespace-nowrap lg:table-cell">
+                        {contact.lastActivity
+                          ? new Date(contact.lastActivity).toLocaleDateString(
+                              'en-US',
+                              {
+                                month: 'short',
+                                day: 'numeric',
+                                year: 'numeric',
+                              }
+                            )
+                          : '—'}
                       </TableCell>
                     )}
                     {show('createdAt') && (
