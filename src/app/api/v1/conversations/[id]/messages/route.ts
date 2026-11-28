@@ -6,6 +6,7 @@
 // any message is returned — a foreign or unknown id → 404.
 // ============================================================
 
+import { withSignedMediaLinks } from '@/lib/api/v1/media-links';
 import { requireApiKey } from '@/lib/auth/api-context';
 import {
   okList,
@@ -66,8 +67,13 @@ export async function GET(
       (data ?? []) as Array<{ created_at: string; id: string }>,
       limit
     );
+    // Our attachments as signed links (chat-media is private, 321).
     return okList(
-      items.map((m) => serializeMessage(m as unknown as Message)),
+      await withSignedMediaLinks(
+        items.map((m) => serializeMessage(m as unknown as Message)),
+        ['media_url'],
+        ctx.accountId
+      ),
       nextCursor
     );
   } catch (err) {

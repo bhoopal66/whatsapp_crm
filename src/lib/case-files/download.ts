@@ -49,16 +49,18 @@ function safeObjectPath(path: string | null): path is string {
   return !!path && !path.startsWith('/') && !path.split('/').includes('..');
 }
 
-/** A signed 'case-files' URL; throws CaseFilesStoreError when signing fails. */
+/** A signed 'case-files' URL (or a chat-media one, 321); throws
+ *  CaseFilesStoreError when signing fails. */
 export async function signCaseFilesObject(
   signer: CaseFilesSigner,
   objectPath: string,
-  now: Date
+  now: Date,
+  bucket: string = CASE_FILES_BUCKET
 ): Promise<DownloadUrl> {
   let signed: { data: { signedUrl: string } | null; error: unknown };
   try {
     signed = await signer
-      .from(CASE_FILES_BUCKET)
+      .from(bucket)
       .createSignedUrl(objectPath, DOWNLOAD_URL_TTL_SECONDS);
   } catch {
     throw new CaseFilesStoreError('storage.createSignedUrl', null);
@@ -74,8 +76,9 @@ export async function signCaseFilesObject(
 }
 
 /**
- * The URL of one customer document, or null when its location is neither
- * a 'case-files' object nor a public chat-media object.
+ * The URL of one customer document, signed for 600 s, or null when its
+ * location is neither a 'case-files' object nor a chat-media object
+ * (private since migration 321).
  */
 export async function documentDownloadUrl(
   doc: Pick<CustomerDocumentRow, 'mediaUrl' | 'storageBucket' | 'storagePath'>,
@@ -87,6 +90,7 @@ export async function documentDownloadUrl(
     return signCaseFilesObject(signer, doc.storagePath, now);
   }
   if (doc.storageBucket) return null;
-  if (!doc.mediaUrl || !chatMediaObjectPath(doc.mediaUrl)) return null;
-  return { url: toPublicSupabaseUrl(doc.mediaUrl), expiresAt: null };
+  const chatPath = doc.mediaUrl ? chatMediaObjectPath(doc.mediaUrl) : null;
+  if (!chatPath) return null;
+  return signCaseFilesObject(signer, chatPath, now, 'chat-media');
 }

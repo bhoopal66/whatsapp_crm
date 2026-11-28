@@ -65,6 +65,7 @@ import {
   extractVariableIndices,
   TEMPLATE_LIMITS,
 } from '@/lib/whatsapp/template-validators';
+import { chatMediaDisplayUrl } from '@/lib/storage/chat-media-url';
 
 const CATEGORIES = ['Marketing', 'Utility', 'Authentication'] as const;
 type HeaderFormat = 'none' | 'text' | 'image' | 'video' | 'document';
@@ -993,14 +994,14 @@ export function TemplateManager() {
                   {form.header_format === 'image' && form.header_media_url && (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
-                      src={form.header_media_url}
+                      src={chatMediaDisplayUrl(form.header_media_url)}
                       alt="Header sample"
                       className="border-border max-h-28 rounded-md border object-contain"
                     />
                   )}
                   {form.header_format === 'video' && form.header_media_url && (
                     <video
-                      src={form.header_media_url}
+                      src={chatMediaDisplayUrl(form.header_media_url)}
                       controls
                       preload="metadata"
                       className="border-border max-h-40 rounded-md border bg-black"
