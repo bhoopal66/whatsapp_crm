@@ -5,6 +5,7 @@ import { buildCsv } from '@/lib/csv/build';
 import {
   TAG_CSV_HEADER,
   dailySeries,
+  nearestChartColor,
   groupsTotal,
   isSplitKind,
   parseChatTagReport,
@@ -180,6 +181,21 @@ describe('splits', () => {
   });
 });
 
+describe('nearestChartColor', () => {
+  it('matches a tag colour to the nearest chart colour', () => {
+    expect(nearestChartColor('#16a34a')).toBe('emerald');
+    expect(nearestChartColor('#2563eb')).toBe('blue');
+    expect(nearestChartColor('#f59e0b')).toBe('amber');
+    expect(nearestChartColor('#dc2626')).toBe('pink');
+    expect(nearestChartColor('#7c3aed')).toBe('violet');
+  });
+  it('falls back to grey', () => {
+    expect(nearestChartColor('#808080')).toBe('gray');
+    expect(nearestChartColor(null)).toBe('gray');
+    expect(nearestChartColor('red')).toBe('gray');
+  });
+});
+
 describe('dailySeries', () => {
   it('fills every day between the first and last arrival', () => {
     const s = dailySeries(parseChatTagReport(RAW));
@@ -212,6 +228,7 @@ describe('dailySeries', () => {
     expect(dailySeries(parseChatTagReport({}))).toEqual({
       data: [],
       categories: [],
+      colors: [],
     });
   });
 });

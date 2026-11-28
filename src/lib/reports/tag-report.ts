@@ -264,6 +264,62 @@ export interface DailySeries {
   data: Array<Record<string, string | number>>;
   /** One category per main tag, in the workspace's order. */
   categories: string[];
+  /** The chart colour nearest each tag's own colour, per category. */
+  colors: ChartColorName[];
+}
+
+/** The chart palette (`components/tremor/chart-colors.ts`). */
+export type ChartColorName =
+  | 'blue'
+  | 'emerald'
+  | 'violet'
+  | 'amber'
+  | 'gray'
+  | 'cyan'
+  | 'pink'
+  | 'lime'
+  | 'fuchsia';
+
+const PALETTE_HUES: ReadonlyArray<[ChartColorName, number]> = [
+  ['blue', 217],
+  ['emerald', 160],
+  ['violet', 258],
+  ['amber', 38],
+  ['cyan', 189],
+  ['pink', 330],
+  ['lime', 84],
+  ['fuchsia', 292],
+];
+
+/**
+ * The palette colour nearest a tag's stored `#rrggbb`, by hue, so a
+ * tag's bars match its dot; grey for a washed-out colour or bad input.
+ */
+export function nearestChartColor(
+  hex: string | null | undefined
+): ChartColorName {
+  const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex ?? '');
+  if (!m) return 'gray';
+  const [r, g, b] = [m[1], m[2], m[3]].map((x) => parseInt(x, 16) / 255);
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const d = max - min;
+  if (max === 0 || d / max < 0.2) return 'gray';
+  let h: number;
+  if (max === r) h = ((g - b) / d) % 6;
+  else if (max === g) h = (b - r) / d + 2;
+  else h = (r - g) / d + 4;
+  const hue = (h * 60 + 360) % 360;
+  let best: ChartColorName = 'gray';
+  let bestDist = Infinity;
+  for (const [name, ph] of PALETTE_HUES) {
+    const dist = Math.min(Math.abs(hue - ph), 360 - Math.abs(hue - ph));
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = name;
+    }
+  }
+  return best;
 }
 
 function nextDay(day: string): string {
@@ -292,7 +348,7 @@ export function dailySeries(report: ChatTagReport): DailySeries {
     names.set(id, name);
   }
   const days = report.arrivalsDaily.map((d) => d.day).sort();
-  if (days.length === 0) return { data: [], categories: [] };
+  if (days.length === 0) return { data: [], categories: [], colors: [] };
   const rows = new Map<string, Record<string, string | number>>();
   const last = days[days.length - 1];
   // A hard stop well beyond the SQL's 400-day cap.
@@ -310,6 +366,7 @@ export function dailySeries(report: ChatTagReport): DailySeries {
   return {
     data: [...rows.values()],
     categories: tagIds.map((id) => names.get(id)!),
+    colors: tagIds.map((id) => nearestChartColor(byId.get(id)?.color)),
   };
 }
 

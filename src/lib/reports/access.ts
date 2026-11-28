@@ -59,6 +59,30 @@ export function parseReportAccessList(raw: unknown): ReportAccessPerson[] {
   return out;
 }
 
+/**
+ * The access route's answer (`{ people }`), already in the app's shape
+ * (`userId`, `grantedAt`). Not `parseReportAccessList`: that reads the
+ * SQL's snake_case keys and would drop every row (it once emptied the
+ * owner's "Who can see this report" list).
+ */
+export function parseReportAccessPeople(raw: unknown): ReportAccessPerson[] {
+  if (!Array.isArray(raw)) return [];
+  const out: ReportAccessPerson[] = [];
+  for (const row of raw) {
+    if (!row || typeof row !== 'object') continue;
+    const o = row as Record<string, unknown>;
+    if (typeof o.userId !== 'string' || !o.userId) continue;
+    out.push({
+      userId: o.userId,
+      name: typeof o.name === 'string' ? o.name : '',
+      role: typeof o.role === 'string' ? o.role : '',
+      granted: o.granted === true,
+      grantedAt: typeof o.grantedAt === 'string' ? o.grantedAt : null,
+    });
+  }
+  return out;
+}
+
 /** The reports the landing lists. */
 export type ReportEntryKey = 'funnel' | 'chat_tags';
 

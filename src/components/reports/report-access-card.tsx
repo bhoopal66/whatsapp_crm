@@ -17,7 +17,7 @@ import {
 import { Checkbox } from '@/components/ui/checkbox';
 import { isAccountRole } from '@/lib/auth/roles';
 import {
-  parseReportAccessList,
+  parseReportAccessPeople,
   type ReportAccessPerson,
   type ReportKey,
 } from '@/lib/reports/access';
@@ -43,7 +43,7 @@ export function ReportAccessCard({ report }: { report: ReportKey }) {
         people?: unknown;
       } | null;
       if (!res.ok || !body) throw new Error('load');
-      const list = parseReportAccessList(body.people);
+      const list = parseReportAccessPeople(body.people);
       setPeople(list);
       setChosen(new Set(list.filter((p) => p.granted).map((p) => p.userId)));
     } catch {

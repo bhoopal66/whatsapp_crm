@@ -103,7 +103,14 @@ the build.
   sub-tag-only move is not a tag arrival; a grant is deleted when its
   holder is deactivated, turned guest or leaves; an unlabelled Meta
   number is shown unnamed rather than by its WABA id.
-- Not checked in a browser (no Supabase project here): the 375px layout
+- Found in a local recording (`/reports/*` against a seeded local
+  stack) and fixed: the owner's access list was always empty (the card
+  parsed the route's camelCase answer as SQL rows); the daily arrivals
+  chart now uses the colour nearest each tag's own. Seen, not changed:
+  nothing links to `/reports` until the nav items above are added;
+  breakdown tables and the period selector scroll sideways inside
+  their boxes on a phone with no visual cue.
+- Previously: not checked in a browser (no Supabase project here): the 375px layout
   of `/reports/*` and the new buttons.
 
 ## Gate results

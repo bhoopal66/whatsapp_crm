@@ -7,6 +7,7 @@ import {
   REPORT_KEYS,
   isReportKey,
   parseReportAccessList,
+  parseReportAccessPeople,
   parseReportKeys,
   reportsFor,
 } from './access';
@@ -81,6 +82,46 @@ describe('parseReportAccessList', () => {
 
   it('answers nothing for a non-array', () => {
     expect(parseReportAccessList({})).toEqual([]);
+  });
+});
+
+describe('parseReportAccessPeople', () => {
+  const sql = [
+    {
+      user_id: 'u1',
+      name: 'Demo Admin',
+      role: 'admin',
+      granted: true,
+      granted_at: '2026-11-22T10:00:00Z',
+    },
+    { user_id: 'u2', name: 'Demo Agent', role: 'agent', granted: false },
+  ];
+
+  it('reads what the access route sends, round trip through its parser', () => {
+    // The route answers { people: parseReportAccessList(data) } as JSON;
+    // the card must read that back without losing a row.
+    const wire = JSON.parse(JSON.stringify(parseReportAccessList(sql)));
+    expect(parseReportAccessPeople(wire)).toEqual([
+      {
+        userId: 'u1',
+        name: 'Demo Admin',
+        role: 'admin',
+        granted: true,
+        grantedAt: '2026-11-22T10:00:00Z',
+      },
+      {
+        userId: 'u2',
+        name: 'Demo Agent',
+        role: 'agent',
+        granted: false,
+        grantedAt: null,
+      },
+    ]);
+  });
+
+  it('drops junk rows', () => {
+    expect(parseReportAccessPeople([null, 3, { userId: '' }])).toEqual([]);
+    expect(parseReportAccessPeople('x')).toEqual([]);
   });
 });
 

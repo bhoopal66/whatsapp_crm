@@ -130,7 +130,8 @@ export default function ChatTagReportPage() {
     [report]
   );
   const daily = useMemo(
-    () => (report ? dailySeries(report) : { data: [], categories: [] }),
+    () =>
+      report ? dailySeries(report) : { data: [], categories: [], colors: [] },
     [report]
   );
 
@@ -399,6 +400,7 @@ export default function ChatTagReportPage() {
                       data={chartData}
                       index="day"
                       categories={daily.categories}
+                      colors={daily.colors}
                       type="stacked"
                       valueFormatter={(v) => String(v)}
                       allowDecimals={false}
