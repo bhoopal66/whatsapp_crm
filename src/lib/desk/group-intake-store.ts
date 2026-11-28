@@ -47,6 +47,12 @@ export interface GroupLink {
   updatedAt: string;
 }
 
+/** `desk_group_link_for_group`: what the inbound hook needs of a link. */
+export type GroupIntakeLink = Pick<
+  GroupLink,
+  'bankCode' | 'bankName' | 'intakeEnabled' | 'repliesEnabled'
+>;
+
 /** What `setLink` stores; null removes the link. */
 export interface GroupLinkInput {
   bankCode: string;
@@ -181,6 +187,28 @@ export class DeskGroupIntakeStore {
       p_account: account,
     });
     return rows.map(parseGroupLink);
+  }
+
+  /**
+   * The inbound hook's read, with no actor: one group's link, or null for
+   * an unlinked group or a submission group's mirror.
+   */
+  async linkForGroup(
+    account: string,
+    groupId: string
+  ): Promise<GroupIntakeLink | null> {
+    const rows = await deskRpc(this.db, 'desk_group_link_for_group', {
+      p_account: account,
+      p_group: groupId,
+    });
+    const r = rows[0];
+    if (!r) return null;
+    return {
+      bankCode: String(r.bank_code),
+      bankName: String(r.bank_name ?? ''),
+      intakeEnabled: r.intake_enabled === true,
+      repliesEnabled: r.replies_enabled === true,
+    };
   }
 
   /** The one live staff member with this number (digits), else null. */

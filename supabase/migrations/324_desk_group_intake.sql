@@ -9,7 +9,8 @@
 --    answer the file in the group. Owners, admins and team leaders who
 --    can see the group set it (desk_group_link_set); a submission group's
 --    mirror (299) is never linked: it is GROUP_NOT_FOUND, as in
---    loadGroupForCaller.
+--    loadGroupForCaller. The inbound hook reads one group's link with
+--    no actor (desk_group_link_for_group).
 --  * Who posted: desk_group_staff_for_phone, the one live staff member
 --    whose saved number (142's coordinator_phones) is the sender's
 --    digits; none or more than one is NULL (never guessed), as 230's
@@ -217,6 +218,22 @@ BEGIN
    WHERE l.account_id = p_account AND public.desk_group_can_see(p_actor, p_account, l.group_id)
    ORDER BY g.name, l.group_id;
 END;
+$$;
+
+-- The inbound hook (no actor): one group's link, or no row for an
+-- unlinked group or a submission group's mirror.
+CREATE OR REPLACE FUNCTION public.desk_group_link_for_group(p_account uuid, p_group uuid)
+RETURNS TABLE (bank_code text, intake_enabled boolean, replies_enabled boolean, bank_name text)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+  SELECT l.bank_code, l.intake_enabled, l.replies_enabled, b.name
+    FROM public.desk_group_links l
+    JOIN public.case_banks b ON b.account_id = l.account_id AND b.code = l.bank_code
+   WHERE l.account_id = p_account AND l.group_id = p_group
+     AND NOT public.desk_group_is_mirror(p_account, p_group)
 $$;
 
 -- ---------- 4. Who posted ----------
@@ -450,7 +467,8 @@ $$;
 REVOKE ALL ON FUNCTION
   public.desk_group_is_mirror(uuid, uuid), public.desk_group_can_see(uuid, uuid, uuid),
   public.desk_group_link_set(uuid, uuid, uuid, text, boolean, boolean, timestamptz),
-  public.desk_group_link_list(uuid, uuid), public.desk_group_staff_for_phone(uuid, text),
+  public.desk_group_link_list(uuid, uuid), public.desk_group_link_for_group(uuid, uuid),
+  public.desk_group_staff_for_phone(uuid, text),
   public.desk_group_intake_record(uuid, uuid, text, uuid, text, timestamptz),
   public.desk_group_reply_claim(uuid, uuid, timestamptz),
   public.desk_group_reply_settle(uuid, uuid, boolean, text, timestamptz),
@@ -458,7 +476,8 @@ REVOKE ALL ON FUNCTION
 FROM PUBLIC, anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION
   public.desk_group_link_set(uuid, uuid, uuid, text, boolean, boolean, timestamptz),
-  public.desk_group_link_list(uuid, uuid), public.desk_group_staff_for_phone(uuid, text),
+  public.desk_group_link_list(uuid, uuid), public.desk_group_link_for_group(uuid, uuid),
+  public.desk_group_staff_for_phone(uuid, text),
   public.desk_group_intake_record(uuid, uuid, text, uuid, text, timestamptz),
   public.desk_group_reply_claim(uuid, uuid, timestamptz),
   public.desk_group_reply_settle(uuid, uuid, boolean, text, timestamptz),

@@ -104,6 +104,44 @@ describe('DeskGroupIntakeStore', () => {
     });
   });
 
+  it("reads one group's link with no actor; none is null", async () => {
+    const linked = storeAnswering({
+      data: [
+        {
+          bank_code: 'RAK',
+          intake_enabled: true,
+          replies_enabled: false,
+          bank_name: 'RAKBANK',
+        },
+      ],
+    });
+    expect(await linked.store.linkForGroup('acc1', 'g1')).toEqual({
+      bankCode: 'RAK',
+      bankName: 'RAKBANK',
+      intakeEnabled: true,
+      repliesEnabled: false,
+    });
+    expect(linked.calls).toEqual([
+      {
+        fn: 'desk_group_link_for_group',
+        args: { p_account: 'acc1', p_group: 'g1' },
+      },
+    ]);
+    // unlinked and a submission group's mirror both answer no row
+    expect(
+      await storeAnswering({ data: [] }).store.linkForGroup('acc1', 'g2')
+    ).toBeNull();
+  });
+
+  it('pins desk_group_link_for_group to the service role, no actor', () => {
+    const at = SQL.indexOf('FUNCTION public.desk_group_link_for_group(');
+    expect(at).toBeGreaterThan(-1);
+    expect(SQL.slice(at, at + 120)).toContain('(p_account uuid, p_group uuid)');
+    const grant = SQL.slice(SQL.lastIndexOf('GRANT EXECUTE'));
+    expect(grant).toContain('public.desk_group_link_for_group(uuid, uuid)');
+    expect(grant).toContain('TO service_role;');
+  });
+
   it('throws a NOT_LINKED refusal as DeskRefusedError', async () => {
     const { store } = storeAnswering({
       error: { code: '23514', hint: 'NOT_LINKED' },

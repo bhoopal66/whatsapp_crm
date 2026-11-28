@@ -32,10 +32,6 @@ const PDF = new TextEncoder().encode('%PDF-1.4 test');
 const db = {
   group: { data: GROUP, error: null } as { data: unknown; error: unknown },
   row: { data: null, error: null } as { data: unknown; error: unknown },
-  profiles: { data: [{ user_id: 'admin-1' }], error: null } as {
-    data: unknown;
-    error: unknown;
-  },
   outCount: { count: 0, error: null } as { count: number; error: unknown },
   upserts: [] as Record<string, unknown>[],
 };
@@ -66,7 +62,6 @@ const admin = {
       eq: () => b,
       in: () => b,
       is: () => b,
-      limit: async () => db.profiles,
       gte: async () => db.outCount,
       maybeSingle: async () =>
         table === 'whatsapp_groups' ? db.group : db.row,
@@ -81,18 +76,14 @@ const admin = {
 } as unknown as GroupFileDeps['admin'];
 
 const LINK = {
-  groupId: 'grp-1',
-  groupName: 'RAK desk',
   bankCode: 'RAK',
   bankName: 'RAKBANK',
   intakeEnabled: true,
   repliesEnabled: true,
-  updatedBy: 'admin-1',
-  updatedAt: '2026-11-28T00:00:00Z',
 };
 
 const groupStore = {
-  listLinks: vi.fn(),
+  linkForGroup: vi.fn(),
   staffForPhone: vi.fn(),
   record: vi.fn(),
   claimReply: vi.fn(),
@@ -133,14 +124,13 @@ beforeEach(() => {
   vi.spyOn(console, 'warn').mockImplementation(() => {});
   db.group = { data: GROUP, error: null };
   db.row = { data: messageRow(), error: null };
-  db.profiles = { data: [{ user_id: 'admin-1' }], error: null };
   db.outCount = { count: 0, error: null };
   db.upserts = [];
   h.read.mockResolvedValue(PDF);
   h.send.mockResolvedValue({ messageId: 'reply-1' });
   h.limit.mockReturnValue({ success: true });
   upload.mockResolvedValue({ error: null });
-  groupStore.listLinks.mockResolvedValue([LINK]);
+  groupStore.linkForGroup.mockResolvedValue(LINK);
   groupStore.staffForPhone.mockResolvedValue('staff-1');
   groupStore.record.mockImplementation(async (_a, r) => r.outcome);
   groupStore.claimReply.mockResolvedValue(true);
@@ -153,13 +143,15 @@ const recorded = () => groupStore.record.mock.calls.map((c) => c[1]);
 
 describe('what is looked at', () => {
   it('a group with no link, or intake off, records nothing', async () => {
-    groupStore.listLinks.mockResolvedValueOnce([]);
+    groupStore.linkForGroup.mockResolvedValueOnce(null);
     await processGroupFile(deps(), REF);
-    groupStore.listLinks.mockResolvedValueOnce([
-      { ...LINK, intakeEnabled: false, repliesEnabled: false },
-    ]);
+    groupStore.linkForGroup.mockResolvedValueOnce({
+      ...LINK,
+      intakeEnabled: false,
+      repliesEnabled: false,
+    });
     await processGroupFile(deps(), REF);
-    expect(groupStore.listLinks).toHaveBeenCalledWith('admin-1', ACCOUNT);
+    expect(groupStore.linkForGroup).toHaveBeenCalledWith(ACCOUNT, 'grp-1');
     expect(groupStore.staffForPhone).not.toHaveBeenCalled();
     expect(groupStore.record).not.toHaveBeenCalled();
     expect(h.send).not.toHaveBeenCalled();
@@ -170,20 +162,20 @@ describe('what is looked at', () => {
     await processGroupFile(deps(), REF);
     db.row = { data: messageRow({ type: 'text', media: null }), error: null };
     await processGroupFile(deps(), REF);
-    expect(groupStore.listLinks).not.toHaveBeenCalled();
+    expect(groupStore.linkForGroup).not.toHaveBeenCalled();
     expect(groupStore.record).not.toHaveBeenCalled();
   });
 
   it("a submission group's message (no group row of this number) never reaches the desk", async () => {
     db.group = { data: null, error: null };
     await processGroupFile(deps(), REF);
-    expect(groupStore.listLinks).not.toHaveBeenCalled();
+    expect(groupStore.linkForGroup).not.toHaveBeenCalled();
     expect(groupStore.record).not.toHaveBeenCalled();
     expect(desk.whatsappIntake).not.toHaveBeenCalled();
   });
 
-  it('a mirror is not among the links, so it is never filed', async () => {
-    groupStore.listLinks.mockResolvedValue([{ ...LINK, groupId: 'other' }]);
+  it('a mirror answers no link, so it is never filed', async () => {
+    groupStore.linkForGroup.mockResolvedValue(null);
     await processGroupFile(deps(), REF);
     expect(groupStore.record).not.toHaveBeenCalled();
   });
@@ -526,7 +518,7 @@ describe('never throws', () => {
     db.group = { data: null, error: { code: '57014' } };
     await expect(processGroupFile(deps(), REF)).resolves.toBeUndefined();
     db.group = { data: GROUP, error: null };
-    groupStore.listLinks.mockRejectedValueOnce(new Error('boom'));
+    groupStore.linkForGroup.mockRejectedValueOnce(new Error('boom'));
     await expect(processGroupFile(deps(), REF)).resolves.toBeUndefined();
     expect(groupStore.record).not.toHaveBeenCalled();
   });

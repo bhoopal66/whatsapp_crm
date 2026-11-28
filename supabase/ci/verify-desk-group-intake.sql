@@ -212,6 +212,23 @@ BEGIN
   PERFORM desk_group_link_set(u_owner, a_acct, g2, NULL, NULL, NULL, v_now);
   n := n + 1; failed := failed || pg_temp.dg_ok(
     NOT EXISTS (SELECT 1 FROM desk_group_links l WHERE l.group_id = g2), 'a NULL bank did not remove the link');
+  -- the inbound hook's read, with no actor: linked, unlinked, mirror
+  SELECT x.* INTO r FROM desk_group_link_for_group(a_acct, g1) x;
+  n := n + 1; failed := failed || pg_temp.dg_ok(
+    r.bank_code = 'RAK' AND r.bank_name = 'RAKBANK' AND r.intake_enabled AND r.replies_enabled
+    AND (SELECT count(*) FROM desk_group_link_for_group(a_acct, g1)) = 1,
+    format('the link of a linked group was not read (%s)', row_to_json(r)));
+  n := n + 1; failed := failed || pg_temp.dg_ok(
+    (SELECT count(*) FROM desk_group_link_for_group(a_acct, g2)) = 0
+    AND (SELECT count(*) FROM desk_group_link_for_group(gen_random_uuid(), g1)) = 0,
+    'an unlinked group, or another account''s, answered a link');
+  -- a mirror's row can only be planted by hand: it still reads as no link
+  INSERT INTO desk_group_links (account_id, group_id, bank_code, intake_enabled, replies_enabled)
+    VALUES (a_acct, g_mir, 'RAK', true, true);
+  n := n + 1; failed := failed || pg_temp.dg_ok(
+    (SELECT count(*) FROM desk_group_link_for_group(a_acct, g_mir)) = 0,
+    'a submission group''s mirror answered a link');
+  DELETE FROM desk_group_links l WHERE l.group_id = g_mir;
 
   -- ---------- 3. who posted ----------
   n := n + 1; failed := failed || pg_temp.dg_ok(desk_group_staff_for_phone(a_acct, '971500324050') IS NULL,
@@ -316,6 +333,10 @@ BEGIN
     'SELECT count(*)::text FROM public.desk_group_intake', 'ERROR 42501%');
   n := n + 1; failed := failed || pg_temp.dg_check('authenticated called desk_group_staff_for_phone', 'authenticated',
     'SELECT desk_group_staff_for_phone(gen_random_uuid(), ''971500324051'')::text', 'ERROR 42501%');
+  n := n + 1; failed := failed || pg_temp.dg_check('authenticated called desk_group_link_for_group', 'authenticated',
+    'SELECT count(*)::text FROM desk_group_link_for_group(gen_random_uuid(), gen_random_uuid())', 'ERROR 42501%');
+  n := n + 1; failed := failed || pg_temp.dg_check('service_role could not call desk_group_link_for_group', 'service_role',
+    'SELECT count(*)::text FROM desk_group_link_for_group(gen_random_uuid(), gen_random_uuid())', '0');
   n := n + 1; failed := failed || pg_temp.dg_check('service_role called the internal desk_group_can_see', 'service_role',
     'SELECT desk_group_can_see(gen_random_uuid(), gen_random_uuid(), gen_random_uuid())::text', 'ERROR 42501%');
 

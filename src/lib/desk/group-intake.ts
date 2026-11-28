@@ -43,7 +43,7 @@ import { sendGroupText } from '@/lib/whatsapp/groups';
 import {
   DeskGroupIntakeStore,
   type GroupIntakeOutcome,
-  type GroupLink,
+  type GroupIntakeLink,
 } from './group-intake-store';
 import { groupReplyText, type GroupReply } from './group-intake-text';
 import { mergeCaption } from './intake-form';
@@ -154,31 +154,6 @@ function errorCode(err: unknown): string {
   return text(e?.code) ?? text(e?.name) ?? typeof err;
 }
 
-/**
- * The group's link. `desk_group_link_list` answers for an actor, and this
- * runs for nobody: it asks as one live owner or admin of the account (who
- * sees every group but a submission group's mirror). A read, nothing more.
- */
-async function linkFor(
-  admin: Admin,
-  store: DeskGroupIntakeStore,
-  accountId: string,
-  groupId: string
-): Promise<GroupLink | null> {
-  const { data, error } = await admin
-    .from('profiles')
-    .select('user_id')
-    .eq('account_id', accountId)
-    .in('account_role', ['owner', 'admin'])
-    .is('deactivated_at', null)
-    .limit(1);
-  if (error) throw error;
-  const actor = text((data as { user_id?: unknown }[] | null)?.[0]?.user_id);
-  if (!actor) return null;
-  const links = await store.listLinks(actor, accountId);
-  return links.find((l) => l.groupId === groupId) ?? null;
-}
-
 function outcomeOf(
   result: ItemResult,
   tags: ItemTags
@@ -213,7 +188,7 @@ function replyFor(
   detail: string | null,
   result: ItemResult | null,
   tags: ItemTags,
-  link: GroupLink
+  link: GroupIntakeLink
 ): GroupReply | null {
   switch (outcome) {
     case 'filed':
@@ -303,7 +278,9 @@ async function run(
   seen.rowId = row.id;
   if (!FILE_TYPES.includes(row.type) || !row.media) return;
 
-  const link = await linkFor(admin, store, accountId, g.id);
+  // Read with no actor (324's desk_group_link_for_group): an unlinked
+  // group and a submission group's mirror answer no link.
+  const link = await store.linkForGroup(accountId, g.id);
   if (!link || !link.intakeEnabled) return;
 
   const record = (
