@@ -24,7 +24,6 @@
  * `mismatch` (null from `readDocumentBytes`), logged once with the row id
  * only. A row with no recorded hash (NULL) has nothing to compare against.
  */
-import { createHash } from 'node:crypto';
 
 import { serverSupabaseUrl } from '@/lib/supabase/urls';
 
@@ -151,7 +150,15 @@ export async function readDocument(
 ): Promise<DocumentRead> {
   const read = await readUnverified(doc, deps);
   if (read.kind !== 'bytes' || !doc.sha256) return read;
-  const got = createHash('sha256').update(read.bytes).digest('hex');
+  // Web Crypto, not node:crypto: client modules reach this file through
+  // lib/privacy/erase-objects.ts (client-bundle.test.ts).
+  const digest = await globalThis.crypto.subtle.digest(
+    'SHA-256',
+    read.bytes as Uint8Array<ArrayBuffer>
+  );
+  const got = Array.from(new Uint8Array(digest), (b) =>
+    b.toString(16).padStart(2, '0')
+  ).join('');
   if (got === doc.sha256) return read;
   console.error(`[case-files] sha256 mismatch on read: ${doc.id ?? '-'}`);
   return { kind: 'mismatch' };
