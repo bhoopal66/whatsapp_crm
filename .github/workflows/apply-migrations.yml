@@ -90,6 +90,63 @@ jobs:
               -- 261 drops the per-chat helper 254 created.
               ('261', to_regproc('public.funnel_report') is not null and to_regproc('public.funnel_chat_reached_tag') is null)
             ) t(m, present) order by m"
+          # 262 on: one object each file creates first (a function by name,
+          # as some are overloaded), or, for a file that only restates, a
+          # phrase its body adds. Files with neither are left out.
+          psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -c "
+            with fn(name) as (select proname from pg_proc where pronamespace = 'public'::regnamespace),
+            src(name, body) as (select proname, prosrc from pg_proc where pronamespace = 'public'::regnamespace)
+            select m as migration, present from (values
+              ('262', exists (select 1 from fn where name = 'contacts_legal_hold_guard')),
+              ('264', to_regclass('public.webhook_inbox') is not null),
+              ('265', exists (select 1 from fn where name = 'member_lately_admin')),
+              ('266', exists (select 1 from fn where name = 'member_handover')),
+              ('267', exists (select 1 from fn where name = 'sg_reconcile_echo')),
+              ('269', exists (select 1 from fn where name = 'automation_save')),
+              ('274', exists (select 1 from fn where name = 'deal_room_ring_message')),
+              ('275', exists (select 1 from fn where name = 'hr_automsg_stale_reason')),
+              ('278', exists (select 1 from fn where name = 'calendar_bell_body')),
+              ('279', exists (select 1 from fn where name = 'hr_is_line')),
+              ('280', to_regclass('public.contact_suppression_keys') is not null),
+              ('281', exists (select 1 from fn where name = 'case_csat_handoff')),
+              ('282', exists (select 1 from fn where name = 'privacy_media_objects')),
+              ('284', exists (select 1 from fn where name = 'conversations_session_guard')),
+              ('286', exists (select 1 from fn where name = 'contact_notes_frozen')),
+              ('287', exists (select 1 from fn where name = 'member_lately_admin_in')),
+              ('288', to_regclass('public.login_email_permits') is not null),
+              ('290', to_regclass('public.kb_learn_settings') is not null),
+              ('292', exists (select 1 from fn where name = 'backfill_message_failure_reasons')),
+              ('293', exists (select 1 from fn where name = 'webhook_endpoint_streak')),
+              ('294', exists (select 1 from fn where name = 'pbx_answered_call')),
+              ('296', exists (select 1 from fn where name = 'dashboard_open_deal_values')),
+              ('297', to_regclass('public.case_doc_requests') is not null),
+              ('299', exists (select 1 from fn where name = 'staff_removal_phone')),
+              ('300', exists (select 1 from fn where name = 'flow_save')),
+              ('301', exists (select 1 from fn where name = 'broadcast_recipients_stopped_guard')),
+              ('302', exists (select 1 from fn where name = 'hr_automsg_due_page')),
+              ('303', exists (select 1 from fn where name = 'desk_tray_copy_failed')),
+              ('305', to_regclass('public.v1_message_keys') is not null),
+              ('307', exists (select 1 from fn where name = 'chat_assert_not_sensitive')),
+              ('308', exists (select 1 from fn where name = 'sg_user_sees_contact')),
+              ('312', exists (select 1 from fn where name = 'deal_room_open_to_guest')),
+              ('314', exists (select 1 from fn where name = 'whatsapp_channel_restrict')),
+              ('315', exists (select 1 from fn where name = 'api_key_webhooks_off')),
+              ('316', exists (select 1 from fn where name = 'customer_documents_stats')),
+              ('317', exists (select 1 from fn where name = 'privacy_unlinked_task_ids')),
+              ('318', to_regclass('public.kb_learn_skills') is not null),
+              ('319', exists (select 1 from fn where name = 'calendar_events_stale_bells')),
+              ('322', exists (select 1 from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname = 'WhatsApp media is uploaded by agents and up')),
+              ('323', to_regclass('public.inbox_assistant_settings') is not null),
+              ('324', to_regclass('public.automation_time_runs') is not null),
+              ('326', exists (select 1 from fn where name = 'response_reply_status_changed')),
+              ('327', exists (select 1 from fn where name = 'automated_sends_today')),
+              ('328', exists (select 1 from fn where name = 'desk_leave_change')),
+              ('329', exists (select 1 from pg_proc where proname = 'desk_tray_page' and 'p_q' = any (proargnames))),
+              ('330', exists (select 1 from src where name = 'report_access_set' and body like '%deactivated_at IS NOT NULL%')),
+              ('331', exists (select 1 from src where name = 'contacts_sorted_page' and body like '%''unknown''%')),
+              ('332', exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'conversation_notes' and column_name = 'deleted_at')),
+              ('333', exists (select 1 from src where name = 'sg_can_send' and body like '%sg_archive_role%'))
+            ) t(m, present) order by m"
 
       - name: Apply the migrations
         if: inputs.mode == 'apply'
