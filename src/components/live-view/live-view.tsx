@@ -30,6 +30,11 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import {
+  ALL_TEAMS,
+  type LiveTeam,
+  type LiveTeamSelection,
+} from '@/lib/live-view/team-filter';
 import type { LivePerson, LiveTeamView } from '@/lib/live-view/view';
 import type { PresenceStatus } from '@/lib/presence';
 import { cn } from '@/lib/utils';
@@ -60,6 +65,13 @@ export interface LiveViewProps {
   updatedLabel: string | null;
   refreshing: boolean;
   onRefresh: () => void;
+  /** The teams the viewer may pick; empty: no filter is shown. */
+  teams?: readonly LiveTeam[];
+  /** 'all', or a team id from `teams`. */
+  teamId?: LiveTeamSelection;
+  onTeamChange?: (teamId: LiveTeamSelection) => void;
+  /** Admins and owners pick "All teams"; a leader "All my teams". */
+  canPickAnyTeam?: boolean;
 }
 
 export function LiveView({
@@ -69,6 +81,10 @@ export function LiveView({
   updatedLabel,
   refreshing,
   onRefresh,
+  teams = [],
+  teamId = ALL_TEAMS,
+  onTeamChange,
+  canPickAnyTeam = false,
 }: LiveViewProps) {
   const t = useTranslations('LiveView');
 
@@ -102,6 +118,29 @@ export function LiveView({
           {refreshing ? t('refreshing') : t('refresh')}
         </Button>
       </div>
+
+      {teams.length > 0 && onTeamChange && (
+        <label className="flex items-center gap-2 text-sm">
+          <span className="text-muted-foreground shrink-0">
+            {t('teamFilter')}
+          </span>
+          <select
+            data-testid="live-team-filter"
+            className="border-input bg-card dark:bg-input/30 h-8 min-w-0 rounded-md border px-2 text-sm"
+            value={teamId}
+            onChange={(e) => onTeamChange(e.target.value)}
+          >
+            <option value={ALL_TEAMS}>
+              {canPickAnyTeam ? t('allTeams') : t('allMyTeams')}
+            </option>
+            {teams.map((team) => (
+              <option key={team.id} value={team.id}>
+                {team.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
 
       {error && (
         <p

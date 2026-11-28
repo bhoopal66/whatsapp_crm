@@ -117,6 +117,23 @@ export function teamRosterCacheKey(userId: string): string {
   return `${TEAM_ROSTER_CACHE_PREFIX}${userId}`;
 }
 
+/** Prefix covering every Live view team list, for blanket invalidation. */
+export const LIVE_TEAMS_CACHE_PREFIX = 'teams:live:';
+
+/**
+ * The teams the Live view's filter offers. The answer depends on the
+ * workspace, the viewer and what their role may pick, so the key names
+ * all three: a person in two workspaces, or two users on one device,
+ * never read each other's list.
+ */
+export function liveTeamsCacheKey(
+  accountId: string,
+  userId: string,
+  scope: 'all' | 'led'
+): string {
+  return `${LIVE_TEAMS_CACHE_PREFIX}${accountId}:${userId}:${scope}`;
+}
+
 /** Prefix covering every account's chat tags, for blanket invalidation. */
 export const CHAT_TAGS_CACHE_PREFIX = 'chat-tags:';
 

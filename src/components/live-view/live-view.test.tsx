@@ -111,4 +111,21 @@ describe('LiveView', () => {
     // A failed refresh keeps the last figures.
     expect(failed).toContain('data-testid="live-row"');
   });
+
+  it('shows the team filter only when there are teams to pick', () => {
+    expect(render()).not.toContain('data-testid="live-team-filter"');
+    const teams = [
+      { id: 't1', name: 'Sales', leaderUserId: 'u-layla', memberIds: [] },
+    ];
+    const leader = render({ teams, onTeamChange: () => undefined });
+    expect(leader).toContain('data-testid="live-team-filter"');
+    expect(leader).toContain('All my teams');
+    expect(leader).toContain('>Sales<');
+    const admin = render({
+      teams,
+      onTeamChange: () => undefined,
+      canPickAnyTeam: true,
+    });
+    expect(admin).toContain('All teams');
+  });
 });
