@@ -12,6 +12,17 @@ and polish.
 
 ## [Unreleased]
 
+### Security: an invitation link opens only by the link itself
+
+The old way of opening an invitation by its stored fingerprint (hash) is
+switched off. Before, someone who could read that fingerprint, such as an
+admin or anyone holding a copy of the database, could use it to join with
+another person's invitation. Invitation links work exactly as before; the
+app has used the new way since migration 287.
+
+**Migration required: 324** (`324_invitation_hash_calls_closed.sql`, after
+287). Safe to apply before or after this build.
+
 ### Added: the Assistant panel in the inbox
 
 An open chat gets an **Assistant** button among the chat header's actions

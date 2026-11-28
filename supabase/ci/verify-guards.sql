@@ -22,6 +22,11 @@ DECLARE
   failed TEXT[] := '{}';
 BEGIN
   BEGIN
+  -- 324 revokes the hash-taking invitation calls from every session; their
+  -- bodies are what peek_invitation_token / redeem_invitation_token run,
+  -- so they are exercised directly under a grant the rollback below undoes.
+  GRANT EXECUTE ON FUNCTION public.peek_invitation(text) TO anon, authenticated;
+  GRANT EXECUTE ON FUNCTION public.redeem_invitation(text) TO authenticated;
   EXECUTE $fn$
     CREATE FUNCTION pg_temp.gd_ok(p_ok boolean, p_what text) RETURNS text
     LANGUAGE sql AS $b$ SELECT CASE WHEN p_ok IS TRUE THEN NULL ELSE p_what END $b$
