@@ -111,6 +111,7 @@ export async function providerHttpError(
     // Surface an auth failure as 401 so the settings "Test key" button
     // can show "invalid key"; everything else is an upstream 502.
     status: code === 'invalid_key' ? 401 : 502,
+    upstreamStatus: status,
   });
 }
 

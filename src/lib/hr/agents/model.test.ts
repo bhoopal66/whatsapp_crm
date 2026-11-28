@@ -17,6 +17,8 @@ vi.mock('@/lib/ai/providers/anthropic', () => ({
 import {
   CLASSIFY_MAX_TOKENS,
   DRAFT_MAX_TOKENS,
+  RETRY_DELAY_MAX_MS,
+  RETRY_DELAY_MS,
   createAiModelPort,
 } from './model';
 import { run } from './orchestrator';
@@ -206,6 +208,86 @@ describe('026a model port over the providers', () => {
     expect(a.systemPrompt).not.toContain(KEY);
     expect(JSON.stringify(a.messages)).not.toContain(KEY);
     expect(JSON.stringify(p)).not.toContain(KEY);
+  });
+
+  it('one retry after a short delay on a 429 or a provider 5xx', async () => {
+    for (const err of [
+      new AiError('Anthropic rate limit reached', {
+        code: 'rate_limited',
+        upstreamStatus: 429,
+      }),
+      new AiError('Anthropic API error (503)', {
+        code: 'provider_error',
+        upstreamStatus: 503,
+      }),
+    ]) {
+      providers.anthropic.mockReset();
+      providers.anthropic
+        .mockRejectedValueOnce(err)
+        .mockResolvedValueOnce({
+          text: 'A recruiter will reply.',
+          usage: USAGE,
+        });
+      const sleep = vi.fn(async () => {});
+      const out = await createAiModelPort({
+        config: config(),
+        retryDelayMs: 60_000,
+        sleep,
+      }).complete(draftInput());
+      expect(out).toEqual({ text: 'A recruiter will reply.' });
+      expect(providers.anthropic).toHaveBeenCalledTimes(2);
+      // Bounded: a long requested delay is clamped.
+      expect(sleep).toHaveBeenCalledExactlyOnceWith(RETRY_DELAY_MAX_MS);
+    }
+  });
+
+  it('a second transient failure is thrown: exactly one retry', async () => {
+    const second = new AiError('Anthropic API error (502)', {
+      code: 'provider_error',
+      upstreamStatus: 502,
+    });
+    providers.anthropic
+      .mockRejectedValueOnce(
+        new AiError('Anthropic rate limit reached', { code: 'rate_limited' })
+      )
+      .mockRejectedValueOnce(second)
+      .mockResolvedValue({ text: 'never', usage: USAGE });
+    const sleep = vi.fn(async () => {});
+    await expect(
+      createAiModelPort({ config: config(), sleep }).complete(draftInput())
+    ).rejects.toBe(second);
+    expect(providers.anthropic).toHaveBeenCalledTimes(2);
+    expect(sleep).toHaveBeenCalledExactlyOnceWith(RETRY_DELAY_MS);
+  });
+
+  it('never retries other errors', async () => {
+    for (const err of [
+      new AiError('Anthropic rejected the API key', {
+        code: 'invalid_key',
+        status: 401,
+        upstreamStatus: 401,
+      }),
+      new AiError('Anthropic API error (400)', {
+        code: 'provider_error',
+        upstreamStatus: 400,
+      }),
+      new AiError('The AI provider took too long to respond.', {
+        code: 'timeout',
+        status: 504,
+      }),
+      new Error('boom'),
+    ]) {
+      providers.anthropic.mockReset();
+      providers.anthropic
+        .mockRejectedValueOnce(err)
+        .mockResolvedValue({ text: 'never', usage: USAGE });
+      const sleep = vi.fn(async () => {});
+      await expect(
+        createAiModelPort({ config: config(), sleep }).complete(draftInput())
+      ).rejects.toBe(err);
+      expect(providers.anthropic).toHaveBeenCalledTimes(1);
+      expect(sleep).not.toHaveBeenCalled();
+    }
   });
 
   it('prompt injection stays inside the delimited data block', async () => {

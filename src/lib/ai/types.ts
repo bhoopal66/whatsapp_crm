@@ -160,14 +160,22 @@ export class AiError extends Error {
   readonly status: number;
   /** Tokens the provider billed for the failed call, when it said. */
   readonly usage: AiUsage | null;
+  /** The provider's own HTTP status, when it answered with an error. */
+  readonly upstreamStatus: number | null;
   constructor(
     message: string,
-    opts: { code?: string; status?: number; usage?: AiUsage | null } = {}
+    opts: {
+      code?: string;
+      status?: number;
+      usage?: AiUsage | null;
+      upstreamStatus?: number | null;
+    } = {}
   ) {
     super(message);
     this.name = 'AiError';
     this.code = opts.code ?? 'ai_error';
     this.status = opts.status ?? 502;
     this.usage = opts.usage ?? null;
+    this.upstreamStatus = opts.upstreamStatus ?? null;
   }
 }
