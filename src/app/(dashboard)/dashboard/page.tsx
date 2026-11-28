@@ -161,9 +161,9 @@ export default function DashboardPage() {
     <div className="mx-auto w-full max-w-screen-2xl space-y-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-foreground truncate text-2xl font-bold">
+          <h2 className="text-foreground truncate text-2xl font-bold">
             {name ? t('greeting.withName', { greeting, name }) : greeting}
-          </h1>
+          </h2>
           <p className="text-muted-foreground mt-1 text-sm">
             {account?.name
               ? t('subtitle', { date, workspace: account.name })
