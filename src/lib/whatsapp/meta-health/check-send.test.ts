@@ -49,7 +49,7 @@ function fake(
         reasons: [],
       },
     ],
-    whatsapp_config: [{ created_at: '2026-01-01T00:00:00Z' }],
+    whatsapp_config: [{ provider: 'meta', created_at: '2026-01-01T00:00:00Z' }],
     meta_template_health: [],
     ...opts.tables,
   };
@@ -165,6 +165,32 @@ describe('checkSend, enforce on', () => {
     expect(calls(rpc, 'send_protection_spend_add')).toEqual([]);
   });
 
+  it("the owner's daily_marketing_cap lowers the ramp (the lower wins)", async () => {
+    const settings = () => ({
+      data: [{ enforce: true, daily_marketing_cap: 5 }],
+      error: null,
+    });
+    const { client } = fake({
+      rpc: {
+        meta_protection_settings_get: settings,
+        meta_marketing_sent_today: () => ({ data: 5, error: null }),
+      },
+    });
+    expect(await checkSend(client, mkt, NOW)).toMatchObject({
+      allow: false,
+      reason: 'RAMP_CAP_REACHED',
+      deferUntil: '2026-11-29T00:00:00.000Z',
+    });
+    // Under the owner's cap, the ramp (600) is not reached either.
+    const under = fake({
+      rpc: {
+        meta_protection_settings_get: settings,
+        meta_marketing_sent_today: () => ({ data: 4, error: null }),
+      },
+    });
+    expect((await checkSend(under.client, mkt, NOW)).allow).toBe(true);
+  });
+
   it('a paused or disabled template is denied, in any language', async () => {
     for (const row of [
       { status: 'PAUSED', paused_until: null },
@@ -228,6 +254,76 @@ describe('checkSend, enforce on', () => {
       reason: 'TOTAL_BLOCK',
       enforced: true,
     });
+  });
+});
+
+describe('checkSend on a number that is not Meta Cloud API', () => {
+  // Meta's signals on record for it (say, from before a provider switch)
+  // would pause it; none of them may be read.
+  const whapi = (rpc: Record<string, () => Res> = {}) =>
+    fake({
+      rpc: {
+        meta_marketing_sent_today: () => {
+          throw new Error('CONFIG_INVALID: not a Meta number');
+        },
+        meta_protection_settings_get: () => ({
+          data: [{ enforce: true, daily_marketing_cap: 0 }],
+          error: null,
+        }),
+        ...rpc,
+      },
+      tables: {
+        whatsapp_config: [{ provider: 'whapi', created_at: null }],
+        meta_number_state: [
+          {
+            quality_rating: 'RED',
+            messaging_limit_tier: 'TIER_250',
+            account_status: 'BANNED',
+            assessed_state: 'ALL_PAUSED',
+            reasons: [],
+          },
+        ],
+        meta_template_health: [{ status: 'PAUSED', paused_until: null }],
+      },
+    });
+
+  it('allows marketing: no number state, template health, ramp or owner cap', async () => {
+    const { client, rpc } = whapi();
+    const r = await checkSend(client, mkt, NOW);
+    expect(r).toMatchObject({ allow: true, reason: 'ALLOWED', enforced: true });
+    expect(calls(rpc, 'meta_marketing_sent_today')).toEqual([]);
+    // The spend cap still applies.
+    expect(calls(rpc, 'send_protection_spend_add')).toHaveLength(1);
+  });
+
+  it('still applies opt-out, suppression and the spend cap', async () => {
+    let { client } = whapi({
+      send_protection_recipient_signals: () => ({
+        data: [
+          { opted_out: true, sent_without_reply: 0, failed_deliveries: 0 },
+        ],
+        error: null,
+      }),
+    });
+    expect((await checkSend(client, mkt, NOW)).reason).toBe('OPTED_OUT');
+    ({ client } = whapi({
+      send_protection_recipient_signals: () => ({
+        data: [
+          { opted_out: false, sent_without_reply: 3, failed_deliveries: 0 },
+        ],
+        error: null,
+      }),
+    }));
+    expect((await checkSend(client, mkt, NOW)).reason).toBe(
+      'SUPPRESSED_NO_REPLY'
+    );
+    ({ client } = whapi({
+      send_protection_spend_add: () => ({
+        data: [{ allowed: false, total_micros: 10_000, day: '2026-11-28' }],
+        error: null,
+      }),
+    }));
+    expect((await checkSend(client, mkt, NOW)).reason).toBe('SPEND_CAP');
   });
 });
 

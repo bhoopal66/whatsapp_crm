@@ -17,7 +17,11 @@ function ctx(over: {
   recipient?: Partial<RecipientSignals>;
   state?: Partial<GuardNumberState>;
   paused?: string[];
-  counts?: { sentToday: number; newRecipientsToday: number };
+  counts?: {
+    sentToday: number;
+    newRecipientsToday: number;
+    dailyMarketingCap?: number | null;
+  };
   spendAllowed?: boolean;
   fail?: string;
 }) {
@@ -155,6 +159,39 @@ describe('canSend rule order', () => {
       deferUntil: '2026-11-29T00:00:00.000Z',
     });
     expect(c.reserveMarketingSpend).not.toHaveBeenCalled();
+  });
+
+  it("the owner's count cap lowers the ramp, never raises it", async () => {
+    // Ramp 600 (TIER_1K mature GREEN); owner cap 10.
+    let { c } = ctx({
+      counts: { sentToday: 10, newRecipientsToday: 0, dailyMarketingCap: 10 },
+    });
+    expect(await canSend(c, mkt)).toEqual({
+      allow: false,
+      reason: R.RAMP_CAP_REACHED,
+      deferUntil: '2026-11-29T00:00:00.000Z',
+    });
+    ({ c } = ctx({
+      counts: { sentToday: 9, newRecipientsToday: 0, dailyMarketingCap: 10 },
+    }));
+    expect((await canSend(c, mkt)).allow).toBe(true);
+    // A cap above the ramp does not lift it; 0 stops marketing.
+    ({ c } = ctx({
+      counts: {
+        sentToday: 600,
+        newRecipientsToday: 0,
+        dailyMarketingCap: 5000,
+      },
+    }));
+    expect((await canSend(c, mkt)).reason).toBe(R.RAMP_CAP_REACHED);
+    ({ c } = ctx({
+      counts: { sentToday: 0, newRecipientsToday: 0, dailyMarketingCap: 0 },
+    }));
+    expect((await canSend(c, mkt)).reason).toBe(R.RAMP_CAP_REACHED);
+    ({ c } = ctx({
+      counts: { sentToday: 0, newRecipientsToday: 0, dailyMarketingCap: 0 },
+    }));
+    expect((await canSend(c, util)).allow).toBe(true);
   });
 
   it('THROTTLED (YELLOW) halves the cap once, not twice', async () => {

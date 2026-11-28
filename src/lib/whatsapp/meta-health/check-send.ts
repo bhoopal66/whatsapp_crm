@@ -8,8 +8,17 @@
  *   meta_template_health), today's marketing count (188's
  *   meta_marketing_sent_today), and the marketing spend reservation (334's
  *   cap and ledger, scope `wa.marketing.daily`).
- * - Reads 188's `enforce` switch. Unreadable → treated as ON (fail closed,
- *   as the AI spend cap does when it cannot read its cap).
+ * - Meta-only signals (number state, template health, today's count and
+ *   so the ramp and the owner's count cap) apply only to a Meta Cloud API
+ *   config: 188 keeps them for Meta numbers alone, and
+ *   meta_marketing_sent_today raises for any other number. On Whapi /
+ *   OpenWA those loaders report no signal (never pause); opt-out,
+ *   recipient suppression and the marketing spend cap still apply. A
+ *   config that cannot be found counts as Meta (its signals then fail
+ *   closed).
+ * - Reads 188's settings: the `enforce` switch (unreadable → treated as
+ *   ON, fail closed, as the AI spend cap does when it cannot read its
+ *   cap) and the owner's `daily_marketing_cap`, a ceiling on the ramp.
  * - Records every decision (send_protection_decision_record) with the
  *   `enforced` flag.
  * - While enforce is OFF (watch mode) the send always goes ahead: the log
@@ -87,13 +96,44 @@ async function rpcRow(
 const PAUSED_STATUSES: ReadonlySet<string> = new Set(['PAUSED', 'DISABLED']);
 const DAY_MS = 86_400_000;
 
+type ProtectionSettings = {
+  enforce: boolean;
+  dailyMarketingCap: number | null;
+};
+
+/** No health signal: unknown everywhere, which never pauses (guard.ts). */
+const NO_NUMBER_SIGNAL = {
+  qualityRating: null,
+  messagingLimitTier: null,
+  accountStatus: null,
+} as const;
+
 function guardContext(
   client: SupabaseClient,
   input: CheckSendInput,
+  settings: ProtectionSettings,
   now: () => Date,
   hold: (r: SendReservation) => void
 ): GuardContext {
   const { accountId, configId } = input;
+  // Read once per call; every Meta-only loader asks it first.
+  let configRead: Promise<{ isMeta: boolean; createdAt: unknown }> | null =
+    null;
+  const config = () =>
+    (configRead ??= (async () => {
+      const { data, error } = await client
+        .from('whatsapp_config')
+        .select('provider, created_at')
+        .eq('id', configId)
+        .eq('account_id', accountId)
+        .maybeSingle();
+      if (error) throw new Error('config read failed');
+      const row = data as Row | null;
+      return {
+        isMeta: !row || row.provider === 'meta',
+        createdAt: row?.created_at,
+      };
+    })());
   return {
     now,
     async recipientSignals(contactId) {
@@ -109,38 +149,36 @@ function guardContext(
       };
     },
     async numberState(): Promise<GuardNumberState> {
-      const [state, config] = await Promise.all([
-        client
-          .from('meta_number_state')
-          .select(
-            'quality_rating, messaging_limit_tier, account_status, assessed_state, reasons'
-          )
-          .eq('config_id', configId)
-          .eq('account_id', accountId)
-          .maybeSingle(),
-        client
-          .from('whatsapp_config')
-          .select('created_at')
-          .eq('id', configId)
-          .eq('account_id', accountId)
-          .maybeSingle(),
-      ]);
-      if (state.error || config.error) throw new Error('number state failed');
+      const cfg = await config();
+      const created = Date.parse(String(cfg.createdAt ?? ''));
+      // Unknown age counts as a new number (the smaller ramp share).
+      const numberAgeDays = Number.isFinite(created)
+        ? Math.max(0, Math.floor((now().getTime() - created) / DAY_MS))
+        : 0;
+      if (!cfg.isMeta) return { ...NO_NUMBER_SIGNAL, numberAgeDays };
+      const state = await client
+        .from('meta_number_state')
+        .select(
+          'quality_rating, messaging_limit_tier, account_status, assessed_state, reasons'
+        )
+        .eq('config_id', configId)
+        .eq('account_id', accountId)
+        .maybeSingle();
+      if (state.error) throw new Error('number state failed');
       const s = numberStateFromRow(state.data);
-      const created = Date.parse(String(config.data?.created_at ?? ''));
       return {
         qualityRating: s.qualityRating,
         messagingLimitTier: s.messagingLimitTier,
         accountStatus: s.accountStatus,
-        // Unknown age counts as a new number (the smaller ramp share).
-        numberAgeDays: Number.isFinite(created)
-          ? Math.max(0, Math.floor((now().getTime() - created) / DAY_MS))
-          : 0,
+        numberAgeDays,
       };
     },
     async pausedTemplates() {
       const name = input.templateName;
       if (!name) return [];
+      // 188's template health is Meta's: a Whapi template of the same
+      // name is not the paused one.
+      if (!(await config()).isMeta) return [];
       const { data, error } = await client
         .from('meta_template_health')
         .select('status, paused_until')
@@ -159,6 +197,10 @@ function guardContext(
       return paused ? [name] : [];
     },
     async todayCounts() {
+      // No count off Meta (188 refuses the number), so no ramp either.
+      if (!(await config()).isMeta) {
+        return { sentToday: 0, newRecipientsToday: 0 };
+      }
       const { data, error } = await client.rpc('meta_marketing_sent_today', {
         p_config: configId,
         p_day: now().toISOString().slice(0, 10),
@@ -166,7 +208,11 @@ function guardContext(
       if (error) throw new Error('marketing count failed');
       const sent = Number(data) || 0;
       // 188 counts (message, recipient) pairs: at least the new recipients.
-      return { sentToday: sent, newRecipientsToday: sent };
+      return {
+        sentToday: sent,
+        newRecipientsToday: sent,
+        dailyMarketingCap: settings.dailyMarketingCap,
+      };
     },
     async reserveMarketingSpend(micros) {
       const caps = await rpcRow(client, 'send_protection_caps_get', {
@@ -204,17 +250,25 @@ function guardContext(
   };
 }
 
-async function readEnforce(
+async function readSettings(
   client: SupabaseClient,
   accountId: string
-): Promise<boolean> {
+): Promise<ProtectionSettings> {
   try {
     const row = await rpcRow(client, 'meta_protection_settings_get', {
       p_account: accountId,
     });
-    return row?.enforce === true;
+    const cap = row?.daily_marketing_cap;
+    return {
+      enforce: row?.enforce === true,
+      dailyMarketingCap:
+        cap === null || cap === undefined || !Number.isFinite(Number(cap))
+          ? null
+          : Number(cap),
+    };
   } catch {
-    return true;
+    // Unreadable: enforce counts as on; no owner cap is known.
+    return { enforce: true, dailyMarketingCap: null };
   }
 }
 
@@ -251,9 +305,10 @@ export async function checkSend(
   if (!Number.isSafeInteger(costMicros) || costMicros < 0) {
     throw new TypeError('costMicros must be a non-negative integer');
   }
-  const enforced = await readEnforce(client, input.accountId);
+  const settings = await readSettings(client, input.accountId);
+  const enforced = settings.enforce;
   let held: SendReservation | null = null;
-  const ctx = guardContext(client, input, now, (r) => {
+  const ctx = guardContext(client, input, settings, now, (r) => {
     held = r;
   });
   const req: SendRequest =

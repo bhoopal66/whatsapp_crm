@@ -11,7 +11,8 @@
  *   5 template paused → TEMPLATE_PAUSED
  *   6 marketing: recipient suppression → SUPPRESSED_*
  *   7 marketing: daily ramp exhausted → RAMP_CAP_REACHED, deferUntil next
- *     UTC midnight (THROTTLED counts as YELLOW once, never twice)
+ *     UTC midnight (THROTTLED counts as YELLOW once, never twice); the
+ *     owner's count cap, when set, lowers the ramp, never raises it
  *   8 marketing: reserve the cost on the daily spend scope → SPEND_CAP
  * Utility / authentication templates obey 1, 2, ALL_PAUSED and 5 only.
  * A loader error denies STATE_UNAVAILABLE, except a session reply whose
@@ -77,7 +78,15 @@ export type RecipientSignals = {
   failedDeliveries: number;
 };
 
-export type TodayCounts = { sentToday: number; newRecipientsToday: number };
+export type TodayCounts = {
+  sentToday: number;
+  newRecipientsToday: number;
+  /**
+   * The owner's own count cap (188's daily_marketing_cap): a ceiling on
+   * the ramp, the lower of the two wins. null/absent: no cap of our own.
+   */
+  dailyMarketingCap?: number | null;
+};
 
 export type SpendReservation = {
   allowed: boolean;
@@ -217,11 +226,15 @@ async function decide(
 
   // 7. Daily ramp. THROTTLED passes as YELLOW so its factor applies once.
   const counts = await load('todayCounts', () => ctx.todayCounts());
-  const cap = marketingCapToday({
-    tier: state.messagingLimitTier,
-    numberAgeDays: state.numberAgeDays,
-    qualityRating: mode === 'THROTTLED' ? 'YELLOW' : state.qualityRating,
-  });
+  const owner = counts.dailyMarketingCap;
+  const cap = Math.min(
+    marketingCapToday({
+      tier: state.messagingLimitTier,
+      numberAgeDays: state.numberAgeDays,
+      qualityRating: mode === 'THROTTLED' ? 'YELLOW' : state.qualityRating,
+    }),
+    typeof owner === 'number' && owner >= 0 ? owner : Infinity
+  );
   if (Math.max(counts.sentToday, counts.newRecipientsToday) >= cap) {
     return deny(R.RAMP_CAP_REACHED, nextUtcMidnight(ctx.now()));
   }
