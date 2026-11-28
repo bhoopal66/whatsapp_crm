@@ -22,6 +22,7 @@ import { runHrAutomsgDrain, runHrAutomsgNudges } from '@/lib/hr/automsg/drain'
 import { runTeamActivityAlertSweep } from '@/lib/team-activity/alert-sweep'
 import { runResponseEscalationSweep } from '@/lib/response-times/sweep'
 import { runJourneyTick } from '@/lib/journeys/host/tick'
+import { runTimeBasedAutomations } from '@/lib/automations/time-based-run'
 import { reconcileCreatingRooms } from '@/lib/deal-rooms/reconcile'
 import { runSubmissionGroupsCron } from '@/lib/submission-groups/cron'
 import { evaluateCaseSla, sweepCaseGroupEnds } from '@/lib/cases/cron'
@@ -393,6 +394,36 @@ function scheduleJourneyTick() {
   } catch (err) {
     console.error(
       '[automations-cron] could not schedule the journey tick:',
+      err instanceof Error ? err.message : err,
+    )
+  }
+}
+
+/**
+ * Time-based automations (migration 324): each due schedule occurrence
+ * runs once per chat at the automation's chat tag. It has no endpoint of
+ * its own; this runs it at most once a minute per process, inside
+ * after(). The claim rows make a repeated or overlapping pass harmless.
+ * A failure is only logged.
+ */
+const timeBasedDue = everyInterval(60_000)
+
+function scheduleTimeBasedAutomations() {
+  try {
+    if (!timeBasedDue()) return
+    after(async () => {
+      try {
+        await runTimeBasedAutomations()
+      } catch (err) {
+        console.error(
+          '[automations-cron] time-based automations failed:',
+          err instanceof Error ? err.message : err,
+        )
+      }
+    })
+  } catch (err) {
+    console.error(
+      '[automations-cron] could not schedule time-based automations:',
       err instanceof Error ? err.message : err,
     )
   }
@@ -1096,6 +1127,7 @@ export async function GET(request: Request) {
     scheduleRetentionSweep()
     scheduleCaseReview()
     scheduleJourneyTick()
+    scheduleTimeBasedAutomations()
     scheduleDealRoomReconcile()
     scheduleSubmissionGroups()
     scheduleCaseSla()

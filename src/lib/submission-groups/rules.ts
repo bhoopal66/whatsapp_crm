@@ -4,11 +4,11 @@
  * per-group access list and write from the CRM, every outgoing message
  * prefixed with the sender's name and label.
  *
- * Mirrors sg_rule_can_read / sg_can_send in migration 115 — change one,
+ * Mirrors sg_rule_can_read (115) / sg_can_send (333) — change one,
  * change both:
  *   ACTIVE: read ⇔ owner/admin of the account, or on the open access list
- *           with a staff label. Send ⇔ on the open list (admins too only
- *           when they are on it).
+ *           with a staff label. Send ⇔ the same: owner/admin of the
+ *           account (live, listed or not), or on the open list.
  *   ENDED : read ⇔ owner/admin, or a coordinator / team_lead who was on the
  *           list at the end with that label, while
  *           now < endedAt + windowDays × 24 h (default 60). Agents never.
@@ -36,10 +36,12 @@ export const SUPERVISOR_LABELS: readonly StaffLabel[] = [
   'team_lead',
 ];
 /** The text in the message prefix, "Name (Label): text". */
-export const ROLE_LABELS: Record<StaffLabel, string> = {
+export const ROLE_LABELS: Record<GroupRole, string> = {
   agent: 'Agent',
   coordinator: 'Coordinator',
   team_lead: 'Team Lead',
+  owner: 'Owner',
+  admin: 'Admin',
 };
 
 /** POST messages' code when it broke before its row was stored: nothing went out. */
@@ -182,13 +184,25 @@ export function canRead(
   return false;
 }
 
-/** On the open list with a staff label (an owner/admin sends only when listed). */
+/**
+ * Mirrors sg_can_send (333): ACTIVE only, and an owner/admin of the group's
+ * account (listed or not), or on the open list with a staff label. `role` is
+ * sg_resolve_role's answer: the account role for an owner/admin, else the
+ * label. ENDED: nobody sends.
+ */
 export function canSend(
-  label: StaffLabel | null,
+  role: GroupRole | null,
   status: GroupStatus,
   onList: boolean
 ): boolean {
-  return status === 'ACTIVE' && onList && label !== null && isStaffLabel(label);
+  if (status !== 'ACTIVE' || role === null) return false;
+  if (isArchiveRole(role)) return true;
+  return onList && isStaffLabel(role);
+}
+
+/** Owner/admin: reads every group of the account and sends to every ACTIVE one (333). */
+export function isArchiveRole(role: string): role is ArchiveRole {
+  return (ARCHIVE_ROLES as readonly string[]).includes(role);
 }
 
 const cleanPart = (v: string | null | undefined): string =>

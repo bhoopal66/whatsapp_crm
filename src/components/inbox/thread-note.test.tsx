@@ -15,6 +15,7 @@ const note = {
   mention_ids: [],
   created_at: '2026-11-24T08:00:00Z',
   edited_at: null,
+  deleted_at: null,
 };
 
 function render(isMine: boolean) {

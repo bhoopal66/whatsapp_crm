@@ -147,6 +147,16 @@ class FakeStore implements GroupStore {
       )?.label ?? null
     );
   }
+  // 333: owner/admin user ids, as sg_resolve_role answers them unlisted.
+  sendAdmins = new Map<string, 'owner' | 'admin'>();
+  async sendLabel(groupId: string, userId: string) {
+    return (
+      (await this.openAccessLabel(groupId, userId)) ??
+      (this.groups.get(groupId)?.status === 'ACTIVE'
+        ? (this.sendAdmins.get(userId) ?? null)
+        : null)
+    );
+  }
   async claimCreate(id: string, leaseMs: number, now?: Date) {
     const g = this.groups.get(id);
     const t = (now ?? new Date()).getTime();
@@ -183,11 +193,7 @@ class FakeStore implements GroupStore {
   }
   async beginSend(id: string, userId: string, body: string, prefixed: string) {
     const g = this.groups.get(id);
-    if (
-      !g ||
-      g.status !== 'ACTIVE' ||
-      !(await this.openAccessLabel(id, userId))
-    )
+    if (!g || g.status !== 'ACTIVE' || !(await this.sendLabel(id, userId)))
       return null;
     const mid = String(++this.seq);
     this.messages.push({
@@ -1250,7 +1256,22 @@ describe('SubmissionGroupService.sendFromCrm', () => {
     ]);
   });
 
-  it.each(['get', 'openAccessLabel', 'beginSend'] as const)(
+  it('333: an unlisted owner/admin sends, prefixed with their name and Owner / Admin', async () => {
+    const s = setup();
+    const g = await opened(s);
+    s.store.sendAdmins.set('eve', 'owner');
+    s.store.sendAdmins.set('adam', 'admin');
+    for (const u of ['eve', 'adam'])
+      await s.svc.sendFromCrm({ groupId: g.id, userId: u, text: 'hi' });
+    expect(
+      s.api.of('sendGroupText').map((c) => (c.args as string[])[2])
+    ).toEqual([
+      expect.stringMatching(/ \(Owner\): hi$/),
+      expect.stringMatching(/ \(Admin\): hi$/),
+    ]);
+  });
+
+  it.each(['get', 'sendLabel', 'beginSend'] as const)(
     '%s breaking before the row is stored: NotStored, nothing sent',
     async (method) => {
       const s = setup();

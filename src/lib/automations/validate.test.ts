@@ -361,16 +361,39 @@ describe("validateTriggerForActivation", () => {
     ).toEqual([]);
   });
 
-  it.each(["time_based", "conversation_assigned"])(
-    "refuses %s, which nothing dispatches",
-    (type) => {
-      expect(
-        validateTriggerForActivation(type, { schedule: "0 9 * * *" }),
-      ).toEqual([
-        { path: "trigger.type", message: "this trigger does not run yet" },
-      ]);
-    },
-  );
+  it("refuses conversation_assigned, which nothing dispatches", () => {
+    expect(
+      validateTriggerForActivation("conversation_assigned", {}),
+    ).toEqual([
+      { path: "trigger.type", message: "this trigger does not run yet" },
+    ]);
+  });
+
+  it("requires a readable schedule and a chat tag on time_based triggers", () => {
+    expect(
+      validateTriggerForActivation("time_based", {
+        schedule: "0 9 * * 1-5",
+        chat_tag_id: "tag-uuid",
+      }),
+    ).toEqual([]);
+    expect(validateTriggerForActivation("time_based", { schedule: "0 9 * * *" })).toEqual([
+      {
+        path: "trigger.chat_tag_id",
+        message: "chat tag is required: the automation runs for the chats at it",
+      },
+    ]);
+    expect(
+      validateTriggerForActivation("time_based", {
+        schedule: "every morning",
+        chat_tag_id: "tag-uuid",
+      }),
+    ).toEqual([
+      {
+        path: "trigger.schedule",
+        message: "the schedule is not a valid 5-field cron expression",
+      },
+    ]);
+  });
 
   it("requires a main tag on chat_tag_set triggers; the sub-tag is optional", () => {
     expect(validateTriggerForActivation("chat_tag_set", {})).toEqual([

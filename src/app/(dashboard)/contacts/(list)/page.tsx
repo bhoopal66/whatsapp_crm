@@ -113,6 +113,7 @@ import {
   type ContactWithConversations,
   isRangeNotSatisfiable,
   pageToRecoverTo,
+  narrowByLeadSource,
 } from '@/lib/contacts/list-query';
 import {
   isMissingSortRpc,
@@ -130,6 +131,7 @@ import {
 import { contactSearchArgs, isSearchCapped } from '@/lib/contacts/search-rpc';
 import { pruneSelection } from '@/lib/contacts/selection';
 import { SortHeader } from '@/components/contacts/sort-header';
+import { MobileSort } from '@/components/contacts/mobile-sort';
 import { PhoneCell } from '@/components/contacts/phone-cell';
 import { ColumnsMenu } from '@/components/contacts/columns-menu';
 import { SourceFilter } from '@/components/contacts/source-filter';
@@ -144,7 +146,7 @@ import {
   LEAD_SOURCE_COLUMN_AVAILABLE,
   leadSourceOf,
   parseLeadSources,
-  type LeadSource,
+  type LeadSourceFilterValue,
 } from '@/lib/contacts/lead-source';
 import {
   columnPrefsKey,
@@ -165,6 +167,7 @@ import {
 import {
   DEFAULT_CONTACT_SORT,
   isServerSortKey,
+  mobileSortKeys,
   nextContactSort,
   parseContactSort,
   sortToParams,
@@ -268,7 +271,7 @@ export function ContactsPageInner({
   const serverSortMissingRef = useRef(false);
   const [serverSortMissing, setServerSortMissing] = useState(false);
   // Lead-source filter (any of), also in the URL: ?source=ad,web_form.
-  const [sources, setSources] = useState<LeadSource[]>([]);
+  const [sources, setSources] = useState<LeadSourceFilterValue[]>([]);
   // Optional columns shown (per user, localStorage; try/catch: it can be
   // blocked or empty in a private window).
   const [columnPrefs, setColumnPrefs] =
@@ -541,9 +544,7 @@ export function ContactsPageInner({
           if (personalOnlyUserId)
             query = query.eq('user_id', personalOnlyUserId);
           if (searchFilter) query = query.or(searchFilter);
-          if (sourceList.length > 0)
-            query = query.in('lead_source', sourceList);
-          return query;
+          return narrowByLeadSource(query, sourceList);
         }
       );
       const chunkError = results.find((r) => r.error)?.error;
@@ -759,7 +760,12 @@ export function ContactsPageInner({
   }, []);
 
   function changeSort(key: ContactSortKey) {
-    const next = nextContactSort(sort, key);
+    applySort(nextContactSort(sort, key));
+  }
+
+  // The one place a new order is applied; the column headers and the
+  // phone sort control both end here.
+  function applySort(next: ContactSort) {
     setSort(next);
     setPage(0);
     try {
@@ -1044,7 +1050,7 @@ export function ContactsPageInner({
     }
   }
 
-  function changeSources(next: LeadSource[]) {
+  function changeSources(next: LeadSourceFilterValue[]) {
     setSources(next);
     setPage(0);
     try {
@@ -1274,6 +1280,20 @@ export function ContactsPageInner({
       {!rankedBySearch && serverSortMissing && isServerSortKey(sort.sort) && (
         <p className="text-muted-foreground text-xs">{serverSortHint}</p>
       )}
+
+      {/* The headers past Name are hidden below lg; this stands in. */}
+      <MobileSort
+        keys={mobileSortKeys({
+          owner: show('owner'),
+          assignee: show('assignedTo'),
+          activity: show('lastActivity'),
+          created: show('createdAt'),
+        })}
+        current={sort}
+        onChange={applySort}
+        disabled={rankedBySearch}
+        serverSortMissing={serverSortMissing}
+      />
 
       {/* Bulk action bar */}
       {selected.size > 0 && (

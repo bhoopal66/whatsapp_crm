@@ -96,8 +96,11 @@ Arabic):
 `{{1}}` is the first word of the contact's name when it is a name, else
 "there". `{{2}}` is the bank's name and the product in lower case
 ("Emirates NBD business account"); for the approved wording a product
-ending in "account" drops that word, so the sentence does not read
-"account account".
+ending in "account" drops that word, because the template itself
+already says "account" after `{{2}}`. When you submit
+`case_csat_approved` to Meta, give `{{2}}` the sample "Emirates NBD
+business" (not "... business account"), so the sample sentence does not
+repeat the word either.
 
 At most **5 requests go out per 5-minute pass**, and on a Whapi or
 OpenWA number the number's **daily limit of new chats** applies (Team
@@ -106,8 +109,12 @@ activity's limit for automatic senders): over it the request is **held**
 activity's other send checks are not applied. Opt-out and do-not-contact
 are checked again right before each send (`failed` / `opted_out`).
 
-The sent request is recorded in the chat as a bot message. CSAT requests do not count toward, and are not counted by, the
-daily cap shared by HR automated messages and desk digests.
+The sent request is recorded in the chat as a bot message. CSAT requests
+count toward, and are counted by, the **daily cap of 3 automated messages
+per person** (Dubai day) shared with HR automated messages and desk
+digests (327). A request over the cap is **held** (`daily_cap`) until
+the next Dubai day, then goes out within the send hours; one not sent
+within 3 days expires as before.
 
 ## Capturing the reply
 

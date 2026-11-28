@@ -14,6 +14,8 @@ import {
 } from '@/lib/contacts/sort';
 import {
   LEAD_SOURCE_COLUMN_AVAILABLE,
+  UNKNOWN_LEAD_SOURCE,
+  leadSourceFilter,
   parseLeadSources,
 } from '@/lib/contacts/lead-source';
 
@@ -267,11 +269,27 @@ export function buildContactListQuery<Q extends ContactListQuery<Q>>(
   }
   const search = contactSearchFilter(view.search);
   if (search) query = query.or(search);
-  const sources = parseLeadSources(view.sources ?? []);
-  if (LEAD_SOURCE_COLUMN_AVAILABLE && sources.length > 0) {
-    query = query.in('lead_source', sources);
-  }
+  if (LEAD_SOURCE_COLUMN_AVAILABLE)
+    query = narrowByLeadSource(query, view.sources);
   return query;
+}
+
+/**
+ * The lead-source filter on a contacts query: named sources as
+ * `lead_source in (...)`; with Unknown (no source recorded) an or-group
+ * that adds `lead_source is null` (`leadSourceFilter`), ANDed with the
+ * rest of the query. No values = no narrowing.
+ */
+export function narrowByLeadSource<
+  Q extends Pick<ContactListQuery<Q>, 'in' | 'or'>,
+>(query: Q, sources: readonly string[] | null | undefined): Q {
+  const values = parseLeadSources(sources ?? []);
+  if (values.length === 0) return query;
+  if (!values.includes(UNKNOWN_LEAD_SOURCE)) {
+    return query.in('lead_source', values);
+  }
+  const group = leadSourceFilter(values);
+  return group ? query.or(group) : query;
 }
 
 /** One page of ranked hits, plus how many hits there are in all. */

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useStageLabel } from '@/hooks/use-stage-label';
 import { BackLink } from '@/components/layout/back-link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useLocale, useTranslations } from 'next-intl';
@@ -309,10 +310,11 @@ export function BankPage({ bankWsId }: { bankWsId: string }) {
   );
 }
 
-function caseLabel(c: BankCase) {
+function caseLabel(c: BankCase, showStage: (stage: string) => string) {
   return (
-    [caseStatusView(c).text, c.product].filter(Boolean).join(' · ') ||
-    c.caseId.slice(0, 8)
+    [caseStatusView(c, showStage).text, c.product]
+      .filter(Boolean)
+      .join(' · ') || c.caseId.slice(0, 8)
   );
 }
 
@@ -326,6 +328,7 @@ function CaseSelect({
   onChange: (v: string | null) => void;
 }) {
   const t = useTranslations('Banks');
+  const showStage = useStageLabel();
   const shown = cases.find((c) => c.caseId === value);
   return (
     <div className="space-y-1">
@@ -338,14 +341,14 @@ function CaseSelect({
       >
         <SelectTrigger className="w-full">
           <SelectValue>
-            {shown ? caseLabel(shown) : t('threads.noLink')}
+            {shown ? caseLabel(shown, showStage) : t('threads.noLink')}
           </SelectValue>
         </SelectTrigger>
         <SelectContent>
           <SelectItem value={NONE}>{t('threads.noLink')}</SelectItem>
           {cases.map((c) => (
             <SelectItem key={c.caseId} value={c.caseId}>
-              {caseLabel(c)}
+              {caseLabel(c, showStage)}
             </SelectItem>
           ))}
         </SelectContent>
@@ -364,6 +367,7 @@ function ThreadsTab({
   onOpen: (threadId: string) => void;
 }) {
   const t = useTranslations('Banks');
+  const showStage = useStageLabel();
   const when = useWhen();
   const { nameOf } = useWorkspaceMembers();
   const name = (id: string | null) => (id && nameOf(id)) || t('unknownPerson');
@@ -416,7 +420,9 @@ function ThreadsTab({
                     {th.caseId && (
                       <span className={cn(chip, 'bg-muted text-foreground')}>
                         {c
-                          ? t('threads.caseChip', { stage: caseLabel(c) })
+                          ? t('threads.caseChip', {
+                              stage: caseLabel(c, showStage),
+                            })
                           : t('threads.caseHidden')}
                       </span>
                     )}
@@ -578,6 +584,7 @@ function ThreadView({
   onBack: () => void;
 }) {
   const t = useTranslations('Banks');
+  const showStage = useStageLabel();
   const when = useWhen();
   const { members, nameOf } = useWorkspaceMembers();
   const name = (id: string | null) => (id && nameOf(id)) || t('unknownPerson');
@@ -627,7 +634,7 @@ function ThreadView({
                 })
               : caseById.has(p.caseId)
                 ? t('threads.caseChip', {
-                    stage: caseLabel(caseById.get(p.caseId)!),
+                    stage: caseLabel(caseById.get(p.caseId)!, showStage),
                   })
                 : t('threads.caseHidden')}
           </span>

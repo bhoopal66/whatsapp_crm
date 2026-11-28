@@ -86,6 +86,11 @@ not_configured` (a shorter one is logged once, without its value).
 | `webhook_ip_limited`     | a webhook delivery from an IP over its limit (answered 200, dropped) |
 | `webhook_sender_limited` | a message from a sender over its rate (kept, no automations)         |
 | `webhook_duplicate`      | a redelivered webhook event (already processed)                      |
+| `webform_rate_limited`   | a public web form request is over a per-IP, per-form limit (429)     |
+| `webform_origin_refused` | a web form post or preflight from a site not on the form's list (403) |
+| `webform_too_large`      | a web form body over 8 KB (413)                                      |
+| `webform_honeypot`       | a web form post with the hidden field filled (answered as success)   |
+| `webform_not_found`      | a web form token that is malformed, unknown or switched off (404)    |
 
 The queue figures come from `hr_automsg_outbox_stats()` (migration 228,
 service role only): counts across every workspace, never a customer, an

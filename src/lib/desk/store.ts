@@ -15,7 +15,12 @@ import type {
   DeskCompanyContact,
   DeskContactRole,
 } from './companies';
-import { parseCoverRow, type BankCover } from './cover';
+import {
+  parseCoverRow,
+  parseLeaveRow,
+  type BankCover,
+  type LeaveRange,
+} from './cover';
 import {
   parseChecklist,
   parseCompanyOverview,
@@ -678,7 +683,8 @@ export class DeskStore {
     actor: string,
     account: string,
     state: TrayState = 'open',
-    limit: number = TRAY_PAGE
+    limit: number = TRAY_PAGE,
+    q: string | null = null
   ): Promise<TrayPage> {
     const [page] = await this.rpc('desk_tray_page', {
       p_actor: actor,
@@ -686,6 +692,8 @@ export class DeskStore {
       p_state: state,
       p_limit: limit,
       p_now: this.now(),
+      // 329: only a search names p_q, so an unsearched tray is 303's call.
+      ...(q === null ? {} : { p_q: q }),
     });
     if (!page || !Array.isArray(page.items))
       throw new DeskStoreError('desk_tray_page', null);
@@ -1007,6 +1015,38 @@ export class DeskStore {
       p_actor: actor,
       p_account: account,
       p_leave: leaveId,
+    });
+    return scalarTrue(rows[0]);
+  }
+
+  /** The caller's own current and future leave (328): any live staff. */
+  async myLeave(actor: string, account: string): Promise<LeaveRange[]> {
+    const rows = await this.rpc('desk_my_leave', {
+      p_actor: actor,
+      p_account: account,
+      p_now: this.now(),
+    });
+    return rows.flatMap((r) => {
+      const l = parseLeaveRow(r);
+      return l ? [l] : [];
+    });
+  }
+
+  /** New days for one leave row (328): one's own, or a team leader's. */
+  async changeLeave(
+    actor: string,
+    account: string,
+    leaveId: string,
+    input: { firstDay: string; lastDay: string; note: string | null }
+  ): Promise<boolean> {
+    const rows = await this.rpc('desk_leave_change', {
+      p_actor: actor,
+      p_account: account,
+      p_leave: leaveId,
+      p_first: input.firstDay,
+      p_last: input.lastDay,
+      p_note: input.note,
+      p_now: this.now(),
     });
     return scalarTrue(rows[0]);
   }

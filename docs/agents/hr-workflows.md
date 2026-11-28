@@ -89,7 +89,9 @@ contract.
   rcs row is held `channel_not_connected`, never sent, never re-routed
   (no fallback anywhere). `rcs.ts` / `rcs-webhook.ts` (POST
   `/api/rcs/webhook`) are the package's UNVERIFIED placeholders. Opt-out
-  and the daily cap span both channels; the claim re-checks consent for
+  and the daily cap span both channels (and, since 327, desk digests and
+  CSAT requests: `hr_automsg_sent_today` is `automated_sends_today` in
+  the HR time zone); the claim re-checks consent for
   the row's channel. 215 restates 203's on_history, enqueue_nudges,
   row_state, claim, mark, config, trigger_set, template_set, consent_get,
   consent_set, outbox_list and 212's delivery_record: apply in order,

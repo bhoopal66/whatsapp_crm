@@ -12,6 +12,7 @@ import { useLocale, useTranslations } from 'next-intl';
 
 import { AgendaPanel } from '@/components/dashboard/home/agenda-panel';
 import { AttentionStrip } from '@/components/dashboard/home/attention-strip';
+import { HomeGreeting } from '@/components/dashboard/home/home-greeting';
 import { CallsCard } from '@/components/dashboard/home/calls-card';
 import { CampaignsCard } from '@/components/dashboard/home/campaigns-card';
 import { CasesCard } from '@/components/dashboard/home/cases-card';
@@ -158,9 +159,9 @@ export default function DashboardPage() {
     <div className="mx-auto w-full max-w-screen-2xl space-y-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-foreground truncate text-2xl font-bold">
-            {name ? t('greeting.withName', { greeting, name }) : greeting}
-          </h1>
+          <HomeGreeting
+            text={name ? t('greeting.withName', { greeting, name }) : greeting}
+          />
           <p className="text-muted-foreground mt-1 text-sm">
             {account?.name
               ? t('subtitle', { date, workspace: account.name })

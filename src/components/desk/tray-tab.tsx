@@ -8,7 +8,8 @@
  * for needs its legal name typed, and filing needs a chosen case.
  */
 import Link from 'next/link';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Search } from 'lucide-react';
 import { useLocale, useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 
@@ -24,8 +25,10 @@ import { trayDismissBlock, trayFileBlock } from '@/lib/desk/form-hints';
 import { formatAge } from '@/lib/desk/intake-form';
 import {
   needsCompanyConfirm,
+  normaliseTraySearch,
   TRAY_PAGE,
   TRAY_PAGE_MAX,
+  TRAY_SEARCH_MAX,
   type DeskSettings,
   type TrayCandidate,
   type TrayItem,
@@ -45,32 +48,49 @@ export function TrayTab({ isLead }: { isLead: boolean }) {
   const [items, setItems] = useState<TrayItem[] | null>(null);
   const [total, setTotal] = useState(0);
   const [limit, setLimit] = useState(TRAY_PAGE);
+  // Search by the customer's name or number (329): what is typed, and the
+  // search asked for once typing pauses.
+  const [typed, setTyped] = useState('');
+  const [q, setQ] = useState<string | null>(null);
+  // Only the latest read lands: an older, slower search never overwrites it.
+  const readSeq = useRef(0);
   const [settings, setSettings] = useState<DeskSettings | null>(null);
   // A failed read keeps what is on screen (the picked case, the typed
   // confirmation) and offers Retry; it never reads as an empty tray.
   const [trayFailed, setTrayFailed] = useState(false);
   const [settingsFailed, setSettingsFailed] = useState(false);
 
-  const load = useCallback(
-    () =>
-      Promise.all([deskApi.tray('open', limit), deskApi.settings()]).then(
-        ([r, s]) => {
-          if (r.ok) {
-            setItems(r.data.items);
-            setTotal(r.data.total);
-            setTrayFailed(false);
-          } else {
-            toast.error(r.error);
-            setTrayFailed(true);
-          }
-          if (s.ok) {
-            setSettings(s.data.settings);
-            setSettingsFailed(false);
-          } else setSettingsFailed(true);
-        }
-      ),
-    [limit]
-  );
+  useEffect(() => {
+    const next = normaliseTraySearch(typed);
+    if (next === q) return;
+    const timer = setTimeout(() => {
+      setQ(next);
+      setLimit(TRAY_PAGE);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [typed, q]);
+
+  const load = useCallback(() => {
+    const seq = ++readSeq.current;
+    return Promise.all([
+      deskApi.tray('open', limit, q),
+      deskApi.settings(),
+    ]).then(([r, s]) => {
+      if (seq !== readSeq.current) return;
+      if (r.ok) {
+        setItems(r.data.items);
+        setTotal(r.data.total);
+        setTrayFailed(false);
+      } else {
+        toast.error(r.error);
+        setTrayFailed(true);
+      }
+      if (s.ok) {
+        setSettings(s.data.settings);
+        setSettingsFailed(false);
+      } else setSettingsFailed(true);
+    });
+  }, [limit, q]);
   useEffect(() => {
     void load();
   }, [load]);
@@ -135,12 +155,29 @@ export function TrayTab({ isLead }: { isLead: boolean }) {
           </div>
         </CardContent>
       </Card>
+      <div className="relative max-w-sm">
+        <Search
+          aria-hidden
+          className="text-muted-foreground pointer-events-none absolute start-2.5 top-1/2 size-4 -translate-y-1/2"
+        />
+        <Input
+          type="search"
+          value={typed}
+          onChange={(e) => setTyped(e.target.value)}
+          placeholder={t('tray.search')}
+          aria-label={t('tray.search')}
+          maxLength={TRAY_SEARCH_MAX}
+          className="ps-8"
+        />
+      </div>
       {trayFailed && <LoadFailed onRetry={load} />}
       {items === null && !trayFailed && (
         <p className="text-muted-foreground text-sm">{t('loading')}</p>
       )}
       {items !== null && items.length === 0 && !trayFailed && (
-        <p className="text-muted-foreground text-sm">{t('tray.empty')}</p>
+        <p className="text-muted-foreground text-sm">
+          {q === null ? t('tray.empty') : t('tray.noMatch')}
+        </p>
       )}
       {items?.map((item) => (
         <TrayCard key={item.trayId} item={item} onDone={load} />

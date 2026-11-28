@@ -13,6 +13,12 @@
 // SQL lock still holds, so the page only shows a control that 409s).
 // And the case's snoozed_until (185) as `snoozedUntil`, read the same
 // soft way: any error, the column missing before 185 included, is null.
+// And (333) `permissions.canSendToGroup`: whether the caller may send to
+// the case's group, as sg_can_send decides (ACTIVE, live staff, and on
+// the list, leading the agent, holding the bank, or an owner/admin of the
+// account). Separate from canWrite, which stays the case write rule. A
+// lead has no group (false); a failed check reads as false, and the send
+// path decides again under the group lock.
 //
 // PATCH: any of bank_code / product / amount (setDetails), priority,
 // due_at (ISO string, or null to clear). Applied in that order, each its
@@ -43,8 +49,26 @@ import {
 import { caseSlaStore, caseStore } from '@/lib/cases/server';
 import { CaseRefusedError, CaseStoreError } from '@/lib/cases/store';
 import { PRIORITIES, type CasePriority } from '@/lib/cases/types';
+import { submissionGroupStore } from '@/lib/submission-groups/server';
 
 type Params = { params: Promise<{ id: string }> };
+
+/** sg_can_send for the case's group (333); the caller's tenancy is checked. */
+async function canSendToCaseGroup(
+  groupId: string | null,
+  userId: string
+): Promise<boolean> {
+  if (!groupId) return false;
+  try {
+    return await submissionGroupStore().canSend(groupId, userId);
+  } catch (err) {
+    console.error(
+      '[cases] sg_can_send failed',
+      err instanceof Error ? err.message : err
+    );
+    return false;
+  }
+}
 
 export async function GET(_request: Request, { params }: Params) {
   try {
@@ -52,7 +76,7 @@ export async function GET(_request: Request, { params }: Params) {
     const { id } = await params;
     const store = caseStore();
     const { case: c, role } = await loadCaseForCaller(ctx, id, store);
-    const [stages, history, timers, reason, settings, snooze] =
+    const [stages, history, timers, reason, settings, snooze, canSendToGroup] =
       await Promise.all([
         store.stagesFor(c.accountId, c.bankCode),
         store.history(c.id),
@@ -75,6 +99,7 @@ export async function GET(_request: Request, { params }: Params) {
           .select('snoozed_until')
           .eq('id', c.id)
           .maybeSingle(),
+        canSendToCaseGroup(c.groupId, ctx.userId),
       ]);
     const snoozedRaw = snooze.error
       ? null
@@ -106,6 +131,7 @@ export async function GET(_request: Request, { params }: Params) {
         canWrite: canWriteCase(role),
         canReassign: canReassignCase(role),
         canSeeAudit: canSeeCaseAudit(role),
+        canSendToGroup,
       },
       stages,
       history,

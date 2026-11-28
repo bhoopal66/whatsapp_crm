@@ -389,6 +389,17 @@ describe('caseStatusView', () => {
     ).toBe('UNDER_REVIEW');
   });
 
+  it('shows the stage through showStage, but never the tracker status', () => {
+    const show = (stage: string) => `<${stage}>`;
+    expect(
+      caseStatusView({ stage: 'Submitted', submissionStatus: null }, show)
+    ).toEqual({ text: '<Submitted>', chipClass: stageChipClass('Submitted') });
+    expect(
+      caseStatusView({ stage: 'Submitted', submissionStatus: 'Approved' }, show)
+        .text
+    ).toBe('Approved');
+  });
+
   it("colours each of Compass's own status names by its meaning", () => {
     const colour = (submissionStatus: string, stage = 'Submitted') =>
       caseStatusView({ stage, submissionStatus }).chipClass;

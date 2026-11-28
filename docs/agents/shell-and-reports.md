@@ -18,7 +18,8 @@
 - **Chat tag report (255, `docs/chat-tag-report.md`).** Counts only, never
   text, names or phones. `chat_tag_report` (DEFINER) answers the owner or a
   live grantee in `report_access` (written only by the owner's
-  `report_access_set`); the menu reads `report_my_access()`
+  `report_access_set`; deactivation keeps the row, which opens nothing
+  until reactivation, 330; leaving the workspace deletes it, 256); the menu reads `report_my_access()`
   (`useReportNav`) and the pages keep `ReportAccessLayout`.
   `chat_tag_history` is written by a trigger that never fails the
   conversations write. Its functions are `chat_*`, so keep them revoked

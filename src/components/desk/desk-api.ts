@@ -14,7 +14,7 @@ import type {
   OverviewRow,
   QueueItem,
 } from '@/lib/desk/store';
-import type { BankCover } from '@/lib/desk/cover';
+import type { BankCover, LeaveRange } from '@/lib/desk/cover';
 import type {
   ApplicationChecklist,
   CompanyOverview,
@@ -204,6 +204,15 @@ export const deskApi = {
     call('/api/desk/leave', json('POST', body), () => true),
   removeLeave: (id: string) =>
     call(`/api/desk/leave/${id}`, { method: 'DELETE' }, () => true),
+  // One's own leave (migration 328)
+  myLeave: () =>
+    call('/api/desk/leave', undefined, (b) => b.leave as LeaveRange[]),
+  changeLeave: (id: string, body: { firstDay: string; lastDay: string }) =>
+    call(
+      `/api/desk/leave/${id}`,
+      json('PATCH', body),
+      (b) => b.changed === true
+    ),
   // Shared documents and reuse consent (migration 231)
   companyOverview: (customerId: string) =>
     call(
@@ -234,9 +243,14 @@ export const deskApi = {
       created: b.created === true,
     })),
   // WhatsApp routing and the tray (migration 230)
-  tray: (state: TrayState = 'open', limit: number = TRAY_PAGE) =>
+  tray: (
+    state: TrayState = 'open',
+    limit: number = TRAY_PAGE,
+    q: string | null = null
+  ) =>
     call(
-      `/api/desk/tray?state=${state}&limit=${limit}`,
+      `/api/desk/tray?state=${state}&limit=${limit}` +
+        (q === null ? '' : `&q=${encodeURIComponent(q)}`),
       undefined,
       (b) => b as unknown as TrayPage
     ),

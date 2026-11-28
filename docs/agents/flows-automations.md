@@ -10,10 +10,24 @@ Two independent engines, deliberately kept apart:
   partial unique index for one active run per contact). Abandoned runs are swept
   by `GET /api/flows/cron`.
 - `lib/automations/*` — stateless trigger → steps rules (keyword, chat
-  tag, inbound message, button reply, meaning). `time_based` and
-  `conversation_assigned` are never dispatched (`triggerRuns`): they are
+  tag, inbound message, button reply, meaning, schedule).
+  `conversation_assigned` is never dispatched (`triggerRuns`): it is
   disabled in the builder and refused on activation. Parked waits resume
   via `GET /api/automations/cron`.
+- `time_based` (324) is a schedule (5-field cron, Dubai time unless
+  `timezone`) plus an audience chat tag (`chat_tag_id`, optional
+  `chat_sub_tag_id`; required to activate, and one saved without it never
+  runs: `automationRuns`). The automations cron evaluates it once a
+  minute (`time-based-run.ts`, pure rules in `time-based.ts`): an
+  occurrence is due for an hour and never caught up after that, nor from
+  before the automation was created. Each due occurrence runs once per
+  chat at the tag, through `runAutomationForSubject`, so the same send
+  path and guards as every other trigger; opted-out and do-not-contact
+  customers are left out. The claim row (automation, chat, occurrence)
+  in `automation_time_runs` is written before the run and is the only
+  "once": a repeated or overlapping pass starts nobody twice, and a run
+  that dies after its claim is not retried. At most 100 chats per
+  automation per pass; the rest go in the next minute's pass.
   A wait suspends the whole run and parks it by the wait's step id
   (`wait_step_id`, 269), so saving must keep step ids: only
   `automation_save` writes the steps of an existing automation. Every read
@@ -41,8 +55,8 @@ Cron / GitHub Actions / any pinger):
   purge and chat file sweep (15 min), deal-room reconcile and
   submission groups (2 min), journey tick, PBX housekeeping, push
   delivery, calendar reminders, the assist pending sweep and the
-  personal-number history import and the HR automated-message drain
-  (1 min),
+  personal-number history import, the HR automated-message drain and
+  time-based automations (1 min),
   closing empty instant meetings, the HR rule sweep with draft
   expiry and reply nudges, and desk tray escalation (5 min),
   assist rate prune (1 h), memory expiry, knowledge-gap topics and

@@ -50,6 +50,47 @@ in linked WhatsApp groups" in `docs/case-desk.md`).
 
 **Migration required: 324** (`324_desk_group_intake.sql`, after 323).
 
+### Closed: the open items from the 22 Nov release
+
+- **Time-Based automations run.** Each one now names a chat tag and runs
+  once per scheduled time for every chat at that tag (Dubai time unless
+  set; a missed time is not made up; opted-out customers are skipped).
+  Ones saved before this have no tag and keep saying "never runs" until
+  one is picked. **Migration required: 324.**
+- **A reply that fails after it was sent restarts the customer's wait**,
+  from their first unanswered message. **Migration required: 326.**
+- **One daily limit for automated messages**: HR messages, desk
+  reminders and CSAT requests together send at most 3 a day to one
+  customer. A CSAT request over the limit waits for the next day.
+  **Migration required: 327** (apply in order, once).
+- **Agents add, change and cancel their own leave** on the desk (My
+  uploads tab). **Migration required: 328.**
+- **Desk tray search** by the customer's name or number. **Migration
+  required: 329** (apply in order, once).
+- **Reactivating someone gives back their report access**; removing them
+  from the workspace still ends it. **Migration required: 330** (apply in
+  order, once).
+- **Contacts: an "Unknown" lead-source filter.** **Migration required:
+  331** (apply in order, once).
+- **Owners and admins can send to any active submission group** (the
+  WhatsApp group page and the case page's conversation tab) without being
+  on its list; their messages read "Name (Owner):" / "Name (Admin):". The
+  case page shows a message box only to people who can actually send.
+  **Migration required: 333** (apply in order, once).
+- **A deleted in-chat note disappears for everyone at once**, and its
+  text is gone immediately. **Migration required: 332** (apply in order,
+  once). Reload open tabs after deploying: an old tab cannot delete notes.
+- **Arabic and Korean screens show built-in stage names translated**
+  ("New Lead", "Submitted"…); names your team typed or renamed, and
+  exports, stay as stored. The translations still need a native reader.
+- Live view: a team filter.
+- Web-form refusals are counted on the monitoring page.
+- Phones: a "Sort by" control in Contacts; the closed menu can no longer
+  be reached with the Tab key. The home greeting is no longer a second
+  page heading.
+- The CSAT approved-template guide no longer shows "account account".
+- The tag report doc says why there is no history before its log began.
+
 ### Added: the Assistant panel in the inbox
 
 An open chat gets an **Assistant** button among the chat header's actions

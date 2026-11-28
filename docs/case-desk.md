@@ -188,6 +188,9 @@ alone**:
   legal name typed. Another person's document is copied through the
   desk intake in the sorter's name. Dismissing needs a reason; the
   document stays in the customer's archive.
+- **Search the tray** by the customer's name (Arabic too) or phone
+  number: the box narrows the items you already see, never more; a
+  number matches its digits, so "+971 50" finds 97150…. (Migration 329.)
 - **Duty owner and escalation.** A team leader puts someone on duty;
   new tray items carry them. An item still open after the delay
   (default 120 minutes, 15–1440) becomes one follow-up task for the duty
@@ -237,7 +240,8 @@ application number and `{{2}}` for what is missing, for example:
 - **At send time** everything is checked again: the switch and the
   template, quiet hours (none before 08:00 or from 21:00 Dubai),
   opt-out, and the **daily cap of 3 automated messages per person**,
-  counted across HR automated messages and these reminders. A send whose
+  counted across HR automated messages, these reminders and CSAT rating
+  requests (327). A reminder over the cap is cancelled. A send whose
   result never came back is marked *unconfirmed* and never resent.
 - **STOP:** replying STOP (or *unsubscribe*, *توقف*, *إيقاف*) to a
   reminder received in the last 30 days opts the person out.
@@ -248,9 +252,8 @@ application number and `{{2}}` for what is missing, for example:
   do-not-contact are checked again right before each send (`opted_out`).
 - A reminder is a service message, not marketing (owner's decision,
   28 Nov 2026), so it needs no marketing opt-in; STOP, opt-out and quiet
-  hours still apply. HR automated messages do not yet count reminders
-  toward their own cap (a person could get 3 HR messages and a
-  reminder in one day).
+  hours still apply. Since 327 HR automated messages, reminders and CSAT
+  requests all count each other toward the one cap of 3 a day.
 
 ## Coordinators, leave and cover
 
@@ -262,7 +265,9 @@ and up):
   coordinator from the people who hold that bank (Settings → Members).
   Someone who stops holding the bank loses the role.
 - **Leave** is entered by the person or a team leader and up (first and
-  last day, Dubai dates). It changes no access.
+  last day, Dubai dates). It changes no access. Every staff member sees
+  their own under My uploads → **My leave** (328), where they add, change
+  and cancel it; an agent never sets anyone else's.
 - **Who covers today:** the primary, else the second, else the lead
   (the desk duty owner, else the workspace owner).
 - **Queue alerts** (instead of load caps): when a bank's sorting queue
@@ -457,8 +462,9 @@ Refusals answer `{ error, code }`.
 | `POST /tray/[id]/suggest` | who may sort the item | a suggested case, advice only |
 | `GET /cover` | team leaders and up | roles, today's cover, leave |
 | `PUT /cover/[bank]` | owners and admins | `{ role, userId }` |
-| `POST /leave`, `DELETE /leave/[id]` | the person, team leaders and up | `{ userId, firstDay, lastDay, note? }` |
-| `GET /tray[?state=]` | team leaders and up, a candidate bank's holders | the tray |
+| `POST /leave`, `PATCH /leave/[id]`, `DELETE /leave/[id]` | the person, team leaders and up | `{ userId, firstDay, lastDay, note? }` (PATCH: no `userId`) |
+| `GET /leave` | any staff | the caller's own current and future leave (328) |
+| `GET /tray[?state=&q=]` | team leaders and up, a candidate bank's holders | the tray |
 | `POST /tray/[id]/file` | the same | `{ caseId, confirmCompany? }` |
 | `POST /tray/[id]/dismiss` | the same | `{ reason }` |
 | `GET /settings`, `PUT /settings` | staff / owners and admins | routing switch, desk numbers, escalation delay |

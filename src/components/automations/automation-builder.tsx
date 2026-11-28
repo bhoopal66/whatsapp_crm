@@ -1357,10 +1357,23 @@ function TriggerCard({
               />
             )}
             {type === "time_based" && (
-              <ScheduleField
-                value={(config.schedule as string) ?? ""}
-                onChange={(schedule) => onConfigChange({ ...config, schedule })}
-              />
+              <>
+                <ScheduleField
+                  value={(config.schedule as string) ?? ""}
+                  onChange={(schedule) => onConfigChange({ ...config, schedule })}
+                />
+                <FieldBlock label={t("scheduleAudience")}>
+                  <ChatTagPairSelect
+                    mainId={(config.chat_tag_id as string) ?? ""}
+                    subId={(config.chat_sub_tag_id as string | null) ?? null}
+                    onChange={(mainId, subId) =>
+                      onConfigChange({ ...config, chat_tag_id: mainId, chat_sub_tag_id: subId })
+                    }
+                    t={t}
+                  />
+                </FieldBlock>
+                <p className="text-xs text-muted-foreground">{t("scheduleRunsHint")}</p>
+              </>
             )}
           </div>
         )}

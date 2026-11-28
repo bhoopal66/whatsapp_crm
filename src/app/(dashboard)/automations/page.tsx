@@ -49,7 +49,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { AUTOMATION_TEMPLATES, type TemplateSlug } from "@/lib/automations/templates"
-import { triggerMeta, triggerRuns, formatRelative } from "@/lib/automations/trigger-meta"
+import { triggerMeta, automationRuns, formatRelative } from "@/lib/automations/trigger-meta"
 import { meaningTriggerSummary } from "@/lib/insights/meaning-config"
 import { cn } from "@/lib/utils"
 
@@ -344,7 +344,7 @@ function AutomationCard({
             <span className="truncate text-sm font-semibold text-foreground">
               {automation.name}
             </span>
-            {automation.is_active && !triggerRuns(automation.trigger_type) && (
+            {automation.is_active && !automationRuns(automation) && (
               <span className="text-xs font-medium text-warning">
                 {t("neverRuns")}
               </span>

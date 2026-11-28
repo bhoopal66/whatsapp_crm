@@ -22,9 +22,11 @@ person may open.
 - **A grant counts only while the person is live staff** of the
   workspace. Deactivating them, removing them from the workspace or
   their becoming a bank guest ends their access at once. Since migration
-  256 deactivating or removing someone also deletes their grant rows in
-  that workspace, so reactivating or re-adding them never brings access
-  back: the owner grants it again.
+  330 deactivating someone keeps their grant (it opens nothing while
+  they are deactivated, and the owner's list leaves it alone), so
+  reactivating them restores exactly the access they had. Removing
+  someone from the workspace deletes their grant rows there (256), so
+  re-adding them never brings access back: the owner grants it again.
 - Grants belong to one workspace. The check uses the caller's active
   workspace, like every other screen.
 - The page, its API and the SQL all refuse anyone else
@@ -51,6 +53,10 @@ person may open.
   rows add up to the tag's arrivals. Moving only the sub-tag
   (Interested · ADCB to Interested · HSBC) is not an arrival. The daily
   chart counts main-tag arrivals per day.
+- **Nothing before the tag log began** (the day 255 was applied; the
+  screen says the date). Before 255 the app kept only each chat's current
+  tag, never when it was set, so earlier periods are empty and there is
+  no backfill: any date for them would be invented.
 - **Days are in the account's time zone** (the one saved in Team activity
   settings, else the viewer's, else UTC), so "Today" and the daily chart
   agree with the rest of the app. Periods: today, yesterday, the last 7,

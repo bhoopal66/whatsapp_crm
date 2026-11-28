@@ -88,6 +88,12 @@ describe('sortedPageRpcArgs', () => {
     ).toBeNull();
   });
 
+  it('sends Unknown (no source recorded) for migration 331', () => {
+    expect(
+      sortedPageRpcArgs({ ...base, sources: ['unknown'] }, 25).p_sources
+    ).toEqual(['unknown']);
+  });
+
   it("passes a team leader's own-contacts narrowing", () => {
     expect(
       sortedPageRpcArgs({ ...base, personalOnlyUserId: 'user-1' }, 25)

@@ -102,16 +102,17 @@ package 035a-c. `docs/case-desk.md` is the contract.
   cases with a required document missing/failed (233's cells), gap days
   since the last digest and since the company's last customer document.
   `desk_digest_claim` re-checks switch, template, day, quiet hours,
-  opt-out/DNC and the cap of 3 per person across `hr_automsg_outbox`
-  sent + digests; stale claims → 'unconfirmed', never resent.
+  opt-out/DNC and the cap of 3 per person (327: `automated_sends_today`,
+  HR + digests + CSAT, under HR's per-person lock, try-only); over it
+  cancels 'daily_cap'; stale claims → 'unconfirmed', never resent.
   `runDeskDigests` + `sendDeskDigest` (template on Meta, rendered text on
   Whapi/OpenWA, the chat's own number, never personal) from the
   automations cron every 5 min, 5 per pass (`DIGEST_CLAIM_LIMIT`); re-checks
   opt-out/DNC and 204's number limit (`number_daily_limit`) before the
   gateway. `processMessage` calls `noteDigestStop`
   for a STOP word (`isStopWord`); `desk_digest_stop` opts out only after
-  a digest in 30 days. HR's own claim does not count digests (one-way
-  cap). `verify-desk-reminder-digest.sql`.
+  a digest in 30 days. Every sender counts every other (327, `verify-shared-daily-cap.sql`).
+  `verify-desk-reminder-digest.sql`.
 - **Worklist and suggestion (235, design 035 D8/D12).** `desk_worklist`
   counts (tray the actor may sort, queues in `intake_scope_ok`, own
   untagged uploads, open `desk_tray:/desk_queue:/desk_doc:` tasks) for
