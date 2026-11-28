@@ -1290,6 +1290,7 @@
     "hideEmpty": "Hide empty columns",
     "clearSources": "Clear",
     "filterBySource": "Source",
+    "sourceUnknownFilter": "Unknown (no source recorded)",
     "source": {
       "ad": "Ad",
       "broadcast": "Broadcast",

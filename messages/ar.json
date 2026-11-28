@@ -1286,6 +1286,7 @@
     "hideEmpty": "إخفاء الأعمدة الفارغة",
     "clearSources": "مسح",
     "filterBySource": "المصدر",
+    "sourceUnknownFilter": "غير معروف (لم يُسجَّل مصدر)",
     "source": {
       "ad": "إعلان",
       "broadcast": "حملة",

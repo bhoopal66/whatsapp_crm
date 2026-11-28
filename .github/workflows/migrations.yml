@@ -1014,6 +1014,12 @@ jobs:
       - name: Verify contact search filters
         run: supabase db query --local --file supabase/ci/verify-contact-search-filters.sql
 
+      # Migration 331: the lead-source filter's 'unknown' (no source
+      # recorded) in the sorted page and the search, under the caller's
+      # RLS; a named source still works; another account's never show.
+      - name: Verify contacts unknown source
+        run: supabase db query --local --file supabase/ci/verify-contacts-unknown-source.sql
+
       # Migration 194: second brain store. The switch is off by default
       # and only an owner/admin turns it on; the upsert is idempotent and
       # refuses unredacted numbers, blank or long text, unknown kinds and

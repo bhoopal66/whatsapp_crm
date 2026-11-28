@@ -27,6 +27,18 @@ describe('toViewFilters', () => {
       personalOnly: false,
     });
   });
+  it('keeps the Unknown source filter in a saved view', () => {
+    const state = {
+      search: '',
+      chatTagIds: [],
+      sources: ['unknown', 'ad'],
+      sort: { sort: 'created' as const, dir: 'desc' as const },
+    };
+    expect(toViewFilters(state).sources).toEqual(['ad', 'unknown']);
+    expect(fromViewFilters({ sources: ['unknown'] }).sources).toEqual([
+      'unknown',
+    ]);
+  });
   it('leaves optional keys out when absent', () => {
     const v = toViewFilters({
       search: '',

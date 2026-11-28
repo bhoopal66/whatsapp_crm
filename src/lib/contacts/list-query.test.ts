@@ -13,6 +13,7 @@ import {
   contactSortLabel,
   inIdOrder,
   isRangeNotSatisfiable,
+  narrowByLeadSource,
   pageToRecoverTo,
   lastActivityByContact,
   toContactListRows,
@@ -178,6 +179,44 @@ describe('buildContactListQuery', () => {
       25
     );
     expect(calls.at(-1)).toEqual(['in', 'lead_source', ['ad', 'web_form']]);
+  });
+
+  it('finds no source recorded with Unknown, next to the search', () => {
+    const { q, calls } = recorder();
+    buildContactListQuery(
+      q,
+      {
+        personalOnlyUserId: 'user-1',
+        search: 'ali',
+        page: 0,
+        sources: ['unknown', 'ad'],
+      },
+      25
+    );
+    expect(calls.slice(-3)).toEqual([
+      ['eq', 'user_id', 'user-1'],
+      ['or', 'name.ilike.%ali%,phone.ilike.%ali%,email.ilike.%ali%'],
+      ['or', 'lead_source.in.(ad),lead_source.is.null'],
+    ]);
+    const only = recorder();
+    narrowByLeadSource(only.q, ['unknown']);
+    expect(only.calls).toEqual([['or', 'lead_source.is.null']]);
+    const none = recorder();
+    narrowByLeadSource(none.q, ['ghost']);
+    expect(none.calls).toEqual([]);
+  });
+
+  it('names Unknown in the cache question', () => {
+    const base: ContactListView = {
+      teamView: false,
+      personalOnlyUserId: null,
+      search: '',
+      chatTagIds: [],
+      page: 0,
+    };
+    expect(contactListQuestion({ ...base, sources: ['unknown'] })).not.toBe(
+      contactListQuestion(base)
+    );
   });
 
   it('keeps the owner narrowing and the search', () => {
