@@ -96,8 +96,11 @@ Arabic):
 `{{1}}` is the first word of the contact's name when it is a name, else
 "there". `{{2}}` is the bank's name and the product in lower case
 ("Emirates NBD business account"); for the approved wording a product
-ending in "account" drops that word, so the sentence does not read
-"account account".
+ending in "account" drops that word, because the template itself
+already says "account" after `{{2}}`. When you submit
+`case_csat_approved` to Meta, give `{{2}}` the sample "Emirates NBD
+business" (not "... business account"), so the sample sentence does not
+repeat the word either.
 
 At most **5 requests go out per 5-minute pass**, and on a Whapi or
 OpenWA number the number's **daily limit of new chats** applies (Team

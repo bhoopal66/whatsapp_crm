@@ -205,6 +205,25 @@ describe('the request text', () => {
       'Hi Asha, good news: your Emirates NBD business account has been approved! How would you rate our service? Reply with a number from 1 (not happy) to 5 (very happy).'
     );
   });
+  it('never repeats "account" in the approved message, in either language', () => {
+    for (const product of ['Business account', 'Current Account', 'Savings']) {
+      for (const language of ['en', 'ar']) {
+        const text = buildCsatText({
+          ...base,
+          product,
+          language,
+          trigger: 'approved',
+        });
+        expect(text).not.toMatch(/\baccount\s+account\b/i);
+      }
+    }
+    // The body is the one the owner submits to Meta: "account" once,
+    // right after {{2}}; the sample for {{2}} carries none.
+    expect(CSAT_TEMPLATE_BODIES.en.approved).toBe(
+      'Hi {{1}}, good news: your {{2}} account has been approved! How would you rate our service? Reply with a number from 1 (not happy) to 5 (very happy).'
+    );
+    expect(CSAT_TEMPLATE_BODIES.en.approved.match(/account/gi)).toHaveLength(1);
+  });
   it('pins the template bodies with {{1}} and {{2}}', () => {
     for (const lang of ['en', 'ar'] as const)
       for (const trig of CSAT_TRIGGERS) {
