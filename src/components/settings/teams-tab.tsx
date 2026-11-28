@@ -59,7 +59,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { TEAM_ROSTER_CACHE_PREFIX, invalidateCached } from '@/lib/client-cache';
+import {
+  LIVE_TEAMS_CACHE_PREFIX,
+  TEAM_ROSTER_CACHE_PREFIX,
+  invalidateCached,
+} from '@/lib/client-cache';
 import {
   TEAM_NAME_MAX,
   displayName,
@@ -89,6 +93,8 @@ import { TeamEditorSheet } from './teams/team-editor-sheet';
 function invalidateTeamCaches() {
   // The inbox caches each leader's roster.
   invalidateCached(TEAM_ROSTER_CACHE_PREFIX);
+  // The Live view's team filter.
+  invalidateCached(LIVE_TEAMS_CACHE_PREFIX);
   // Allocations through a team change who works which number.
   invalidateCached('whatsapp-allocations:');
   invalidateCached('whatsapp-channels:');
