@@ -375,7 +375,7 @@ describe('through the desk', () => {
     expect(recorded()[0].outcome).toBe('no_copy');
     expect(groupStore.claimReply).not.toHaveBeenCalled();
 
-    // the copy has arrived: 324 lets the item supersede the no_copy row
+    // the copy has arrived: 334 lets the item supersede the no_copy row
     db.row = { data: messageRow(), error: null };
     groupStore.record.mockClear();
     await processGroupFile(deps(), REF);

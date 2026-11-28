@@ -1,5 +1,5 @@
 /**
- * Files posted in a WhatsApp group linked to a bank (migration 324, the
+ * Files posted in a WhatsApp group linked to a bank (migration 334, the
  * "CC group wall" slice B), run through the case desk like a staff
  * member's own WhatsApp upload (route-inbound.ts), and optionally answered
  * in the group.
@@ -278,7 +278,7 @@ async function run(
   seen.rowId = row.id;
   if (!FILE_TYPES.includes(row.type) || !row.media) return;
 
-  // Read with no actor (324's desk_group_link_for_group): an unlinked
+  // Read with no actor (334's desk_group_link_for_group): an unlinked
   // group and a submission group's mirror answer no link.
   const link = await store.linkForGroup(accountId, g.id);
   if (!link || !link.intakeEnabled) return;

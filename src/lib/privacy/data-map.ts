@@ -940,7 +940,7 @@ export const NOT_PERSONAL: Readonly<Record<string, string>> =
             'deal_room_settings',
             'desk_bank_codes',
             'desk_digest_settings',
-            // 324: which WhatsApp group feeds which bank's desk intake.
+            // 334: which WhatsApp group feeds which bank's desk intake.
             'desk_group_links',
             'desk_number_seq',
             'desk_settings',
@@ -1125,7 +1125,7 @@ export const NOT_PERSONAL: Readonly<Record<string, string>> =
             // 288: a staff login's new address, good for two minutes and
             // gone within a day. No customer.
             'login_email_permits',
-            // 324: per group message an outcome and reason code, the
+            // 334: per group message an outcome and reason code, the
             // intake item it became (220's, personal, mapped there) and
             // the reply state: ids, codes and times, no text, no number,
             // no contact. Goes with its group message (ON DELETE CASCADE).

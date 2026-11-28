@@ -1,7 +1,7 @@
 // GET /api/desk/group-wall?ids=a,b,c — per linked group among the ids
 // that the caller can see, the bank, its coordinators, today's filings
 // and its sorting queue with the queue alert: `{ banks }`, in the order
-// asked. Unlinked or hidden groups are left out. Staff (migration 324).
+// asked. Unlinked or hidden groups are left out. Staff (migration 334).
 import { NextResponse } from 'next/server';
 
 import { assertSalesAccess, getCurrentAccount } from '@/lib/auth/account';

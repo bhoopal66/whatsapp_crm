@@ -1,5 +1,5 @@
 /**
- * Desk group intake (migration 324): WhatsApp groups linked to a bank,
+ * Desk group intake (migration 334): WhatsApp groups linked to a bank,
  * the one staff member behind a sender's number, what became of each file
  * posted in a linked group, the reply claim, and the group wall's per-group
  * bank figures. One SECURITY DEFINER RPC per call on the service role, with
@@ -13,7 +13,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { deskRpc, type ItemState } from './store';
 
-/** 324's `desk_group_intake_outcome_check`, in order. */
+/** 334's `desk_group_intake_outcome_check`, in order. */
 export const GROUP_INTAKE_OUTCOMES = [
   'filed',
   'new_case',
@@ -27,7 +27,7 @@ export const GROUP_INTAKE_OUTCOMES = [
 ] as const;
 export type GroupIntakeOutcome = (typeof GROUP_INTAKE_OUTCOMES)[number];
 
-/** 324's `desk_group_intake_reply_state_check`. */
+/** 334's `desk_group_intake_reply_state_check`. */
 export const GROUP_REPLY_STATES = ['off', 'pending', 'sent', 'failed'] as const;
 export type GroupReplyState = (typeof GROUP_REPLY_STATES)[number];
 

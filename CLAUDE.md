@@ -163,7 +163,7 @@ module gets its own file and one line here; don't grow this file.
 - **Contact search** (`lib/contacts/fuzzy-search.ts`, 193) → `contact-search.md`. `search_contact_candidates` repeats the contacts SELECT policies: change both.
 - **Second brain** (`lib/brain/*`, 194–196) → `second-brain.md`. Off by default; TS redaction must cover what the SQL guard refuses.
 - **Cases** (`lib/cases/*`, 122–130, 134, 179–187, 214, 225) → `cases.md`. Check the case's account against the ACTIVE account before any service-role call.
-- **Case desk** (`lib/desk/*`, 220, 229–235, 248) → `case-desk.md`. Check character lives in SQL and TS; `DESK_REFUSALS` read from the migration.
+- **Case desk** (`lib/desk/*`, 220, 229–235, 248, 334) → `case-desk.md`. Check character lives in SQL and TS; `DESK_REFUSALS` read from the migration.
 - **Health and metrics** (`lib/metrics/*`, 228) → `health-metrics.md`. `/api/healthz` never touches the database; edge-refusal counting never changes the answer.
 - **Privacy, PDPL** (`lib/privacy/*`, 221–224, 229) → `privacy.md`. Every table is in `data-map.ts`; a new AI call path calls `assertAiTransfer`.
 - **OpenDesk / Taamul sales** (`lib/taamul-sales/*`, 139) → `opendesk.md`. HMAC before parsing; synchronous on purpose; never log a payload.

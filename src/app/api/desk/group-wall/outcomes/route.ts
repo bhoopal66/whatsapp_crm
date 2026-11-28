@@ -1,7 +1,7 @@
 // POST /api/desk/group-wall/outcomes — `{ messageIds }` (at most 500):
 // what became of each of those group messages that intake recorded, in a
 // group the caller can see, with the intake item's current state:
-// `{ outcomes }`. Unrecorded messages are left out. Staff (migration 324).
+// `{ outcomes }`. Unrecorded messages are left out. Staff (migration 334).
 import { NextResponse } from 'next/server';
 
 import { assertSalesAccess, getCurrentAccount } from '@/lib/auth/account';

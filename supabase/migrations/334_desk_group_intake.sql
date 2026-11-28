@@ -1,5 +1,5 @@
 -- ============================================================
--- 324_desk_group_intake.sql — WhatsApp groups linked to a bank, and what
+-- 334_desk_group_intake.sql — WhatsApp groups linked to a bank, and what
 -- became of each file a staff member posts in one (the "CC group wall",
 -- slice A: the database only; the inbound hook and the screen follow).
 --
@@ -40,7 +40,7 @@
 -- PRIVILEGES: SECURITY DEFINER, search_path '', service_role only; the
 -- tables force RLS with no policy and no grants. Called with the
 -- caller's ACTIVE account (the routes pass ctx.accountId). Apply as a
--- superuser or BYPASSRLS role after 323. Re-runnable. Asserted by
+-- superuser or BYPASSRLS role after 333. Re-runnable. Asserted by
 -- supabase/ci/verify-desk-group-intake.sql. docs/case-desk.md is the
 -- contract.
 -- ============================================================
@@ -49,14 +49,14 @@ SET lock_timeout = '5s';
 
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = current_user AND (rolsuper OR rolbypassrls)) THEN
-    RAISE EXCEPTION '324 must be applied by a superuser or BYPASSRLS role (the desk functions read RLS-forced tables)';
+    RAISE EXCEPTION '334 must be applied by a superuser or BYPASSRLS role (the desk functions read RLS-forced tables)';
   END IF;
   IF to_regclass('public.desk_bank_roles') IS NULL THEN
-    RAISE EXCEPTION '324: apply 232_desk_bank_cover.sql first';
+    RAISE EXCEPTION '334: apply 232_desk_bank_cover.sql first';
   END IF;
   IF to_regclass('public.whatsapp_group_messages') IS NULL
      OR to_regprocedure('public.staff_removal_phone(uuid, uuid)') IS NULL THEN
-    RAISE EXCEPTION '324: apply 114_whatsapp_groups.sql and 299_submission_groups_not_groups.sql first';
+    RAISE EXCEPTION '334: apply 114_whatsapp_groups.sql and 299_submission_groups_not_groups.sql first';
   END IF;
 END $$;
 
@@ -82,7 +82,7 @@ ALTER TABLE public.desk_group_links ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.desk_group_links FORCE ROW LEVEL SECURITY;
 REVOKE ALL ON public.desk_group_links FROM PUBLIC, anon, authenticated, service_role;
 COMMENT ON TABLE public.desk_group_links IS
-  'A WhatsApp group linked to a bank for desk file intake. Written only through desk_group_link_set. Migration 324.';
+  'A WhatsApp group linked to a bank for desk file intake. Written only through desk_group_link_set. Migration 334.';
 
 CREATE TABLE IF NOT EXISTS public.desk_group_intake (
   account_id       uuid NOT NULL,
@@ -110,7 +110,7 @@ ALTER TABLE public.desk_group_intake ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.desk_group_intake FORCE ROW LEVEL SECURITY;
 REVOKE ALL ON public.desk_group_intake FROM PUBLIC, anon, authenticated, service_role;
 COMMENT ON TABLE public.desk_group_intake IS
-  'What became of a file posted in a linked group: outcome, reason code, intake item, reply state. No text, no number. Written only through desk_group_intake_record and the reply claim/settle. Migration 324.';
+  'What became of a file posted in a linked group: outcome, reason code, intake item, reply state. No text, no number. Written only through desk_group_intake_record and the reply claim/settle. Migration 334.';
 
 -- ---------- 2. Who sees a group ----------
 

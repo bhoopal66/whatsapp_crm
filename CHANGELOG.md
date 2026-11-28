@@ -24,8 +24,8 @@ waiting to be sorted and why, duplicate, could not file, not filed), a
 *wacrm replied* note where the desk answered, and a link to the bank's
 sorting queue. Team leaders and up link a group to a bank from its
 column and switch filing and replies on; replies stay off by default.
-See "Group wall" in `docs/whatsapp-groups.md`. Uses migration 324 (below);
-re-apply `324_desk_group_intake.sql` if you applied an earlier copy of
+See "Group wall" in `docs/whatsapp-groups.md`. Uses migration 334 (below);
+re-apply `334_desk_group_intake.sql` if you applied an earlier copy of
 it, for `desk_group_link_for_group`.
 
 ### Added: WhatsApp groups linked to a bank for the case desk (database)
@@ -48,7 +48,7 @@ inbound media mirroring on), and with replies on the desk answers each
 file once in the group, within its 20-a-minute limit (see "Files posted
 in linked WhatsApp groups" in `docs/case-desk.md`).
 
-**Migration required: 324** (`324_desk_group_intake.sql`, after 323).
+**Migration required: 334** (`334_desk_group_intake.sql`, after 333).
 
 ### Closed: the open items from the 22 Nov release
 

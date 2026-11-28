@@ -78,7 +78,7 @@ export const DESK_REFUSALS = [
   'COMPANY_RESTRICTED',
   // 316: a settings card opened before another admin's save
   'SETTINGS_CHANGED',
-  // 324: WhatsApp groups linked to a bank
+  // 334: WhatsApp groups linked to a bank
   'GROUP_NOT_FOUND',
   'BANK_NOT_FOUND',
   'NOT_LINKED',

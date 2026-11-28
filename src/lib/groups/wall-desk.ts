@@ -1,5 +1,5 @@
 /**
- * The group wall's case-desk layer (migration 324), pure: what a column's
+ * The group wall's case-desk layer (migration 334), pure: what a column's
  * header, file tags and footer show for a group linked to a bank. The
  * screen translates the keys; the reason words are the ones the desk's
  * group reply uses (`group-intake-text.ts`), pinned by the tests.
@@ -160,7 +160,7 @@ export function wallNoCoordinator(row: GroupWallRow): boolean {
  */
 export const WALL_QUEUE_HREF = deskTabHref('queue');
 
-/** Who may link a group to a bank: team leaders and up (324's rule). */
+/** Who may link a group to a bank: team leaders and up (334's rule). */
 export function canLinkWallGroup(role: AccountRole | null): boolean {
   if (role === null) return false;
   return canLeadTeam(role);

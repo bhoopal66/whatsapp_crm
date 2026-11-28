@@ -278,7 +278,7 @@ and up):
 
 ## WhatsApp groups linked to a bank
 
-Migration 324 (the CC group wall). The link is set from the group wall
+Migration 334 (the CC group wall). The link is set from the group wall
 screen (`docs/whatsapp-groups.md`, "Group wall").
 
 - **Link.** Owners, admins and team leaders who can see a WhatsApp group

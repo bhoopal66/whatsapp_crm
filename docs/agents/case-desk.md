@@ -122,7 +122,7 @@ package 035a-c. `docs/case-desk.md` is the contract.
   asked on demand by `suggestTrayCase`; `readJudgment` suggests only at
   p ≥ 0.6 and a 0.1 margin. Advice only: never files, never pre-selects.
   `verify-desk-worklist-suggest.sql`.
-- **Group intake (324, CC group wall slice A).** `desk_group_links`
+- **Group intake (334, CC group wall slice A).** `desk_group_links`
   (group -> bank, intake / replies, replies only with intake; owner,
   admin or team leader who sees the group; never a 299 mirror) and
   `desk_group_intake` (one row per group message, first write wins
@@ -139,7 +139,7 @@ package 035a-c. `docs/case-desk.md` is the contract.
   mirror); never impersonate a staff member to call an actor function. `GROUP_INTAKE_OUTCOMES` / `GROUP_REPLY_STATES` are pinned to
   the CHECKs by `group-intake-store.test.ts`. `desk_group_intake` is
   NOT_PERSONAL (ids and codes; the item is 220's).
-- **Group files (324 slice B, `lib/desk/group-intake.ts`).**
+- **Group files (334 slice B, `lib/desk/group-intake.ts`).**
   `runGroupMessage` chains `processGroupFile` after
   `copyGroupMessageMedia` (in `later`, inline for the drain); never
   throws, logs codes only. Inbound files only, of a link with intake on

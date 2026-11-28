@@ -1,5 +1,5 @@
 // GET /api/desk/group-links — the bank links of the WhatsApp groups the
-// caller can see: `{ links }`. Staff (migration 324).
+// caller can see: `{ links }`. Staff (migration 334).
 // PUT — `{ groupId, bankCode, intakeEnabled, repliesEnabled }`; a null
 // bankCode removes the link. Owners, admins and team leaders who can see
 // the group (the SQL decides); replies only with intake on. `{ ok: true }`.

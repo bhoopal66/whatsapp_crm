@@ -1,6 +1,6 @@
 /**
  * The words of the desk's reply to a file posted in a linked WhatsApp
- * group (migration 324). Pure, and plain English only: a reply goes into
+ * group (migration 334). Pure, and plain English only: a reply goes into
  * a WhatsApp group whose members read it as a message, not as a screen in
  * their own language. Codes stay in the database (`detail`); the group
  * reads a sentence.

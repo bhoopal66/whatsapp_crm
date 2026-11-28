@@ -13,7 +13,7 @@ import { DESK_REFUSAL_HTTP } from './http';
 import { DESK_REFUSALS, DeskRefusedError } from './store';
 
 const SQL = readFileSync(
-  join(process.cwd(), 'supabase/migrations/324_desk_group_intake.sql'),
+  join(process.cwd(), 'supabase/migrations/334_desk_group_intake.sql'),
   'utf8'
 );
 
@@ -25,7 +25,7 @@ function checkWords(name: string): string[] {
   return [...body.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
 }
 
-describe('migration 324', () => {
+describe('migration 334', () => {
   it('raises only hints the desk knows, each with a status', () => {
     const hints = new Set(
       [...SQL.matchAll(/desk_refuse\('[a-z_]+', '([A-Z_]+)'/g)].map((m) => m[1])

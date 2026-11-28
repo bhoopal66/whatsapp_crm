@@ -1,4 +1,4 @@
--- Behavioural regression suite for desk group intake (migration 324).
+-- Behavioural regression suite for desk group intake (migration 334).
 --
 -- A WhatsApp group is linked to a bank by an owner, admin or team leader
 -- who can see it, never a submission group's mirror, and replies only
@@ -405,8 +405,8 @@ BEGIN
   n := n + 1; failed := failed || pg_temp.dg_check('service_role called the internal desk_group_can_see', 'service_role',
     'SELECT desk_group_can_see(gen_random_uuid(), gen_random_uuid(), gen_random_uuid())::text', 'ERROR 42501%');
 
-  RAISE EXCEPTION USING ERRCODE = 'ZT324', MESSAGE = 'verify-desk-group-intake rollback';
-  EXCEPTION WHEN SQLSTATE 'ZT324' THEN
+  RAISE EXCEPTION USING ERRCODE = 'ZT334', MESSAGE = 'verify-desk-group-intake rollback';
+  EXCEPTION WHEN SQLSTATE 'ZT334' THEN
     NULL;
   END;
 
