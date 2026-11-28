@@ -880,3 +880,26 @@ back on their own.
 - When the softphone is off, not ready, or the browser is closed,
   calls ring the desk phone or the Linkus mobile app on the same
   extension.
+
+## 16. Service details after a call
+
+After an agent handles a customer's call, the customer can get one
+approved **utility** WhatsApp template naming the service the call was
+about (migration 336). It is **off by default**. An owner or admin sets
+it up in Settings → Phone system → *Service details after a call*:
+
+- **The template.** Only approved utility Meta templates are offered,
+  and it cannot be switched on without one. The template's two
+  placeholders are `{{1}}`, the customer's name, and `{{2}}`, the
+  service label.
+- **Minimum talk time** (default 20 seconds): shorter calls send
+  nothing. **Inbound** calls are on by default, **outbound** calls off.
+- **The service map** names the service by the call's queue, the
+  number dialled (DID) or the agent's extension; each label is up to
+  60 characters. A call with no match says "your enquiry".
+
+A customer who opted out (or is marked do-not-contact) gets nothing,
+and each message counts against the **shared daily cap of 3**
+automated messages per customer (HR, desk digests, CSAT requests and
+these), Dubai time. One message per call at most; the last outcomes
+are kept in `pbx_service_details_log`.

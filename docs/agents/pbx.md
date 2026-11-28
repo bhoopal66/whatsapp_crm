@@ -138,3 +138,9 @@ parser, signature check, WebSocket helpers, token manager and CDR helpers.
   (113), and naming a person outside that scope raises 42501. It uses
   098's attribution, so it agrees with `pbx_call_report`.
   `verify-pbx-call-stats.sql`.
+- **Service details after a call (336).** Settings → Phone system's card
+  (`service-details-card.tsx`, `/api/pbx/service-details`) is owner/admin
+  only, as 336's policies and setter RPCs are; it offers only approved
+  utility templates and cannot switch on without one. The send itself is
+  `lib/pbx/service-details.ts` (pure order of checks) and
+  `service-details-store.ts`; claim/settle are service-role only.
