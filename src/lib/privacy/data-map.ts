@@ -956,6 +956,9 @@ export const NOT_PERSONAL: Readonly<Record<string, string>> =
             'journey_settings',
             'message_templates',
             'meta_protection_settings',
+            'pbx_service_details_settings',
+            'pbx_service_map',
+            'send_protection_caps',
             'recycle_settings',
             'pbx_bank_numbers',
             'pbx_connections',
@@ -1097,6 +1100,15 @@ export const NOT_PERSONAL: Readonly<Record<string, string>> =
             'meta_template_health',
             'pbx_connection_secrets',
             'pbx_events_raw',
+            // 336: one outcome per call for call service details (ids,
+            // outcome and times only); goes with its call (ON DELETE
+            // CASCADE), the contact id is nulled when the contact goes.
+            'pbx_service_details_log',
+            // 334: the send guard's decisions (ids, template name, kind,
+            // reason; no number or text), append-only as Meta-appeal
+            // evidence, and the per-day spend totals per scope.
+            'send_protection_decisions',
+            'send_protection_spend',
             // 264: inbound WhatsApp events waiting to be processed. Not
             // erased by contact: a row exists before any contact does,
             // so purge by age is the rule. The payload is emptied when
