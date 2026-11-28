@@ -14,21 +14,18 @@ Utility, language `en`.
 - `case_csat_submitted`: "Hi {{1}}, your {{2}} application has been
   submitted to the bank. How happy are you with our service so far? Reply
   with a number from 1 (not happy) to 5 (very happy)."
-- `case_csat_approved`: "Hi {{1}}, good news: your {{2}} account has been
+- `case_csat_approved`: "Hi {{1}}, good news: your {{2}} has been
   approved! How would you rate our service? Reply with a number from 1
   (not happy) to 5 (very happy)."
 
 Arabic drafts (not coordinator-approved) are in
 `docs/plans/track-c-csat-template.md`.
 
-**Wording issue to confirm:** with `{{2}}` = "Emirates NBD business
-account", the approved text would read "your Emirates NBD business
-account account has been approved". The code drops a trailing "account"
-from the product for the approved moment only (`csatBankProduct`), so it
-reads "your Emirates NBD business account has been approved". If the
-coordinator prefers, change the approved template to "your {{2}} has
-been approved" and remove that rule (one line in `src/lib/cases/csat.ts`
-plus its test).
+**Wording (decided by the owner, 2026-11-28):** the approved template
+reads "your {{2}} has been approved", so "Emirates NBD business account"
+reads correctly and no "account" is dropped in code. This differs from
+the coordinator's first wording ("your {{2}} account has been approved");
+submit the template with the new text.
 
 ## Defaults chosen
 

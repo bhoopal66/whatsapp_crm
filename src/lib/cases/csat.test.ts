@@ -182,18 +182,18 @@ describe('the request text', () => {
     expect(csatFirstName('محمد علي', 'ar')).toBe('محمد');
     expect(csatFirstName('971501234567', 'ar')).toBe('عميلنا العزيز');
   });
-  it('names bank and product, without a doubled "account" on approval', () => {
-    expect(csatBankProduct('submitted', 'RAKBANK', 'Personal loan')).toBe(
+  it('names bank and product in lower case, the same for both moments', () => {
+    expect(csatBankProduct('RAKBANK', 'Personal loan')).toBe(
       'RAKBANK personal loan'
     );
-    expect(csatBankProduct('approved', 'RAKBANK', 'Current Account')).toBe(
-      'RAKBANK current'
+    expect(csatBankProduct('RAKBANK', 'Current Account')).toBe(
+      'RAKBANK current account'
     );
-    expect(csatBankProduct('approved', 'RAKBANK', null)).toBe('RAKBANK');
-    expect(csatBankProduct('submitted', null, null)).toBe('bank');
+    expect(csatBankProduct('RAKBANK', null)).toBe('RAKBANK');
+    expect(csatBankProduct(null, null)).toBe('bank');
     expect(
       csatParams({ ...base, trigger: 'approved', language: 'ar' })
-    ).toEqual(['Asha', 'Emirates NBD business']);
+    ).toEqual(['Asha', 'Emirates NBD business account']);
   });
   it('writes Arabic for an ar language code', () => {
     const ar = buildCsatText({

@@ -156,13 +156,13 @@ export const CSAT_TEMPLATE_BODIES: Readonly<
     submitted:
       'Hi {{1}}, your {{2}} application has been submitted to the bank. How happy are you with our service so far? Reply with a number from 1 (not happy) to 5 (very happy).',
     approved:
-      'Hi {{1}}, good news: your {{2}} account has been approved! How would you rate our service? Reply with a number from 1 (not happy) to 5 (very happy).',
+      'Hi {{1}}, good news: your {{2}} has been approved! How would you rate our service? Reply with a number from 1 (not happy) to 5 (very happy).',
   },
   ar: {
     submitted:
       'مرحبًا {{1}}، تم تقديم طلب {{2}} الخاص بك إلى البنك. ما مدى رضاك عن خدمتنا حتى الآن؟ أرسل رقمًا من 1 (غير راضٍ) إلى 5 (راضٍ جدًا).',
     approved:
-      'مرحبًا {{1}}، خبر سار: تمت الموافقة على حساب {{2}} الخاص بك! كيف تقيّم خدمتنا؟ أرسل رقمًا من 1 (غير راضٍ) إلى 5 (راضٍ جدًا).',
+      'مرحبًا {{1}}، خبر سار: تمت الموافقة على {{2}} الخاص بك! كيف تقيّم خدمتنا؟ أرسل رقمًا من 1 (غير راضٍ) إلى 5 (راضٍ جدًا).',
   },
 };
 
@@ -187,18 +187,15 @@ export function csatFirstName(
 
 /**
  * {{2}}: "Emirates NBD business account" (bank, then the product in
- * lower case). The approved wording already says "your {{2}} account", so
- * a product ending in "account" drops that word there ("your Emirates
- * NBD business account has been approved").
+ * lower case), the same for both moments: "your {{2}} application has
+ * been submitted", "your {{2}} has been approved".
  */
 export function csatBankProduct(
-  trigger: CsatTrigger,
   bankName: string | null | undefined,
   product: string | null | undefined
 ): string {
   const bank = bankName?.trim() || '';
-  let prod = (product ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
-  if (trigger === 'approved') prod = prod.replace(/\s*\baccount$/, '');
+  const prod = (product ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
   const out = [bank, prod].filter(Boolean).join(' ');
   return out || 'bank';
 }
@@ -213,7 +210,7 @@ export function csatParams(input: {
 }): [string, string] {
   return [
     csatFirstName(input.contactName, input.language),
-    csatBankProduct(input.trigger, input.bankName, input.product),
+    csatBankProduct(input.bankName, input.product),
   ];
 }
 

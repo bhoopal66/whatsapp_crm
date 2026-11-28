@@ -34,13 +34,13 @@ Arabic (draft, not yet approved by the coordinator):
 
 English:
 
-> Hi {{1}}, good news: your {{2}} account has been approved! How would you
+> Hi {{1}}, good news: your {{2}} has been approved! How would you
 > rate our service? Reply with a number from 1 (not happy) to 5 (very
 > happy).
 
 Arabic (draft, not yet approved by the coordinator):
 
-> مرحبًا {{1}}، خبر سار: تمت الموافقة على حساب {{2}} الخاص بك! كيف تقيّم
+> مرحبًا {{1}}، خبر سار: تمت الموافقة على {{2}} الخاص بك! كيف تقيّم
 > خدمتنا؟ أرسل رقمًا من 1 (غير راضٍ) إلى 5 (راضٍ جدًا).
 
 ## Submitting

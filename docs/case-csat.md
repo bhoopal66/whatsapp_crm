@@ -79,15 +79,15 @@ Arabic):
 - Submitted: "Hi {{1}}, your {{2}} application has been submitted to the
   bank. How happy are you with our service so far? Reply with a number
   from 1 (not happy) to 5 (very happy)."
-- Approved: "Hi {{1}}, good news: your {{2}} account has been approved!
+- Approved: "Hi {{1}}, good news: your {{2}} has been approved!
   How would you rate our service? Reply with a number from 1 (not happy)
   to 5 (very happy)."
 
 `{{1}}` is the first word of the contact's name when it is a name, else
 "there". `{{2}}` is the bank's name and the product in lower case
-("Emirates NBD business account"); for the approved wording a product
-ending in "account" drops that word, so the sentence does not read
-"account account".
+("Emirates NBD business account"), the same for both messages: "your
+{{2}} has been approved" reads "your Emirates NBD business account has
+been approved".
 
 The sent request is recorded in the chat as a bot message. Team
 activity's send checks are not applied (as with the desk reminder
