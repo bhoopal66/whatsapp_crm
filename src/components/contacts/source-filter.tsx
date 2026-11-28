@@ -1,6 +1,6 @@
 'use client';
 
-import { Filter } from 'lucide-react';
+import { CircleHelp, Filter } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -9,22 +9,29 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
-import { LEAD_SOURCES, type LeadSource } from '@/lib/contacts/lead-source';
+import {
+  LEAD_SOURCE_FILTER_VALUES,
+  UNKNOWN_LEAD_SOURCE,
+  type LeadSourceFilterValue,
+} from '@/lib/contacts/lead-source';
 import { LEAD_SOURCE_ICONS } from '@/components/contacts/lead-source-badge';
 
-/** Multi-select lead-source filter (a contact matches any of them). */
+/**
+ * Multi-select lead-source filter (a contact matches any of them), with
+ * Unknown last: no lead source recorded.
+ */
 export function SourceFilter({
   selected,
   onChange,
 }: {
-  selected: readonly LeadSource[];
-  onChange: (next: LeadSource[]) => void;
+  selected: readonly LeadSourceFilterValue[];
+  onChange: (next: LeadSourceFilterValue[]) => void;
 }) {
   const t = useTranslations('ContactsTable');
   const tSource = useTranslations('ContactsTable.source');
-  function toggle(source: LeadSource) {
+  function toggle(source: LeadSourceFilterValue) {
     onChange(
-      LEAD_SOURCES.filter((s) =>
+      LEAD_SOURCE_FILTER_VALUES.filter((s) =>
         s === source ? !selected.includes(s) : selected.includes(s)
       )
     );
@@ -63,8 +70,9 @@ export function SourceFilter({
           )}
         </div>
         <div className="py-1">
-          {LEAD_SOURCES.map((source) => {
-            const Icon = LEAD_SOURCE_ICONS[source];
+          {LEAD_SOURCE_FILTER_VALUES.map((source) => {
+            const unknown = source === UNKNOWN_LEAD_SOURCE;
+            const Icon = unknown ? CircleHelp : LEAD_SOURCE_ICONS[source];
             return (
               <label
                 key={source}
@@ -76,7 +84,7 @@ export function SourceFilter({
                 />
                 <Icon aria-hidden className="size-3.5 shrink-0" />
                 <span className="text-popover-foreground text-sm">
-                  {tSource(source)}
+                  {unknown ? t('sourceUnknownFilter') : tSource(source)}
                 </span>
               </label>
             );

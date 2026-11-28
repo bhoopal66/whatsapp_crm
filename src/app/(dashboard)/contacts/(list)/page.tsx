@@ -113,6 +113,7 @@ import {
   type ContactWithConversations,
   isRangeNotSatisfiable,
   pageToRecoverTo,
+  narrowByLeadSource,
 } from '@/lib/contacts/list-query';
 import {
   isMissingSortRpc,
@@ -145,7 +146,7 @@ import {
   LEAD_SOURCE_COLUMN_AVAILABLE,
   leadSourceOf,
   parseLeadSources,
-  type LeadSource,
+  type LeadSourceFilterValue,
 } from '@/lib/contacts/lead-source';
 import {
   columnPrefsKey,
@@ -270,7 +271,7 @@ export function ContactsPageInner({
   const serverSortMissingRef = useRef(false);
   const [serverSortMissing, setServerSortMissing] = useState(false);
   // Lead-source filter (any of), also in the URL: ?source=ad,web_form.
-  const [sources, setSources] = useState<LeadSource[]>([]);
+  const [sources, setSources] = useState<LeadSourceFilterValue[]>([]);
   // Optional columns shown (per user, localStorage; try/catch: it can be
   // blocked or empty in a private window).
   const [columnPrefs, setColumnPrefs] =
@@ -543,9 +544,7 @@ export function ContactsPageInner({
           if (personalOnlyUserId)
             query = query.eq('user_id', personalOnlyUserId);
           if (searchFilter) query = query.or(searchFilter);
-          if (sourceList.length > 0)
-            query = query.in('lead_source', sourceList);
-          return query;
+          return narrowByLeadSource(query, sourceList);
         }
       );
       const chunkError = results.find((r) => r.error)?.error;
@@ -1051,7 +1050,7 @@ export function ContactsPageInner({
     }
   }
 
-  function changeSources(next: LeadSource[]) {
+  function changeSources(next: LeadSourceFilterValue[]) {
     setSources(next);
     setPage(0);
     try {

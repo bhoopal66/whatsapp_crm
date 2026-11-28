@@ -1290,6 +1290,7 @@
     "hideEmpty": "Hide empty columns",
     "clearSources": "Clear",
     "filterBySource": "Source",
+    "sourceUnknownFilter": "알 수 없음 (기록된 출처 없음)",
     "source": {
       "ad": "Ad",
       "broadcast": "Broadcast",

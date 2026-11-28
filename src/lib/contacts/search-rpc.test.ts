@@ -38,6 +38,12 @@ describe('contactSearchArgs', () => {
     expect(args.p_chat_tags).toEqual([T1, T2]);
   });
 
+  it('sends Unknown (no source recorded) for migration 331', () => {
+    expect(
+      contactSearchArgs({ ...none, sources: ['unknown', 'ad'] }).p_sources
+    ).toEqual(['ad', 'unknown']);
+  });
+
   it('asks for what migration 298 caps at, by the names it declares', () => {
     const sql = readFileSync(
       'supabase/migrations/298_contact_search_filters.sql',
