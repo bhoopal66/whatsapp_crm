@@ -264,9 +264,12 @@ export const SMS_NAME_ALLOWANCE = 20;
 
 /**
  * The SMS counter: the body as the engine would send it, with {slot} as
- * the engine fills it today (SLOT_FALLBACK) and {name} as a name of
- * SMS_NAME_ALLOWANCE plain letters. Measuring the raw body would count
- * every template as Unicode, because '{' is outside the GSM alphabet.
+ * SLOT_FALLBACK and {name} as a name of SMS_NAME_ALLOWANCE plain letters.
+ * The engine fills {slot} with the interview time for an interview
+ * reminder (`slot.ts`), so the count is an estimate there: the written
+ * time can be longer than the fallback. Measuring the raw body would
+ * count every template as Unicode, because '{' is outside the GSM
+ * alphabet.
  */
 export function smsBodyMeasure(body: string): SmsMeasure {
   return measureSms(

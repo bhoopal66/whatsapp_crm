@@ -68,9 +68,13 @@ export function bannerView(
   return { state: 'on', action: admin ? 'turnOff' : null, confirm: false };
 }
 
-/** A trigger that cannot be switched on yet, and why (label key). */
+/**
+ * A trigger that cannot be switched on yet, and why (label key). None
+ * today: the interview reminder became usable once 339 stored interview
+ * times (set in the recruiter chat's HR panel).
+ */
 export const UNAVAILABLE_TRIGGERS: Readonly<Partial<Record<Trigger, string>>> =
-  { interview_reminder: 'needsInterviewTimes' };
+  {};
 
 export interface TriggerRowView {
   trigger: Trigger;

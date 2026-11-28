@@ -189,14 +189,16 @@ describe('triggerRows', () => {
     ]);
   });
 
-  it('never lets the interview reminder be switched, for any role', () => {
-    for (const role of ['admin', 'lead', null] as const) {
-      const row = triggerRows(config, role).find(
+  it('lets the interview reminder be switched like any other trigger', () => {
+    const reminder = (role: 'admin' | 'lead' | null) =>
+      triggerRows(config, role).find(
         (r) => r.trigger === 'interview_reminder'
       )!;
-      expect(row.switchDisabled).toBe(true);
-      expect(row.note).toBe('needsInterviewTimes');
-    }
+    expect(reminder('admin').switchDisabled).toBe(false);
+    expect(reminder('lead').switchDisabled).toBe(false);
+    expect(reminder(null).switchDisabled).toBe(true);
+    for (const role of ['admin', 'lead', null] as const)
+      expect(reminder(role).note).toBeNull();
   });
 
   it('lets admins and leads switch, only admins pick a template', () => {

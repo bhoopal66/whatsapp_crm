@@ -13217,7 +13217,6 @@
           "arMissing": "Arabic: no approved template",
           "draftOnly": "Draft template - not allowed outside the 24h window"
         },
-        "needsInterviewTimes": "Needs interview times (not available yet)",
         "saved": "Trigger updated.",
         "channel": "Channel",
         "channelFor": "Channel for {trigger}"

@@ -178,7 +178,7 @@ candidates. It is for admins (everything) and Recruitment leads
 | CV received | a chat is tracked as a candidate | CV acknowledgement |
 | Moved to AI / HR / manager interview | the candidate enters that stage | the interview invite |
 | Reply nudge | the candidate has not answered for the No activity rule's hours (72) | "We are still waiting for your reply" |
-| Interview reminder | not available yet (wacrm stores no interview times) | — |
+| Interview reminder | within the 24 hours before the interview time set in the recruiter chat's HR panel (migration 339) | the interview reminder, naming the time in Dubai time |
 
 - **Off until switched on.** The master switch starts ON (blocking
   every message) and every trigger OFF. While a trigger is off its
@@ -440,10 +440,11 @@ exist; there is no worklist API, table or migration (package release
   rather than a server key; one opt-out (`contacts.opted_out_at`) rather
   than a separate list; automated messages really send (the package's
   sender was a stub) and events are queued in SQL; "CV received" fires
-  when a chat is tracked as a candidate. Not ported: release 028 (a
-  Voicenter call event triggering a WhatsApp message), the interview
-  reminder's event source, and the Arabic wording review the package
-  flags as pending.
+  when a chat is tracked as a candidate; the interview reminder's time
+  is set in the recruiter chat's HR panel and the reminder is sent
+  within the 24 hours before it (339). Not ported: release 028 (a
+  Voicenter call event triggering a WhatsApp message) and the Arabic
+  wording review the package flags as pending.
 - Release 030 audit: each topic has its own dot colour after the
   package's palette (`HR_TOPIC_DOT` in `lib/hr/topic-ui.ts`; red stays
   for Urgent, so Complaint is pink and Termination brown-tan), a
