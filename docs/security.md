@@ -60,7 +60,34 @@ refresh; @supabase/ssr's default is 400 days, and it ignores
 `cookieOptions.maxAge`, so every `setAll` caps it:
 `sessionCookiesToWrite`). It is not HttpOnly: the
 browser's Supabase client reads it, which is why a strict CSP matters
-(the CSP is still Report-Only; see `src/lib/csp.ts`).
+(see **Content-Security-Policy** below).
+
+## Content-Security-Policy
+
+Enforced. The middleware builds the policy for every request
+(`src/lib/csp.ts`, `src/middleware.ts`) with a fresh 128-bit nonce:
+`script-src 'self' 'nonce-…' 'strict-dynamic' 'wasm-unsafe-eval'`, so
+only scripts Next.js rendered with that nonce run, plus what they load
+(lazy chunks, the Linkus SDK, MediaPipe). No `'unsafe-inline'` or
+`'unsafe-eval'` for scripts (dev adds `'unsafe-eval'`, which React's dev
+build needs), `object-src 'none'`, `frame-ancestors 'none'` (the web form
+`/f/` uses its own allow-list), `base-uri` and `form-action 'self'`.
+Styles still allow inline (`style` attributes everywhere); that does not
+let a script run.
+
+- Every page is rendered per request (the root layout reads the nonce),
+  so a nonce is never cached into a static page. Keep it that way: a
+  statically prerendered page would carry no nonce and its scripts
+  would be blocked.
+- An inline `<Script>` needs `nonce={nonce}` (read `x-nonce` from
+  `headers()`, as `app/layout.tsx` does). Inline event handlers
+  (`onclick="…"` in HTML strings) never run.
+- `CSP_MODE=report-only` (runtime, restart only) sends the same policy as
+  `Content-Security-Policy-Report-Only`: nothing is blocked, and
+  violations are logged by `/api/csp-report` as `[csp] … would block …`.
+  Use it only to diagnose; switch back once fixed.
+- A new external origin (script loaded other than by our own code,
+  image, `connect-src`) must be added in `src/lib/csp.ts` first.
 
 ## Other headers
 

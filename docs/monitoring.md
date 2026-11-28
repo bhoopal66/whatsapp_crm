@@ -37,9 +37,10 @@ Two lines in the server log, nothing stored:
   per ten minutes with how often it was held back; network losses and
   browser extensions are left out.
 - `[csp] <rule> would block <origin> on <path>`: what the
-  Content-Security-Policy (still report-only) would have blocked, once per
-  six hours each. When nothing of ours has shown up for a couple of weeks,
-  the header in `next.config.ts` can be enforced.
+  Content-Security-Policy blocked (or, under `CSP_MODE=report-only`, would
+  have), once per six hours each. One naming our own origin or `inline` on
+  a screen of ours is a bug to fix (`docs/security.md`,
+  Content-Security-Policy); browser extensions show up here too.
 
 ## Metrics
 

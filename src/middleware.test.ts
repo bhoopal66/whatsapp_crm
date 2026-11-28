@@ -282,3 +282,53 @@ describe('middleware — cross-site writes', () => {
     }
   });
 });
+
+describe('middleware — the Content-Security-Policy', () => {
+  const nonceOf = (csp: string | null) =>
+    csp?.match(/'nonce-([A-Za-z0-9+/=]+)'/)?.[1];
+
+  it('enforces a policy whose nonce the page render receives', async () => {
+    mockUser = { id: 'user-1' };
+    const res = await middleware(new NextRequest('https://app.test/inbox'));
+    const csp = res.headers.get('content-security-policy');
+    const nonce = nonceOf(csp);
+    expect(nonce).toMatch(/^[A-Za-z0-9+/]{22}==$/);
+    expect(csp).toContain("'strict-dynamic'");
+    expect(csp).not.toMatch(/script-src[^;]*'unsafe-inline'/);
+    expect(res.headers.get('content-security-policy-report-only')).toBeNull();
+    // Forwarded to the render: Next.js reads the request's CSP header, the
+    // root layout reads x-nonce.
+    expect(res.headers.get('x-middleware-request-x-nonce')).toBe(nonce);
+    expect(
+      res.headers.get('x-middleware-request-content-security-policy')
+    ).toBe(csp);
+  });
+
+  it('uses a new nonce per request and overwrites a client-sent one', async () => {
+    const req = new NextRequest('https://app.test/login', {
+      headers: {
+        'x-nonce': 'attacker',
+        'content-security-policy': "script-src 'nonce-attackerattacker1234'",
+      },
+    });
+    const a = await middleware(req);
+    const b = await middleware(new NextRequest('https://app.test/login'));
+    const na = nonceOf(a.headers.get('content-security-policy'));
+    expect(na).toBeTruthy();
+    expect(na).not.toBe(nonceOf(b.headers.get('content-security-policy')));
+    expect(a.headers.get('x-middleware-request-x-nonce')).toBe(na);
+    expect(
+      a.headers.get('x-middleware-request-content-security-policy')
+    ).not.toContain('attacker');
+  });
+
+  it('keeps the policy (and its nonce) when the session cookie rotates', async () => {
+    mockUser = { id: 'user-1' };
+    refreshedCookies = [ROTATED];
+    const res = await middleware(new NextRequest('https://app.test/inbox'));
+    const nonce = nonceOf(res.headers.get('content-security-policy'));
+    expect(nonce).toBeTruthy();
+    expect(res.headers.get('x-middleware-request-x-nonce')).toBe(nonce);
+    expect(res.cookies.get(ROTATED.name)?.value).toBe(ROTATED.value);
+  });
+});

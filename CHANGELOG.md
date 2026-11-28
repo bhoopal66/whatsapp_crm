@@ -12,6 +12,17 @@ and polish.
 
 ## [Unreleased]
 
+### Security: the browser now blocks scripts the app did not send
+
+The Content-Security-Policy is enforced instead of only reported. Every page
+gets a new one-time code (a nonce), and a script runs only if it carries
+that code or was loaded by one that does. A script slipped into a message,
+a contact name or a link therefore does not run, even if a bug lets it
+reach the page. `eval` is no longer allowed in production, and neither are
+plugins (`<object>`). If a deploy finds something legitimate blocked, set
+`CSP_MODE=report-only` and restart (no rebuild): the browser then reports
+to `/api/csp-report` without blocking, as before. No migration.
+
 ### Fixed: going back to an earlier case document had no effect
 
 Attaching a good document again after a bad upload, or one whose expiry date
